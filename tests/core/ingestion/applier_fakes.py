@@ -87,17 +87,17 @@ class FakeLiveStore:
         self.requested.append(("merge_preview", primitive, loser_id, survivor_id))
         return dict(self._previews.get((loser_id, survivor_id), {}))
 
-    async def live_holders(
+    async def slot_holders(
         self, table: str, columns: Sequence[str], tuples: Sequence[tuple]
-    ) -> dict[tuple, list[str]]:
-        """Unarchived rows holding each tuple of ``columns`` — NULLs equal, like the index."""
-        self.requested.append(("live_holders", table, tuple(columns), tuple(tuples)))
+    ) -> dict[tuple, list[dict]]:
+        """Rows holding each tuple of ``columns`` — NULLs equal, like the index."""
+        self.requested.append(("slot_holders", table, tuple(columns), tuple(tuples)))
         wanted = set(tuples)
-        out: dict[tuple, list[str]] = {}
+        out: dict[tuple, list[dict]] = {}
         for r in self.tables.get(table, []):
             key = tuple(r.get(c) for c in columns)
-            if r.get("archived_at") is None and key in wanted:
-                out.setdefault(key, []).append(r["id"])
+            if key in wanted:
+                out.setdefault(key, []).append({"id": r["id"], "archived_at": r.get("archived_at")})
         return out
 
     async def value_matches(

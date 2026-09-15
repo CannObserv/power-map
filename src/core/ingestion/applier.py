@@ -35,6 +35,7 @@ __all__ = [
     "Diff",
     "Entry",
     "LiveStore",
+    "Minted",
     "Scope",
     "actionable_merges",
     "diff_desired",
@@ -118,14 +119,15 @@ class LiveStore(Protocol):
         self, table: str, column: str, values: Sequence, parent: str
     ) -> dict[object, list[str]]: ...
 
-    async def live_holders(
+    async def slot_holders(
         self, table: str, columns: Sequence[str], tuples: Sequence[tuple]
-    ) -> dict[tuple, list[str]]:
-        """Unarchived rows of ``table`` holding each tuple of ``columns`` (#527).
+    ) -> dict[tuple, list[dict]]:
+        """Rows of ``table`` holding each tuple of ``columns``, as ``{id, archived_at}`` (#527).
 
         NULLs are equal — the partial identity indexes are ``NULLS NOT DISTINCT``
-        — so the answer is exactly the set of rows an insert or unarchive of that
-        tuple would collide with.
+        — so the unarchived holders are exactly the rows an insert or unarchive of
+        that tuple would collide with, and the archived ones are the hint that PM
+        once held it.
         """
         ...
 
@@ -141,6 +143,21 @@ class CrosswalkRow:
     # #527: set while the row this anchor names is archived by the applier —
     # the provenance that lets it restore its own archives and no one else's
     retracted_at: object = None
+
+
+@dataclass(frozen=True)
+class Minted:
+    """A reference to the row this run mints for ``(entity, producer_id)`` (#527).
+
+    Stands in an identity column's value until the writer knows the id; as text
+    — which is how the digest and the report see it — it names what it points at.
+    """
+
+    entity: str
+    producer_id: str
+
+    def __str__(self) -> str:
+        return f"minted:{self.entity}:{self.producer_id}"
 
 
 @dataclass(frozen=True)
@@ -347,7 +364,18 @@ async def diff_desired(
     canonical claim in `_diff_child` — must reach the same answer, and the run
     the same digest, whichever order a rebuild happened to write.
     """
-    kinds = sorted({spec.entity for spec in manifest.tables.values()})
+    # Every kind a binding scopes, and every kind an identity reference names —
+    # an assignment resolves its role through the crosswalk before roles are a
+    # binding of their own (#527).
+    kinds = sorted(
+        {spec.entity for spec in manifest.tables.values()}
+        | {
+            i.entity
+            for spec in manifest.tables.values()
+            for i in spec.target.identity.values()
+            if i.entity
+        }
+    )
     scope = await Scope.load(store, source=source, kinds=kinds)
     entries: list[Entry] = []
     kept: dict[str, list[dict]] = {}
@@ -360,11 +388,10 @@ async def diff_desired(
         entries.extend(stale)
 
     creating: set[tuple[str, str]] = set()
-    for name, spec in manifest.tables.items():
-        if spec.target.shape == "entity":
-            found = await _diff_entity(spec, kept[name], state, manifest, scope, store)
-            entries.extend(found)
-            creating |= {(spec.entity, e.producer_id) for e in found if e.kind == "create"}
+    for name, spec in _entity_order(manifest):
+        found = await _diff_entity(spec, kept[name], state, manifest, scope, store, creating)
+        entries.extend(found)
+        creating |= {(spec.entity, e.producer_id) for e in found if e.kind == "create"}
     for name, spec in manifest.tables.items():
         if spec.target.shape == "column":
             entries.extend(await _diff_column(spec, kept[name], creating, store))
@@ -386,6 +413,31 @@ def _entry(spec: TableSpec, row: dict, kind: str, **kw) -> Entry:
         pm_id=row.get(spec.pm_key),
         **kw,
     )
+
+
+def _entity_order(manifest: Manifest) -> list[tuple[str, TableSpec]]:
+    """Entity bindings in manifest order, except that a binding whose `identity`
+    references another entity comes after that entity's own binding — so a
+    create it names is already known, whichever order the manifest lists them."""
+    pending = [(n, s) for n, s in manifest.tables.items() if s.target.shape == "entity"]
+    providers = {s.entity for _, s in pending}
+    ordered: list[tuple[str, TableSpec]] = []
+    placed: set[str] = set()
+    while pending:
+        ready = [
+            (n, s)
+            for n, s in pending
+            if {i.entity for i in s.target.identity.values() if i.entity} & providers - {s.entity}
+            <= placed
+        ]
+        if not ready:
+            names = ", ".join(n for n, _ in pending)
+            raise ApplierError(f"entity bindings reference each other in a cycle: {names}")
+        for item in ready:
+            ordered.append(item)
+            placed.add(item[1].entity)
+            pending.remove(item)
+    return ordered
 
 
 def _absent(spec: TableSpec, state: DesiredState, manifest: Manifest, scope: Scope) -> list[str]:
@@ -417,6 +469,7 @@ async def _diff_entity(
     manifest: Manifest,
     scope: Scope,
     store: LiveStore,
+    creating: set[tuple[str, str]],
 ) -> list[Entry]:
     table = spec.target.table
     archiving = spec.retraction == "archive"
@@ -432,7 +485,9 @@ async def _diff_entity(
     # partial identity index, and a restore below may be taking one of them.
     archived_now: set[str] = set()
     if archiving:
-        entries.extend(await _diff_absent(spec, state, manifest, scope, store, archived_now))
+        entries.extend(
+            await _diff_absent(spec, rows, state, manifest, scope, store, creating, archived_now)
+        )
 
     restoring: list[tuple[dict, dict]] = []
     for row in anchored:
@@ -462,8 +517,7 @@ async def _diff_entity(
 
     creates = [r for r in rows if r.get(spec.pm_key) is None]
     hints = await _create_hints(spec, creates, state, manifest, store)
-    for row in creates:
-        entries.append(_entry(spec, row, "create", hint=hints.get(row["producer_id"], ())))
+    entries.extend(await _diff_creates(spec, creates, hints, scope, creating, archived_now, store))
 
     if spec.retraction == "report":
         for producer_id in _absent(spec, state, manifest, scope):
@@ -481,10 +535,12 @@ async def _diff_entity(
 
 async def _diff_absent(
     spec: TableSpec,
+    rows: Sequence[dict],
     state: DesiredState,
     manifest: Manifest,
     scope: Scope,
     store: LiveStore,
+    creating: set[tuple[str, str]],
     archived_now: set[str],
 ) -> list[Entry]:
     """Under `retraction: archive`, what absence means for each in-scope row (#527).
@@ -493,13 +549,23 @@ async def _diff_absent(
     archived it (`retracted_at` still set), which curation keeps. A row already
     archived stays so; one that is gone is `stale`. ``archived_now`` collects the
     rows this plan archives, which no longer hold a slot for a restore or create.
+    Each archive names, in ``effects``, the published spans on its `supersession`
+    tuple — the pairing #501's triage reads (usa-wa#289: a collapsed span).
     """
     absent = _absent(spec, state, manifest, scope)
     if not absent:
         return []
     table = spec.target.table
+    pairing = spec.target.supersession
     ids = {p: scope.resolve(spec.entity, p) for p in absent}
-    found = await store.entity_rows(table, sorted(set(ids.values())), columns=())
+    found = await store.entity_rows(table, sorted(set(ids.values())), columns=tuple(pairing))
+    published: dict[tuple, list[str]] = {}
+    if pairing:
+        for row in rows:
+            resolved = _resolve_identity(spec, row, scope, creating)
+            if isinstance(resolved, dict):
+                key = tuple(resolved.get(c) for c in pairing)
+                published.setdefault(key, []).append(row["producer_id"])
     entries: list[Entry] = []
     for producer_id in absent:
         pm_id = ids[producer_id]
@@ -521,9 +587,116 @@ async def _diff_absent(
             )
         else:
             archived_now.add(pm_id)
+            covering = published.get(tuple(live_row.get(c) for c in pairing), []) if pairing else []
             entries.append(
-                _entry(spec, row, "archive", reason="absent from the snapshot; policy is archive")
+                _entry(
+                    spec,
+                    row,
+                    "archive",
+                    reason="absent from the snapshot; policy is archive",
+                    effects={"superseded_by": sorted(covering)} if covering else {},
+                )
             )
+    return entries
+
+
+def _resolve_identity(
+    spec: TableSpec, row: dict, scope: Scope, creating: set[tuple[str, str]]
+) -> dict[str, object] | str:
+    """PM column → value for everything a create of ``row`` writes; a reference
+    resolves to its in-scope PM id, or to the row this run mints for it. Returns
+    the reason instead when a reference is neither — the row cannot be written."""
+    out: dict[str, object] = {}
+    for col, ident in spec.target.identity.items():
+        value = row.get(col)
+        if ident.entity is not None and value is not None:
+            pm_id = scope.resolve(ident.entity, value)
+            if pm_id is None:
+                if (ident.entity, value) not in creating:
+                    return f"names {ident.entity} {value}, neither in scope nor created this run"
+                pm_id = Minted(ident.entity, value)
+            value = pm_id
+        out[ident.column] = value
+    return out
+
+
+async def _diff_creates(
+    spec: TableSpec,
+    creates: Sequence[dict],
+    hints: Mapping[str, tuple[dict, ...]],
+    scope: Scope,
+    creating: set[tuple[str, str]],
+    archived_now: set[str],
+    store: LiveStore,
+) -> list[Entry]:
+    """A `create` per unanchored row, carrying the identity its INSERT writes (#527).
+
+    A reference that resolves nowhere is `stale`. On a binding with
+    `unique_live`, a create whose tuple a live row holds — or another create of
+    this run shares — is a `conflict`: the INSERT would collide. A holder this
+    plan archives first does not count. An archived holder is a hint: PM once
+    held this slot, and the row may be the same tenure.
+    """
+    table = spec.target.table
+    unique = spec.target.unique_live
+    entries: list[Entry] = []
+    pending: list[tuple[dict, dict[str, object]]] = []
+    for row in creates:
+        resolved = _resolve_identity(spec, row, scope, creating)
+        if isinstance(resolved, str):
+            entries.append(_entry(spec, row, "stale", reason=resolved))
+        else:
+            pending.append((row, resolved))
+
+    slots: dict[str, tuple] = {}
+    if unique:
+        for row, resolved in pending:
+            key = tuple(resolved.get(c) for c in unique)
+            if not any(isinstance(v, Minted) for v in key):  # a new row holds no slot yet
+                slots[row["producer_id"]] = key
+    holders = (
+        await store.slot_holders(table, unique, list(dict.fromkeys(slots.values())))
+        if slots
+        else {}
+    )
+    sharing: dict[tuple, list[str]] = {}
+    for producer_id, key in slots.items():
+        sharing.setdefault(key, []).append(producer_id)
+
+    for row, resolved in pending:
+        producer_id = row["producer_id"]
+        key = slots.get(producer_id)
+        found = holders.get(key, []) if key is not None else []
+        blocking = sorted(
+            h["id"] for h in found if h.get("archived_at") is None and h["id"] not in archived_now
+        )
+        rivals = sorted(p for p in sharing.get(key, []) if p != producer_id) if key else []
+        if blocking or rivals:
+            held = ", ".join([*blocking, *(f"the create of {p}" for p in rivals)])
+            entries.append(
+                _entry(
+                    spec,
+                    row,
+                    "conflict",
+                    reason=f"creating it would take the slot {held} holds on"
+                    f" ({', '.join(unique)}); a person decides",
+                )
+            )
+            continue
+        archived = tuple(
+            {"table": table, "columns": list(unique), "archived_holder": h["id"]}
+            for h in sorted(found, key=lambda h: h["id"])
+            if h.get("archived_at") is not None
+        )
+        entries.append(
+            _entry(
+                spec,
+                row,
+                "create",
+                changes={col: (None, value) for col, value in resolved.items()},
+                hint=tuple(hints.get(producer_id, ())) + archived,
+            )
+        )
     return entries
 
 
@@ -541,14 +714,16 @@ async def _diff_restores(
         return []
     unique = spec.target.unique_live
     tuples = {row[spec.pm_key]: tuple(found.get(c) for c in unique) for row, found in restoring}
-    holders = await store.live_holders(
+    holders = await store.slot_holders(
         spec.target.table, unique, list(dict.fromkeys(tuples.values()))
     )
     entries: list[Entry] = []
     for row, _found in restoring:
         pm_id = row[spec.pm_key]
         blocking = sorted(
-            h for h in holders.get(tuples[pm_id], []) if h != pm_id and h not in archived_now
+            h["id"]
+            for h in holders.get(tuples[pm_id], [])
+            if h.get("archived_at") is None and h["id"] != pm_id and h["id"] not in archived_now
         )
         if blocking:
             entries.append(
