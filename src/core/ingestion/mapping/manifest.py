@@ -5,9 +5,13 @@ per desired-state table, what the producer claims (`key`, `retraction`,
 `owned_columns`, `owned_event_types`) and — v2 — how a row binds to a PM table
 (`target`). The applier interprets four binding shapes and nothing else:
 
-    entity   a row in an entity table (people, organizations): identity, create,
-             report-only retraction
-    column   one column on that entity row (organizations.parent_id)
+    entity   a row in an entity table (people, organizations, role_assignments):
+             identity, create, and retraction — reported, or (#527) archived,
+             with `identity` naming what a create writes, `unique_live` the
+             partial index a create or restore must not collide on, and
+             `supersession` the tuple an archive is paired on in the report
+    column   owned columns on that entity row (organizations.parent_id; the
+             assignment dates, where `asserts_null` makes a null clear a value)
     child    a keyed child row of the entity (names, acronyms, events), matched
              by `any_then_canonical` or `key`
     merge    a producer tombstone: re-point the loser's PM row at the survivor's.
@@ -30,6 +34,7 @@ __all__ = [
     "OVERLAY_SHAPES",
     "RETRACTIONS",
     "SHAPES",
+    "Identity",
     "Manifest",
     "ManifestError",
     "TableSpec",
@@ -46,7 +51,11 @@ RETRACTIONS = ("none", "report", "archive")
 # The merge primitives a `merge` binding may name — each is a core merge function
 # the applier's registry (`applier_merge.MERGE_PRIMITIVES`) knows how to call.
 MERGE_PRIMITIVES = ("person",)
-_THRESHOLD_KEYS = ("creates", "merges", "conflicts", "stale", "updates")
+_THRESHOLD_KEYS = ("creates", "merges", "conflicts", "stale", "archives", "restores", "updates")
+# The keys only an entity binding carries (#527), and the one only a column
+# binding does — each is refused on any other shape rather than ignored.
+_ENTITY_KEYS = ("identity", "unique_live", "supersession")
+_IDENTITY_KEYS = ("column", "entity")
 
 
 class ManifestError(ValueError):
@@ -61,7 +70,22 @@ class Thresholds:
     merges: int = 0
     conflicts: int = 0
     stale: int = 0
+    archives: int = 0  # #527: gated like creates — the first run is #501's to size
+    restores: int = 0
     updates: int | None = None
+
+
+@dataclass(frozen=True)
+class Identity:
+    """One column an entity create writes (#527), once and never again.
+
+    A plain desired column is copied as it is; a reference (``entity`` set) is a
+    producer id of that kind, resolved to its PM id from the live crosswalk or to
+    the id this run mints for it.
+    """
+
+    column: str  # the PM column
+    entity: str | None = None
 
 
 @dataclass(frozen=True)
@@ -82,6 +106,15 @@ class Target:
     archived: str | None = None  # key: match among rows where this is null
     hint_on_create: bool = False
     primitive: str | None = None  # merge: the core merge it acts through; None = report-only
+    # entity (#527): desired column → what a create writes; the PM columns of the
+    # partial index a create or restore must not collide on; the columns an
+    # archive is paired on with the spans still published (triage, report-only)
+    identity: dict[str, Identity] = field(default_factory=dict)
+    unique_live: list[str] = field(default_factory=list)
+    supersession: list[str] = field(default_factory=list)
+    # column (#527): desired columns whose null is a value — "clear it" — rather
+    # than silence (CR 5's default)
+    asserts_null: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -96,9 +129,11 @@ class TableSpec:
     owned_columns: list[str]
     target: Target
     owned_event_types: list[str] = field(default_factory=list)
-    # #498: the curation_overlay field that pins this table's owned value — the
-    # pair is (entity, overlay). Required where a value is owned (column, child).
-    overlay: str | None = None
+    # #498: the curation_overlay field that pins each owned column — the pair is
+    # (entity, field). Required where a value is owned (column, child). Written
+    # as one field for a table owning one value, or (#527) as a map, owned
+    # column → field, where one binding owns several.
+    overlays: dict[str, str] = field(default_factory=dict)
 
 
 # The shapes that carry a producer-owned value a curator can pin (#498).
@@ -121,6 +156,23 @@ def _require(mapping: dict, key: str, where: str) -> object:
     return mapping[key]
 
 
+def _identity(where: str, raw: object) -> dict[str, Identity]:
+    if not isinstance(raw, dict):
+        raise ManifestError(f"{where}: identity must map desired columns to what a create writes")
+    out: dict[str, Identity] = {}
+    for col, value in raw.items():
+        if isinstance(value, str):
+            out[col] = Identity(column=value)
+            continue
+        if not isinstance(value, dict) or "column" not in value:
+            raise ManifestError(f"{where}: identity {col!r} names no PM column")
+        unknown = set(value) - set(_IDENTITY_KEYS)
+        if unknown:
+            raise ManifestError(f"{where}: identity {col!r} has unknown key(s) {sorted(unknown)}")
+        out[col] = Identity(column=str(value["column"]), entity=value.get("entity"))
+    return out
+
+
 def _target(name: str, raw: object) -> Target:
     where = f"{name}: target"
     if not isinstance(raw, dict):
@@ -128,6 +180,12 @@ def _target(name: str, raw: object) -> Target:
     shape = raw.get("shape")
     if shape not in SHAPES:
         raise ManifestError(f"{where}: unknown shape {shape!r} (one of {', '.join(SHAPES)})")
+    if shape != "entity":
+        for key in _ENTITY_KEYS:
+            if key in raw:
+                raise ManifestError(f"{where}: only an entity binding names {key}, not {shape}")
+    if shape != "column" and "asserts_null" in raw:
+        raise ManifestError(f"{where}: only a column binding names asserts_null, not {shape}")
     target = Target(
         shape=shape,
         table=raw.get("table"),
@@ -143,7 +201,21 @@ def _target(name: str, raw: object) -> Target:
         archived=raw.get("archived"),
         hint_on_create=bool(raw.get("hint_on_create", False)),
         primitive=raw.get("primitive"),
+        identity=_identity(where, raw["identity"]) if "identity" in raw else {},
+        unique_live=list(raw.get("unique_live") or []),
+        supersession=list(raw.get("supersession") or []),
+        asserts_null=list(raw.get("asserts_null") or []),
     )
+    # The tuples are computed from what a create writes, so each names one of its
+    # columns — a column the create never writes could not be checked at all.
+    written = {i.column for i in target.identity.values()}
+    for key in ("unique_live", "supersession"):
+        for col in getattr(target, key):
+            if col not in written:
+                raise ManifestError(f"{where}: {key} column {col!r} is not an identity column")
+    for col in target.asserts_null:
+        if col not in target.columns:
+            raise ManifestError(f"{where}: asserts_null column {col!r} is not in target.columns")
     if target.primitive is not None:
         if shape != "merge":
             raise ManifestError(f"{where}: only a merge binding names a primitive, not {shape}")
@@ -191,6 +263,17 @@ def _table(name: str, raw: object) -> TableSpec:
     if not key:
         raise ManifestError(f"{name}: key must name at least one column")
     target = _target(name, raw.get("target"))
+    if retraction == "archive":
+        # Archiving is an entity's policy (#527), and its restore is fallible on a
+        # partial identity index (#424) — so the index is named, or nothing checks it.
+        if target.shape != "entity":
+            raise ManifestError(f"{name}: retraction archive is for an entity binding")
+        if not target.unique_live:
+            raise ManifestError(
+                f"{name}: retraction archive names unique_live — a restore must be checked"
+                " against the partial index it could collide on (#424)"
+            )
+    owned = list(_require(raw, "owned_columns", name))
     overlay = raw.get("overlay")
     if target.shape in OVERLAY_SHAPES and not overlay:
         raise ManifestError(
@@ -199,16 +282,27 @@ def _table(name: str, raw: object) -> TableSpec:
         )
     if target.shape not in OVERLAY_SHAPES and overlay is not None:
         raise ManifestError(f"{name}: an overlay field on a {target.shape} table pins nothing")
+    if isinstance(overlay, dict):
+        if set(overlay) != set(owned):
+            raise ManifestError(
+                f"{name}: an overlay map pins exactly the owned columns {sorted(owned)},"
+                f" not {sorted(overlay)}"
+            )
+        overlays = {col: str(field_) for col, field_ in overlay.items()}
+    elif overlay is not None:
+        overlays = {col: str(overlay) for col in owned}
+    else:
+        overlays = {}
     return TableSpec(
         name=name,
         entity=str(_require(raw, "entity", name)),
         key=key,
         pm_key=str(_require(raw, "pm_key", name)),
         retraction=str(retraction),
-        owned_columns=list(_require(raw, "owned_columns", name)),
+        owned_columns=owned,
         owned_event_types=list(raw.get("owned_event_types") or []),
         target=target,
-        overlay=str(overlay) if overlay is not None else None,
+        overlays=overlays,
     )
 
 

@@ -279,9 +279,7 @@ def test_every_owned_slot_names_its_overlay_field():
     """A column the producer owns with no overlay field is one a curator cannot pin —
     a correction the #501 flip would revert without a word."""
     tables = load_manifest().tables
-    slots = {
-        (s.entity, s.overlay) for s in tables.values() if s.target.shape in ("column", "child")
-    }
+    slots = {(s.entity, f) for s in tables.values() for f in s.overlays.values()}
 
     assert slots == OVERLAY_SLOTS
 
@@ -303,3 +301,167 @@ def test_an_overlay_field_on_an_entity_or_merge_table_fails_at_load(table):
 
     with pytest.raises(ManifestError, match="overlay"):
         parse_manifest(raw)
+
+
+# --- #527: retraction by archive, identity creates, the dates binding ----------
+# Parsed from production's manifest plus the two assignment tables the design
+# names: step 2 teaches the loader the keys, the manifest adopts them in step 8.
+
+ASSIGNMENTS = {
+    "desired_role_assignments": {
+        "entity": "assignment",
+        "key": ["producer_id"],
+        "pm_key": "pm_id",
+        "retraction": "archive",
+        "owned_columns": [],
+        "target": {
+            "shape": "entity",
+            "table": "role_assignments",
+            "identity": {
+                "person_producer_id": {"column": "person_id", "entity": "person"},
+                "role_producer_id": {"column": "role_id", "entity": "role"},
+                "start_date": "start_date",
+            },
+            "unique_live": ["person_id", "role_id", "start_date"],
+            "supersession": ["person_id", "role_id"],
+        },
+    },
+    "desired_role_assignment_dates": {
+        "entity": "assignment",
+        "key": ["producer_id"],
+        "pm_key": "pm_id",
+        "retraction": "none",
+        "owned_columns": ["start_date", "end_date", "is_current"],
+        "overlay": {"start_date": "start_date", "end_date": "end_date", "is_current": "is_current"},
+        "target": {
+            "shape": "column",
+            "table": "role_assignments",
+            "columns": {
+                "start_date": "start_date",
+                "end_date": "end_date",
+                "is_current": "is_current",
+            },
+            "asserts_null": ["end_date"],
+        },
+    },
+}
+
+
+def _with_assignments(**edits) -> dict:
+    """Production's manifest plus the assignment tables, each optionally edited:
+    ``edits[table]`` is applied as ``fn(table_dict)``."""
+    raw = _raw()
+    tables = yaml.safe_load(yaml.safe_dump(ASSIGNMENTS))  # a deep copy per call
+    for name, fn in edits.items():
+        fn(tables[name])
+    raw["tables"].update(tables)
+    return raw
+
+
+def test_archives_and_restores_default_to_a_threshold_of_zero():
+    """Gated like creates (#490): nothing archives or restores until a run allows it."""
+    thresholds = parse_manifest(_raw()).thresholds
+
+    assert (thresholds.archives, thresholds.restores) == (0, 0)
+
+
+def test_archives_and_restores_take_a_threshold_like_every_other_count():
+    raw = _raw()
+    raw["thresholds"] = {**raw["thresholds"], "archives": 5, "restores": 1}
+
+    thresholds = parse_manifest(raw).thresholds
+
+    assert (thresholds.archives, thresholds.restores) == (5, 1)
+
+
+def test_an_entity_binding_carries_identity_unique_live_and_supersession():
+    target = parse_manifest(_with_assignments()).tables["desired_role_assignments"].target
+
+    person, role, start = (target.identity[c] for c in ASSIGNMENTS_IDENTITY)
+    assert (person.column, person.entity) == ("person_id", "person")
+    assert (role.column, role.entity) == ("role_id", "role")
+    assert (start.column, start.entity) == ("start_date", None)
+    assert target.unique_live == ["person_id", "role_id", "start_date"]
+    assert target.supersession == ["person_id", "role_id"]
+
+
+ASSIGNMENTS_IDENTITY = ("person_producer_id", "role_producer_id", "start_date")
+
+
+def test_a_column_binding_carries_asserts_null_and_an_overlay_map():
+    spec = parse_manifest(_with_assignments()).tables["desired_role_assignment_dates"]
+
+    assert spec.target.asserts_null == ["end_date"]
+    assert spec.overlays == {
+        "start_date": "start_date",
+        "end_date": "end_date",
+        "is_current": "is_current",
+    }
+
+
+def test_a_string_overlay_names_the_field_of_every_owned_column():
+    """The #498 form is unchanged: one field, pinning the table's one owned value."""
+    tables = parse_manifest(_raw()).tables
+
+    assert tables["desired_person_names"].overlays == {"name": "name"}
+    assert tables["desired_organization_parents"].overlays == {"parent_pm_id": "parent_id"}
+    assert tables["desired_people"].overlays == {}
+
+
+def _drop(key: str):
+    return lambda t: t["target"].pop(key)
+
+
+def _set(path: tuple[str, ...], value):
+    def edit(t: dict) -> None:
+        node = t
+        for step in path[:-1]:
+            node = node[step]
+        node[path[-1]] = value
+
+    return edit
+
+
+REFUSALS = [
+    # retraction: archive is an entity policy, and it needs the index a restore checks
+    ("desired_role_assignments", _drop("unique_live"), "unique_live"),
+    ("desired_role_assignment_dates", _set(("retraction",), "archive"), "archive"),
+    # entity-only keys
+    (
+        "desired_role_assignment_dates",
+        _set(("target", "unique_live"), ["start_date"]),
+        "unique_live",
+    ),
+    ("desired_role_assignment_dates", _set(("target", "identity"), {"a": "b"}), "identity"),
+    ("desired_role_assignment_dates", _set(("target", "supersession"), ["x"]), "supersession"),
+    # the tuples are computed from what a create writes
+    ("desired_role_assignments", _set(("target", "unique_live"), ["person_id", "notes"]), "notes"),
+    ("desired_role_assignments", _set(("target", "supersession"), ["org_id"]), "org_id"),
+    # an identity reference names its PM column, and nothing else unknown
+    (
+        "desired_role_assignments",
+        _set(("target", "identity", "role_producer_id"), {"entity": "role"}),
+        "column",
+    ),
+    (
+        "desired_role_assignments",
+        _set(("target", "identity", "role_producer_id"), {"column": "role_id", "kind": "role"}),
+        "kind",
+    ),
+    # column-only, and only for a bound column
+    ("desired_role_assignments", _set(("target", "asserts_null"), ["start_date"]), "asserts_null"),
+    ("desired_role_assignment_dates", _set(("target", "asserts_null"), ["notes"]), "notes"),
+    # an overlay map pins every owned column, and nothing it does not own
+    ("desired_role_assignment_dates", _set(("overlay",), {"start_date": "start_date"}), "overlay"),
+    (
+        "desired_role_assignment_dates",
+        _set(("overlay",), {"start_date": "s", "end_date": "e", "is_current": "c", "notes": "n"}),
+        "overlay",
+    ),
+]
+
+
+@pytest.mark.parametrize(("table", "edit", "named"), REFUSALS)
+def test_a_binding_the_applier_cannot_honour_fails_at_load(table, edit, named):
+    with pytest.raises(ManifestError, match=named):
+        parse_manifest(_with_assignments(**{table: edit}))

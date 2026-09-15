@@ -220,6 +220,8 @@ def test_the_summary_carries_verdict_digest_inputs_and_timestamps(tmp_path):
         "merges": 0,
         "conflicts": 0,
         "stale": 0,
+        "archives": 0,
+        "restores": 0,
         "updates": None,
     }
     assert summary["build_info"] == {"datasets": {"persons": "v1"}}
