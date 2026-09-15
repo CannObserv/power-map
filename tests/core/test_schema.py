@@ -1700,3 +1700,18 @@ async def test_crosswalk_rows_with_no_exported_id_are_free_of_its_index(db):
     """A row with no export (the applier's own creates) is free of the index."""
     await _insert_crosswalk(db, producer_id=generate_id(), exported_producer_id=None)
     await _insert_crosswalk(db, producer_id=generate_id(), exported_producer_id=None)
+
+
+# --- producer_crosswalk.retracted_at (#527) ---------------------------------------
+# Stamped by an applier archive and cleared by its restore: the provenance that
+# lets the applier restore only what it archived itself, never a curator's archive.
+
+
+@pytest.mark.integration
+async def test_crosswalk_retracted_at_is_null_until_an_archive_stamps_it(db):
+    row_id = await _insert_crosswalk(db, producer_id=generate_id(), exported_producer_id=None)
+    read = "SELECT retracted_at FROM producer_crosswalk WHERE id = $1"
+
+    assert await db.fetchval(read, row_id) is None
+    await db.execute("UPDATE producer_crosswalk SET retracted_at = now() WHERE id = $1", row_id)
+    assert await db.fetchval(read, row_id) is not None

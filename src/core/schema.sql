@@ -4124,6 +4124,9 @@ CREATE TABLE IF NOT EXISTS producer_crosswalk (
                                                           'deleted_no_successor', 'missing', 'cycle')),
     export_generated_at TIMESTAMPTZ,
     export_sha256       TEXT,
+    -- Stamped when the applier archives the row this anchor names (the dataset
+    -- dropped it), cleared when it restores it (#527): it restores only its own.
+    retracted_at        TIMESTAMPTZ,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
@@ -4148,6 +4151,10 @@ UPDATE producer_crosswalk SET exported_producer_id = producer_id
 CREATE UNIQUE INDEX IF NOT EXISTS uq_producer_crosswalk_exported
     ON producer_crosswalk (source, kind, exported_producer_id)
     WHERE exported_producer_id IS NOT NULL;
+
+-- #527: a crosswalk that predates `retracted_at` gains it NULL — nothing has been
+-- retracted before the applier could archive.
+ALTER TABLE producer_crosswalk ADD COLUMN IF NOT EXISTS retracted_at TIMESTAMPTZ;
 
 -- The applier's hot path: "is this PM row in scope, and whose is it?"
 CREATE INDEX IF NOT EXISTS idx_producer_crosswalk_pm
