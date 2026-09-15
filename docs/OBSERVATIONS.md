@@ -73,7 +73,8 @@ An org's lifespan end is **derived, not a column**: `v_org_lifespan(organization
 
 Moved to [API_ASSIGNMENTS.md](API_ASSIGNMENTS.md) §"Write semantics & provenance" —
 update-in-place semantics, the `unapplied` echo, the `source_key_id` gate, and
-`op="retract"`, beside the endpoint they apply to.
+`op="retract"`, beside the endpoint they apply to. usa-wa stops using them when
+usa-wa#314 retires its sync stack; the dataset applier owns its assignments (#527).
 
 ---
 

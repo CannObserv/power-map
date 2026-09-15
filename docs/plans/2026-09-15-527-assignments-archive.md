@@ -1,7 +1,7 @@
 ---
 title: "#527 (#500 delivery 2, PR A): the assignments model and retraction by archive"
 date: 2026-09-15
-status: draft
+status: executed
 ---
 
 # #527: the assignments model and retraction by archive
@@ -169,3 +169,20 @@ Test first, one commit per step, `#527` in each message.
 - **Rehearsal.** It reads production and writes only under the worktree's
   `data/`. If `build_desired_state` cannot point at the main checkout's
   snapshot store, the rehearsal waits for the deploy and the nightly.
+
+## Execution notes (small revisions, 2026-09-15)
+
+- **Step 4:** `live_holders` became `slot_holders`, returning `{id, archived_at}`.
+  A create's archived-holder hint needs the archived rows too; the engine
+  filters.
+- **Step 7:** the staff_of preview needed one more entity key, `cascades`
+  (table → the columns pointing at the row). The Postgres store counts live
+  rows through it, so the preview stays manifest-driven rather than naming
+  `role_assignment_relationships` in Python.
+- **Step 8:**
+  - The three `SLOTS` registry entries moved up from step 9. The drift test
+    requires the manifest, the dbt vocabulary and the registry to agree at
+    every commit.
+  - A create whose identity reference is null (a span whose role is
+    unpublished) is `stale`, so its INSERT is never planned.
+  - The Heck fixture now publishes its party span, as usa-wa does.

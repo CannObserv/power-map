@@ -61,8 +61,12 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   tombstone whose survivor is out of scope, report, never act.
   `overlay_field_unmapped`: a curator row naming a field no model maps, applied
   nowhere. `overlay_value_malformed`: a pinned value its slot cannot read (a
-  non-integer dissolved year), applied nowhere. `build_desired_state` prints
-  each WARN node and exits 0.
+  non-integer dissolved year, a non-date assignment date), applied nowhere.
+  `unresolved_assignment_roles`: a span whose role_key names no published role,
+  kept (dropping it would archive a live tenure) but never created.
+  `build_desired_state` prints each WARN node and exits 0. One test halts:
+  `desired_role_assignment_dates_current_has_no_end`, a current span with an
+  end date, which the database's CHECK would refuse.
 - **The real-snapshot check** (`tests/core/ingestion/mapping/test_real_snapshot.py`,
   `-m integration`) asserts the design doc's measurements against the landed
   store and skips by name when steps 1–2 have not been run in that checkout.
@@ -103,7 +107,22 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   crosswalk — rebuild), `conflict` (more than one live row matches a keyed
   child — a person decides), `merge` (a producer tombstone — acted on when the
   manifest binds a merge primitive, i.e. persons; report-only for organizations
-  until #520). A producer id a tombstone accounts for is never also a `retract`.
+  until #520), `archive` and `restore` (below). A producer id a tombstone
+  accounts for is never also a `retract` or an `archive`.
+- **Archive and restore (#527, assignments).** Under `retraction: archive` an
+  in-scope row the snapshot dropped is an `archive`: it sets `archived_at` and
+  stamps its anchor's `producer_crosswalk.retracted_at`. A row with that stamp
+  that the producer publishes again is a `restore`, which clears both. Only the
+  applier's own archives restore. A row PM archived, or restored after the
+  applier archived it, is a non-blocking `retract` report, and its dates are
+  skipped: PM's decision stands. A create, restore or `start_date` move onto a
+  slot of the partial identity index that a live row holds is a `conflict`
+  (#424), unless the same plan archives the holder. Writes run archives, then
+  restores, then creates. An archive's `effects` name the published spans on
+  its (person, role) (`superseded_by`, listed in `summary.md` for #501's triage)
+  and the relationships the #301 trigger archives with it, which a restore does
+  not revive. A date that shrinks a span's window clamps its relationships, or
+  archives those left with no window.
 - **Merges (#514).** A tombstone is `noop` once the live crosswalk resolves the
   loser's producer id to the survivor. Otherwise it is an actionable `merge`
   whose `effects` carry `person_merge.preview_person_merge` — each loser name
@@ -158,14 +177,16 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   mode `refused`, which is not a dry run and so restarts the streak: attempts at
   the gate never add up to opening it, and only the nightly chain builds it.
 - **Thresholds** live in `manifest.yml` (`creates 0`, `merges 0`, `conflicts 0`,
-  `stale 0`, `updates` unlimited). The flip (#501) passes `--allow-creates N`,
-  `--allow-merges N`, `--max-updates N`, `--streak N` for one run. Each has a floor: the thresholds
+  `stale 0`, `archives 0`, `restores 0`, `updates` unlimited). The flip (#501)
+  passes `--allow-creates N`, `--allow-merges N`, `--allow-archives N`,
+  `--allow-restores N`, `--max-updates N`, `--streak N` for one run. Each has a floor: the thresholds
   refuse a negative, `--streak` refuses anything below 1, and the gate refuses a
   non-positive streak whoever asks it — `--streak 0` used to answer yes on an
   empty ledger.
-- **A null owned value is silence.** A desired row carrying a null claims
-  nothing for that column — the same as no row at all — so the applier never
-  clears a PM value by writing NULL over it.
+- **A null owned value is silence**, except in a column the binding names in
+  `asserts_null` (an assignment's `end_date`: an open span). A desired row
+  carrying a null claims nothing for that column — the same as no row at all —
+  so the applier never clears a PM value by writing NULL over it.
 - **Column scope is exact:** an `UPDATE` names only the changed owned columns;
   an `INSERT` names the parent, the changed columns and the manifest's insert
   defaults. `updated_at`, the touch triggers and the outbox fire as for any
