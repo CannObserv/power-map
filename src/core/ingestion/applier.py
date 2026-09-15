@@ -392,9 +392,13 @@ async def diff_desired(
         found = await _diff_entity(spec, kept[name], state, manifest, scope, store, creating)
         entries.extend(found)
         creating |= {(spec.entity, e.producer_id) for e in found if e.kind == "create"}
+    plan = _entity_plan(manifest, entries)
     for name, spec in manifest.tables.items():
         if spec.target.shape == "column":
-            entries.extend(await _diff_column(spec, kept[name], creating, store))
+            entity = _entity_binding(manifest, spec)
+            entries.extend(
+                await _diff_column(spec, kept[name], creating, store, entity=entity, plan=plan)
+            )
     for name, spec in manifest.tables.items():
         if spec.target.shape == "child":
             entries.extend(await _diff_child(spec, kept[name], creating, state, scope, store))
@@ -412,6 +416,25 @@ def _entry(spec: TableSpec, row: dict, kind: str, **kw) -> Entry:
         producer_id=row.get("producer_id"),
         pm_id=row.get(spec.pm_key),
         **kw,
+    )
+
+
+def _entity_plan(manifest: Manifest, entries: Sequence[Entry]) -> "_EntityPlan":
+    """Collect what the entity bindings decided, for the column bindings after them."""
+    slots: dict[str, dict[tuple, list[str]]] = {}
+    for e in entries:
+        spec = manifest.tables.get(e.table)
+        if e.kind != "create" or spec is None or not spec.target.unique_live:
+            continue
+        slot = tuple(e.changes[c][1] for c in spec.target.unique_live if c in e.changes)
+        if len(slot) == len(spec.target.unique_live) and not any(
+            isinstance(v, Minted) for v in slot
+        ):
+            slots.setdefault(e.table, {}).setdefault(slot, []).append(e.producer_id)
+    return _EntityPlan(
+        archiving=frozenset(e.pm_id for e in entries if e.kind == "archive"),
+        restoring=frozenset(e.pm_id for e in entries if e.kind == "restore"),
+        create_slots=slots,
     )
 
 
@@ -779,15 +802,55 @@ async def _create_hints(
     return {k: tuple(v) for k, v in hints.items()}
 
 
+@dataclass(frozen=True)
+class _EntityPlan:
+    """What the entity bindings decided, as a column binding on the same table
+    needs it (#527): which rows this plan archives and restores, and the slots
+    its creates take on the partial identity index."""
+
+    archiving: frozenset[str] = frozenset()
+    restoring: frozenset[str] = frozenset()
+    create_slots: Mapping[str, Mapping[tuple, list[str]]] = field(default_factory=dict)
+
+
+def _entity_binding(manifest: Manifest, spec: TableSpec) -> TableSpec | None:
+    """The entity binding of the PM table a column or child binding writes to."""
+    return next(
+        (
+            s
+            for s in manifest.tables.values()
+            if s.target.shape == "entity"
+            and s.entity == spec.entity
+            and s.target.table == spec.target.table
+        ),
+        None,
+    )
+
+
 async def _diff_column(
-    spec: TableSpec, rows: Sequence[dict], creating: set[tuple[str, str]], store: LiveStore
+    spec: TableSpec,
+    rows: Sequence[dict],
+    creating: set[tuple[str, str]],
+    store: LiveStore,
+    *,
+    entity: TableSpec | None = None,
+    plan: _EntityPlan = _EntityPlan(),
 ) -> list[Entry]:
     target = spec.target
     columns = target.columns  # desired column → PM column
     pm_columns = tuple(columns.values())
+    # #527: the entity binding of the same table, when it has one, decides three
+    # things here: which moves are moves on its partial identity index, what a
+    # create already wrote, and whether an archived row is its report or stale.
+    unique = tuple(entity.target.unique_live) if entity is not None else ()
+    written = {i.column for i in entity.target.identity.values()} if entity is not None else set()
+    archives = entity is not None and entity.retraction == "archive"
+    asserted = set(target.asserts_null)
     anchored = [r for r in rows if r.get(spec.pm_key) is not None]
     live = (
-        await store.entity_rows(target.table, [r[spec.pm_key] for r in anchored], pm_columns)
+        await store.entity_rows(
+            target.table, [r[spec.pm_key] for r in anchored], (*pm_columns, *unique)
+        )
         if anchored
         else {}
     )
@@ -795,17 +858,25 @@ async def _diff_column(
     # A null in an owned column is silence, not an instruction to clear PM's
     # value (CR 5). `retraction: none` says an absent row says nothing; a
     # present row carrying a null must not say more than one that is missing.
+    # `asserts_null` names the exceptions (#527): there, null is the value.
     def claimed(row: dict) -> list[str]:
-        return [d for d in columns if row.get(d) is not None]
+        return [d for d in columns if row.get(d) is not None or d in asserted]
 
     entries: list[Entry] = []
+    moving: list[tuple[dict, str, tuple, dict]] = []
     for row in rows:
         pm_id = row.get(spec.pm_key)
         if pm_id is None:
             if (spec.entity, row["producer_id"]) not in creating:
                 entries.append(_entry(spec, row, "stale", reason="no entity row is created for it"))
                 continue
-            changes = {columns[d]: (None, row[d]) for d in claimed(row)}
+            # The create's INSERT already wrote its identity, and a new row's
+            # columns start null — so neither is a write here.
+            changes = {
+                columns[d]: (None, row[d])
+                for d in claimed(row)
+                if columns[d] not in written and row.get(d) is not None
+            }
             entries.append(
                 _entry(
                     spec,
@@ -821,17 +892,72 @@ async def _diff_column(
             entries.append(
                 _entry(spec, row, "stale", reason=f"live row missing: {target.table}/{pm_id}")
             )
-        elif found.get("archived_at") is not None:
+            continue
+        if found.get("archived_at") is not None and pm_id not in plan.restoring:
+            if not archives:
+                entries.append(
+                    _entry(
+                        spec, row, "stale", reason=f"live row archived since the export: {pm_id}"
+                    )
+                )
+            # else: PM archived it and the entity binding has reported it (#527)
+            continue
+        changes = {
+            columns[d]: (found.get(columns[d]), row.get(d))
+            for d in claimed(row)
+            if found.get(columns[d]) != row.get(d)
+        }
+        if unique and set(changes) & set(unique):
+            slot = tuple(changes[c][1] if c in changes else found.get(c) for c in unique)
+            moving.append((row, pm_id, slot, changes))
+        else:
+            entries.append(_entry(spec, row, "update" if changes else "noop", changes=changes))
+    if moving:
+        entries.extend(await _diff_moves(spec, entity, moving, plan, store))
+    return entries
+
+
+async def _diff_moves(
+    spec: TableSpec,
+    entity: TableSpec,
+    moving: Sequence[tuple[dict, str, tuple, dict]],
+    plan: _EntityPlan,
+    store: LiveStore,
+) -> list[Entry]:
+    """Updates that move a row on its partial identity index (#527), checked as a
+    create is: a live holder of the new slot — other than the row itself, and not
+    archived by this plan — or another move or create of this run onto it, is a
+    `conflict`. Otherwise the UPDATE would fail the index mid-transaction."""
+    unique = entity.target.unique_live
+    holders = await store.slot_holders(
+        spec.target.table, unique, list(dict.fromkeys(slot for _, _, slot, _ in moving))
+    )
+    sharing: dict[tuple, list[str]] = {}
+    for row, _, slot, _ in moving:
+        sharing.setdefault(slot, []).append(row["producer_id"])
+    creates = plan.create_slots.get(entity.name, {})
+    entries: list[Entry] = []
+    for row, pm_id, slot, changes in moving:
+        blocking = sorted(
+            h["id"]
+            for h in holders.get(slot, [])
+            if h.get("archived_at") is None and h["id"] != pm_id and h["id"] not in plan.archiving
+        )
+        rivals = [p for p in sharing[slot] if p != row["producer_id"]]
+        rivals += [f"the create of {p}" for p in creates.get(slot, [])]
+        if blocking or rivals:
+            held = ", ".join([*blocking, *sorted(rivals)])
             entries.append(
-                _entry(spec, row, "stale", reason=f"live row archived since the export: {pm_id}")
+                _entry(
+                    spec,
+                    row,
+                    "conflict",
+                    reason=f"moving {pm_id} would take the slot {held} holds on"
+                    f" ({', '.join(unique)}); a person decides",
+                )
             )
         else:
-            changes = {
-                columns[d]: (found.get(columns[d]), row[d])
-                for d in claimed(row)
-                if found.get(columns[d]) != row[d]
-            }
-            entries.append(_entry(spec, row, "update" if changes else "noop", changes=changes))
+            entries.append(_entry(spec, row, "update", changes=changes))
     return entries
 
 
