@@ -162,6 +162,39 @@ async def test_a_create_onto_a_slot_this_plan_archives_is_a_create():
     assert entries[NEW].kind == "create"
 
 
+async def test_a_create_onto_the_slot_a_restore_of_this_run_takes_is_a_conflict():
+    """The restore is written first and takes the slot back, so the INSERT would
+    collide (CR 2): the create waits for a person, and the restore goes ahead."""
+    store = FakeLiveStore(
+        crosswalk=[*ANCHORS, xw("assignment", OLD, A_OLD, retracted_at=ARCHIVED)],
+        tables={"role_assignments": [ra(A_OLD, archived=True)]},
+    )
+
+    entries = _by_producer(await _diff(store, span(OLD, pm_id=A_OLD), span(NEW)))
+
+    assert entries[OLD].kind == "restore"
+    assert entries[NEW].kind == "conflict"
+    assert f"the restore of {A_OLD}" in entries[NEW].reason
+
+
+async def test_two_creates_naming_one_new_person_on_one_slot_both_conflict():
+    """Neither slot has a holder yet, but the second INSERT would collide with the
+    first (CR 2): a slot naming a minted row is still a slot."""
+    store = FakeLiveStore(crosswalk=ANCHORS, tables={"role_assignments": [], "people": []})
+    other = "01QNEW|seat|chamber|ld-26|2013-14b"
+
+    diff = await _diff(
+        store,
+        span(NEW, person=Q_NEW),
+        span(other, person=Q_NEW),
+        desired_people=[{"pm_id": None, "producer_id": Q_NEW}],
+    )
+
+    entries = _by_producer(diff)
+    assert (entries[NEW].kind, entries[other].kind) == ("conflict", "conflict")
+    assert f"the create of {other}" in entries[NEW].reason
+
+
 async def test_a_create_where_an_archived_row_holds_the_slot_carries_a_hint():
     """The LD-1 2019 case: PM archived a row on this slot — probably the same tenure."""
     store = FakeLiveStore(crosswalk=ANCHORS, tables={"role_assignments": [ra(A9, archived=True)]})

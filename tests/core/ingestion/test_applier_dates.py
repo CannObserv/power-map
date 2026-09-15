@@ -145,6 +145,30 @@ async def test_a_start_date_moving_onto_a_slot_this_plan_archives_is_an_update()
     assert {e.producer_id: e.kind for e in diff.entries if e.table == SPANS}[S9] == "archive"
 
 
+async def test_a_start_date_moving_onto_the_slot_a_restore_takes_is_a_conflict():
+    """Restores are written before columns, so the slot is taken by then (CR 2)."""
+    later = date(2021, 6, 1)
+    store = FakeLiveStore(
+        crosswalk=[
+            *ANCHORS,
+            xw("assignment", S1, A1),
+            xw("assignment", S9, A9, retracted_at=ARCHIVED),
+        ],
+        tables={"role_assignments": [ra(A1), ra(A9, start=later, archived=True)]},
+    )
+
+    diff = await _diff(
+        store,
+        spans=[span(S1, A1), span(S9, A9, start=later)],
+        rows=[dates(S1, A1, start=later), dates(S9, A9, start=later)],
+    )
+
+    assert {e.producer_id: e.kind for e in diff.entries if e.table == SPANS}[S9] == "restore"
+    entry = _dates(diff)[S1]
+    assert entry.kind == "conflict"
+    assert f"the restore of {A9}" in entry.reason
+
+
 async def test_two_rows_moving_onto_one_slot_both_conflict():
     later = date(2021, 6, 1)
     store = FakeLiveStore(

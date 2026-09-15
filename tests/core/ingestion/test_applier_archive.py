@@ -149,6 +149,20 @@ async def test_a_restore_onto_a_slot_a_live_row_holds_is_a_conflict():
     assert A9 in conflict.reason and "#424" in conflict.reason
 
 
+async def test_two_restores_onto_one_slot_both_conflict():
+    """Two rows the applier archived on one slot (the index let them, archived); the
+    second unarchive would collide with the first (CR 2), so a person picks."""
+    store = FakeLiveStore(
+        crosswalk=[xa(S1, A1, retracted_at=RETRACTED), xa(S2, A2, retracted_at=RETRACTED)],
+        tables={"role_assignments": [ra(A1, archived=True), ra(A2, archived=True)]},
+    )
+
+    entries = await _entries(store, desired(S1, A1), desired(S2, A2))
+
+    assert (entries[S1].kind, entries[S2].kind) == ("conflict", "conflict")
+    assert f"the restore of {A2}" in entries[S1].reason
+
+
 async def test_a_holder_this_plan_archives_does_not_block_a_restore():
     """Archives are written first, so the slot is free by the time the restore runs."""
     store = FakeLiveStore(
