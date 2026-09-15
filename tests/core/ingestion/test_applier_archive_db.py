@@ -167,6 +167,13 @@ async def test_an_archive_stamps_its_anchor_and_archives_the_relationships_on_it
         "SELECT archived_at IS NOT NULL FROM role_assignments WHERE id = $1", gone
     )
     assert await _retracted(db, "S2") is True
+    # The restore's provenance test (CR 1): the stamp is the archive's own time.
+    assert await db.fetchval(
+        "SELECT c.retracted_at = r.archived_at FROM producer_crosswalk c"
+        " JOIN role_assignments r ON r.id = c.pm_id"
+        " WHERE c.source = $1 AND c.kind = 'assignment' AND c.producer_id = 'S2'",
+        SOURCE,
+    )
     assert await db.fetchval(
         "SELECT archived_at IS NOT NULL FROM role_assignment_relationships WHERE id = $1", edge
     )

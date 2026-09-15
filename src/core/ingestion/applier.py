@@ -148,8 +148,9 @@ class CrosswalkRow:
     producer_id: str
     pm_id: str | None
     resolution: str
-    # #527: set while the row this anchor names is archived by the applier —
-    # the provenance that lets it restore its own archives and no one else's
+    # #527: the time the applier archived the row this anchor names — the same
+    # transaction's NOW() it writes to the row's `archived_at`, which is the
+    # provenance that lets it restore its own archives and no one else's
     retracted_at: object = None
 
 
@@ -532,7 +533,7 @@ async def _diff_entity(
             entries.append(
                 _entry(spec, row, "stale", reason=f"live row archived since the export: {pm_id}")
             )
-        elif scope.row(spec.entity, row["producer_id"]).retracted_at is not None:
+        elif _applier_archived(scope.row(spec.entity, row["producer_id"]), found):
             restoring.append((row, found))
         else:
             entries.append(
@@ -562,6 +563,17 @@ async def _diff_entity(
                 )
             )
     return entries
+
+
+def _applier_archived(anchor: CrosswalkRow, live_row: Mapping) -> bool:
+    """Whether the row's archive is the applier's own (#527, CR 1).
+
+    Its archive stamps the anchor's `retracted_at` and the row's `archived_at`
+    with one transaction's NOW(), so the two are equal. The stamp outlives a
+    person's restore; if they archive the row again, that archive carries its own
+    time and stays PM's.
+    """
+    return anchor.retracted_at is not None and anchor.retracted_at == live_row.get("archived_at")
 
 
 async def _diff_absent(

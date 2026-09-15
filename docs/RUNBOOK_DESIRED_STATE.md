@@ -111,11 +111,13 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   accounts for is never also a `retract` or an `archive`.
 - **Archive and restore (#527, assignments).** Under `retraction: archive` an
   in-scope row the snapshot dropped is an `archive`: it sets `archived_at` and
-  stamps its anchor's `producer_crosswalk.retracted_at`. A row with that stamp
-  that the producer publishes again is a `restore`, which clears both. Only the
-  applier's own archives restore. A row PM archived, or restored after the
-  applier archived it, is a non-blocking `retract` report, and its dates are
-  skipped: PM's decision stands. A create, restore or `start_date` move onto a
+  stamps its anchor's `producer_crosswalk.retracted_at` with the same time. A
+  row the producer publishes again whose `archived_at` is still that stamp is a
+  `restore`, which clears both: only the applier's own archives restore. A row
+  PM archived — or restored after the applier archived it, or archived again by
+  hand since — is a non-blocking `retract` report, and its dates are skipped:
+  PM's decision stands. The stamp outlives a restore by hand, so a row the
+  producer publishes again and later drops is reported then, not archived. A create, restore or `start_date` move onto a
   slot of the partial identity index that a live row holds is a `conflict`
   (#424), unless the same plan archives the holder. Writes run archives, then
   restores, then creates. An archive's `effects` name the published spans on

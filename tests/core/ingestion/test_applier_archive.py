@@ -32,6 +32,7 @@ A1, A2, A3, A9 = "01RA1", "01RA2", "01RA3", "01RA9"
 PERSON, ROLE = "01MPERSON", "01MROLE"
 START = date(2021, 1, 11)
 RETRACTED = datetime(2026, 9, 15, tzinfo=UTC)
+LATER = datetime(2026, 9, 20, tzinfo=UTC)
 
 
 def xa(span, pm_id, *, retracted_at=None, resolution="live"):
@@ -117,6 +118,21 @@ async def test_a_span_the_applier_archived_restores_when_it_comes_back():
     entries = await _entries(store, desired(S1, A1))
 
     assert (entries[S1].kind, entries[S1].pm_id) == ("restore", A1)
+
+
+async def test_a_row_archived_by_hand_after_a_restore_is_pms_not_the_appliers():
+    """The stamp outlived a person's restore, and their later archive carries its own
+    time: the applier restores only an archive whose time is its stamp's (CR 1)."""
+    store = FakeLiveStore(
+        crosswalk=[xa(S1, A1, retracted_at=RETRACTED)],
+        tables={"role_assignments": [{**ra(A1), "archived_at": LATER}]},
+    )
+
+    entries = await _entries(store, desired(S1, A1))
+
+    report = entries[S1]
+    assert report.kind == "retract"
+    assert "archived in PM" in report.reason
 
 
 async def test_a_restore_onto_a_slot_a_live_row_holds_is_a_conflict():

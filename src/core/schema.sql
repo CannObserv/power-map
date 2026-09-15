@@ -4125,7 +4125,8 @@ CREATE TABLE IF NOT EXISTS producer_crosswalk (
     export_generated_at TIMESTAMPTZ,
     export_sha256       TEXT,
     -- Stamped when the applier archives the row this anchor names (the dataset
-    -- dropped it), cleared when it restores it (#527): it restores only its own.
+    -- dropped it) with the NOW() it writes to archived_at, cleared when it
+    -- restores it (#527): it restores only its own.
     retracted_at        TIMESTAMPTZ,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
