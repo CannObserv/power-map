@@ -64,7 +64,8 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   non-integer dissolved year, a non-date assignment date), applied nowhere.
   `unresolved_assignment_roles`: a span whose role_key names no published role,
   kept (dropping it would archive a live tenure) but never created.
-  `build_desired_state` prints each WARN node and exits 0. One test halts:
+  `build_desired_state` prints each WARN node and exits 0. Beside the key tests
+  (a unique, non-null `span_key`, `role_key` or `producer_id`), one test halts:
   `desired_role_assignment_dates_current_has_no_end`, a current span with an
   end date, which the database's CHECK would refuse.
 - **The real-snapshot check** (`tests/core/ingestion/mapping/test_real_snapshot.py`,

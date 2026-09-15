@@ -313,7 +313,9 @@ def scope_rows(
 
 @dataclass
 class Diff:
-    """Every entry of one run, in manifest table order then key order."""
+    """Every entry of one run: scope's `stale` entries, then each shape in turn —
+    entity bindings first, a referenced entity's before the binding naming it
+    (#527) — each table in manifest order and its rows in key order."""
 
     entries: list[Entry]
 
