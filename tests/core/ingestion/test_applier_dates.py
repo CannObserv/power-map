@@ -229,3 +229,16 @@ async def test_dates_on_a_row_this_run_creates_leave_out_what_the_insert_wrote()
     entry = _dates(diff)[S_NEW]
     assert entry.kind == "update"
     assert entry.changes == {"is_current": (None, True)}
+
+
+async def test_dates_on_a_create_that_is_not_planned_point_at_its_entry():
+    """The span's create is a conflict, so its dates are `stale` — and say where to look,
+    since a rebuild would not help (CR 5)."""
+    store = FakeLiveStore(crosswalk=ANCHORS, tables={"role_assignments": [ra(A9)]})
+
+    diff = await _diff(store, spans=[span(S_NEW, None)], rows=[dates(S_NEW, None)])
+
+    assert {e.producer_id: e.kind for e in diff.entries if e.table == SPANS}[S_NEW] == "conflict"
+    entry = _dates(diff)[S_NEW]
+    assert entry.kind == "stale"
+    assert f"see its {SPANS} entry" in entry.reason

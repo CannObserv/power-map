@@ -945,7 +945,12 @@ async def _diff_column(
         pm_id = row.get(spec.pm_key)
         if pm_id is None:
             if (spec.entity, row["producer_id"]) not in creating:
-                entries.append(_entry(spec, row, "stale", reason="no entity row is created for it"))
+                # The entity binding says why (a conflict, a reference that resolves
+                # nowhere): a rebuild would not help, so point at it (CR 5).
+                reason = "no entity row is created for it"
+                if entity is not None:
+                    reason += f"; see its {entity.name} entry"
+                entries.append(_entry(spec, row, "stale", reason=reason))
                 continue
             # The create's INSERT already wrote its identity, and a new row's
             # columns start null — so neither is a write here.
