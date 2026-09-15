@@ -15,7 +15,8 @@ one outcome the overlay exists to rule out. So this parses every
 
 A slot table is one a slot in ``overlay_slots.SLOTS`` reads: ``person_names``
 and ``organization_names`` (``{names_table}`` in the names factory),
-``organization_acronyms``, ``entity_events`` and ``organizations.parent_id``.
+``organization_acronyms``, ``entity_events``, ``organizations.parent_id`` and
+(#527) ``role_assignments.start_date`` / ``end_date`` / ``is_current``.
 Heuristic, like the fallback sweep: SQL is matched in string literals, so it
 cannot see a write built out of pieces. Vetted exceptions carry a reason, and
 an entry that no longer names a slot-writing function fails too.
@@ -32,7 +33,8 @@ _SLOT_WRITE = re.compile(
     r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"
     r"(?:(?:person_names|organization_names|organization_acronyms|entity_events)\b"
     r"|\{names_table\})"
-    r"|\bUPDATE\s+organizations\s+SET\b[^;]*?\bparent_id\s*=",
+    r"|\bUPDATE\s+organizations\s+SET\b[^;]*?\bparent_id\s*="
+    r"|\bUPDATE\s+role_assignments\s+SET\b[^;]*?\b(?:start_date|end_date|is_current)\s*=",
     re.IGNORECASE | re.DOTALL,
 )
 

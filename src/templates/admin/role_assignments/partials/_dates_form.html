@@ -16,6 +16,7 @@
     {% if error %}
     <div class="alert alert--error" role="alert" style="margin-bottom:var(--space-3)">{{ error }}</div>
     {% endif %}
+    <div class="overlay-note-host" hx-get="/admin/_overlay/assignment/{{ ra.id }}/end_date/?variant=note" hx-trigger="load" hx-swap="innerHTML"></div>
     <div style="display:flex;gap:var(--space-4)">
       <div class="form-group" style="margin-bottom:0;flex:1">
         <label for="start-date-input" class="field-group-label" style="font-size:var(--font-size-xs)">Start</label>

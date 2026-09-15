@@ -41,8 +41,16 @@ templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/_overlay", tags=["admin-overlay"])
 
 _TEMPLATE = "admin/shared/_overlay_slot.html"
-_ENTITY_TABLES = {"person": "people", "organization": "organizations"}
-_DETAIL_PREFIXES = {"person": "/admin/people/", "organization": "/admin/orgs/"}
+_ENTITY_TABLES = {
+    "person": "people",
+    "organization": "organizations",
+    "assignment": "role_assignments",  # #527
+}
+_DETAIL_PREFIXES = {
+    "person": "/admin/people/",
+    "organization": "/admin/orgs/",
+    "assignment": "/admin/role-assignments/",
+}
 _VARIANTS = ("status", "note")
 
 
