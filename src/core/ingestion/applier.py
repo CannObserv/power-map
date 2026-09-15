@@ -47,12 +47,29 @@ __all__ = [
 # create   an entity the producer publishes that PM has no row for
 # insert   a child row (name, acronym, event) PM lacks
 # update   owned columns differ on a row PM has
-# retract  an in-scope row the producer no longer publishes — report-only here
+# retract  an in-scope row the producer no longer publishes, under `retraction:
+#          report` — or, under `archive`, a row PM archived or restored by its own
+#          hand, which curation keeps (#527). Report-only either way
 # stale    the desired state disagrees with the live crosswalk — rebuild
-# conflict more than one live row matches a keyed child — a person decides
+# conflict more than one live row matches a keyed child, or a create or restore
+#          would take a slot a live row holds (#424) — a person decides
 # merge    a producer tombstone: actionable when `effects` names the primitive
 #          that acts on it (#514), report-only when it names none
-ENTRY_KINDS = ("noop", "create", "insert", "update", "retract", "stale", "conflict", "merge")
+# archive  an in-scope row the producer no longer publishes, under `retraction:
+#          archive` (#527): archived, and its anchor stamped `retracted_at`
+# restore  a row the applier archived that the producer publishes again (#527)
+ENTRY_KINDS = (
+    "noop",
+    "create",
+    "insert",
+    "update",
+    "retract",
+    "stale",
+    "conflict",
+    "merge",
+    "archive",
+    "restore",
+)
 
 
 class ApplierError(RuntimeError):
@@ -101,6 +118,17 @@ class LiveStore(Protocol):
         self, table: str, column: str, values: Sequence, parent: str
     ) -> dict[object, list[str]]: ...
 
+    async def live_holders(
+        self, table: str, columns: Sequence[str], tuples: Sequence[tuple]
+    ) -> dict[tuple, list[str]]:
+        """Unarchived rows of ``table`` holding each tuple of ``columns`` (#527).
+
+        NULLs are equal — the partial identity indexes are ``NULLS NOT DISTINCT``
+        — so the answer is exactly the set of rows an insert or unarchive of that
+        tuple would collide with.
+        """
+        ...
+
 
 @dataclass(frozen=True)
 class CrosswalkRow:
@@ -110,6 +138,9 @@ class CrosswalkRow:
     producer_id: str
     pm_id: str | None
     resolution: str
+    # #527: set while the row this anchor names is archived by the applier —
+    # the provenance that lets it restore its own archives and no one else's
+    retracted_at: object = None
 
 
 @dataclass(frozen=True)
@@ -150,7 +181,10 @@ class Scope:
     async def load(cls, store: LiveStore, *, source: str, kinds: Sequence[str]) -> "Scope":
         rows = await store.crosswalk(source, kinds)
         return cls(
-            CrosswalkRow(r["kind"], r["producer_id"], r.get("pm_id"), r["resolution"]) for r in rows
+            CrosswalkRow(
+                r["kind"], r["producer_id"], r.get("pm_id"), r["resolution"], r.get("retracted_at")
+            )
+            for r in rows
         )
 
     def row(self, kind: str, producer_id: str) -> CrosswalkRow | None:
@@ -354,6 +388,28 @@ def _entry(spec: TableSpec, row: dict, kind: str, **kw) -> Entry:
     )
 
 
+def _absent(spec: TableSpec, state: DesiredState, manifest: Manifest, scope: Scope) -> list[str]:
+    """In-scope producer ids of ``spec.entity`` the snapshot no longer carries.
+
+    An absent producer id a tombstone accounts for is a merge, not a retraction
+    (#514): before the merge it is a loser in this build's merge table; after it,
+    its anchor resolves to a row a published id still claims.
+    """
+    present = {r["producer_id"] for r in state.tables[spec.name]}
+    merged_away = {
+        r.get("loser_producer_id")
+        for other in manifest.tables.values()
+        if other.target.shape == "merge" and other.entity == spec.entity
+        for r in state.tables[other.name]
+    }
+    claimed = {scope.resolve(spec.entity, p) for p in present} - {None}
+    return [
+        producer_id
+        for producer_id in sorted(scope.in_scope(spec.entity) - present - merged_away)
+        if scope.resolve(spec.entity, producer_id) not in claimed
+    ]
+
+
 async def _diff_entity(
     spec: TableSpec,
     rows: Sequence[dict],
@@ -362,29 +418,47 @@ async def _diff_entity(
     scope: Scope,
     store: LiveStore,
 ) -> list[Entry]:
-    if spec.retraction == "archive":
-        raise ApplierError(
-            f"{spec.name}: retraction 'archive' is #500's to build — this applier reports only"
-        )
     table = spec.target.table
+    archiving = spec.retraction == "archive"
     anchored = [r for r in rows if r.get(spec.pm_key) is not None]
+    unique = tuple(spec.target.unique_live)
     live = (
-        await store.entity_rows(table, [r[spec.pm_key] for r in anchored], columns=())
+        await store.entity_rows(table, [r[spec.pm_key] for r in anchored], columns=unique)
         if anchored
         else {}
     )
     entries: list[Entry] = []
+    # Absence first under `archive`: the rows it retires free their slots on the
+    # partial identity index, and a restore below may be taking one of them.
+    archived_now: set[str] = set()
+    if archiving:
+        entries.extend(await _diff_absent(spec, state, manifest, scope, store, archived_now))
+
+    restoring: list[tuple[dict, dict]] = []
     for row in anchored:
         pm_id = row[spec.pm_key]
         found = live.get(pm_id)
         if found is None:
             entries.append(_entry(spec, row, "stale", reason=f"live row missing: {table}/{pm_id}"))
-        elif found.get("archived_at") is not None:
+        elif found.get("archived_at") is None:
+            entries.append(_entry(spec, row, "noop"))
+        elif not archiving:
             entries.append(
                 _entry(spec, row, "stale", reason=f"live row archived since the export: {pm_id}")
             )
+        elif scope.row(spec.entity, row["producer_id"]).retracted_at is not None:
+            restoring.append((row, found))
         else:
-            entries.append(_entry(spec, row, "noop"))
+            entries.append(
+                _entry(
+                    spec,
+                    row,
+                    "retract",
+                    reason="archived in PM while the producer still publishes it; PM's archive"
+                    " stands and nothing is written",
+                )
+            )
+    entries.extend(await _diff_restores(spec, restoring, archived_now, store))
 
     creates = [r for r in rows if r.get(spec.pm_key) is None]
     hints = await _create_hints(spec, creates, state, manifest, store)
@@ -392,20 +466,7 @@ async def _diff_entity(
         entries.append(_entry(spec, row, "create", hint=hints.get(row["producer_id"], ())))
 
     if spec.retraction == "report":
-        present = {r["producer_id"] for r in state.tables[spec.name]}
-        # An absent producer id a tombstone accounts for is a merge, not a
-        # retraction (#514): before the merge it is a loser in this build's merge
-        # table; after it, its anchor resolves to a row a published id still claims.
-        merged_away = {
-            r.get("loser_producer_id")
-            for name, other in manifest.tables.items()
-            if other.target.shape == "merge" and other.entity == spec.entity
-            for r in state.tables[name]
-        }
-        claimed = {scope.resolve(spec.entity, p) for p in present} - {None}
-        for producer_id in sorted(scope.in_scope(spec.entity) - present - merged_away):
-            if scope.resolve(spec.entity, producer_id) in claimed:
-                continue
+        for producer_id in _absent(spec, state, manifest, scope):
             row = {"producer_id": producer_id, spec.pm_key: scope.resolve(spec.entity, producer_id)}
             entries.append(
                 _entry(
@@ -414,6 +475,94 @@ async def _diff_entity(
                     "retract",
                     reason="absent from the snapshot; policy is report, nothing is written",
                 )
+            )
+    return entries
+
+
+async def _diff_absent(
+    spec: TableSpec,
+    state: DesiredState,
+    manifest: Manifest,
+    scope: Scope,
+    store: LiveStore,
+    archived_now: set[str],
+) -> list[Entry]:
+    """Under `retraction: archive`, what absence means for each in-scope row (#527).
+
+    Its live row archives — unless a person restored it after the applier had
+    archived it (`retracted_at` still set), which curation keeps. A row already
+    archived stays so; one that is gone is `stale`. ``archived_now`` collects the
+    rows this plan archives, which no longer hold a slot for a restore or create.
+    """
+    absent = _absent(spec, state, manifest, scope)
+    if not absent:
+        return []
+    table = spec.target.table
+    ids = {p: scope.resolve(spec.entity, p) for p in absent}
+    found = await store.entity_rows(table, sorted(set(ids.values())), columns=())
+    entries: list[Entry] = []
+    for producer_id in absent:
+        pm_id = ids[producer_id]
+        row = {"producer_id": producer_id, spec.pm_key: pm_id}
+        live_row = found.get(pm_id)
+        if live_row is None:
+            entries.append(_entry(spec, row, "stale", reason=f"live row missing: {table}/{pm_id}"))
+        elif live_row.get("archived_at") is not None:
+            entries.append(_entry(spec, row, "noop"))
+        elif scope.row(spec.entity, producer_id).retracted_at is not None:
+            entries.append(
+                _entry(
+                    spec,
+                    row,
+                    "retract",
+                    reason="restored in PM after the applier archived it; the producer still"
+                    " omits it, PM's restore stands and nothing is written",
+                )
+            )
+        else:
+            archived_now.add(pm_id)
+            entries.append(
+                _entry(spec, row, "archive", reason="absent from the snapshot; policy is archive")
+            )
+    return entries
+
+
+async def _diff_restores(
+    spec: TableSpec,
+    restoring: Sequence[tuple[dict, dict]],
+    archived_now: set[str],
+    store: LiveStore,
+) -> list[Entry]:
+    """A `restore` per row the applier archived and the producer publishes again —
+    or a `conflict` when a live row now holds its slot on the partial identity
+    index (#424): unarchiving it would collide, and which of the two is the
+    tenure is a person's call. A holder this plan archives first does not count."""
+    if not restoring:
+        return []
+    unique = spec.target.unique_live
+    tuples = {row[spec.pm_key]: tuple(found.get(c) for c in unique) for row, found in restoring}
+    holders = await store.live_holders(
+        spec.target.table, unique, list(dict.fromkeys(tuples.values()))
+    )
+    entries: list[Entry] = []
+    for row, _found in restoring:
+        pm_id = row[spec.pm_key]
+        blocking = sorted(
+            h for h in holders.get(tuples[pm_id], []) if h != pm_id and h not in archived_now
+        )
+        if blocking:
+            entries.append(
+                _entry(
+                    spec,
+                    row,
+                    "conflict",
+                    reason=f"restoring {pm_id} would take the slot {', '.join(blocking)} holds"
+                    f" on ({', '.join(unique)}) — #424; a person decides",
+                )
+            )
+        else:
+            entries.append(
+                _entry(spec, row, "restore", reason="published again after the applier archived it")
             )
     return entries
 
@@ -634,10 +783,6 @@ async def _diff_child(
     type on an in-scope parent that the snapshot no longer carries is a
     `retract` entry; every other live row is invisible.
     """
-    if spec.retraction == "archive":
-        raise ApplierError(
-            f"{spec.name}: retraction 'archive' is #500's to build — this applier reports only"
-        )
     target = spec.target
     columns = target.columns  # desired column → PM column
 

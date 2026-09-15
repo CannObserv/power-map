@@ -22,6 +22,7 @@ from src.core.ingestion.mapping.manifest import (  # noqa: E402
     parse_manifest,
 )
 from src.core.ingestion.mapping.parquet import read_rows  # noqa: E402
+from tests.core.ingestion.applier_fakes import raw_with_assignments  # noqa: E402
 
 MARTS = sorted(p.stem for p in (PROJECT_DIR / "models" / "marts").glob("*.sql"))
 
@@ -307,54 +308,13 @@ def test_an_overlay_field_on_an_entity_or_merge_table_fails_at_load(table):
 # Parsed from production's manifest plus the two assignment tables the design
 # names: step 2 teaches the loader the keys, the manifest adopts them in step 8.
 
-ASSIGNMENTS = {
-    "desired_role_assignments": {
-        "entity": "assignment",
-        "key": ["producer_id"],
-        "pm_key": "pm_id",
-        "retraction": "archive",
-        "owned_columns": [],
-        "target": {
-            "shape": "entity",
-            "table": "role_assignments",
-            "identity": {
-                "person_producer_id": {"column": "person_id", "entity": "person"},
-                "role_producer_id": {"column": "role_id", "entity": "role"},
-                "start_date": "start_date",
-            },
-            "unique_live": ["person_id", "role_id", "start_date"],
-            "supersession": ["person_id", "role_id"],
-        },
-    },
-    "desired_role_assignment_dates": {
-        "entity": "assignment",
-        "key": ["producer_id"],
-        "pm_key": "pm_id",
-        "retraction": "none",
-        "owned_columns": ["start_date", "end_date", "is_current"],
-        "overlay": {"start_date": "start_date", "end_date": "end_date", "is_current": "is_current"},
-        "target": {
-            "shape": "column",
-            "table": "role_assignments",
-            "columns": {
-                "start_date": "start_date",
-                "end_date": "end_date",
-                "is_current": "is_current",
-            },
-            "asserts_null": ["end_date"],
-        },
-    },
-}
-
 
 def _with_assignments(**edits) -> dict:
     """Production's manifest plus the assignment tables, each optionally edited:
     ``edits[table]`` is applied as ``fn(table_dict)``."""
-    raw = _raw()
-    tables = yaml.safe_load(yaml.safe_dump(ASSIGNMENTS))  # a deep copy per call
+    raw = raw_with_assignments()
     for name, fn in edits.items():
-        fn(tables[name])
-    raw["tables"].update(tables)
+        fn(raw["tables"][name])
     return raw
 
 

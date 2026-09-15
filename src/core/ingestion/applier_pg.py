@@ -16,7 +16,7 @@ from src.core.ingestion.applier_merge import MERGE_PRIMITIVES
 __all__ = ["PostgresLiveStore"]
 
 _CROSSWALK_SQL = (
-    "SELECT kind, producer_id, pm_id, resolution FROM producer_crosswalk"
+    "SELECT kind, producer_id, pm_id, resolution, retracted_at FROM producer_crosswalk"
     " WHERE source = $1 AND kind = ANY($2::text[])"
 )
 
