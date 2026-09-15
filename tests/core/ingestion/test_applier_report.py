@@ -367,3 +367,59 @@ def test_a_line_that_is_not_a_dry_run_is_named_by_its_own_mode():
     ok, reason = may_execute(ledger, digest="d1", streak=3)
 
     assert not ok and "r2 was refused" in reason and "an execute" not in reason
+
+
+# --- #527: archives and restores ------------------------------------------------
+
+SPANS = "desired_role_assignments"
+
+
+def test_archives_and_restores_are_counted_against_their_own_thresholds():
+    """Gated like creates (#490): 0 by default, raised for one run by a flag."""
+    diff = Diff(
+        [
+            E("archive", "S1", table=SPANS),
+            E("archive", "S2", table=SPANS),
+            E("restore", "S3", table=SPANS),
+        ]
+    )
+
+    blocked = verdict_for(diff, Thresholds())
+
+    assert blocked.verdict == "blocked"
+    assert blocked.exceeded == {"archives": (2, 0), "restores": (1, 0)}
+    assert verdict_for(diff, Thresholds(archives=2, restores=1)).verdict == "clean"
+
+
+def test_a_merge_phase_defers_archives_and_restores():
+    """A merge phase writes merges only; an archive waits for the next diff."""
+    diff = Diff([_merge(), E("archive", "S1", table=SPANS), E("restore", "S2", table=SPANS)])
+
+    verdict = verdict_for(diff, Thresholds())
+
+    assert verdict.phase == "merge"
+    assert verdict.deferred == {"archives": 1, "restores": 1}
+
+
+def test_a_supersession_pairing_enters_the_digest():
+    """The pairing is what #501's triage decides on; if it changes, the streak restarts."""
+    a = Diff([E("archive", "S1", table=SPANS, effects={"superseded_by": ["S0"]})])
+    b = Diff([E("archive", "S1", table=SPANS, effects={"superseded_by": ["S9"]})])
+
+    assert diff_digest(a) != diff_digest(b)
+
+
+def test_the_markdown_summary_pairs_each_archive_with_the_spans_that_cover_it(tmp_path):
+    diff = Diff(
+        [
+            E("archive", "S2", table=SPANS, pm_id="01RA2", effects={"superseded_by": ["S1"]}),
+            E("archive", "S3", table=SPANS, pm_id="01RA3"),
+        ]
+    )
+
+    _report(tmp_path, diff)
+
+    md = (tmp_path / "run" / "summary.md").read_text()
+    assert "Supersession" in md
+    assert "`01RA2` (S2) → superseded by S1" in md
+    assert "01RA3" not in md.split("Supersession", 1)[1].split("|", 1)[0]

@@ -80,6 +80,8 @@ THRESHOLD_KINDS: dict[str, tuple[str, ...]] = {
     "merges": ("merge",),
     "conflicts": ("conflict",),
     "stale": ("stale",),
+    "archives": ("archive",),  # #527: gated like creates; #501 sizes the first
+    "restores": ("restore",),
     "updates": ("update", "insert"),
 }
 
@@ -196,6 +198,8 @@ def _markdown(summary: dict) -> str:
         lines += ["", f"**Thresholds exceeded:** {over}"]
     if summary["phase"] == "merge":
         lines += _merge_lines(summary)
+    if summary.get("supersessions"):
+        lines += _supersession_lines(summary)
     lines += [
         "",
         "| table | " + " | ".join(ENTRY_KINDS) + " |",
@@ -205,6 +209,20 @@ def _markdown(summary: dict) -> str:
         lines.append(f"| {table} | " + " | ".join(str(counts[k]) for k in ENTRY_KINDS) + " |")
     lines.append("")
     return "\n".join(lines)
+
+
+def _supersession_lines(summary: dict) -> list[str]:
+    """Each archive a published span on its supersession tuple covers (#527) — the
+    pairs #501's triage reads: usa-wa#289 collapsed a member's spans into one."""
+    return [
+        "",
+        "**Supersession:** archived rows with a published span on the same tuple.",
+        "",
+        *(
+            f"- `{a['pm_id']}` ({a['producer_id']}) → superseded by {', '.join(a['superseded_by'])}"
+            for a in summary["supersessions"]
+        ),
+    ]
 
 
 def _merge_effect(merge: dict) -> str:
@@ -270,6 +288,16 @@ def write_report(
         "deferred": verdict.deferred,
         "merges": [
             digest_view(e) for e in sorted(actionable_merges(diff), key=lambda e: e.entry_id)
+        ],
+        "supersessions": [
+            {
+                "entry_id": e.entry_id,
+                "producer_id": e.producer_id,
+                "pm_id": e.pm_id,
+                "superseded_by": e.effects["superseded_by"],
+            }
+            for e in actionable
+            if e.kind == "archive" and e.effects.get("superseded_by")
         ],
         "counts": diff.counts,
         "by_table": _by_table(diff),
