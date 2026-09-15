@@ -189,3 +189,39 @@ models:
               values: [dissolved]
       - name: event_year
         tests: [not_null]
+
+  - name: stg_usa_wa__assignments
+    columns:
+      - name: span_key
+        tests: [unique, not_null]
+      - name: valid_from
+        description: Warn, never halt — every published span has one today; a missing start becomes an unknown one.
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+  - name: stg_usa_wa__roles
+    columns:
+      - name: role_key
+        tests: [unique, not_null]
+
+  - name: desired_role_assignments
+    description: One row per published span in scope (#527); keyed by span_key.
+    columns:
+      - name: producer_id
+        tests: [unique, not_null]
+      - name: pm_id
+        tests: [unique]
+      - name: person_producer_id
+        tests: [not_null]
+
+  - name: desired_role_assignment_dates
+    columns:
+      - name: producer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('desired_role_assignments')
+              field: producer_id

@@ -6,7 +6,16 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin._citations_shared import citation_count_lateral
-from src.api.admin.deps import AdminUser, flash_trigger, get_admin_user, get_db, is_htmx, with_flash
+from src.api.admin.deps import (
+    AdminUser,
+    flash_trigger,
+    get_admin_user,
+    get_db,
+    is_htmx,
+    provision_app_user,
+    with_flash,
+)
+from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
 from src.api.admin.roles_shared import (
     _check_assignment_within_bounds,
     _get_role,
@@ -21,6 +30,8 @@ from src.core.org_lifecycle import (
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/roles/{role_id}", tags=["admin-roles-assignments"])
+# The assignment slots (#527) an edit row can move — all three at once.
+_DATE_SLOTS = ("start_date", "end_date", "is_current")
 
 
 async def fetch_role_assignments(role_id: str, db) -> list:
@@ -314,10 +325,14 @@ async def assignment_edit_row_post(
     start_date: str = Form(""),
     end_date: str = Form(""),
     is_current: str = Form(""),
-    user: AdminUser = Depends(get_admin_user),
+    user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
-    """Save assignment edits; return full sorted tbody."""
+    """Save assignment edits; return full sorted tbody.
+
+    usa-wa owns the dates and currency of an anchored assignment (#527): the save
+    pins what moved, inside the write's transaction.
+    """
     ra = await _get_assignment(assignment_id, role_id, db)
     if ra["archived_at"]:
         raise HTTPException(status_code=409, detail="Cannot edit an archived assignment")
@@ -387,15 +402,19 @@ async def assignment_edit_row_post(
         )
 
     try:
-        await db.execute(
-            """UPDATE role_assignments
-               SET is_current=$1, start_date=$2, end_date=$3
-               WHERE id=$4""",
-            is_current_val,
-            start_date_val,
-            end_date_val,
-            assignment_id,
-        )
+        async with (
+            db.transaction(),
+            tracked(db, "assignment", assignment_id, user_id=user.id, fields=_DATE_SLOTS) as edit,
+        ):
+            await db.execute(
+                """UPDATE role_assignments
+                   SET is_current=$1, start_date=$2, end_date=$3
+                   WHERE id=$4""",
+                is_current_val,
+                start_date_val,
+                end_date_val,
+                assignment_id,
+            )
     except asyncpg.CheckViolationError:
         if not is_htmx(request):
             return RedirectResponse(
@@ -431,14 +450,21 @@ async def assignment_edit_row_post(
         )
 
     if not is_htmx(request):
-        return RedirectResponse(with_flash(f"/admin/roles/{role_id}/", "saved"), status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/roles/{role_id}/", flash_key("saved", edit.pinned)),
+            status_code=303,
+        )
 
     assignments = await fetch_role_assignments(role_id, db)
     return templates.TemplateResponse(
         request,
         "admin/roles/partials/_assignment_rows.html",
         {"assignments": assignments, "role_id": role_id},
-        headers=flash_trigger("success", "Assignment saved."),
+        headers=flash_trigger(
+            "success",
+            "Assignment saved." + pinned_note(edit.pinned),
+            extra=overlay_refresh(edit.pinned),
+        ),
     )
 
 

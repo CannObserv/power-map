@@ -22,6 +22,10 @@ from src.core.ingestion.mapping.manifest import (  # noqa: E402
     parse_manifest,
 )
 from src.core.ingestion.mapping.parquet import read_rows  # noqa: E402
+from tests.core.ingestion.applier_fakes import (  # noqa: E402
+    ASSIGNMENT_TABLES,
+    raw_with_assignments,
+)
 
 MARTS = sorted(p.stem for p in (PROJECT_DIR / "models" / "marts").glob("*.sql"))
 
@@ -53,7 +57,7 @@ def test_every_mart_is_declared_and_every_declaration_is_a_mart():
 def test_each_table_declares_key_retraction_and_owned_columns(table):
     spec = load_manifest().tables[table]
 
-    assert spec.entity in {"person", "organization"}
+    assert spec.entity in {"person", "organization", "assignment"}
     assert spec.key and all(isinstance(k, str) for k in spec.key)
     assert spec.retraction in {"none", "report", "archive"}
     assert isinstance(spec.owned_columns, list)
@@ -111,6 +115,8 @@ def test_the_four_shapes_cover_the_marts_as_designed():
         "desired_entity_events": "child",
         "desired_person_merges": "merge",
         "desired_organization_merges": "merge",
+        "desired_role_assignments": "entity",
+        "desired_role_assignment_dates": "column",
     }
 
 
@@ -272,6 +278,9 @@ OVERLAY_SLOTS = {
     ("organization", "acronym"),
     ("organization", "parent_id"),
     ("organization", "dissolved_year"),
+    ("assignment", "start_date"),
+    ("assignment", "end_date"),
+    ("assignment", "is_current"),
 }
 
 
@@ -279,9 +288,7 @@ def test_every_owned_slot_names_its_overlay_field():
     """A column the producer owns with no overlay field is one a curator cannot pin —
     a correction the #501 flip would revert without a word."""
     tables = load_manifest().tables
-    slots = {
-        (s.entity, s.overlay) for s in tables.values() if s.target.shape in ("column", "child")
-    }
+    slots = {(s.entity, f) for s in tables.values() for f in s.overlays.values()}
 
     assert slots == OVERLAY_SLOTS
 
@@ -303,3 +310,148 @@ def test_an_overlay_field_on_an_entity_or_merge_table_fails_at_load(table):
 
     with pytest.raises(ManifestError, match="overlay"):
         parse_manifest(raw)
+
+
+# --- #527: retraction by archive, identity creates, the dates binding ----------
+# Parsed from production's manifest plus the two assignment tables the design
+# names: step 2 teaches the loader the keys, the manifest adopts them in step 8.
+
+
+def _with_assignments(**edits) -> dict:
+    """Production's manifest plus the assignment tables, each optionally edited:
+    ``edits[table]`` is applied as ``fn(table_dict)``."""
+    raw = raw_with_assignments()
+    for name, fn in edits.items():
+        fn(raw["tables"][name])
+    return raw
+
+
+def test_archives_and_restores_default_to_a_threshold_of_zero():
+    """Gated like creates (#490): nothing archives or restores until a run allows it."""
+    thresholds = parse_manifest(_raw()).thresholds
+
+    assert (thresholds.archives, thresholds.restores) == (0, 0)
+
+
+def test_archives_and_restores_take_a_threshold_like_every_other_count():
+    raw = _raw()
+    raw["thresholds"] = {**raw["thresholds"], "archives": 5, "restores": 1}
+
+    thresholds = parse_manifest(raw).thresholds
+
+    assert (thresholds.archives, thresholds.restores) == (5, 1)
+
+
+def test_an_entity_binding_carries_identity_unique_live_and_supersession():
+    target = parse_manifest(_with_assignments()).tables["desired_role_assignments"].target
+
+    person, role, start = (target.identity[c] for c in ASSIGNMENTS_IDENTITY)
+    assert (person.column, person.entity) == ("person_id", "person")
+    assert (role.column, role.entity) == ("role_id", "role")
+    assert (start.column, start.entity) == ("start_date", None)
+    assert target.unique_live == ["person_id", "role_id", "start_date"]
+    assert target.supersession == ["person_id", "role_id"]
+    assert target.cascades == {
+        "role_assignment_relationships": ["from_assignment_id", "to_assignment_id"]
+    }
+
+
+ASSIGNMENTS_IDENTITY = ("person_producer_id", "role_producer_id", "start_date")
+
+
+def test_a_column_binding_carries_asserts_null_and_an_overlay_map():
+    spec = parse_manifest(_with_assignments()).tables["desired_role_assignment_dates"]
+
+    assert spec.target.asserts_null == ["end_date"]
+    assert spec.overlays == {
+        "start_date": "start_date",
+        "end_date": "end_date",
+        "is_current": "is_current",
+    }
+
+
+def test_a_string_overlay_names_the_field_of_every_owned_column():
+    """The #498 form is unchanged: one field, pinning the table's one owned value."""
+    tables = parse_manifest(_raw()).tables
+
+    assert tables["desired_person_names"].overlays == {"name": "name"}
+    assert tables["desired_organization_parents"].overlays == {"parent_pm_id": "parent_id"}
+    assert tables["desired_people"].overlays == {}
+
+
+def _drop(key: str):
+    return lambda t: t["target"].pop(key)
+
+
+def _set(path: tuple[str, ...], value):
+    def edit(t: dict) -> None:
+        node = t
+        for step in path[:-1]:
+            node = node[step]
+        node[path[-1]] = value
+
+    return edit
+
+
+REFUSALS = [
+    # retraction: archive is an entity policy, and it needs the index a restore checks
+    ("desired_role_assignments", _drop("unique_live"), "unique_live"),
+    ("desired_role_assignment_dates", _set(("retraction",), "archive"), "archive"),
+    # entity-only keys
+    (
+        "desired_role_assignment_dates",
+        _set(("target", "unique_live"), ["start_date"]),
+        "unique_live",
+    ),
+    ("desired_role_assignment_dates", _set(("target", "identity"), {"a": "b"}), "identity"),
+    ("desired_role_assignment_dates", _set(("target", "supersession"), ["x"]), "supersession"),
+    ("desired_role_assignment_dates", _set(("target", "cascades"), {"t": ["c"]}), "cascades"),
+    # a cascade names the columns through which its rows point at the archived one
+    ("desired_role_assignments", _set(("target", "cascades"), {"t": []}), "cascades"),
+    # the tuples are computed from what a create writes
+    ("desired_role_assignments", _set(("target", "unique_live"), ["person_id", "notes"]), "notes"),
+    ("desired_role_assignments", _set(("target", "supersession"), ["org_id"]), "org_id"),
+    # an identity reference names its PM column, and nothing else unknown
+    (
+        "desired_role_assignments",
+        _set(("target", "identity", "role_producer_id"), {"entity": "role"}),
+        "column",
+    ),
+    (
+        "desired_role_assignments",
+        _set(("target", "identity", "role_producer_id"), {"column": "role_id", "kind": "role"}),
+        "kind",
+    ),
+    # column-only, and only for a bound column
+    ("desired_role_assignments", _set(("target", "asserts_null"), ["start_date"]), "asserts_null"),
+    ("desired_role_assignment_dates", _set(("target", "asserts_null"), ["notes"]), "notes"),
+    # an overlay map pins every owned column, and nothing it does not own
+    ("desired_role_assignment_dates", _set(("overlay",), {"start_date": "start_date"}), "overlay"),
+    (
+        "desired_role_assignment_dates",
+        _set(("overlay",), {"start_date": "s", "end_date": "e", "is_current": "c", "notes": "n"}),
+        "overlay",
+    ),
+]
+
+
+@pytest.mark.parametrize(("table", "edit", "named"), REFUSALS)
+def test_a_binding_the_applier_cannot_honour_fails_at_load(table, edit, named):
+    with pytest.raises(ManifestError, match=named):
+        parse_manifest(_with_assignments(**{table: edit}))
+
+
+def test_the_assignment_bindings_the_tests_diff_against_are_productions():
+    """The unit tier parses `ASSIGNMENT_TABLES` beside production's tables; if the two
+    drifted, every assignment test would be proving a manifest nobody runs."""
+    production = load_manifest().tables
+    fakes = parse_manifest({**_raw(), "tables": ASSIGNMENT_TABLES}).tables
+
+    assert {n: production[n] for n in fakes} == fakes
+
+
+def test_archives_and_restores_are_zero_in_productions_manifest():
+    """#490: the first archiving run is #501's, allowed by a flag — never by the default."""
+    thresholds = load_manifest().thresholds
+
+    assert (thresholds.archives, thresholds.restores) == (0, 0)

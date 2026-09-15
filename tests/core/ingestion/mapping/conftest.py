@@ -90,6 +90,17 @@ def fixture_csv(
     return text
 
 
+# #527: two roles and four spans. R1/R2 are anchored; the open committee span and
+# the closed party span are anchored live, P3's span is a create (P3 is one too),
+# and the 2023-24 party span's anchor was archived — out of scope.
+R1, R2 = _ids("R", (1, 2))
+MR1, MR2 = _ids("S", (1, 2))
+RA1, RA2, RA3 = _ids("A", (1, 2, 3))
+SPAN_OPEN = f"{P1}|committee-member-role:31640|committee|31640|2021-22"
+SPAN_CLOSED = f"{P1}|party-role:republican|party|republican|2017-18"
+SPAN_NEW = f"{P3}|committee-member-role:31640|committee|31640|2023-24"
+SPAN_OUT = f"{P1}|party-role:republican|party|republican|2023-24"
+
 DEFAULT_CROSSWALK = [
     crosswalk_row(P1, PM1, "live"),
     crosswalk_row(P2, PM2, "merged"),  # PM merged it; pm_id already points at the survivor
@@ -99,6 +110,11 @@ DEFAULT_CROSSWALK = [
     crosswalk_row(P7, PM7, "live"),  # published with a blank name (real: 5 such rows)
     # P3 has no row: an unanchored producer person → a create
     *(crosswalk_row(o, m, "live", kind="organization") for o, m in ORG_ANCHORS),
+    crosswalk_row(R1, MR1, "live", kind="role"),
+    crosswalk_row(R2, MR2, "live", kind="role"),
+    crosswalk_row(SPAN_OPEN, RA1, "live", kind="assignment"),
+    crosswalk_row(SPAN_CLOSED, RA2, "live", kind="assignment"),
+    crosswalk_row(SPAN_OUT, RA3, "archived", kind="assignment"),
 ]
 DEFAULT_OVERLAY = [
     overlay_row("person", PM1, "name", "Curated One"),

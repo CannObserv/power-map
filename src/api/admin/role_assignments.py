@@ -13,9 +13,11 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    provision_app_user,
     resolve_query_flash,
     with_flash,
 )
+from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.role_assignments_queries import VALID_STATUSES, query_role_assignments_rows
 from src.api.admin.role_assignments_relationships import fetch_panel_rows
@@ -341,10 +343,13 @@ async def ra_inline_is_current(
     ra_id: str,
     request: Request,
     is_current: str = Form(""),
-    user: AdminUser = Depends(get_admin_user),
+    user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
-    """Toggle is_current; on CHECK violation, re-render prior state + error flash."""
+    """Toggle is_current; on CHECK violation, re-render prior state + error flash.
+
+    usa-wa owns the column on an anchored assignment (#527): the toggle pins it.
+    """
     new_val = is_current == "true"
     if new_val:
         ra = await _get_ra(ra_id, db)
@@ -367,7 +372,10 @@ async def ra_inline_is_current(
             )
     try:
         # Savepoint: a CHECK violation aborts only this write (see create above).
-        async with db.transaction():
+        async with (
+            db.transaction(),
+            tracked(db, "assignment", ra_id, user_id=user.id, fields=("is_current",)) as edit,
+        ):
             updated = await db.fetchval(
                 "UPDATE role_assignments SET is_current=$1 WHERE id=$2 RETURNING id",
                 new_val,
@@ -393,7 +401,8 @@ async def ra_inline_is_current(
         raise HTTPException(status_code=404, detail="Role assignment not found")
     if not is_htmx(request):
         return RedirectResponse(
-            with_flash(f"/admin/role-assignments/{ra_id}/", "saved"), status_code=303
+            with_flash(f"/admin/role-assignments/{ra_id}/", flash_key("saved", edit.pinned)),
+            status_code=303,
         )
     ra = await _get_ra(ra_id, db)
     return templates.TemplateResponse(
@@ -402,7 +411,8 @@ async def ra_inline_is_current(
         {"ra": ra},
         headers=flash_trigger(
             "success",
-            "Marked as current." if new_val else "Marked as former.",
+            ("Marked as current." if new_val else "Marked as former.") + pinned_note(edit.pinned),
+            extra=overlay_refresh(edit.pinned),
         ),
     )
 
@@ -448,10 +458,13 @@ async def ra_inline_dates_post(
     request: Request,
     start_date: str = Form(""),
     end_date: str = Form(""),
-    user: AdminUser = Depends(get_admin_user),
+    user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
-    """Save dates; on CHECK violation, re-render form with inline error."""
+    """Save dates; on CHECK violation, re-render form with inline error.
+
+    usa-wa owns both dates on an anchored assignment (#527): a save pins what moved.
+    """
     start_val = _parse_date(start_date)
     end_val = _parse_date(end_date)
     ra = await _get_ra(ra_id, db)
@@ -483,7 +496,12 @@ async def ra_inline_dates_post(
         )
     try:
         # Savepoint: a CHECK violation aborts only this write (see create above).
-        async with db.transaction():
+        async with (
+            db.transaction(),
+            tracked(
+                db, "assignment", ra_id, user_id=user.id, fields=("start_date", "end_date")
+            ) as edit,
+        ):
             updated = await db.fetchval(
                 "UPDATE role_assignments SET start_date=$1, end_date=$2 WHERE id=$3 RETURNING id",
                 start_val,
@@ -511,14 +529,17 @@ async def ra_inline_dates_post(
         raise HTTPException(status_code=404, detail="Role assignment not found")
     if not is_htmx(request):
         return RedirectResponse(
-            with_flash(f"/admin/role-assignments/{ra_id}/", "saved"), status_code=303
+            with_flash(f"/admin/role-assignments/{ra_id}/", flash_key("saved", edit.pinned)),
+            status_code=303,
         )
     ra = await _get_ra(ra_id, db)
     return templates.TemplateResponse(
         request,
         "admin/role_assignments/partials/_dates_read.html",
         {"ra": ra},
-        headers=flash_trigger("success", "Dates saved."),
+        headers=flash_trigger(
+            "success", "Dates saved." + pinned_note(edit.pinned), extra=overlay_refresh(edit.pinned)
+        ),
     )
 
 

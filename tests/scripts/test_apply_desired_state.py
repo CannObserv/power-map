@@ -269,6 +269,22 @@ def test_main_wires_the_flags_and_the_dsn(monkeypatch, tmp_path):
     assert seen["desired"] == tmp_path / "d" and seen["out"] == tmp_path / "o"
 
 
+def test_main_wires_the_archive_and_restore_allowances(monkeypatch):
+    """#527: the first archiving run is #501's, sized from its dry run — not a raised default."""
+    seen = {}
+
+    async def fake_run_against(dsn, **kw):
+        seen.update(kw)
+        return 0
+
+    monkeypatch.setenv("DATABASE_URL", "postgres://u:p@db.example/pm")
+    monkeypatch.setattr(cli, "_run_against", fake_run_against)
+
+    assert cli.main(["--allow-archives", "384", "--allow-restores", "2"]) == 0
+    assert (seen["thresholds"].archives, seen["thresholds"].restores) == (384, 2)
+    assert seen["thresholds"].creates == MANIFEST.thresholds.creates
+
+
 def test_main_defaults_to_a_dry_run_with_the_manifests_thresholds(monkeypatch):
     seen = {}
 
@@ -315,6 +331,8 @@ def test_the_applier_scopes_by_the_source_the_seed_writes():
         ["--allow-creates", "-1"],
         ["--max-updates", "-1"],
         ["--allow-merges", "-1"],
+        ["--allow-archives", "-1"],
+        ["--allow-restores", "-1"],
     ],
     ids=[
         "zero streak",
@@ -322,6 +340,8 @@ def test_the_applier_scopes_by_the_source_the_seed_writes():
         "negative creates",
         "negative updates",
         "negative merges",
+        "negative archives",
+        "negative restores",
     ],
 )
 def test_a_count_flag_that_could_only_weaken_the_gate_is_a_usage_error(flag, monkeypatch):

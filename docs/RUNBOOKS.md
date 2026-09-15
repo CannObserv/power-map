@@ -257,6 +257,9 @@ it. The report adds two lines. `re-keyed` counts rows whose key moved. `unkeyed`
 counts assignment anchors with no published row: they stay on their ULID, which
 the dataset never names, so they read as absent once #500 archives. `STALE`
 compares exported ids, so a row the applier minted (no export) is never stale.
+An anchor whose row the applier archived (`retracted_at`, #527) keeps its scope
+through a re-seed, though the report counts it `archived`: the applier restores
+the row if the span returns. An export that re-points the anchor clears the stamp.
 
 Five refusals, each deliberate:
 

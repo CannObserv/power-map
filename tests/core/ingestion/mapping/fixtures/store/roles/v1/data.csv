@@ -1,0 +1,3 @@
+entity_id,role_key,role_type,name,span_kind,span_discriminator,org_source_id,org_entity_id,district,qualifier
+01R1000000000000000000000A,committee-member-role:31640,committee_member,Member,committee,31640,committee-31640,01O1000000000000000000000A,,
+01R2000000000000000000000A,party-role:republican,party_member,Member,party,republican,party-republican,01O1000000000000000000000A,,

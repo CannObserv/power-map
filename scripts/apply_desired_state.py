@@ -26,6 +26,8 @@ Usage:
         --execute --allow-creates 4 --max-updates 60
     uv run --group mapping "${env_args[@]}" python -m scripts.apply_desired_state \\
         --execute --allow-merges 1 --streak 1     # a merge phase: merges only
+    uv run --group mapping "${env_args[@]}" python -m scripts.apply_desired_state \\
+        --execute --allow-archives 384 --max-updates 400   # #501's supervised pass (#527)
 """
 
 import argparse
@@ -75,6 +77,8 @@ def thresholds_with(
     *,
     allow_creates: int | None = None,
     allow_merges: int | None = None,
+    allow_archives: int | None = None,
+    allow_restores: int | None = None,
     max_updates: int | None = None,
 ) -> Thresholds:
     """The manifest's thresholds with this run's overrides."""
@@ -84,6 +88,10 @@ def thresholds_with(
         changes["creates"] = allow_creates
     if allow_merges is not None:
         changes["merges"] = allow_merges
+    if allow_archives is not None:
+        changes["archives"] = allow_archives
+    if allow_restores is not None:
+        changes["restores"] = allow_restores
     if max_updates is not None:
         changes["updates"] = max_updates
     return dataclasses.replace(base, **changes)
@@ -256,6 +264,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Raise the merges threshold for this run (manifest default 0; #514)",
     )
     parser.add_argument(
+        "--allow-archives",
+        type=_at_least(0),
+        default=None,
+        metavar="N",
+        help="Raise the archives threshold for this run (manifest default 0; #527)",
+    )
+    parser.add_argument(
+        "--allow-restores",
+        type=_at_least(0),
+        default=None,
+        metavar="N",
+        help="Raise the restores threshold for this run (manifest default 0; #527)",
+    )
+    parser.add_argument(
         "--max-updates",
         type=_at_least(0),
         default=None,
@@ -274,6 +296,8 @@ def main(argv: list[str] | None = None) -> int:
     thresholds = thresholds_with(
         allow_creates=args.allow_creates,
         allow_merges=args.allow_merges,
+        allow_archives=args.allow_archives,
+        allow_restores=args.allow_restores,
         max_updates=args.max_updates,
     )
     streak = args.streak if args.streak is not None else load_manifest().streak

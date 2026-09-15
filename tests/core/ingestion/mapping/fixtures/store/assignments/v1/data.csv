@@ -1,0 +1,5 @@
+entity_id,member_id,source,role_key,span_kind,span_discriminator,span_start_biennium,span_end_biennium,valid_from,valid_to,is_active,span_key
+01P1000000000000000000000A,1,usa_wa_legislature,committee-member-role:31640,committee,31640,2021-22,2025-26,2021-01-11,,true,01P1000000000000000000000A|committee-member-role:31640|committee|31640|2021-22
+01P1000000000000000000000A,1,usa_wa_legislature,party-role:republican,party,republican,2017-18,2019-20,2017-01-09,2020-12-31,false,01P1000000000000000000000A|party-role:republican|party|republican|2017-18
+01P3000000000000000000000A,3,usa_wa_legislature,committee-member-role:31640,committee,31640,2023-24,2023-24,2023-01-09,2024-12-31,false,01P3000000000000000000000A|committee-member-role:31640|committee|31640|2023-24
+01P1000000000000000000000A,1,usa_wa_legislature,party-role:republican,party,republican,2023-24,2025-26,2023-01-09,,true,01P1000000000000000000000A|party-role:republican|party|republican|2023-24

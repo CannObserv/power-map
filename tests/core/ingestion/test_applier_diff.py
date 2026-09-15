@@ -8,14 +8,11 @@ state is `stale`. Absence from the snapshot under `retraction: report` is a
 column and is an `update` on difference.
 """
 
-import dataclasses
-
 import pytest
 
 pytest.importorskip("duckdb")
 
 from src.core.ingestion.applier import (  # noqa: E402
-    ApplierError,
     DesiredState,
     diff_desired,
 )
@@ -286,15 +283,6 @@ async def test_a_merge_row_no_primitive_binds_is_a_report_entry_that_reads_nothi
     assert merge.pm_id == MO2 and merge.changes == {"survivor_pm_id": (None, MO4)}
     assert merge.effects == {}
     assert not [r for r in store.requested if r[0] in ("entity_rows", "tombstones")]
-
-
-async def test_archive_retraction_is_refused_until_500_builds_it():
-    spec = dataclasses.replace(MANIFEST.tables["desired_people"], retraction="archive")
-    manifest = dataclasses.replace(MANIFEST, tables={**MANIFEST.tables, "desired_people": spec})
-    store = FakeLiveStore(crosswalk=[xw(P1, PM1)], tables={"people": [live(PM1)]})
-
-    with pytest.raises(ApplierError, match="#500"):
-        await diff_desired(_state(desired_people=[PERSON_P1]), manifest, store)
 
 
 async def test_a_create_minted_this_run_is_consistent_not_stale():

@@ -9,12 +9,13 @@ inside it: anything still to write means rollback.
 """
 
 import itertools
+from datetime import date
 
 import pytest
 
 pytest.importorskip("duckdb")
 
-from src.core.ingestion.applier import ApplierError, Diff, Entry  # noqa: E402
+from src.core.ingestion.applier import ApplierError, Diff, Entry, Minted  # noqa: E402
 from src.core.ingestion.applier_merge import MergePrimitive  # noqa: E402
 from src.core.ingestion.applier_write import (  # noqa: E402
     VerificationFailed,
@@ -23,7 +24,10 @@ from src.core.ingestion.applier_write import (  # noqa: E402
 )
 from src.core.ingestion.crosswalk import PRODUCER_SOURCE  # noqa: E402
 from src.core.ingestion.mapping import load_manifest  # noqa: E402
-from tests.core.ingestion.applier_fakes import FakeConn  # noqa: E402
+from tests.core.ingestion.applier_fakes import (  # noqa: E402
+    FakeConn,
+    manifest_with_assignments,
+)
 
 MANIFEST = load_manifest()
 P1, P3 = "01P1", "01P3"
@@ -422,3 +426,99 @@ async def test_a_stale_entry_refuses_the_merge_phase_before_the_transaction():
         await _apply_merges(Diff([merge_entry(), stale]), conn, rediff, primitive)
 
     assert conn.events == [] and primitive.calls == []
+
+
+# --- #527: archive, restore and identity creates --------------------------------
+
+ASG = manifest_with_assignments()
+SPANS = "desired_role_assignments"
+START = date(2025, 1, 13)
+RETRACT_SQL = (
+    "UPDATE producer_crosswalk SET retracted_at = NOW()"
+    " WHERE source = $1 AND kind = $2 AND producer_id = $3"
+)
+UNRETRACT_SQL = (
+    "UPDATE producer_crosswalk SET retracted_at = NULL"
+    " WHERE source = $1 AND kind = $2 AND producer_id = $3"
+)
+
+
+def _plan_asg(*entries):
+    return plan_statements(Diff(list(entries)), ASG, source=PRODUCER_SOURCE, ids=_ids())
+
+
+def _span(kind, key, **kw):
+    return E(kind, SPANS, key, producer_id=key, **kw)
+
+
+def test_archives_are_written_first_then_restores_then_creates():
+    """An archive frees the slot a re-segmented create or a restore may take."""
+    identity = {"person_id": (None, "01MQ"), "role_id": (None, "01MR"), "start_date": (None, START)}
+
+    statements, _ = _plan_asg(
+        _span("create", "S_NEW", changes=identity),
+        _span("restore", "S1", pm_id="01RA1"),
+        _span("archive", "S2", pm_id="01RA2"),
+    )
+
+    assert [s.kind for s in statements] == [
+        "archive",
+        "crosswalk",
+        "restore",
+        "crosswalk",
+        "entity",
+        "crosswalk",
+    ]
+
+
+def test_an_archive_stamps_its_anchor_and_a_restore_clears_it():
+    statements, _ = _plan_asg(
+        _span("archive", "S2", pm_id="01RA2"), _span("restore", "S1", pm_id="01RA1")
+    )
+
+    assert _sql(statements) == [
+        (
+            "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1 AND archived_at IS NULL",
+            ("01RA2",),
+        ),
+        (RETRACT_SQL, (PRODUCER_SOURCE, "assignment", "S2")),
+        (
+            "UPDATE role_assignments SET archived_at = NULL"
+            " WHERE id = $1 AND archived_at IS NOT NULL",
+            ("01RA1",),
+        ),
+        (UNRETRACT_SQL, (PRODUCER_SOURCE, "assignment", "S1")),
+    ]
+
+
+def test_a_create_inserts_its_identity_naming_a_row_minted_before_it():
+    """A new legislator: the person's id is the one the plan minted a statement ago."""
+    person = E("create", "desired_people", "Q_NEW")
+    span = _span(
+        "create",
+        "S_NEW",
+        changes={
+            "person_id": (None, Minted("person", "Q_NEW")),
+            "role_id": (None, "01MR"),
+            "start_date": (None, START),
+        },
+    )
+
+    statements, minted = _plan_asg(person, span)
+
+    assert _sql(statements, "entity") == [
+        ("INSERT INTO people (id) VALUES ($1)", ("NEW1",)),
+        (
+            "INSERT INTO role_assignments (id, person_id, role_id, start_date)"
+            " VALUES ($1, $2, $3, $4)",
+            ("NEW3", "NEW1", "01MR", START),
+        ),
+    ]
+    assert minted == {("person", "Q_NEW"): "NEW1", ("assignment", "S_NEW"): "NEW3"}
+
+
+def test_a_reference_to_a_row_no_earlier_create_minted_is_refused():
+    span = _span("create", "S_NEW", changes={"person_id": (None, Minted("person", "Q_GHOST"))})
+
+    with pytest.raises(ApplierError, match="Q_GHOST"):
+        _plan_asg(span)

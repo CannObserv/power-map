@@ -1,7 +1,7 @@
 {{ config(severity='warn') }}
 -- The overlay's vocabulary, per entity type (CR 15). A row naming a field no
 -- model maps for its entity type — or any row for an entity type no model
--- reads yet (role, assignment: #500) — is named here and applied nowhere: the
+-- reads yet (role: #500's PR B) — is named here and applied nowhere: the
 -- design's contract is that an override is never silently ignored
 -- (docs/SCHEMA.md § Curation overlay). Mapping a new field means adding its
 -- pair here and the model that reads it; #498's UI offers exactly these pairs.
@@ -19,4 +19,5 @@ where not (
     (entity_type = 'person' and field = 'name')
     or (entity_type = 'organization'
         and field in ('parent_id', 'legal_name', 'acronym', 'dissolved_year'))
+    or (entity_type = 'assignment' and field in ('start_date', 'end_date', 'is_current'))
 )

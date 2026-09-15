@@ -13,6 +13,7 @@ protocol, so the unit tier runs it against a dict-backed fake and the
 integration tier against asyncpg.
 """
 
+import dataclasses
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
@@ -35,6 +36,7 @@ __all__ = [
     "Diff",
     "Entry",
     "LiveStore",
+    "Minted",
     "Scope",
     "actionable_merges",
     "diff_desired",
@@ -47,12 +49,29 @@ __all__ = [
 # create   an entity the producer publishes that PM has no row for
 # insert   a child row (name, acronym, event) PM lacks
 # update   owned columns differ on a row PM has
-# retract  an in-scope row the producer no longer publishes — report-only here
+# retract  an in-scope row the producer no longer publishes, under `retraction:
+#          report` — or, under `archive`, a row PM archived or restored by its own
+#          hand, which curation keeps (#527). Report-only either way
 # stale    the desired state disagrees with the live crosswalk — rebuild
-# conflict more than one live row matches a keyed child — a person decides
+# conflict more than one live row matches a keyed child, or a create or restore
+#          would take a slot a live row holds (#424) — a person decides
 # merge    a producer tombstone: actionable when `effects` names the primitive
 #          that acts on it (#514), report-only when it names none
-ENTRY_KINDS = ("noop", "create", "insert", "update", "retract", "stale", "conflict", "merge")
+# archive  an in-scope row the producer no longer publishes, under `retraction:
+#          archive` (#527): archived, and its anchor stamped `retracted_at`
+# restore  a row the applier archived that the producer publishes again (#527)
+ENTRY_KINDS = (
+    "noop",
+    "create",
+    "insert",
+    "update",
+    "retract",
+    "stale",
+    "conflict",
+    "merge",
+    "archive",
+    "restore",
+)
 
 
 class ApplierError(RuntimeError):
@@ -101,6 +120,25 @@ class LiveStore(Protocol):
         self, table: str, column: str, values: Sequence, parent: str
     ) -> dict[object, list[str]]: ...
 
+    async def cascade_counts(
+        self, cascades: Mapping[str, Sequence[str]], ids: Sequence[str]
+    ) -> dict[str, dict[str, int]]:
+        """Per id, the unarchived rows of each cascade table naming it in any of its
+        columns — what the database archives with it (#527)."""
+        ...
+
+    async def slot_holders(
+        self, table: str, columns: Sequence[str], tuples: Sequence[tuple]
+    ) -> dict[tuple, list[dict]]:
+        """Rows of ``table`` holding each tuple of ``columns``, as ``{id, archived_at}`` (#527).
+
+        NULLs are equal — the partial identity indexes are ``NULLS NOT DISTINCT``
+        — so the unarchived holders are exactly the rows an insert or unarchive of
+        that tuple would collide with, and the archived ones are the hint that PM
+        once held it.
+        """
+        ...
+
 
 @dataclass(frozen=True)
 class CrosswalkRow:
@@ -110,6 +148,25 @@ class CrosswalkRow:
     producer_id: str
     pm_id: str | None
     resolution: str
+    # #527: the time the applier archived the row this anchor names — the same
+    # transaction's NOW() it writes to the row's `archived_at`, which is the
+    # provenance that lets it restore its own archives and no one else's
+    retracted_at: object = None
+
+
+@dataclass(frozen=True)
+class Minted:
+    """A reference to the row this run mints for ``(entity, producer_id)`` (#527).
+
+    Stands in an identity column's value until the writer knows the id; as text
+    — which is how the digest and the report see it — it names what it points at.
+    """
+
+    entity: str
+    producer_id: str
+
+    def __str__(self) -> str:
+        return f"minted:{self.entity}:{self.producer_id}"
 
 
 @dataclass(frozen=True)
@@ -150,7 +207,10 @@ class Scope:
     async def load(cls, store: LiveStore, *, source: str, kinds: Sequence[str]) -> "Scope":
         rows = await store.crosswalk(source, kinds)
         return cls(
-            CrosswalkRow(r["kind"], r["producer_id"], r.get("pm_id"), r["resolution"]) for r in rows
+            CrosswalkRow(
+                r["kind"], r["producer_id"], r.get("pm_id"), r["resolution"], r.get("retracted_at")
+            )
+            for r in rows
         )
 
     def row(self, kind: str, producer_id: str) -> CrosswalkRow | None:
@@ -253,7 +313,9 @@ def scope_rows(
 
 @dataclass
 class Diff:
-    """Every entry of one run, in manifest table order then key order."""
+    """Every entry of one run: scope's `stale` entries, then each shape in turn —
+    entity bindings first, a referenced entity's before the binding naming it
+    (#527) — each table in manifest order and its rows in key order."""
 
     entries: list[Entry]
 
@@ -313,7 +375,18 @@ async def diff_desired(
     canonical claim in `_diff_child` — must reach the same answer, and the run
     the same digest, whichever order a rebuild happened to write.
     """
-    kinds = sorted({spec.entity for spec in manifest.tables.values()})
+    # Every kind a binding scopes, and every kind an identity reference names —
+    # an assignment resolves its role through the crosswalk before roles are a
+    # binding of their own (#527).
+    kinds = sorted(
+        {spec.entity for spec in manifest.tables.values()}
+        | {
+            i.entity
+            for spec in manifest.tables.values()
+            for i in spec.target.identity.values()
+            if i.entity
+        }
+    )
     scope = await Scope.load(store, source=source, kinds=kinds)
     entries: list[Entry] = []
     kept: dict[str, list[dict]] = {}
@@ -326,14 +399,20 @@ async def diff_desired(
         entries.extend(stale)
 
     creating: set[tuple[str, str]] = set()
-    for name, spec in manifest.tables.items():
-        if spec.target.shape == "entity":
-            found = await _diff_entity(spec, kept[name], state, manifest, scope, store)
-            entries.extend(found)
-            creating |= {(spec.entity, e.producer_id) for e in found if e.kind == "create"}
+    restored: dict[str, dict[tuple, list[str]]] = {}  # binding → slot → rows restored onto it
+    for name, spec in _entity_order(manifest):
+        found = await _diff_entity(
+            spec, kept[name], state, manifest, scope, store, creating, restored
+        )
+        entries.extend(found)
+        creating |= {(spec.entity, e.producer_id) for e in found if e.kind == "create"}
+    plan = _entity_plan(manifest, entries, restored)
     for name, spec in manifest.tables.items():
         if spec.target.shape == "column":
-            entries.extend(await _diff_column(spec, kept[name], creating, store))
+            entity = _entity_binding(manifest, spec)
+            entries.extend(
+                await _diff_column(spec, kept[name], creating, store, entity=entity, plan=plan)
+            )
     for name, spec in manifest.tables.items():
         if spec.target.shape == "child":
             entries.extend(await _diff_child(spec, kept[name], creating, state, scope, store))
@@ -354,6 +433,77 @@ def _entry(spec: TableSpec, row: dict, kind: str, **kw) -> Entry:
     )
 
 
+def _entity_plan(
+    manifest: Manifest,
+    entries: Sequence[Entry],
+    restored: Mapping[str, Mapping[tuple, list[str]]],
+) -> "_EntityPlan":
+    """Collect what the entity bindings decided, for the column bindings after them."""
+    slots: dict[str, dict[tuple, list[str]]] = {}
+    for e in entries:
+        spec = manifest.tables.get(e.table)
+        if e.kind != "create" or spec is None or not spec.target.unique_live:
+            continue
+        slot = tuple(e.changes[c][1] for c in spec.target.unique_live if c in e.changes)
+        if len(slot) == len(spec.target.unique_live) and not any(
+            isinstance(v, Minted) for v in slot
+        ):
+            slots.setdefault(e.table, {}).setdefault(slot, []).append(e.producer_id)
+    return _EntityPlan(
+        archiving=frozenset(e.pm_id for e in entries if e.kind == "archive"),
+        restoring=frozenset(e.pm_id for e in entries if e.kind == "restore"),
+        create_slots=slots,
+        restore_slots=restored,
+    )
+
+
+def _entity_order(manifest: Manifest) -> list[tuple[str, TableSpec]]:
+    """Entity bindings in manifest order, except that a binding whose `identity`
+    references another entity comes after that entity's own binding — so a
+    create it names is already known, whichever order the manifest lists them."""
+    pending = [(n, s) for n, s in manifest.tables.items() if s.target.shape == "entity"]
+    providers = {s.entity for _, s in pending}
+    ordered: list[tuple[str, TableSpec]] = []
+    placed: set[str] = set()
+    while pending:
+        ready = [
+            (n, s)
+            for n, s in pending
+            if {i.entity for i in s.target.identity.values() if i.entity} & providers - {s.entity}
+            <= placed
+        ]
+        if not ready:
+            names = ", ".join(n for n, _ in pending)
+            raise ApplierError(f"entity bindings reference each other in a cycle: {names}")
+        for item in ready:
+            ordered.append(item)
+            placed.add(item[1].entity)
+            pending.remove(item)
+    return ordered
+
+
+def _absent(spec: TableSpec, state: DesiredState, manifest: Manifest, scope: Scope) -> list[str]:
+    """In-scope producer ids of ``spec.entity`` the snapshot no longer carries.
+
+    An absent producer id a tombstone accounts for is a merge, not a retraction
+    (#514): before the merge it is a loser in this build's merge table; after it,
+    its anchor resolves to a row a published id still claims.
+    """
+    present = {r["producer_id"] for r in state.tables[spec.name]}
+    merged_away = {
+        r.get("loser_producer_id")
+        for other in manifest.tables.values()
+        if other.target.shape == "merge" and other.entity == spec.entity
+        for r in state.tables[other.name]
+    }
+    claimed = {scope.resolve(spec.entity, p) for p in present} - {None}
+    return [
+        producer_id
+        for producer_id in sorted(scope.in_scope(spec.entity) - present - merged_away)
+        if scope.resolve(spec.entity, producer_id) not in claimed
+    ]
+
+
 async def _diff_entity(
     spec: TableSpec,
     rows: Sequence[dict],
@@ -361,51 +511,64 @@ async def _diff_entity(
     manifest: Manifest,
     scope: Scope,
     store: LiveStore,
+    creating: set[tuple[str, str]],
+    restored: dict[str, dict[tuple, list[str]]],
 ) -> list[Entry]:
-    if spec.retraction == "archive":
-        raise ApplierError(
-            f"{spec.name}: retraction 'archive' is #500's to build — this applier reports only"
-        )
     table = spec.target.table
+    archiving = spec.retraction == "archive"
     anchored = [r for r in rows if r.get(spec.pm_key) is not None]
+    unique = tuple(spec.target.unique_live)
     live = (
-        await store.entity_rows(table, [r[spec.pm_key] for r in anchored], columns=())
+        await store.entity_rows(table, [r[spec.pm_key] for r in anchored], columns=unique)
         if anchored
         else {}
     )
     entries: list[Entry] = []
+    # Absence first under `archive`: the rows it retires free their slots on the
+    # partial identity index, and a restore below may be taking one of them.
+    archived_now: set[str] = set()
+    if archiving:
+        entries.extend(
+            await _diff_absent(spec, rows, state, manifest, scope, store, creating, archived_now)
+        )
+
+    restoring: list[tuple[dict, dict]] = []
     for row in anchored:
         pm_id = row[spec.pm_key]
         found = live.get(pm_id)
         if found is None:
             entries.append(_entry(spec, row, "stale", reason=f"live row missing: {table}/{pm_id}"))
-        elif found.get("archived_at") is not None:
+        elif found.get("archived_at") is None:
+            entries.append(_entry(spec, row, "noop"))
+        elif not archiving:
             entries.append(
                 _entry(spec, row, "stale", reason=f"live row archived since the export: {pm_id}")
             )
+        elif _applier_archived(scope.row(spec.entity, row["producer_id"]), found):
+            restoring.append((row, found))
         else:
-            entries.append(_entry(spec, row, "noop"))
+            entries.append(
+                _entry(
+                    spec,
+                    row,
+                    "retract",
+                    reason="archived in PM while the producer still publishes it; PM's archive"
+                    " stands and nothing is written",
+                )
+            )
+    restores, taken = await _diff_restores(spec, restoring, archived_now, store)
+    entries.extend(restores)
+    if taken:
+        restored[spec.name] = taken
 
     creates = [r for r in rows if r.get(spec.pm_key) is None]
     hints = await _create_hints(spec, creates, state, manifest, store)
-    for row in creates:
-        entries.append(_entry(spec, row, "create", hint=hints.get(row["producer_id"], ())))
+    entries.extend(
+        await _diff_creates(spec, creates, hints, scope, creating, archived_now, taken, store)
+    )
 
     if spec.retraction == "report":
-        present = {r["producer_id"] for r in state.tables[spec.name]}
-        # An absent producer id a tombstone accounts for is a merge, not a
-        # retraction (#514): before the merge it is a loser in this build's merge
-        # table; after it, its anchor resolves to a row a published id still claims.
-        merged_away = {
-            r.get("loser_producer_id")
-            for name, other in manifest.tables.items()
-            if other.target.shape == "merge" and other.entity == spec.entity
-            for r in state.tables[name]
-        }
-        claimed = {scope.resolve(spec.entity, p) for p in present} - {None}
-        for producer_id in sorted(scope.in_scope(spec.entity) - present - merged_away):
-            if scope.resolve(spec.entity, producer_id) in claimed:
-                continue
+        for producer_id in _absent(spec, state, manifest, scope):
             row = {"producer_id": producer_id, spec.pm_key: scope.resolve(spec.entity, producer_id)}
             entries.append(
                 _entry(
@@ -416,6 +579,268 @@ async def _diff_entity(
                 )
             )
     return entries
+
+
+def _applier_archived(anchor: CrosswalkRow, live_row: Mapping) -> bool:
+    """Whether the row's archive is the applier's own (#527, CR 1).
+
+    Its archive stamps the anchor's `retracted_at` and the row's `archived_at`
+    with one transaction's NOW(), so the two are equal. The stamp outlives a
+    person's restore; if they archive the row again, that archive carries its own
+    time and stays PM's.
+    """
+    return anchor.retracted_at is not None and anchor.retracted_at == live_row.get("archived_at")
+
+
+async def _diff_absent(
+    spec: TableSpec,
+    rows: Sequence[dict],
+    state: DesiredState,
+    manifest: Manifest,
+    scope: Scope,
+    store: LiveStore,
+    creating: set[tuple[str, str]],
+    archived_now: set[str],
+) -> list[Entry]:
+    """Under `retraction: archive`, what absence means for each in-scope row (#527).
+
+    Its live row archives — unless a person restored it after the applier had
+    archived it (`retracted_at` still set), which curation keeps. A row already
+    archived stays so; one that is gone is `stale`. ``archived_now`` collects the
+    rows this plan archives, which no longer hold a slot for a restore or create.
+    Each archive names, in ``effects``, the published spans on its `supersession`
+    tuple — the pairing #501's triage reads (usa-wa#289: a collapsed span).
+    """
+    absent = _absent(spec, state, manifest, scope)
+    if not absent:
+        return []
+    table = spec.target.table
+    pairing = spec.target.supersession
+    ids = {p: scope.resolve(spec.entity, p) for p in absent}
+    found = await store.entity_rows(table, sorted(set(ids.values())), columns=tuple(pairing))
+    published: dict[tuple, list[str]] = {}
+    if pairing:
+        for row in rows:
+            resolved = _resolve_identity(spec, row, scope, creating)
+            if isinstance(resolved, dict):
+                key = tuple(resolved.get(c) for c in pairing)
+                published.setdefault(key, []).append(row["producer_id"])
+    entries: list[Entry] = []
+    for producer_id in absent:
+        pm_id = ids[producer_id]
+        row = {"producer_id": producer_id, spec.pm_key: pm_id}
+        live_row = found.get(pm_id)
+        if live_row is None:
+            entries.append(_entry(spec, row, "stale", reason=f"live row missing: {table}/{pm_id}"))
+        elif live_row.get("archived_at") is not None:
+            entries.append(_entry(spec, row, "noop"))
+        elif scope.row(spec.entity, producer_id).retracted_at is not None:
+            entries.append(
+                _entry(
+                    spec,
+                    row,
+                    "retract",
+                    reason="restored in PM after the applier archived it; the producer still"
+                    " omits it, PM's restore stands and nothing is written",
+                )
+            )
+        else:
+            archived_now.add(pm_id)
+            covering = published.get(tuple(live_row.get(c) for c in pairing), []) if pairing else []
+            entries.append(
+                _entry(
+                    spec,
+                    row,
+                    "archive",
+                    reason="absent from the snapshot; policy is archive",
+                    effects={"superseded_by": sorted(covering)} if covering else {},
+                )
+            )
+    return await _with_cascades(spec, entries, store)
+
+
+async def _with_cascades(spec: TableSpec, entries: list[Entry], store: LiveStore) -> list[Entry]:
+    """Each archive with the rows the database archives along with it (#527) —
+    the #301 relationships on an assignment. Previewed because a restore does not
+    bring them back; enters the digest as what the archive does."""
+    cascades = spec.target.cascades
+    ids = sorted({e.pm_id for e in entries if e.kind == "archive"})
+    if not cascades or not ids:
+        return entries
+    counts = await store.cascade_counts(cascades, ids)
+    out: list[Entry] = []
+    for e in entries:
+        found = (
+            {t: n for t, n in counts.get(e.pm_id, {}).items() if n} if e.kind == "archive" else {}
+        )
+        out.append(dataclasses.replace(e, effects={**e.effects, "cascades": found}) if found else e)
+    return out
+
+
+def _resolve_identity(
+    spec: TableSpec, row: dict, scope: Scope, creating: set[tuple[str, str]]
+) -> dict[str, object] | str:
+    """PM column → value for everything a create of ``row`` writes; a reference
+    resolves to its in-scope PM id, or to the row this run mints for it. Returns
+    the reason instead when a reference is neither — the row cannot be written."""
+    out: dict[str, object] = {}
+    for col, ident in spec.target.identity.items():
+        value = row.get(col)
+        if ident.entity is not None and value is None:
+            return f"names no {ident.entity}; a create cannot be written without one"
+        if ident.entity is not None:
+            pm_id = scope.resolve(ident.entity, value)
+            if pm_id is None:
+                if (ident.entity, value) not in creating:
+                    return f"names {ident.entity} {value}, neither in scope nor created this run"
+                pm_id = Minted(ident.entity, value)
+            value = pm_id
+        out[ident.column] = value
+    return out
+
+
+async def _diff_creates(
+    spec: TableSpec,
+    creates: Sequence[dict],
+    hints: Mapping[str, tuple[dict, ...]],
+    scope: Scope,
+    creating: set[tuple[str, str]],
+    archived_now: set[str],
+    restored: Mapping[tuple, list[str]],
+    store: LiveStore,
+) -> list[Entry]:
+    """A `create` per unanchored row, carrying the identity its INSERT writes (#527).
+
+    A reference that resolves nowhere is `stale`. On a binding with
+    `unique_live`, a create whose tuple a live row holds — or a restore of this
+    run takes back, or another create of this run shares — is a `conflict`: the
+    INSERT would collide. A holder this plan archives first does not count. An
+    archived holder is a hint: PM once held this slot, and the row may be the
+    same tenure.
+    """
+    table = spec.target.table
+    unique = spec.target.unique_live
+    entries: list[Entry] = []
+    pending: list[tuple[dict, dict[str, object]]] = []
+    for row in creates:
+        resolved = _resolve_identity(spec, row, scope, creating)
+        if isinstance(resolved, str):
+            entries.append(_entry(spec, row, "stale", reason=resolved))
+        else:
+            pending.append((row, resolved))
+
+    slots: dict[str, tuple] = {}
+    if unique:
+        for row, resolved in pending:
+            slots[row["producer_id"]] = tuple(resolved.get(c) for c in unique)
+    # A tuple naming a row this run mints has no holder yet, so it is not probed —
+    # but two creates can still share it (CR 2).
+    probe = [k for k in dict.fromkeys(slots.values()) if not any(isinstance(v, Minted) for v in k)]
+    holders = await store.slot_holders(table, unique, probe) if probe else {}
+    sharing: dict[tuple, list[str]] = {}
+    for producer_id, key in slots.items():
+        sharing.setdefault(key, []).append(producer_id)
+
+    for row, resolved in pending:
+        producer_id = row["producer_id"]
+        key = slots.get(producer_id)
+        found = holders.get(key, []) if key is not None else []
+        blocking = sorted(
+            h["id"] for h in found if h.get("archived_at") is None and h["id"] not in archived_now
+        )
+        restoring = sorted(restored.get(key, [])) if key is not None else []
+        rivals = sorted(p for p in sharing.get(key, []) if p != producer_id) if key else []
+        if blocking or restoring or rivals:
+            held = ", ".join(
+                [
+                    *blocking,
+                    *(f"the restore of {p}" for p in restoring),
+                    *(f"the create of {p}" for p in rivals),
+                ]
+            )
+            entries.append(
+                _entry(
+                    spec,
+                    row,
+                    "conflict",
+                    reason=f"creating it would take the slot {held} holds on"
+                    f" ({', '.join(unique)}); a person decides",
+                )
+            )
+            continue
+        archived = tuple(
+            {"table": table, "columns": list(unique), "archived_holder": h["id"]}
+            for h in sorted(found, key=lambda h: h["id"])
+            if h.get("archived_at") is not None
+        )
+        entries.append(
+            _entry(
+                spec,
+                row,
+                "create",
+                changes={col: (None, value) for col, value in resolved.items()},
+                hint=tuple(hints.get(producer_id, ())) + archived,
+            )
+        )
+    return entries
+
+
+async def _diff_restores(
+    spec: TableSpec,
+    restoring: Sequence[tuple[dict, dict]],
+    archived_now: set[str],
+    store: LiveStore,
+) -> tuple[list[Entry], dict[tuple, list[str]]]:
+    """A `restore` per row the applier archived and the producer publishes again —
+    or a `conflict` when a live row now holds its slot on the partial identity
+    index (#424): unarchiving it would collide, and which of the two is the
+    tenure is a person's call. A holder this plan archives first does not count.
+    Two restores onto one slot conflict alike (CR 2). Returns the entries and the
+    slots the restores take back, which a create or move of this run cannot."""
+    if not restoring:
+        return [], {}
+    unique = spec.target.unique_live
+    tuples = {row[spec.pm_key]: tuple(found.get(c) for c in unique) for row, found in restoring}
+    holders = await store.slot_holders(
+        spec.target.table, unique, list(dict.fromkeys(tuples.values()))
+    )
+    sharing: dict[tuple, list[str]] = {}
+    for pm_id, key in tuples.items():
+        sharing.setdefault(key, []).append(pm_id)
+    entries: list[Entry] = []
+    taken: dict[tuple, list[str]] = {}
+    for row, _found in restoring:
+        pm_id = row[spec.pm_key]
+        key = tuples[pm_id]
+        blocking = sorted(
+            h["id"]
+            for h in holders.get(key, [])
+            if h.get("archived_at") is None and h["id"] != pm_id and h["id"] not in archived_now
+        )
+        rivals = sorted(p for p in sharing[key] if p != pm_id)
+        if blocking or rivals:
+            held = ", ".join([*blocking, *(f"the restore of {p}" for p in rivals)])
+            entries.append(
+                _entry(
+                    spec,
+                    row,
+                    "conflict",
+                    reason=f"restoring {pm_id} would take the slot {held} holds"
+                    f" on ({', '.join(unique)}) — #424; a person decides",
+                )
+            )
+        else:
+            taken.setdefault(key, []).append(pm_id)
+            entries.append(
+                _entry(
+                    spec,
+                    row,
+                    "restore",
+                    reason="published again after the applier archived it; what archived"
+                    " with it stays archived",
+                )
+            )
+    return entries, taken
 
 
 async def _create_hints(
@@ -455,15 +880,56 @@ async def _create_hints(
     return {k: tuple(v) for k, v in hints.items()}
 
 
+@dataclass(frozen=True)
+class _EntityPlan:
+    """What the entity bindings decided, as a column binding on the same table
+    needs it (#527): which rows this plan archives and restores, and the slots
+    its creates and restores take on the partial identity index."""
+
+    archiving: frozenset[str] = frozenset()
+    restoring: frozenset[str] = frozenset()
+    create_slots: Mapping[str, Mapping[tuple, list[str]]] = field(default_factory=dict)
+    restore_slots: Mapping[str, Mapping[tuple, list[str]]] = field(default_factory=dict)
+
+
+def _entity_binding(manifest: Manifest, spec: TableSpec) -> TableSpec | None:
+    """The entity binding of the PM table a column or child binding writes to."""
+    return next(
+        (
+            s
+            for s in manifest.tables.values()
+            if s.target.shape == "entity"
+            and s.entity == spec.entity
+            and s.target.table == spec.target.table
+        ),
+        None,
+    )
+
+
 async def _diff_column(
-    spec: TableSpec, rows: Sequence[dict], creating: set[tuple[str, str]], store: LiveStore
+    spec: TableSpec,
+    rows: Sequence[dict],
+    creating: set[tuple[str, str]],
+    store: LiveStore,
+    *,
+    entity: TableSpec | None = None,
+    plan: _EntityPlan = _EntityPlan(),
 ) -> list[Entry]:
     target = spec.target
     columns = target.columns  # desired column → PM column
     pm_columns = tuple(columns.values())
+    # #527: the entity binding of the same table, when it has one, decides three
+    # things here: which moves are moves on its partial identity index, what a
+    # create already wrote, and whether an archived row is its report or stale.
+    unique = tuple(entity.target.unique_live) if entity is not None else ()
+    written = {i.column for i in entity.target.identity.values()} if entity is not None else set()
+    archives = entity is not None and entity.retraction == "archive"
+    asserted = set(target.asserts_null)
     anchored = [r for r in rows if r.get(spec.pm_key) is not None]
     live = (
-        await store.entity_rows(target.table, [r[spec.pm_key] for r in anchored], pm_columns)
+        await store.entity_rows(
+            target.table, [r[spec.pm_key] for r in anchored], (*pm_columns, *unique)
+        )
         if anchored
         else {}
     )
@@ -471,17 +937,30 @@ async def _diff_column(
     # A null in an owned column is silence, not an instruction to clear PM's
     # value (CR 5). `retraction: none` says an absent row says nothing; a
     # present row carrying a null must not say more than one that is missing.
+    # `asserts_null` names the exceptions (#527): there, null is the value.
     def claimed(row: dict) -> list[str]:
-        return [d for d in columns if row.get(d) is not None]
+        return [d for d in columns if row.get(d) is not None or d in asserted]
 
     entries: list[Entry] = []
+    moving: list[tuple[dict, str, tuple, dict]] = []
     for row in rows:
         pm_id = row.get(spec.pm_key)
         if pm_id is None:
             if (spec.entity, row["producer_id"]) not in creating:
-                entries.append(_entry(spec, row, "stale", reason="no entity row is created for it"))
+                # The entity binding says why (a conflict, a reference that resolves
+                # nowhere): a rebuild would not help, so point at it (CR 5).
+                reason = "no entity row is created for it"
+                if entity is not None:
+                    reason += f"; see its {entity.name} entry"
+                entries.append(_entry(spec, row, "stale", reason=reason))
                 continue
-            changes = {columns[d]: (None, row[d]) for d in claimed(row)}
+            # The create's INSERT already wrote its identity, and a new row's
+            # columns start null — so neither is a write here.
+            changes = {
+                columns[d]: (None, row[d])
+                for d in claimed(row)
+                if columns[d] not in written and row.get(d) is not None
+            }
             entries.append(
                 _entry(
                     spec,
@@ -497,17 +976,75 @@ async def _diff_column(
             entries.append(
                 _entry(spec, row, "stale", reason=f"live row missing: {target.table}/{pm_id}")
             )
-        elif found.get("archived_at") is not None:
+            continue
+        if found.get("archived_at") is not None and pm_id not in plan.restoring:
+            if not archives:
+                entries.append(
+                    _entry(
+                        spec, row, "stale", reason=f"live row archived since the export: {pm_id}"
+                    )
+                )
+            # else: PM archived it and the entity binding has reported it (#527)
+            continue
+        changes = {
+            columns[d]: (found.get(columns[d]), row.get(d))
+            for d in claimed(row)
+            if found.get(columns[d]) != row.get(d)
+        }
+        if unique and set(changes) & set(unique):
+            slot = tuple(changes[c][1] if c in changes else found.get(c) for c in unique)
+            moving.append((row, pm_id, slot, changes))
+        else:
+            entries.append(_entry(spec, row, "update" if changes else "noop", changes=changes))
+    if moving:
+        entries.extend(await _diff_moves(spec, entity, moving, plan, store))
+    return entries
+
+
+async def _diff_moves(
+    spec: TableSpec,
+    entity: TableSpec,
+    moving: Sequence[tuple[dict, str, tuple, dict]],
+    plan: _EntityPlan,
+    store: LiveStore,
+) -> list[Entry]:
+    """Updates that move a row on its partial identity index (#527), checked as a
+    create is: a live holder of the new slot — other than the row itself, and not
+    archived by this plan — or another move, create or restore (CR 2) of this run
+    onto it, is a `conflict`. Otherwise the UPDATE would fail the index
+    mid-transaction."""
+    unique = entity.target.unique_live
+    holders = await store.slot_holders(
+        spec.target.table, unique, list(dict.fromkeys(slot for _, _, slot, _ in moving))
+    )
+    sharing: dict[tuple, list[str]] = {}
+    for row, _, slot, _ in moving:
+        sharing.setdefault(slot, []).append(row["producer_id"])
+    creates = plan.create_slots.get(entity.name, {})
+    restores = plan.restore_slots.get(entity.name, {})
+    entries: list[Entry] = []
+    for row, pm_id, slot, changes in moving:
+        blocking = sorted(
+            h["id"]
+            for h in holders.get(slot, [])
+            if h.get("archived_at") is None and h["id"] != pm_id and h["id"] not in plan.archiving
+        )
+        rivals = [p for p in sharing[slot] if p != row["producer_id"]]
+        rivals += [f"the create of {p}" for p in creates.get(slot, [])]
+        rivals += [f"the restore of {p}" for p in restores.get(slot, []) if p != pm_id]
+        if blocking or rivals:
+            held = ", ".join([*blocking, *sorted(rivals)])
             entries.append(
-                _entry(spec, row, "stale", reason=f"live row archived since the export: {pm_id}")
+                _entry(
+                    spec,
+                    row,
+                    "conflict",
+                    reason=f"moving {pm_id} would take the slot {held} holds on"
+                    f" ({', '.join(unique)}); a person decides",
+                )
             )
         else:
-            changes = {
-                columns[d]: (found.get(columns[d]), row[d])
-                for d in claimed(row)
-                if found.get(columns[d]) != row[d]
-            }
-            entries.append(_entry(spec, row, "update" if changes else "noop", changes=changes))
+            entries.append(_entry(spec, row, "update", changes=changes))
     return entries
 
 
@@ -634,10 +1171,6 @@ async def _diff_child(
     type on an in-scope parent that the snapshot no longer carries is a
     `retract` entry; every other live row is invisible.
     """
-    if spec.retraction == "archive":
-        raise ApplierError(
-            f"{spec.name}: retraction 'archive' is #500's to build — this applier reports only"
-        )
     target = spec.target
     columns = target.columns  # desired column → PM column
 

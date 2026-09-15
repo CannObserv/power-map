@@ -99,7 +99,7 @@ def test_the_manifest_the_models_and_the_admin_agree_on_the_pinnable_fields():
     """#498: the manifest names each owned slot's overlay field, the models accept
     exactly those pairs, and the admin offers exactly those. A slot in one list and
     not another is a pin that is refused, ignored, or never offered."""
-    manifest = {(s.entity, s.overlay) for s in load_manifest().tables.values() if s.overlay}
+    manifest = {(s.entity, f) for s in load_manifest().tables.values() for f in s.overlays.values()}
 
     assert _vocabulary_pairs() == manifest
     assert set(SLOTS) == manifest
@@ -107,4 +107,4 @@ def test_the_manifest_the_models_and_the_admin_agree_on_the_pinnable_fields():
 
 def test_the_vocabulary_parser_reads_every_pair_the_sql_names():
     """The sync test above must not pass by parsing nothing."""
-    assert len(_vocabulary_pairs()) == 5
+    assert len(_vocabulary_pairs()) == 8

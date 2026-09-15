@@ -7,7 +7,7 @@ as `COALESCE(overlay, mapped)`, so the applier needs no per-row gate and a
 curator's correction is never silently reverted (design:
 `docs/plans/2026-09-11-curation-overlay-design.md`).
 
-## The five slots
+## The eight slots
 
 A slot is a producer-owned field on an entity in the producer's row scope — a
 `live` or `merged` `producer_crosswalk` row. Outside that scope nothing here
@@ -20,6 +20,13 @@ applies: editing is direct curation, as before.
 | `organization.acronym` | canonical `organization_acronyms` row (else the earliest) | `orgs_acronyms.py` |
 | `organization.parent_id` | `organizations.parent_id` | `orgs.py`: inline parent, add child, remove child (the *child* is tracked) |
 | `organization.dissolved_year` | year of the unarchived `dissolved` event | `_events_shared.py`: create, edit, archive, unarchive |
+| `assignment.start_date` | `role_assignments.start_date` | `role_assignments.py` dates form; the person- and role-page edit rows |
+| `assignment.end_date` | `role_assignments.end_date` | as `start_date` |
+| `assignment.is_current` | `role_assignments.is_current` (a pin stores `True`/`False`) | `role_assignments.py` currency toggle; both edit rows |
+
+The three assignment slots (#527) show on the assignment page. The model keeps
+each pinned pair legal against `chk_current_no_end_date`: a pinned current span
+drops the producer's end date, and a pinned end date makes the span former.
 
 The registry is `src/api/admin/overlay_slots.py` (`SLOTS`). It must name the
 same pairs as `manifest.yml`'s `overlay:` keys and the dbt test

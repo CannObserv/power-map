@@ -364,7 +364,20 @@ DO UPDATE SET
     producer_id         = EXCLUDED.producer_id,
     exported_pm_id      = EXCLUDED.exported_pm_id,
     pm_id               = EXCLUDED.pm_id,
-    resolution          = EXCLUDED.resolution,
+    -- #527: an anchor whose row the applier archived stays in the applier's scope,
+    -- which restores the row when the producer publishes it again. Its stamp names
+    -- that row, so an export that re-points the anchor clears it.
+    resolution          = CASE
+                              WHEN producer_crosswalk.retracted_at IS NOT NULL
+                               AND producer_crosswalk.pm_id = EXCLUDED.pm_id
+                               AND EXCLUDED.resolution = 'archived'
+                              THEN producer_crosswalk.resolution
+                              ELSE EXCLUDED.resolution
+                          END,
+    retracted_at        = CASE
+                              WHEN producer_crosswalk.pm_id IS NOT DISTINCT FROM EXCLUDED.pm_id
+                              THEN producer_crosswalk.retracted_at
+                          END,
     export_generated_at = EXCLUDED.export_generated_at,
     export_sha256       = EXCLUDED.export_sha256
 """

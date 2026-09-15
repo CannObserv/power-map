@@ -203,3 +203,19 @@ async def test_apply_schema_adds_exported_producer_id_backfilled_from_the_export
     assert exported == {seeded: seeded, minted: None}
     assert "(source, kind, exported_producer_id)" in indexdef
     assert "WHERE (exported_producer_id IS NOT NULL)" in indexdef
+
+
+async def test_apply_schema_adds_retracted_at_to_a_crosswalk_that_predates_it(db_pool):
+    """#527: `ADD COLUMN IF NOT EXISTS` is the whole reconciliation — a nullable
+    timestamp, NULL on every existing row, since nothing has been retracted yet."""
+    async with db_pool.acquire() as conn:
+        await conn.execute("ALTER TABLE producer_crosswalk DROP COLUMN IF EXISTS retracted_at")
+
+        await apply_schema(conn)
+
+        col = await conn.fetchrow(
+            "SELECT data_type, is_nullable FROM information_schema.columns"
+            " WHERE table_name = 'producer_crosswalk' AND column_name = 'retracted_at'"
+        )
+    assert col is not None
+    assert (col["data_type"], col["is_nullable"]) == ("timestamp with time zone", "YES")
