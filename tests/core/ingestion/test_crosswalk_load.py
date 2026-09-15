@@ -428,3 +428,57 @@ async def test_stale_compares_exported_ids_and_skips_rows_the_applier_minted(db)
     report = await load_anchors(db, SOURCE, [anchor], execute=True)
 
     assert report.stale == []
+
+
+# #527 (CR 3): an anchor whose row the applier archived is kept in scope by the
+# applier, which restores the row when the producer publishes it again. A re-seed
+# that took it out of scope would drop that span from the model without a word.
+
+
+async def _retract(db, anchor: Anchor) -> None:
+    """What the applier's archive writes: the row's archived_at and the anchor's
+    retracted_at, one transaction's NOW()."""
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", anchor.pm_id)
+    await db.execute(
+        "UPDATE producer_crosswalk SET retracted_at = NOW()"
+        " WHERE source = $1 AND exported_producer_id = $2",
+        SOURCE,
+        anchor.producer_id,
+    )
+
+
+async def test_a_re_seed_keeps_an_anchor_the_applier_retracted_in_scope(db):
+    anchor = await _assignment_anchor(db, span_key=_span(generate_id()))
+    await load_anchors(db, SOURCE, [anchor], execute=True)
+    await _retract(db, anchor)
+
+    await load_anchors(db, SOURCE, [anchor], execute=True)
+
+    row = await _by_exported(db, anchor.producer_id)
+    assert (row["resolution"], row["pm_id"]) == ("live", anchor.pm_id)
+    assert row["retracted_at"] is not None
+
+
+async def test_a_re_seed_still_takes_an_anchor_pm_archived_out_of_scope(db):
+    """No stamp: the archive is PM's, and the seed's rule stands."""
+    anchor = await _assignment_anchor(db, span_key=_span(generate_id()))
+    await load_anchors(db, SOURCE, [anchor], execute=True)
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", anchor.pm_id)
+
+    await load_anchors(db, SOURCE, [anchor], execute=True)
+
+    assert (await _by_exported(db, anchor.producer_id))["resolution"] == "archived"
+
+
+async def test_a_re_seed_that_re_points_a_retracted_anchor_clears_its_stamp(db):
+    """The stamp names the row the applier archived; another row is not its archive."""
+    anchor = await _assignment_anchor(db, span_key=_span(generate_id()))
+    await load_anchors(db, SOURCE, [anchor], execute=True)
+    await _retract(db, anchor)
+    other = await _assignment_anchor(db, span_key=None)
+    moved = Anchor(anchor.kind, anchor.producer_id, other.pm_id, anchor.span_key)
+
+    await load_anchors(db, SOURCE, [moved], execute=True)
+
+    row = await _by_exported(db, anchor.producer_id)
+    assert (row["resolution"], row["pm_id"], row["retracted_at"]) == ("live", other.pm_id, None)
