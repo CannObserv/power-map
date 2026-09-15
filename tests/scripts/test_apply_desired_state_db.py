@@ -12,7 +12,7 @@ canonical, and a second run — the same build or the next night's — a no-op.
 
 import itertools
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -376,7 +376,12 @@ async def test_a_crosswalk_change_between_build_and_apply_is_stale(world):
 
 async def _heck(db, tmp_path):
     marker = generate_id()[-6:]
-    ids = {"x_s": f"XS{marker}", "x_l": f"XL{marker}", "x_ra": f"XR{marker}"}
+    ids = {
+        "x_s": f"XS{marker}",
+        "x_l": f"XL{marker}",
+        "x_ra": f"XR{marker}",
+        "x_role": f"XO{marker}",
+    }
     ids["s"], ids["l"], org, role, ids["ra"] = (generate_id() for _ in range(5))
     ids["denny"], ids["dennis"] = generate_id(), generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1), ($2)", ids["s"], ids["l"])
@@ -443,6 +448,25 @@ def _write_heck(h, *, with_merge_row=True):
         ]
         if with_merge_row
         else [],
+        # usa-wa still publishes the party span (#527): absent, it would archive
+        desired_role_assignments=[
+            {
+                "pm_id": h["ra"],
+                "producer_id": h["x_ra"],
+                "person_producer_id": h["x_s"],
+                "role_producer_id": h["x_role"],
+                "start_date": date(1977, 1, 1),
+            }
+        ],
+        desired_role_assignment_dates=[
+            {
+                "pm_id": h["ra"],
+                "producer_id": h["x_ra"],
+                "start_date": date(1977, 1, 1),
+                "end_date": date(1985, 1, 11),
+                "is_current": False,
+            }
+        ],
     )
 
 

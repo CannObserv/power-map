@@ -66,6 +66,8 @@ class Slot:
     display_sql: str | None = None
 
 
+_ASSIGNMENT_COLUMN = "SELECT {} FROM role_assignments WHERE id = $1"
+
 _SLOTS = (
     Slot(
         "person",
@@ -105,6 +107,11 @@ _SLOTS = (
         "   AND t.slug = 'dissolved' AND e.archived_at IS NULL"
         " ORDER BY e.created_at, e.id LIMIT 1",
     ),
+    # #527: the three columns usa-wa owns on an assignment, pinned apart so a
+    # curator can hold a start and let the producer's end through, or the reverse
+    Slot("assignment", "start_date", "Start date", _ASSIGNMENT_COLUMN.format("start_date")),
+    Slot("assignment", "end_date", "End date", _ASSIGNMENT_COLUMN.format("end_date")),
+    Slot("assignment", "is_current", "Current", _ASSIGNMENT_COLUMN.format("is_current")),
 )
 
 SLOTS: dict[tuple[str, str], Slot] = {(s.entity_type, s.field): s for s in _SLOTS}

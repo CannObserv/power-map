@@ -22,7 +22,10 @@ from src.core.ingestion.mapping.manifest import (  # noqa: E402
     parse_manifest,
 )
 from src.core.ingestion.mapping.parquet import read_rows  # noqa: E402
-from tests.core.ingestion.applier_fakes import raw_with_assignments  # noqa: E402
+from tests.core.ingestion.applier_fakes import (  # noqa: E402
+    ASSIGNMENT_TABLES,
+    raw_with_assignments,
+)
 
 MARTS = sorted(p.stem for p in (PROJECT_DIR / "models" / "marts").glob("*.sql"))
 
@@ -54,7 +57,7 @@ def test_every_mart_is_declared_and_every_declaration_is_a_mart():
 def test_each_table_declares_key_retraction_and_owned_columns(table):
     spec = load_manifest().tables[table]
 
-    assert spec.entity in {"person", "organization"}
+    assert spec.entity in {"person", "organization", "assignment"}
     assert spec.key and all(isinstance(k, str) for k in spec.key)
     assert spec.retraction in {"none", "report", "archive"}
     assert isinstance(spec.owned_columns, list)
@@ -112,6 +115,8 @@ def test_the_four_shapes_cover_the_marts_as_designed():
         "desired_entity_events": "child",
         "desired_person_merges": "merge",
         "desired_organization_merges": "merge",
+        "desired_role_assignments": "entity",
+        "desired_role_assignment_dates": "column",
     }
 
 
@@ -273,6 +278,9 @@ OVERLAY_SLOTS = {
     ("organization", "acronym"),
     ("organization", "parent_id"),
     ("organization", "dissolved_year"),
+    ("assignment", "start_date"),
+    ("assignment", "end_date"),
+    ("assignment", "is_current"),
 }
 
 
@@ -431,3 +439,19 @@ REFUSALS = [
 def test_a_binding_the_applier_cannot_honour_fails_at_load(table, edit, named):
     with pytest.raises(ManifestError, match=named):
         parse_manifest(_with_assignments(**{table: edit}))
+
+
+def test_the_assignment_bindings_the_tests_diff_against_are_productions():
+    """The unit tier parses `ASSIGNMENT_TABLES` beside production's tables; if the two
+    drifted, every assignment test would be proving a manifest nobody runs."""
+    production = load_manifest().tables
+    fakes = parse_manifest({**_raw(), "tables": ASSIGNMENT_TABLES}).tables
+
+    assert {n: production[n] for n in fakes} == fakes
+
+
+def test_archives_and_restores_are_zero_in_productions_manifest():
+    """#490: the first archiving run is #501's, allowed by a flag — never by the default."""
+    thresholds = load_manifest().thresholds
+
+    assert (thresholds.archives, thresholds.restores) == (0, 0)

@@ -223,3 +223,14 @@ async def test_an_archive_previews_the_rows_that_archive_with_it():
     archive = _by_producer(await _diff(store))[OLD]
 
     assert archive.effects == {"cascades": {"role_assignment_relationships": 1}}
+
+
+async def test_a_create_naming_no_role_is_stale():
+    """The model keeps a span whose role is unpublished (unresolved_assignment_roles
+    names it); its INSERT would break role_id NOT NULL, so it is never planned."""
+    store = FakeLiveStore(crosswalk=ANCHORS, tables={"role_assignments": []})
+
+    entry = _by_producer(await _diff(store, {**span(NEW), "role_producer_id": None}))[NEW]
+
+    assert entry.kind == "stale"
+    assert "names no role" in entry.reason

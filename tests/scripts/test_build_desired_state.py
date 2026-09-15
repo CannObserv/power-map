@@ -86,6 +86,8 @@ def test_a_build_records_its_provenance(store, tmp_path):
         "organizations": "v1",
         "person_crosswalk": "v1",
         "org_crosswalk": "v1",
+        "assignments": "v1",
+        "roles": "v1",
     }
     crosswalk = (store / PM_EXPORT_DIR / "producer_crosswalk.parquet").read_bytes()
     assert info["pm_exports"]["producer_crosswalk"] == hashlib.sha256(crosswalk).hexdigest()

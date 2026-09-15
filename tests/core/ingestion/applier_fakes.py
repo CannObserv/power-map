@@ -182,6 +182,14 @@ DESIRED_SPECS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("pm_id", "producer_id", "entity_type", "event_type", "event_year"),
         ("TEXT", "TEXT", "TEXT", "TEXT", "INTEGER"),
     ),
+    "desired_role_assignments": (
+        ("pm_id", "producer_id", "person_producer_id", "role_producer_id", "start_date"),
+        ("TEXT", "TEXT", "TEXT", "TEXT", "DATE"),
+    ),
+    "desired_role_assignment_dates": (
+        ("pm_id", "producer_id", "start_date", "end_date", "is_current"),
+        ("TEXT", "TEXT", "DATE", "DATE", "BOOLEAN"),
+    ),
 }
 
 

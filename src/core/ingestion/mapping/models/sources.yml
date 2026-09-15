@@ -22,6 +22,13 @@ sources:
       - name: org_crosswalk
         meta:
           external_location: "read_csv('{{ env_var('PM_SRC_ORG_CROSSWALK', '') }}', header=true, all_varchar=true)"
+      - name: assignments
+        description: Spans, each identified by its structural span_key (#525, #527).
+        meta:
+          external_location: "read_csv('{{ env_var('PM_SRC_ASSIGNMENTS', '') }}', header=true, all_varchar=true)"
+      - name: roles
+        meta:
+          external_location: "read_csv('{{ env_var('PM_SRC_ROLES', '') }}', header=true, all_varchar=true)"
 
   - name: pm
     description: PM's own tables, exported to Parquet by scripts/export_pm_tables.py so the models never open a database connection.

@@ -658,7 +658,9 @@ def _resolve_identity(
     out: dict[str, object] = {}
     for col, ident in spec.target.identity.items():
         value = row.get(col)
-        if ident.entity is not None and value is not None:
+        if ident.entity is not None and value is None:
+            return f"names no {ident.entity}; a create cannot be written without one"
+        if ident.entity is not None:
             pm_id = scope.resolve(ident.entity, value)
             if pm_id is None:
                 if (ident.entity, value) not in creating:

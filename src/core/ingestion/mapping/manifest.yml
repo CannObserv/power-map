@@ -6,18 +6,26 @@
 #   retraction     what an absent row means for a PM row in scope:
 #                    none    — assert presence only; absence says nothing
 #                    report  — absence is reported, never acted on (safeguard 2)
-#                    archive — absence archives the PM row (reserved; #500/#501)
+#                    archive — absence archives the PM row, and a row the
+#                              applier archived restores when it returns (#527)
 #   owned_columns  the PM columns the producer asserts; everything else on the
 #                  row is PM's, column-scoped (safeguard 4)
 #   owned_event_types  events only: retraction-as-absence reaches these types
 #                  and no others — 315 org events in PM have no producer column
 #   overlay        the curation_overlay field that pins the owned value (#498):
 #                  (entity, overlay) is the pair a curator's pin is keyed on.
-#                  Required on column and child tables, refused elsewhere
+#                  Required on column and child tables, refused elsewhere. A
+#                  binding owning several columns maps each to its field (#527)
 #   target         the binding (v2): one of four shapes the applier interprets
 #                    entity  — a row in an entity table: identity, create,
-#                              report-only retraction
-#                    column  — one column on that row (columns: desired → PM)
+#                              retraction. `identity` names what a create writes
+#                              (a reference resolves through the crosswalk),
+#                              `unique_live` the partial index a create, restore
+#                              or move must not collide on, `supersession` the
+#                              tuple an archive is paired on in the report, and
+#                              `cascades` the rows the database archives with it
+#                    column  — columns on that row (columns: desired → PM);
+#                              `asserts_null` names those whose null clears
 #                    child   — a keyed child row of the entity; `match` is
 #                              any_then_canonical (any row of the type carrying
 #                              the value satisfies; else the canonical row is
@@ -27,8 +35,9 @@
 #                              the survivor's. `primitive` names the core merge
 #                              that acts on it (#514); without one, report-only
 #
-# Persons and organizations are report-only for now: safeguard 2 says nothing
-# retracts until creates ≈ 0 and unexpected archives = 0 across N clean runs.
+# Persons and organizations are report-only: absence from WA data is not
+# nonexistence. Assignments archive (#527), gated like creates — nothing archives
+# until a run allows it, and the first such run is #501's supervised pass.
 version: 2
 
 # What an --execute refuses to exceed. A dry run always completes and records
@@ -39,6 +48,8 @@ thresholds:
   merges: 0
   conflicts: 0
   stale: 0
+  archives: 0
+  restores: 0
   updates: null
 # Consecutive clean dry runs, with the same diff digest, before --execute is offered.
 streak: 3
@@ -158,3 +169,32 @@ tables:
         event_type: {table: entity_event_types, from: slug, to: id}
       archived: archived_at
       insert_defaults: {visibility: public}
+  desired_role_assignments:
+    entity: assignment
+    key: [producer_id]           # the published span_key (#525)
+    pm_key: pm_id
+    retraction: archive          # #527: absent spans archive; the applier's own restore
+    owned_columns: []            # the dates are desired_role_assignment_dates'
+    target:
+      shape: entity
+      table: role_assignments
+      identity:                  # written once, at create
+        person_producer_id: {column: person_id, entity: person}
+        role_producer_id: {column: role_id, entity: role}
+        start_date: start_date
+      unique_live: [person_id, role_id, start_date]   # uq_role_assignment_person_role_start
+      supersession: [person_id, role_id]              # usa-wa#289: a collapsed span
+      cascades:                  # trg_cascade_assignment_relationships (#301)
+        role_assignment_relationships: [from_assignment_id, to_assignment_id]
+  desired_role_assignment_dates:
+    entity: assignment
+    key: [producer_id]
+    pm_key: pm_id
+    retraction: none
+    owned_columns: [start_date, end_date, is_current]
+    overlay: {start_date: start_date, end_date: end_date, is_current: is_current}
+    target:
+      shape: column
+      table: role_assignments
+      columns: {start_date: start_date, end_date: end_date, is_current: is_current}
+      asserts_null: [end_date]   # an open span clears PM's end date
