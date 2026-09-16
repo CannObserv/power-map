@@ -69,6 +69,17 @@ def test_a_create_pms_guards_would_refuse_is_dropped_and_named(build):
     assert "role_create_pm_would_refuse" in built.warnings
 
 
+def test_a_role_out_of_row_scope_is_not_named_as_a_refused_create(build):
+    """Its anchor resolved to no PM row, so the model never considers creating it —
+    and the warn names what desired_roles dropped, not every row PM would refuse."""
+    crosswalk = [*DEFAULT_CROSSWALK, crosswalk_row(R4, None, "missing", kind="role")]
+
+    built = build(crosswalk=tuple(crosswalk))
+
+    assert R4 not in _by_producer(built, ROLES)
+    assert "role_create_pm_would_refuse" not in built.warnings
+
+
 def test_an_anchored_role_is_kept_whatever_its_qualifier(build):
     """Dropping it would read as absence, which archives a live role."""
     anchored = "01SR4000000000000000000000A"
