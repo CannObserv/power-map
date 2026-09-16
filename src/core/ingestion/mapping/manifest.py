@@ -35,6 +35,8 @@ __all__ = [
     "RETRACTIONS",
     "SHAPES",
     "Identity",
+    "Index",
+    "Lookup",
     "Manifest",
     "ManifestError",
     "TableSpec",
@@ -54,8 +56,14 @@ MERGE_PRIMITIVES = ("person",)
 _THRESHOLD_KEYS = ("creates", "merges", "conflicts", "stale", "archives", "restores", "updates")
 # The keys only an entity binding carries (#527), and the one only a column
 # binding does — each is refused on any other shape rather than ignored.
-_ENTITY_KEYS = ("identity", "unique_live", "supersession", "cascades")
-_IDENTITY_KEYS = ("column", "entity")
+_ENTITY_KEYS = ("identity", "unique_live", "supersession", "cascades", "dependents")
+_IDENTITY_KEYS = ("column", "entity", "lookup")
+_LOOKUP_KEYS = ("table", "from", "to")
+# One `unique_live` entry (#529): the columns, an optional per-column fold and the
+# condition of the index's own partial predicate.
+_INDEX_KEYS = ("columns", "when", "fold")
+_WHENS = ("null", "not_null")
+_FOLDS = ("lower",)
 
 
 class ManifestError(ValueError):
@@ -76,16 +84,43 @@ class Thresholds:
 
 
 @dataclass(frozen=True)
+class Lookup:
+    """A PM vocabulary table an identity value is read from (#529): the value is
+    matched on ``from_column`` and the create writes the row's ``to_column``."""
+
+    table: str
+    from_column: str
+    to_column: str
+
+
+@dataclass(frozen=True)
 class Identity:
     """One column an entity create writes (#527), once and never again.
 
     A plain desired column is copied as it is; a reference (``entity`` set) is a
     producer id of that kind, resolved to its PM id from the live crosswalk or to
-    the id this run mints for it.
+    the id this run mints for it; a ``lookup`` (#529) is a PM vocabulary slug,
+    resolved through the table it names.
     """
 
     column: str  # the PM column
     entity: str | None = None
+    lookup: Lookup | None = None
+
+
+@dataclass(frozen=True)
+class Index:
+    """A partial identity index a create, restore or move must not collide on (#529).
+
+    ``when`` is the index's own predicate — a PM column that must be ``null`` or
+    ``not_null`` for the index to cover a row — and ``fold`` names the columns it
+    indexes through an expression (``lower``). A table with one plain index writes
+    `unique_live` as a list of column names and neither key applies.
+    """
+
+    columns: list[str]
+    fold: dict[str, str] = field(default_factory=dict)  # PM column → "lower"
+    when: dict[str, str] = field(default_factory=dict)  # PM column → "null" | "not_null"
 
 
 @dataclass(frozen=True)
@@ -110,12 +145,16 @@ class Target:
     # partial index a create or restore must not collide on; the columns an
     # archive is paired on with the spans still published (triage, report-only)
     identity: dict[str, Identity] = field(default_factory=dict)
-    unique_live: list[str] = field(default_factory=list)
+    unique_live: list[Index] = field(default_factory=list)
     supersession: list[str] = field(default_factory=list)
     # entity (#527): tables whose rows the database archives with an archived row
     # (a trigger does it), each with the columns that point at it — previewed in
     # an archive's effects, since a restore does not bring them back
     cascades: dict[str, list[str]] = field(default_factory=dict)
+    # entity (#529): tables whose live rows would be left naming an archived row —
+    # each with the columns that name it. An archive that would strand one is a
+    # conflict, never a write
+    dependents: dict[str, list[str]] = field(default_factory=dict)
     # column (#527): desired columns whose null is a value — "clear it" — rather
     # than silence (CR 5's default)
     asserts_null: list[str] = field(default_factory=list)
@@ -173,7 +212,55 @@ def _identity(where: str, raw: object) -> dict[str, Identity]:
         unknown = set(value) - set(_IDENTITY_KEYS)
         if unknown:
             raise ManifestError(f"{where}: identity {col!r} has unknown key(s) {sorted(unknown)}")
-        out[col] = Identity(column=str(value["column"]), entity=value.get("entity"))
+        if "entity" in value and "lookup" in value:
+            raise ManifestError(
+                f"{where}: identity {col!r} resolves through the crosswalk or through a"
+                " lookup, never both"
+            )
+        out[col] = Identity(
+            column=str(value["column"]),
+            entity=value.get("entity"),
+            lookup=_lookup(where, col, value["lookup"]) if "lookup" in value else None,
+        )
+    return out
+
+
+def _lookup(where: str, col: str, raw: object) -> Lookup:
+    if not isinstance(raw, dict) or set(raw) != set(_LOOKUP_KEYS):
+        raise ManifestError(
+            f"{where}: identity {col!r} lookup names {', '.join(_LOOKUP_KEYS)} and nothing else"
+        )
+    return Lookup(table=str(raw["table"]), from_column=str(raw["from"]), to_column=str(raw["to"]))
+
+
+def _indexes(where: str, raw: object) -> list[Index]:
+    """`unique_live`: a list of PM column names, or of index specs (#529)."""
+    if not isinstance(raw, list):
+        raise ManifestError(f"{where}: unique_live lists the index columns, or the indexes")
+    if all(isinstance(entry, str) for entry in raw):
+        return [Index(columns=[str(c) for c in raw])] if raw else []
+    out: list[Index] = []
+    for entry in raw:
+        if not isinstance(entry, dict) or "columns" not in entry:
+            raise ManifestError(f"{where}: unique_live index {entry!r} names no columns")
+        unknown = set(entry) - set(_INDEX_KEYS)
+        if unknown:
+            raise ManifestError(f"{where}: unique_live index has unknown key(s) {sorted(unknown)}")
+        columns = [str(c) for c in entry["columns"]]
+        index = Index(
+            columns=columns,
+            fold={str(k): str(v) for k, v in (entry.get("fold") or {}).items()},
+            when={str(k): str(v) for k, v in (entry.get("when") or {}).items()},
+        )
+        for col, how in index.fold.items():
+            if col not in columns:
+                raise ManifestError(f"{where}: fold {col!r} is not a column of its index")
+            if how not in _FOLDS:
+                raise ManifestError(f"{where}: fold {how!r} is not one of {', '.join(_FOLDS)}")
+        for state in index.when.values():
+            if state not in _WHENS:
+                raise ManifestError(f"{where}: when {state!r} is not one of {', '.join(_WHENS)}")
+        out.append(index)
     return out
 
 
@@ -206,21 +293,35 @@ def _target(name: str, raw: object) -> Target:
         hint_on_create=bool(raw.get("hint_on_create", False)),
         primitive=raw.get("primitive"),
         identity=_identity(where, raw["identity"]) if "identity" in raw else {},
-        unique_live=list(raw.get("unique_live") or []),
+        unique_live=_indexes(where, raw.get("unique_live") or []),
         supersession=list(raw.get("supersession") or []),
         cascades={t: list(cols or []) for t, cols in (raw.get("cascades") or {}).items()},
+        dependents={t: list(cols or []) for t, cols in (raw.get("dependents") or {}).items()},
         asserts_null=list(raw.get("asserts_null") or []),
     )
     # The tuples are computed from what a create writes, so each names one of its
     # columns — a column the create never writes could not be checked at all.
     written = {i.column for i in target.identity.values()}
-    for key in ("unique_live", "supersession"):
-        for col in getattr(target, key):
+    for index in target.unique_live:
+        # `when` is the index's own predicate, so it names any column a create
+        # writes — not only the columns the index keys on.
+        for col in index.when:
             if col not in written:
-                raise ManifestError(f"{where}: {key} column {col!r} is not an identity column")
+                raise ManifestError(f"{where}: when column {col!r} is not an identity column")
+        for col in index.columns:
+            if col not in written:
+                raise ManifestError(
+                    f"{where}: unique_live column {col!r} is not an identity column"
+                )
+    for col in target.supersession:
+        if col not in written:
+            raise ManifestError(f"{where}: supersession column {col!r} is not an identity column")
     for table, cols in target.cascades.items():
         if not cols:
             raise ManifestError(f"{where}: cascades {table!r} names no column pointing at the row")
+    for table, cols in target.dependents.items():
+        if not cols:
+            raise ManifestError(f"{where}: dependents {table!r} names no column naming the row")
     for col in target.asserts_null:
         if col not in target.columns:
             raise ManifestError(f"{where}: asserts_null column {col!r} is not in target.columns")
@@ -271,6 +372,10 @@ def _table(name: str, raw: object) -> TableSpec:
     if not key:
         raise ManifestError(f"{name}: key must name at least one column")
     target = _target(name, raw.get("target"))
+    if retraction != "archive" and target.dependents:
+        raise ManifestError(
+            f"{name}: only an archiving binding names dependents — nothing else leaves a row behind"
+        )
     if retraction == "archive":
         # Archiving is an entity's policy (#527), and its restore is fallible on a
         # partial identity index (#424) — so the index is named, or nothing checks it.

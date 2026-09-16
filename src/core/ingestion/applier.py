@@ -433,6 +433,20 @@ def _entry(spec: TableSpec, row: dict, kind: str, **kw) -> Entry:
     )
 
 
+def _slot_columns(spec: TableSpec) -> list[str]:
+    """The columns of a binding's one identity index.
+
+    #529 step 1 made `unique_live` a list of indexes; until step 3 teaches the
+    engine to choose between them, a binding may still declare only one.
+    """
+    if len(spec.target.unique_live) > 1:
+        raise ApplierError(
+            f"{spec.name}: more than one unique_live index — #529 step 3 teaches the engine"
+            " to choose between them"
+        )
+    return list(spec.target.unique_live[0].columns) if spec.target.unique_live else []
+
+
 def _entity_plan(
     manifest: Manifest,
     entries: Sequence[Entry],
@@ -444,10 +458,9 @@ def _entity_plan(
         spec = manifest.tables.get(e.table)
         if e.kind != "create" or spec is None or not spec.target.unique_live:
             continue
-        slot = tuple(e.changes[c][1] for c in spec.target.unique_live if c in e.changes)
-        if len(slot) == len(spec.target.unique_live) and not any(
-            isinstance(v, Minted) for v in slot
-        ):
+        columns = _slot_columns(spec)
+        slot = tuple(e.changes[c][1] for c in columns if c in e.changes)
+        if len(slot) == len(columns) and not any(isinstance(v, Minted) for v in slot):
             slots.setdefault(e.table, {}).setdefault(slot, []).append(e.producer_id)
     return _EntityPlan(
         archiving=frozenset(e.pm_id for e in entries if e.kind == "archive"),
@@ -517,7 +530,7 @@ async def _diff_entity(
     table = spec.target.table
     archiving = spec.retraction == "archive"
     anchored = [r for r in rows if r.get(spec.pm_key) is not None]
-    unique = tuple(spec.target.unique_live)
+    unique = tuple(_slot_columns(spec))
     live = (
         await store.entity_rows(table, [r[spec.pm_key] for r in anchored], columns=unique)
         if anchored
@@ -719,7 +732,7 @@ async def _diff_creates(
     same tenure.
     """
     table = spec.target.table
-    unique = spec.target.unique_live
+    unique = _slot_columns(spec)
     entries: list[Entry] = []
     pending: list[tuple[dict, dict[str, object]]] = []
     for row in creates:
@@ -799,7 +812,7 @@ async def _diff_restores(
     slots the restores take back, which a create or move of this run cannot."""
     if not restoring:
         return [], {}
-    unique = spec.target.unique_live
+    unique = _slot_columns(spec)
     tuples = {row[spec.pm_key]: tuple(found.get(c) for c in unique) for row, found in restoring}
     holders = await store.slot_holders(
         spec.target.table, unique, list(dict.fromkeys(tuples.values()))
@@ -921,7 +934,7 @@ async def _diff_column(
     # #527: the entity binding of the same table, when it has one, decides three
     # things here: which moves are moves on its partial identity index, what a
     # create already wrote, and whether an archived row is its report or stale.
-    unique = tuple(entity.target.unique_live) if entity is not None else ()
+    unique = tuple(_slot_columns(entity)) if entity is not None else ()
     written = {i.column for i in entity.target.identity.values()} if entity is not None else set()
     archives = entity is not None and entity.retraction == "archive"
     asserted = set(target.asserts_null)
@@ -1013,7 +1026,7 @@ async def _diff_moves(
     archived by this plan — or another move, create or restore (CR 2) of this run
     onto it, is a `conflict`. Otherwise the UPDATE would fail the index
     mid-transaction."""
-    unique = entity.target.unique_live
+    unique = _slot_columns(entity)
     holders = await store.slot_holders(
         spec.target.table, unique, list(dict.fromkeys(slot for _, _, slot, _ in moving))
     )

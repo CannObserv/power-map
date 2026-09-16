@@ -248,6 +248,68 @@ ASSIGNMENT_TABLES: dict[str, dict] = {
 }
 
 
+ROLE_TABLES: dict[str, dict] = {
+    "desired_roles": {
+        "entity": "role",
+        "key": ["producer_id"],
+        "pm_key": "pm_id",
+        "retraction": "archive",
+        "owned_columns": [],
+        "target": {
+            "shape": "entity",
+            "table": "roles",
+            "identity": {
+                "org_producer_id": {"column": "organization_id", "entity": "organization"},
+                "role_type": {
+                    "column": "role_type_id",
+                    "lookup": {"table": "role_types", "from": "slug", "to": "id"},
+                },
+                "jurisdiction_slug": {
+                    "column": "jurisdiction_id",
+                    "lookup": {"table": "jurisdictions", "from": "slug", "to": "id"},
+                },
+                "qualifier": "qualifier",
+                "title": "title",
+            },
+            "unique_live": [
+                {
+                    "columns": ["organization_id", "role_type_id", "jurisdiction_id", "qualifier"],
+                    "when": {"jurisdiction_id": "not_null"},
+                },
+                {
+                    "columns": ["organization_id", "title"],
+                    "fold": {"title": "lower"},
+                    "when": {"jurisdiction_id": "null"},
+                },
+            ],
+            "dependents": {"role_assignments": ["role_id"]},
+        },
+    },
+    "desired_role_titles": {
+        "entity": "role",
+        "key": ["producer_id"],
+        "pm_key": "pm_id",
+        "retraction": "none",
+        "owned_columns": ["title"],
+        "overlay": "title",
+        "target": {"shape": "column", "table": "roles", "columns": {"title": "title"}},
+    },
+}
+
+
+def raw_with_roles() -> dict:
+    """The assignment manifest plus the role bindings (#529, deep copies)."""
+    raw = raw_with_assignments()
+    for name, spec in yaml.safe_load(yaml.safe_dump(ROLE_TABLES)).items():
+        raw["tables"].setdefault(name, spec)
+    return raw
+
+
+def manifest_with_roles():
+    """The manifest the role tests diff against."""
+    return parse_manifest(raw_with_roles())
+
+
 def raw_with_assignments() -> dict:
     """Production's manifest document plus the assignment bindings (deep copies)."""
     with MANIFEST_PATH.open() as f:
