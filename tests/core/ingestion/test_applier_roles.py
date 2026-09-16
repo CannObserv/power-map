@@ -32,15 +32,20 @@ LOOKUPS = {
     ("role_types", "slug", "id"): {"state_senator": "RT_SEN", "committee_member": "RT_CM"},
     ("jurisdictions", "slug", "id"): {"usa-wa-ld-34": "J34"},
 }
-ANCHORS = [
-    {
+
+
+def xw(kind, producer_id, pm_id, **kw):
+    return {
         "source": PRODUCER_SOURCE,
-        "kind": "organization",
-        "producer_id": ORG,
-        "pm_id": PM_ORG,
+        "kind": kind,
+        "producer_id": producer_id,
+        "pm_id": pm_id,
         "resolution": "live",
+        **kw,
     }
-]
+
+
+ANCHORS = [xw("organization", ORG, PM_ORG)]
 
 
 def desired(
@@ -161,3 +166,64 @@ async def test_two_creates_on_one_index_are_rivals():
     entries = await _entries(_store(), *rows)
 
     assert [e.kind for e in entries.values()] == ["conflict", "conflict"]
+
+
+# --- the dependents guard (step 4) ------------------------------------------------
+
+
+def assignment(pm_id, *, role=PM_LIVE, archived=False):
+    return {
+        "id": pm_id,
+        "archived_at": ARCHIVED if archived else None,
+        "person_id": "01MPERSON",
+        "role_id": role,
+        "start_date": None,
+    }
+
+
+def _world(*, spans=(), roles=(), assignments=()):
+    return FakeLiveStore(
+        crosswalk=[*ANCHORS, xw("role", COMMITTEE, PM_LIVE), *spans],
+        tables={"roles": list(roles), "role_assignments": list(assignments)},
+        lookups=LOOKUPS,
+    )
+
+
+async def test_a_role_the_snapshot_drops_archives_when_its_assignments_go_with_it():
+    """The ordinary re-key: usa-wa drops the role's spans with it, so none is stranded."""
+    store = _world(
+        spans=[xw("assignment", "span-1", "01MRA")],
+        roles=[live(PM_LIVE)],
+        assignments=[assignment("01MRA")],
+    )
+
+    entries = await _entries(store)
+
+    assert entries[COMMITTEE].kind == "archive"
+
+
+async def test_a_role_whose_live_assignment_this_run_keeps_is_a_conflict():
+    """A curated assignment — outside the producer's scope — would be left on an
+    archived role, so a person decides instead."""
+    store = _world(roles=[live(PM_LIVE)], assignments=[assignment("01MCURATED")])
+
+    entry = (await _entries(store))[COMMITTEE]
+
+    assert entry.kind == "conflict"
+    assert "01MCURATED" in entry.reason and "role_assignments" in entry.reason
+
+
+async def test_an_archived_assignment_never_blocks_the_archive():
+    store = _world(roles=[live(PM_LIVE)], assignments=[assignment("01MGONE", archived=True)])
+
+    assert (await _entries(store))[COMMITTEE].kind == "archive"
+
+
+async def test_a_create_that_wanted_the_blocked_archives_slot_conflicts_too():
+    """The role keeps its slot, so the create that counted on it never collides."""
+    store = _world(roles=[live(PM_LIVE)], assignments=[assignment("01MCURATED")])
+
+    entries = await _entries(store, desired("committee-role:31641", title="Member"))
+
+    assert entries[COMMITTEE].kind == "conflict"
+    assert entries["committee-role:31641"].kind == "conflict"

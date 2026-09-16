@@ -128,6 +128,13 @@ class LiveStore(Protocol):
         columns — what the database archives with it (#527)."""
         ...
 
+    async def dependent_ids(
+        self, dependents: Mapping[str, Sequence[str]], ids: Sequence[str]
+    ) -> dict[str, dict[str, list[str]]]:
+        """Per id, the unarchived rows of each dependent table naming it — what an
+        archive would leave behind (#529)."""
+        ...
+
     async def slot_holders(
         self, table: str, index: Index, tuples: Sequence[tuple]
     ) -> dict[tuple, list[dict]]:
@@ -402,9 +409,49 @@ async def diff_desired(
 
     creating: set[tuple[str, str]] = set()
     restored: dict[str, dict[tuple, list[str]]] = {}  # binding → slot → rows restored onto it
-    for name, spec in _entity_order(manifest):
+    order = _entity_order(manifest)
+    lookups = {name: await _identity_lookups(spec, store) for name, spec in order}
+    # Absence first, across every archiving binding (#529): the dependents guard
+    # below has to know what this plan archives before any binding decides a
+    # restore or a create, and a binding's own absences free its slots.
+    absent: dict[str, list[Entry]] = {}
+    archived_now: dict[str, set[str]] = {}
+    for name, spec in order:
+        if spec.retraction != "archive":
+            continue
+        archived_now[name] = set()
+        absent[name] = await _diff_absent(
+            spec,
+            kept[name],
+            state,
+            manifest,
+            scope,
+            store,
+            creating,
+            archived_now[name],
+            lookups[name],
+        )
+    archiving_tables = {
+        manifest.tables[name].target.table: ids for name, ids in archived_now.items()
+    }
+    for name, spec in order:
+        if spec.target.dependents and absent.get(name):
+            absent[name] = await _guard_dependents(
+                spec, absent[name], archiving_tables, archived_now[name], store
+            )
+    for name, spec in order:
         found = await _diff_entity(
-            spec, kept[name], state, manifest, scope, store, creating, restored
+            spec,
+            kept[name],
+            state,
+            manifest,
+            scope,
+            store,
+            creating,
+            restored,
+            absent.get(name, []),
+            archived_now.get(name, set()),
+            lookups[name],
         )
         entries.extend(found)
         creating |= {(spec.entity, e.producer_id) for e in found if e.kind == "create"}
@@ -551,27 +598,22 @@ async def _diff_entity(
     store: LiveStore,
     creating: set[tuple[str, str]],
     restored: dict[str, dict[tuple, list[str]]],
+    absent: Sequence[Entry],
+    archived_now: set[str],
+    lookups: Mapping[Lookup, dict[str, str]],
 ) -> list[Entry]:
     table = spec.target.table
     archiving = spec.retraction == "archive"
     anchored = [r for r in rows if r.get(spec.pm_key) is not None]
     unique = _index_columns(spec.target.unique_live)
-    lookups = await _identity_lookups(spec, store)
     live = (
         await store.entity_rows(table, [r[spec.pm_key] for r in anchored], columns=unique)
         if anchored
         else {}
     )
-    entries: list[Entry] = []
-    # Absence first under `archive`: the rows it retires free their slots on the
-    # partial identity index, and a restore below may be taking one of them.
-    archived_now: set[str] = set()
-    if archiving:
-        entries.extend(
-            await _diff_absent(
-                spec, rows, state, manifest, scope, store, creating, archived_now, lookups
-            )
-        )
+    # `diff_desired` decided this binding's absences before any binding's restores
+    # and creates, so the guard could see them (#529).
+    entries: list[Entry] = list(absent)
 
     restoring: list[tuple[dict, dict]] = []
     for row in anchored:
@@ -701,6 +743,52 @@ async def _diff_absent(
                 )
             )
     return await _with_cascades(spec, entries, store)
+
+
+async def _guard_dependents(
+    spec: TableSpec,
+    entries: Sequence[Entry],
+    archiving_tables: Mapping[str, set[str]],
+    archived_now: set[str],
+    store: LiveStore,
+) -> list[Entry]:
+    """An archive that would leave live rows naming the row is a `conflict` (#529).
+
+    The dependents this same plan archives do not count — the ordinary re-key
+    drops a role's spans with it. What is left is PM's own, or another producer's,
+    and which of the two records is right is a person's call. A blocked archive
+    keeps its slot, so a create or restore that counted on it conflicts too rather
+    than colliding.
+    """
+    ids = sorted({e.pm_id for e in entries if e.kind == "archive"})
+    if not ids:
+        return list(entries)
+    found = await store.dependent_ids(spec.target.dependents, ids)
+    out: list[Entry] = []
+    for e in entries:
+        left = {
+            table: [r for r in rows if r not in archiving_tables.get(table, set())]
+            for table, rows in (found.get(e.pm_id, {}) if e.kind == "archive" else {}).items()
+        }
+        left = {table: rows for table, rows in left.items() if rows}
+        if not left:
+            out.append(e)
+            continue
+        archived_now.discard(e.pm_id)
+        named = "; ".join(
+            f"{len(rows)} in {table} ({', '.join(sorted(rows)[:5])}"
+            + (", …)" if len(rows) > 5 else ")")
+            for table, rows in sorted(left.items())
+        )
+        out.append(
+            dataclasses.replace(
+                e,
+                kind="conflict",
+                effects={},
+                reason=f"archiving it would leave live rows naming it — {named}; a person decides",
+            )
+        )
+    return out
 
 
 async def _with_cascades(spec: TableSpec, entries: list[Entry], store: LiveStore) -> list[Entry]:

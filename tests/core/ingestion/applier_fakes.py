@@ -132,6 +132,21 @@ class FakeLiveStore:
                     counts[table] = counts.get(table, 0) + 1
         return out
 
+    async def dependent_ids(
+        self, dependents: Mapping[str, Sequence[str]], ids: Sequence[str]
+    ) -> dict[str, dict[str, list[str]]]:
+        """Per id, the unarchived rows of each dependent table naming it (#529)."""
+        self.requested.append(("dependent_ids", tuple(dependents), tuple(ids)))
+        wanted = set(ids)
+        out: dict[str, dict[str, list[str]]] = {}
+        for table, columns in dependents.items():
+            for r in self.tables.get(table, []):
+                if r.get("archived_at") is not None:
+                    continue
+                for pm_id in sorted({r.get(c) for c in columns} & wanted):
+                    out.setdefault(pm_id, {}).setdefault(table, []).append(r["id"])
+        return out
+
     async def value_matches(
         self, table: str, column: str, values: Sequence, parent: str
     ) -> dict[object, list[str]]:

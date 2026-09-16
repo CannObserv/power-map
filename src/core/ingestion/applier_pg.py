@@ -121,6 +121,23 @@ class PostgresLiveStore:
                 out[tuple(key)] = [dict(r) for r in rows]
         return out
 
+    async def dependent_ids(
+        self, dependents: Mapping[str, Sequence[str]], ids: Sequence[str]
+    ) -> dict[str, dict[str, list[str]]]:
+        """Per id, the live rows of each dependent table naming it (#529) — the ids
+        themselves, since the guard subtracts the ones this plan archives."""
+        out: dict[str, dict[str, list[str]]] = {}
+        for table, columns in dependents.items():
+            match = " OR ".join(f"t.{sql_identifier(c)} = x.id" for c in columns)
+            sql = (
+                "SELECT x.id, t.id AS dependent FROM unnest($1::text[]) AS x(id)"
+                f" JOIN {sql_identifier(table)} t ON t.archived_at IS NULL AND ({match})"
+                " ORDER BY t.id"
+            )
+            for r in await self._conn.fetch(sql, list(ids)):
+                out.setdefault(r["id"], {}).setdefault(table, []).append(r["dependent"])
+        return out
+
     async def cascade_counts(
         self, cascades: Mapping[str, Sequence[str]], ids: Sequence[str]
     ) -> dict[str, dict[str, int]]:
