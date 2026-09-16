@@ -17,6 +17,7 @@ from src.core.ingestion.mapping import (  # noqa: E402
     write_desired_state,
 )
 from src.core.ingestion.mapping.manifest import (  # noqa: E402
+    MANIFEST_PATH,
     SHAPES,
     Index,
     Lookup,
@@ -26,6 +27,7 @@ from src.core.ingestion.mapping.manifest import (  # noqa: E402
 from src.core.ingestion.mapping.parquet import read_rows  # noqa: E402
 from tests.core.ingestion.applier_fakes import (  # noqa: E402
     ASSIGNMENT_TABLES,
+    ROLE_TABLES,
     raw_with_assignments,
     raw_with_roles,
 )
@@ -405,6 +407,18 @@ def _with_roles(**edits) -> dict:
     for name, fn in edits.items():
         fn(raw["tables"][name])
     return raw
+
+
+def test_the_role_tests_diff_the_bindings_manifest_yml_ships():
+    """ROLE_TABLES is a fallback for a checkout that has not got the bindings yet,
+    never a substitute for them. Everything below asserts what `raw_with_roles`
+    loaded, so a manifest.yml whose `dependents` names the wrong table, or whose
+    title index stopped folding, has to fail here rather than ship green."""
+    production = yaml.safe_load(MANIFEST_PATH.read_text())["tables"]
+
+    used = raw_with_roles()["tables"]
+
+    assert [used[n] for n in ROLE_TABLES] == [production[n] for n in ROLE_TABLES]
 
 
 def test_an_identity_column_can_be_looked_up_by_slug():

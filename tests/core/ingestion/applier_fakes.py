@@ -346,10 +346,19 @@ ROLE_TABLES: dict[str, dict] = {
 
 
 def raw_with_roles() -> dict:
-    """The assignment manifest plus the role bindings (#529, deep copies)."""
-    raw = raw_with_assignments()
-    for name, spec in yaml.safe_load(yaml.safe_dump(ROLE_TABLES)).items():
-        raw["tables"].setdefault(name, spec)
+    """Production's manifest document, with every binding these fixtures need.
+
+    `manifest.yml` carries the assignment and role bindings today, so the tests
+    diff what the nightly loads — a `dependents` table misspelt there, or a title
+    index that stopped folding, has to fail a test (#529). ASSIGNMENT_TABLES and
+    ROLE_TABLES are the fallback for a checkout that has not got them yet, and
+    `setdefault` is what keeps production's own in front of them.
+    """
+    with MANIFEST_PATH.open() as f:
+        raw = yaml.safe_load(f)
+    for fallback in (ASSIGNMENT_TABLES, ROLE_TABLES):
+        for name, spec in yaml.safe_load(yaml.safe_dump(fallback)).items():
+            raw["tables"].setdefault(name, spec)
     return raw
 
 
@@ -359,18 +368,14 @@ def manifest_with_roles():
 
 
 def raw_with_assignments() -> dict:
-    """Production's manifest document plus the assignment bindings (deep copies).
+    """`raw_with_roles` without the role bindings (#529, deep copies).
 
-    Without the role bindings (#529): these fixtures anchor a role so a span can
-    resolve it, and a manifest that also diffs roles would read that anchor as an
-    absent role and archive it. `raw_with_roles` puts them back.
+    These fixtures anchor a role so a span can resolve it, and a manifest that
+    also diffs roles would read that anchor as an absent role and archive it.
     """
-    with MANIFEST_PATH.open() as f:
-        raw = yaml.safe_load(f)
+    raw = raw_with_roles()
     for name in ROLE_TABLES:
         raw["tables"].pop(name, None)
-    for name, spec in yaml.safe_load(yaml.safe_dump(ASSIGNMENT_TABLES)).items():
-        raw["tables"].setdefault(name, spec)
     return raw
 
 
