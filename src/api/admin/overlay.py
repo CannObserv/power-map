@@ -45,11 +45,13 @@ _ENTITY_TABLES = {
     "person": "people",
     "organization": "organizations",
     "assignment": "role_assignments",  # #527
+    "role": "roles",  # #529
 }
 _DETAIL_PREFIXES = {
     "person": "/admin/people/",
     "organization": "/admin/orgs/",
     "assignment": "/admin/role-assignments/",
+    "role": "/admin/roles/",
 }
 _VARIANTS = ("status", "note")
 
