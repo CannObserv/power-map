@@ -20,7 +20,7 @@ from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, read_rows, write_p
 from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     DEFAULT_CROSSWALK,
     DEFAULT_OVERLAY,
-    DEFAULT_ROLE_TYPES,  # noqa: E402
+    DEFAULT_ROLE_TYPES,
     FIXTURE_STORE,
 )
 
