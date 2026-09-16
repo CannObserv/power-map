@@ -433,6 +433,10 @@ async def diff_desired(
     archiving_tables = {
         manifest.tables[name].target.table: ids for name, ids in archived_now.items()
     }
+    # One pass, because one binding declares `dependents`. The guard discards a
+    # blocked archive's id from the very sets `archiving_tables` holds, so a
+    # second declaring binding would need this run to a fixed point: guarded
+    # early, it would have subtracted archives a later guard went on to block.
     for name, spec in order:
         if spec.target.dependents and absent.get(name):
             absent[name] = await _guard_dependents(
