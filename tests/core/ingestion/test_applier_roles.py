@@ -93,6 +93,15 @@ async def _entries(store, *rows):
     return {e.producer_id: e for e in diff.entries if e.table == TABLE}
 
 
+async def _all_entries(store, rows, *, titles=()):
+    """Every binding's entries, keyed by (binding, producer id) — the title move is
+    diffed in the column pass, so a roles-only view cannot see it."""
+    tables = {name: [] for name in MANIFEST.tables}
+    tables[TABLE], tables["desired_role_titles"] = list(rows), list(titles)
+    diff = await diff_desired(DesiredState(tables=tables, build_info=None), MANIFEST, store)
+    return {(e.table, e.producer_id): e for e in diff.entries}
+
+
 # --- identity lookups (step 2) ----------------------------------------------------
 
 
@@ -166,6 +175,34 @@ async def test_two_creates_on_one_index_are_rivals():
     entries = await _entries(_store(), *rows)
 
     assert [e.kind for e in entries.values()] == ["conflict", "conflict"]
+
+
+async def test_two_creates_whose_titles_differ_only_in_case_are_rivals():
+    """The index folds, so PM holds one of them — and the second INSERT would raise
+    mid-transaction, which is the collision the slot accounting exists to refuse."""
+    rows = [desired(COMMITTEE, title="Member"), desired("committee-role:31641", title="member")]
+
+    entries = await _entries(_store(), *rows)
+
+    assert [e.kind for e in entries.values()] == ["conflict", "conflict"]
+
+
+async def test_a_create_and_a_title_move_onto_one_folded_slot_collide():
+    """The move is planned in the column pass, after the create — so it is the move
+    that must see the create already holding the slot it folds onto."""
+    store = _world(roles=[live(PM_LIVE, title="Member")])
+    rows = [
+        desired(COMMITTEE, pm_id=PM_LIVE, title="Chair"),
+        desired("committee-role:31641", title="chair"),
+    ]
+    titles = [{"pm_id": PM_LIVE, "producer_id": COMMITTEE, "title": "Chair"}]
+
+    entries = await _all_entries(store, rows, titles=titles)
+
+    assert entries[("desired_roles", "committee-role:31641")].kind == "create"
+    moved = entries[("desired_role_titles", COMMITTEE)]
+    assert moved.kind == "conflict"
+    assert "committee-role:31641" in moved.reason
 
 
 # --- the dependents guard (step 4) ------------------------------------------------

@@ -504,6 +504,23 @@ def _index_of(indexes: Sequence[Index], values: Mapping[str, object]) -> tuple[i
     return None
 
 
+def _slot_key(i: int, index: Index, values: Mapping[str, object]) -> tuple:
+    """The slot a row takes on ``index``, as the index stores it (#529).
+
+    A folded column compares folded, so two rows of one run whose values differ
+    only in case are rivals — the collision ``slot_holders`` cannot report,
+    because neither row is live for it to find. Folding the probe's own tuple is
+    harmless: the store folds again.
+    """
+    return (
+        i,
+        tuple(
+            v.lower() if index.fold.get(c) == "lower" and isinstance(v, str) else v
+            for c, v in ((c, values.get(c)) for c in index.columns)
+        ),
+    )
+
+
 async def _identity_lookups(spec: TableSpec, store: LiveStore) -> dict[Lookup, dict[str, str]]:
     """Each PM vocabulary an identity column reads, once per run (#529)."""
     out: dict[Lookup, dict[str, str]] = {}
@@ -530,8 +547,7 @@ def _entity_plan(
         placed = _index_of(spec.target.unique_live, values)
         if placed is None:
             continue
-        i, index = placed
-        slot = (i, tuple(values.get(c) for c in index.columns))
+        slot = _slot_key(*placed, values)
         if not any(isinstance(v, Minted) for v in slot[1]):
             slots.setdefault(e.table, {}).setdefault(slot, []).append(e.producer_id)
     return _EntityPlan(
@@ -880,8 +896,7 @@ async def _diff_creates(
     for row, resolved in pending:
         placed = _index_of(indexes, resolved)
         if placed is not None:
-            i, index = placed
-            slots[row["producer_id"]] = (i, tuple(resolved.get(c) for c in index.columns))
+            slots[row["producer_id"]] = _slot_key(*placed, resolved)
     # A tuple naming a row this run mints has no holder yet, so it is not probed —
     # but two creates can still share it (CR 2).
     probe: dict[int, list[tuple]] = {}
@@ -959,11 +974,7 @@ async def _diff_restores(
     tuples: dict[str, tuple | None] = {}
     for row, found in restoring:
         placed = _index_of(indexes, found)
-        tuples[row[spec.pm_key]] = (
-            (placed[0], tuple(found.get(c) for c in placed[1].columns))
-            if placed is not None
-            else None
-        )
+        tuples[row[spec.pm_key]] = _slot_key(*placed, found) if placed is not None else None
     holders: dict[tuple, list[dict]] = {}
     probe: dict[int, list[tuple]] = {}
     for slot in tuples.values():
@@ -1188,11 +1199,7 @@ async def _diff_moves(
     slots: dict[str, tuple | None] = {}
     for row, _, after, _ in moving:
         placed = _index_of(indexes, after)
-        slots[row["producer_id"]] = (
-            (placed[0], tuple(after.get(c) for c in placed[1].columns))
-            if placed is not None
-            else None
-        )
+        slots[row["producer_id"]] = _slot_key(*placed, after) if placed is not None else None
     probe: dict[int, list[tuple]] = {}
     for slot in slots.values():
         if slot is not None and slot[1] not in probe.setdefault(slot[0], []):
