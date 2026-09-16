@@ -16,7 +16,7 @@ integration tier against asyncpg.
 import dataclasses
 import json
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Container, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -427,7 +427,6 @@ async def diff_desired(
             manifest,
             scope,
             store,
-            creating,
             archived_now[name],
             lookups[name],
         )
@@ -700,7 +699,6 @@ async def _diff_absent(
     manifest: Manifest,
     scope: Scope,
     store: LiveStore,
-    creating: set[tuple[str, str]],
     archived_now: set[str],
     lookups: Mapping[Lookup, dict[str, str]],
 ) -> list[Entry]:
@@ -711,7 +709,11 @@ async def _diff_absent(
     archived stays so; one that is gone is `stale`. ``archived_now`` collects the
     rows this plan archives, which no longer hold a slot for a restore or create.
     Each archive names, in ``effects``, the published spans on its `supersession`
-    tuple — the pairing #501's triage reads (usa-wa#289: a collapsed span).
+    tuple — the pairing #501's triage reads (usa-wa#289: a collapsed span). That
+    pairing is keyed on the archived row's own live values, so a published row
+    naming an entity this run mints matches nothing by construction — which is
+    why nothing here needs to know this run's creates, and could not: absences
+    are decided before any binding's (#529).
     """
     absent = _absent(spec, state, manifest, scope)
     if not absent:
@@ -723,7 +725,7 @@ async def _diff_absent(
     published: dict[tuple, list[str]] = {}
     if pairing:
         for row in rows:
-            resolved = _resolve_identity(spec, row, scope, creating, lookups)
+            resolved = _resolve_identity(spec, row, scope, frozenset(), lookups)
             if isinstance(resolved, dict):
                 key = tuple(resolved.get(c) for c in pairing)
                 published.setdefault(key, []).append(row["producer_id"])
@@ -829,7 +831,7 @@ def _resolve_identity(
     spec: TableSpec,
     row: dict,
     scope: Scope,
-    creating: set[tuple[str, str]],
+    creating: Container[tuple[str, str]],
     lookups: Mapping[Lookup, dict[str, str]] = MappingProxyType({}),
 ) -> dict[str, object] | str:
     """PM column → value for everything a create of ``row`` writes; a reference
