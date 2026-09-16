@@ -205,6 +205,39 @@ models:
     columns:
       - name: role_key
         tests: [unique, not_null]
+      - name: entity_id
+        tests: [unique, not_null]
+
+  - name: stg_pm__role_types
+    columns:
+      - name: slug
+        tests: [unique, not_null]
+
+  - name: desired_roles
+    description: One row per published role in scope (#529); keyed by the role's entity_id.
+    columns:
+      - name: producer_id
+        tests: [unique, not_null]
+      - name: pm_id
+        tests: [unique]
+      - name: org_producer_id
+        tests: [not_null]
+      - name: title
+        description: Warn, never halt — a create without one is dropped by the model, and an anchored role simply asserts no title.
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+  - name: desired_role_titles
+    columns:
+      - name: producer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('desired_roles')
+              field: producer_id
 
   - name: desired_role_assignments
     description: One row per published span in scope (#527); keyed by span_key.

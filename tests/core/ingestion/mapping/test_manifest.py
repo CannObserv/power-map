@@ -17,14 +17,19 @@ from src.core.ingestion.mapping import (  # noqa: E402
     write_desired_state,
 )
 from src.core.ingestion.mapping.manifest import (  # noqa: E402
+    MANIFEST_PATH,
     SHAPES,
+    Index,
+    Lookup,
     ManifestError,
     parse_manifest,
 )
 from src.core.ingestion.mapping.parquet import read_rows  # noqa: E402
 from tests.core.ingestion.applier_fakes import (  # noqa: E402
     ASSIGNMENT_TABLES,
+    ROLE_TABLES,
     raw_with_assignments,
+    raw_with_roles,
 )
 
 MARTS = sorted(p.stem for p in (PROJECT_DIR / "models" / "marts").glob("*.sql"))
@@ -57,7 +62,7 @@ def test_every_mart_is_declared_and_every_declaration_is_a_mart():
 def test_each_table_declares_key_retraction_and_owned_columns(table):
     spec = load_manifest().tables[table]
 
-    assert spec.entity in {"person", "organization", "assignment"}
+    assert spec.entity in {"person", "organization", "assignment", "role"}
     assert spec.key and all(isinstance(k, str) for k in spec.key)
     assert spec.retraction in {"none", "report", "archive"}
     assert isinstance(spec.owned_columns, list)
@@ -117,6 +122,8 @@ def test_the_four_shapes_cover_the_marts_as_designed():
         "desired_organization_merges": "merge",
         "desired_role_assignments": "entity",
         "desired_role_assignment_dates": "column",
+        "desired_roles": "entity",
+        "desired_role_titles": "column",
     }
 
 
@@ -281,6 +288,7 @@ OVERLAY_SLOTS = {
     ("assignment", "start_date"),
     ("assignment", "end_date"),
     ("assignment", "is_current"),
+    ("role", "title"),
 }
 
 
@@ -349,7 +357,7 @@ def test_an_entity_binding_carries_identity_unique_live_and_supersession():
     assert (person.column, person.entity) == ("person_id", "person")
     assert (role.column, role.entity) == ("role_id", "role")
     assert (start.column, start.entity) == ("start_date", None)
-    assert target.unique_live == ["person_id", "role_id", "start_date"]
+    assert target.unique_live == [Index(columns=["person_id", "role_id", "start_date"])]
     assert target.supersession == ["person_id", "role_id"]
     assert target.cascades == {
         "role_assignment_relationships": ["from_assignment_id", "to_assignment_id"]
@@ -391,6 +399,102 @@ def _set(path: tuple[str, ...], value):
         node[path[-1]] = value
 
     return edit
+
+
+def _with_roles(**edits) -> dict:
+    """The assignment manifest plus the role tables (#529), each optionally edited."""
+    raw = raw_with_roles()
+    for name, fn in edits.items():
+        fn(raw["tables"][name])
+    return raw
+
+
+def test_the_role_tests_diff_the_bindings_manifest_yml_ships():
+    """ROLE_TABLES is a fallback for a checkout that has not got the bindings yet,
+    never a substitute for them. Everything below asserts what `raw_with_roles`
+    loaded, so a manifest.yml whose `dependents` names the wrong table, or whose
+    title index stopped folding, has to fail here rather than ship green."""
+    production = yaml.safe_load(MANIFEST_PATH.read_text())["tables"]
+
+    used = raw_with_roles()["tables"]
+
+    assert [used[n] for n in ROLE_TABLES] == [production[n] for n in ROLE_TABLES]
+
+
+def test_an_identity_column_can_be_looked_up_by_slug():
+    """A role's type and district arrive as PM vocabulary slugs, not producer ids."""
+    target = parse_manifest(_with_roles()).tables["desired_roles"].target
+
+    role_type, org = target.identity["role_type"], target.identity["org_producer_id"]
+    assert (role_type.column, role_type.entity) == ("role_type_id", None)
+    assert role_type.lookup == Lookup(table="role_types", from_column="slug", to_column="id")
+    assert (org.entity, org.lookup) == ("organization", None)
+
+
+def test_unique_live_reads_as_the_indexes_a_row_could_collide_on():
+    """#261 split role identity in two, by whether the role has a jurisdiction."""
+    target = parse_manifest(_with_roles()).tables["desired_roles"].target
+
+    assert target.unique_live == [
+        Index(
+            columns=["organization_id", "role_type_id", "jurisdiction_id", "qualifier"],
+            when={"jurisdiction_id": "not_null"},
+        ),
+        Index(
+            columns=["organization_id", "title"],
+            fold={"title": "lower"},
+            when={"jurisdiction_id": "null"},
+        ),
+    ]
+
+
+def test_an_archiving_binding_names_what_must_not_be_left_behind():
+    target = parse_manifest(_with_roles()).tables["desired_roles"].target
+
+    assert target.dependents == {"role_assignments": ["role_id"]}
+
+
+ROLE_REFUSALS = [
+    # a lookup names the table and both of its columns
+    (
+        "desired_roles",
+        _set(("target", "identity", "role_type"), {"column": "c", "lookup": {"table": "t"}}),
+        "lookup",
+    ),
+    # a value resolves through the crosswalk or through a lookup, never both
+    (
+        "desired_roles",
+        _set(
+            ("target", "identity", "role_type"),
+            {"column": "c", "entity": "role", "lookup": {"table": "t", "from": "f", "to": "i"}},
+        ),
+        "lookup",
+    ),
+    # a fold names a column of its own index; a condition names one a create writes
+    ("desired_roles", _set(("target", "unique_live", 0, "when"), {"notes": "null"}), "notes"),
+    ("desired_roles", _set(("target", "unique_live", 1, "fold"), {"qualifier": "lower"}), "fold"),
+    ("desired_roles", _set(("target", "unique_live", 1, "fold"), {"title": "upper"}), "upper"),
+    (
+        "desired_roles",
+        _set(("target", "unique_live", 0, "when"), {"jurisdiction_id": "set"}),
+        "set",
+    ),
+    # an index column is still a column a create writes
+    ("desired_roles", _set(("target", "unique_live", 0, "columns"), ["notes"]), "notes"),
+    # a dependent table names the columns through which its rows point at the row
+    ("desired_roles", _set(("target", "dependents"), {"role_assignments": []}), "dependents"),
+    # only an archiving binding has anything to leave behind
+    ("desired_role_titles", _set(("target", "dependents"), {"t": ["c"]}), "dependents"),
+    ("desired_people", _set(("target", "dependents"), {"t": ["c"]}), "dependents"),
+]
+
+
+@pytest.mark.parametrize(("table", "edit", "named"), ROLE_REFUSALS)
+def test_a_role_binding_the_applier_cannot_honour_fails_at_load(table, edit, named):
+    with pytest.raises(ManifestError) as excinfo:
+        parse_manifest(_with_roles(**{table: edit}))
+
+    assert named in str(excinfo.value)
 
 
 REFUSALS = [

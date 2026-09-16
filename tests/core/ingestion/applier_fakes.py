@@ -11,12 +11,22 @@ from collections.abc import Iterable, Mapping, Sequence
 import yaml
 
 from src.core.ingestion.crosswalk import PRODUCER_SOURCE
-from src.core.ingestion.mapping.manifest import MANIFEST_PATH, parse_manifest
+from src.core.ingestion.mapping.manifest import MANIFEST_PATH, Index, parse_manifest
+
+
+def _folded(index: Index, column: str, value):
+    """The value as the index stores it: `lower` where the manifest folds (#529)."""
+    return value.lower() if index.fold.get(column) == "lower" and isinstance(value, str) else value
+
 
 # Seeded vocabularies the real database always holds; a fake without them would
 # make the engine's lookup read look like a defect in every org test.
 DEFAULT_LOOKUPS: dict[tuple[str, str, str], dict[str, str]] = {
     ("entity_event_types", "slug", "id"): {"dissolved": "EVT_DISSOLVED", "founded": "EVT_FOUNDED"},
+    # #529: the roles binding reads these two. A fixture publishing no role never
+    # consults them, but the engine loads a binding's vocabularies once per run.
+    ("role_types", "slug", "id"): {"committee_member": "RT_CM", "state_senator": "RT_SEN"},
+    ("jurisdictions", "slug", "id"): {"usa-wa-ld-34": "J34"},
 }
 
 
@@ -88,16 +98,26 @@ class FakeLiveStore:
         return dict(self._previews.get((loser_id, survivor_id), {}))
 
     async def slot_holders(
-        self, table: str, columns: Sequence[str], tuples: Sequence[tuple]
+        self, table: str, index: Index, tuples: Sequence[tuple]
     ) -> dict[tuple, list[dict]]:
-        """Rows holding each tuple of ``columns`` — NULLs equal, like the index."""
-        self.requested.append(("slot_holders", table, tuple(columns), tuple(tuples)))
-        wanted = set(tuples)
+        """Rows holding each tuple on ``index`` — NULLs equal, like the index, and
+        a row the index does not cover holds nothing (#529)."""
+        self.requested.append(("slot_holders", table, tuple(index.columns), tuple(tuples)))
+        wanted = {
+            tuple(_folded(index, c, v) for c, v in zip(index.columns, key, strict=True)): key
+            for key in tuples
+        }
         out: dict[tuple, list[dict]] = {}
         for r in self.tables.get(table, []):
-            key = tuple(r.get(c) for c in columns)
+            if not all(
+                (r.get(col) is None) == (state == "null") for col, state in index.when.items()
+            ):
+                continue
+            key = tuple(_folded(index, c, r.get(c)) for c in index.columns)
             if key in wanted:
-                out.setdefault(key, []).append({"id": r["id"], "archived_at": r.get("archived_at")})
+                out.setdefault(wanted[key], []).append(
+                    {"id": r["id"], "archived_at": r.get("archived_at")}
+                )
         return out
 
     async def cascade_counts(
@@ -114,6 +134,21 @@ class FakeLiveStore:
                 for pm_id in {r.get(c) for c in columns} & wanted:
                     counts = out.setdefault(pm_id, {})
                     counts[table] = counts.get(table, 0) + 1
+        return out
+
+    async def dependent_ids(
+        self, dependents: Mapping[str, Sequence[str]], ids: Sequence[str]
+    ) -> dict[str, dict[str, list[str]]]:
+        """Per id, the unarchived rows of each dependent table naming it (#529)."""
+        self.requested.append(("dependent_ids", tuple(dependents), tuple(ids)))
+        wanted = set(ids)
+        out: dict[str, dict[str, list[str]]] = {}
+        for table, columns in dependents.items():
+            for r in self.tables.get(table, []):
+                if r.get("archived_at") is not None:
+                    continue
+                for pm_id in sorted({r.get(c) for c in columns} & wanted):
+                    out.setdefault(pm_id, {}).setdefault(table, []).append(r["id"])
         return out
 
     async def value_matches(
@@ -190,6 +225,19 @@ DESIRED_SPECS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("pm_id", "producer_id", "start_date", "end_date", "is_current"),
         ("TEXT", "TEXT", "DATE", "DATE", "BOOLEAN"),
     ),
+    "desired_roles": (
+        (
+            "pm_id",
+            "producer_id",
+            "org_producer_id",
+            "role_type",
+            "jurisdiction_slug",
+            "qualifier",
+            "title",
+        ),
+        ("TEXT",) * 7,
+    ),
+    "desired_role_titles": (("pm_id", "producer_id", "title"), ("TEXT",) * 3),
 }
 
 
@@ -248,12 +296,86 @@ ASSIGNMENT_TABLES: dict[str, dict] = {
 }
 
 
-def raw_with_assignments() -> dict:
-    """Production's manifest document plus the assignment bindings (deep copies)."""
+ROLE_TABLES: dict[str, dict] = {
+    "desired_roles": {
+        "entity": "role",
+        "key": ["producer_id"],
+        "pm_key": "pm_id",
+        "retraction": "archive",
+        "owned_columns": [],
+        "target": {
+            "shape": "entity",
+            "table": "roles",
+            "identity": {
+                "org_producer_id": {"column": "organization_id", "entity": "organization"},
+                "role_type": {
+                    "column": "role_type_id",
+                    "lookup": {"table": "role_types", "from": "slug", "to": "id"},
+                },
+                "jurisdiction_slug": {
+                    "column": "jurisdiction_id",
+                    "lookup": {"table": "jurisdictions", "from": "slug", "to": "id"},
+                },
+                "qualifier": "qualifier",
+                "title": "title",
+            },
+            "unique_live": [
+                {
+                    "columns": ["organization_id", "role_type_id", "jurisdiction_id", "qualifier"],
+                    "when": {"jurisdiction_id": "not_null"},
+                },
+                {
+                    "columns": ["organization_id", "title"],
+                    "fold": {"title": "lower"},
+                    "when": {"jurisdiction_id": "null"},
+                },
+            ],
+            "dependents": {"role_assignments": ["role_id"]},
+        },
+    },
+    "desired_role_titles": {
+        "entity": "role",
+        "key": ["producer_id"],
+        "pm_key": "pm_id",
+        "retraction": "none",
+        "owned_columns": ["title"],
+        "overlay": "title",
+        "target": {"shape": "column", "table": "roles", "columns": {"title": "title"}},
+    },
+}
+
+
+def raw_with_roles() -> dict:
+    """Production's manifest document, with every binding these fixtures need.
+
+    `manifest.yml` carries the assignment and role bindings today, so the tests
+    diff what the nightly loads — a `dependents` table misspelt there, or a title
+    index that stopped folding, has to fail a test (#529). ASSIGNMENT_TABLES and
+    ROLE_TABLES are the fallback for a checkout that has not got them yet, and
+    `setdefault` is what keeps production's own in front of them.
+    """
     with MANIFEST_PATH.open() as f:
         raw = yaml.safe_load(f)
-    for name, spec in yaml.safe_load(yaml.safe_dump(ASSIGNMENT_TABLES)).items():
-        raw["tables"].setdefault(name, spec)
+    for fallback in (ASSIGNMENT_TABLES, ROLE_TABLES):
+        for name, spec in yaml.safe_load(yaml.safe_dump(fallback)).items():
+            raw["tables"].setdefault(name, spec)
+    return raw
+
+
+def manifest_with_roles():
+    """The manifest the role tests diff against."""
+    return parse_manifest(raw_with_roles())
+
+
+def raw_with_assignments() -> dict:
+    """`raw_with_roles` without the role bindings (#529, deep copies).
+
+    These fixtures anchor a role so a span can resolve it, and a manifest that
+    also diffs roles would read that anchor as an absent role and archive it.
+    """
+    raw = raw_with_roles()
+    for name in ROLE_TABLES:
+        raw["tables"].pop(name, None)
     return raw
 
 

@@ -112,6 +112,8 @@ _SLOTS = (
     Slot("assignment", "start_date", "Start date", _ASSIGNMENT_COLUMN.format("start_date")),
     Slot("assignment", "end_date", "End date", _ASSIGNMENT_COLUMN.format("end_date")),
     Slot("assignment", "is_current", "Current", _ASSIGNMENT_COLUMN.format("is_current")),
+    # #529: usa-wa owns a role's title; its structure is identity and PM may move it
+    Slot("role", "title", "Title", "SELECT title FROM roles WHERE id = $1"),
 )
 
 SLOTS: dict[tuple[str, str], Slot] = {(s.entity_type, s.field): s for s in _SLOTS}

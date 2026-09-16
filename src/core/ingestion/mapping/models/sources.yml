@@ -41,3 +41,7 @@ sources:
         description: PM-wins overrides on producer-owned fields, joined as COALESCE(overlay, mapped).
         meta:
           external_location: "read_parquet('{{ env_var('PM_SRC_CURATION_OVERLAY', '') }}')"
+      - name: role_types
+        description: The role-type vocabulary (#266) — read for the qualifier policies its triggers enforce.
+        meta:
+          external_location: "read_parquet('{{ env_var('PM_SRC_ROLE_TYPES', '') }}')"

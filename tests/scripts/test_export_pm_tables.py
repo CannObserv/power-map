@@ -27,8 +27,10 @@ async def db(db_pool):
             await tr.rollback()
 
 
-def test_the_two_tables_the_models_read_are_exported():
-    assert set(TABLES) == {"producer_crosswalk", "curation_overlay"}
+def test_the_tables_the_models_read_are_exported():
+    """#529 added role_types: the models read its qualifier policies to drop a role
+    create PM would refuse."""
+    assert set(TABLES) == {"producer_crosswalk", "curation_overlay", "role_types"}
 
 
 async def test_run_writes_one_file_per_table_under_the_pm_dir(tmp_path):
@@ -37,6 +39,7 @@ async def test_run_writes_one_file_per_table_under_the_pm_dir(tmp_path):
             ("01A", "usa-wa", "person", "P1", "PM1", "PM1", "live", None, None, None, None)
         ],
         "curation_overlay": [],
+        "role_types": [("RT1", "committee_member", False, False)],
     }
 
     async def fake_fetch(spec):
@@ -44,7 +47,7 @@ async def test_run_writes_one_file_per_table_under_the_pm_dir(tmp_path):
 
     report = await run(fake_fetch, root=tmp_path)
 
-    assert report == {"producer_crosswalk": 1, "curation_overlay": 0}
+    assert report == {"producer_crosswalk": 1, "curation_overlay": 0, "role_types": 1}
     assert read_rows(tmp_path / "_pm" / "producer_crosswalk.parquet")[0][0] == "01A"
     assert (tmp_path / "_pm" / "curation_overlay.parquet").exists()
 

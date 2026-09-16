@@ -16,15 +16,16 @@ integration tier against asyncpg.
 import dataclasses
 import json
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Container, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
+from types import MappingProxyType
 from typing import Protocol
 
 from src.core.ingestion.crosswalk import IN_SCOPE, PRODUCER_SOURCE, TOMBSTONE_TYPE
 from src.core.ingestion.mapping import BUILD_INFO, Manifest
-from src.core.ingestion.mapping.manifest import TableSpec
+from src.core.ingestion.mapping.manifest import Index, Lookup, TableSpec
 from src.core.ingestion.mapping.parquet import read_records
 
 __all__ = [
@@ -127,15 +128,23 @@ class LiveStore(Protocol):
         columns — what the database archives with it (#527)."""
         ...
 
+    async def dependent_ids(
+        self, dependents: Mapping[str, Sequence[str]], ids: Sequence[str]
+    ) -> dict[str, dict[str, list[str]]]:
+        """Per id, the unarchived rows of each dependent table naming it — what an
+        archive would leave behind (#529)."""
+        ...
+
     async def slot_holders(
-        self, table: str, columns: Sequence[str], tuples: Sequence[tuple]
+        self, table: str, index: Index, tuples: Sequence[tuple]
     ) -> dict[tuple, list[dict]]:
-        """Rows of ``table`` holding each tuple of ``columns``, as ``{id, archived_at}`` (#527).
+        """Rows of ``table`` holding each tuple on ``index``, as ``{id, archived_at}`` (#527).
 
         NULLs are equal — the partial identity indexes are ``NULLS NOT DISTINCT``
         — so the unarchived holders are exactly the rows an insert or unarchive of
         that tuple would collide with, and the archived ones are the hint that PM
-        once held it.
+        once held it. A row the index does not cover — its ``when`` unmet — is no
+        holder, and a folded column compares as the index stores it (#529).
         """
         ...
 
@@ -400,9 +409,52 @@ async def diff_desired(
 
     creating: set[tuple[str, str]] = set()
     restored: dict[str, dict[tuple, list[str]]] = {}  # binding → slot → rows restored onto it
-    for name, spec in _entity_order(manifest):
+    order = _entity_order(manifest)
+    lookups = {name: await _identity_lookups(spec, store) for name, spec in order}
+    # Absence first, across every archiving binding (#529): the dependents guard
+    # below has to know what this plan archives before any binding decides a
+    # restore or a create, and a binding's own absences free its slots.
+    absent: dict[str, list[Entry]] = {}
+    archived_now: dict[str, set[str]] = {}
+    for name, spec in order:
+        if spec.retraction != "archive":
+            continue
+        archived_now[name] = set()
+        absent[name] = await _diff_absent(
+            spec,
+            kept[name],
+            state,
+            manifest,
+            scope,
+            store,
+            archived_now[name],
+            lookups[name],
+        )
+    archiving_tables = {
+        manifest.tables[name].target.table: ids for name, ids in archived_now.items()
+    }
+    # One pass, because one binding declares `dependents`. The guard discards a
+    # blocked archive's id from the very sets `archiving_tables` holds, so a
+    # second declaring binding would need this run to a fixed point: guarded
+    # early, it would have subtracted archives a later guard went on to block.
+    for name, spec in order:
+        if spec.target.dependents and absent.get(name):
+            absent[name] = await _guard_dependents(
+                spec, absent[name], archiving_tables, archived_now[name], store
+            )
+    for name, spec in order:
         found = await _diff_entity(
-            spec, kept[name], state, manifest, scope, store, creating, restored
+            spec,
+            kept[name],
+            state,
+            manifest,
+            scope,
+            store,
+            creating,
+            restored,
+            absent.get(name, []),
+            archived_now.get(name, set()),
+            lookups[name],
         )
         entries.extend(found)
         creating |= {(spec.entity, e.producer_id) for e in found if e.kind == "create"}
@@ -433,6 +485,56 @@ def _entry(spec: TableSpec, row: dict, kind: str, **kw) -> Entry:
     )
 
 
+def _index_columns(indexes: Sequence[Index]) -> tuple[str, ...]:
+    """Every column the indexes key on or test — what a row must carry to be placed."""
+    out: list[str] = []
+    for index in indexes:
+        for col in (*index.columns, *index.when):
+            if col not in out:
+                out.append(col)
+    return tuple(out)
+
+
+def _index_of(indexes: Sequence[Index], values: Mapping[str, object]) -> tuple[int, Index] | None:
+    """The index covering a row with these values: the first whose ``when`` holds (#529).
+
+    None when none covers it — the row is outside every partial index, so it takes
+    no slot and collides with nothing.
+    """
+    for i, index in enumerate(indexes):
+        if all((values.get(col) is None) == (state == "null") for col, state in index.when.items()):
+            return i, index
+    return None
+
+
+def _slot_key(i: int, index: Index, values: Mapping[str, object]) -> tuple:
+    """The slot a row takes on ``index``, as the index stores it (#529).
+
+    A folded column compares folded, so two rows of one run whose values differ
+    only in case are rivals — the collision ``slot_holders`` cannot report,
+    because neither row is live for it to find. Folding the probe's own tuple is
+    harmless: the store folds again.
+    """
+    return (
+        i,
+        tuple(
+            v.lower() if index.fold.get(c) == "lower" and isinstance(v, str) else v
+            for c, v in ((c, values.get(c)) for c in index.columns)
+        ),
+    )
+
+
+async def _identity_lookups(spec: TableSpec, store: LiveStore) -> dict[Lookup, dict[str, str]]:
+    """Each PM vocabulary an identity column reads, once per run (#529)."""
+    out: dict[Lookup, dict[str, str]] = {}
+    for ident in spec.target.identity.values():
+        if ident.lookup is not None and ident.lookup not in out:
+            out[ident.lookup] = await store.lookup(
+                ident.lookup.table, ident.lookup.from_column, ident.lookup.to_column
+            )
+    return out
+
+
 def _entity_plan(
     manifest: Manifest,
     entries: Sequence[Entry],
@@ -444,10 +546,12 @@ def _entity_plan(
         spec = manifest.tables.get(e.table)
         if e.kind != "create" or spec is None or not spec.target.unique_live:
             continue
-        slot = tuple(e.changes[c][1] for c in spec.target.unique_live if c in e.changes)
-        if len(slot) == len(spec.target.unique_live) and not any(
-            isinstance(v, Minted) for v in slot
-        ):
+        values = {col: new for col, (_, new) in e.changes.items()}
+        placed = _index_of(spec.target.unique_live, values)
+        if placed is None:
+            continue
+        slot = _slot_key(*placed, values)
+        if not any(isinstance(v, Minted) for v in slot[1]):
             slots.setdefault(e.table, {}).setdefault(slot, []).append(e.producer_id)
     return _EntityPlan(
         archiving=frozenset(e.pm_id for e in entries if e.kind == "archive"),
@@ -513,24 +617,22 @@ async def _diff_entity(
     store: LiveStore,
     creating: set[tuple[str, str]],
     restored: dict[str, dict[tuple, list[str]]],
+    absent: Sequence[Entry],
+    archived_now: set[str],
+    lookups: Mapping[Lookup, dict[str, str]],
 ) -> list[Entry]:
     table = spec.target.table
     archiving = spec.retraction == "archive"
     anchored = [r for r in rows if r.get(spec.pm_key) is not None]
-    unique = tuple(spec.target.unique_live)
+    unique = _index_columns(spec.target.unique_live)
     live = (
         await store.entity_rows(table, [r[spec.pm_key] for r in anchored], columns=unique)
         if anchored
         else {}
     )
-    entries: list[Entry] = []
-    # Absence first under `archive`: the rows it retires free their slots on the
-    # partial identity index, and a restore below may be taking one of them.
-    archived_now: set[str] = set()
-    if archiving:
-        entries.extend(
-            await _diff_absent(spec, rows, state, manifest, scope, store, creating, archived_now)
-        )
+    # `diff_desired` decided this binding's absences before any binding's restores
+    # and creates, so the guard could see them (#529).
+    entries: list[Entry] = list(absent)
 
     restoring: list[tuple[dict, dict]] = []
     for row in anchored:
@@ -564,7 +666,9 @@ async def _diff_entity(
     creates = [r for r in rows if r.get(spec.pm_key) is None]
     hints = await _create_hints(spec, creates, state, manifest, store)
     entries.extend(
-        await _diff_creates(spec, creates, hints, scope, creating, archived_now, taken, store)
+        await _diff_creates(
+            spec, creates, hints, scope, creating, archived_now, taken, lookups, store
+        )
     )
 
     if spec.retraction == "report":
@@ -599,8 +703,8 @@ async def _diff_absent(
     manifest: Manifest,
     scope: Scope,
     store: LiveStore,
-    creating: set[tuple[str, str]],
     archived_now: set[str],
+    lookups: Mapping[Lookup, dict[str, str]],
 ) -> list[Entry]:
     """Under `retraction: archive`, what absence means for each in-scope row (#527).
 
@@ -609,7 +713,11 @@ async def _diff_absent(
     archived stays so; one that is gone is `stale`. ``archived_now`` collects the
     rows this plan archives, which no longer hold a slot for a restore or create.
     Each archive names, in ``effects``, the published spans on its `supersession`
-    tuple — the pairing #501's triage reads (usa-wa#289: a collapsed span).
+    tuple — the pairing #501's triage reads (usa-wa#289: a collapsed span). That
+    pairing is keyed on the archived row's own live values, so a published row
+    naming an entity this run mints matches nothing by construction — which is
+    why nothing here needs to know this run's creates, and could not: absences
+    are decided before any binding's (#529).
     """
     absent = _absent(spec, state, manifest, scope)
     if not absent:
@@ -621,7 +729,7 @@ async def _diff_absent(
     published: dict[tuple, list[str]] = {}
     if pairing:
         for row in rows:
-            resolved = _resolve_identity(spec, row, scope, creating)
+            resolved = _resolve_identity(spec, row, scope, frozenset(), lookups)
             if isinstance(resolved, dict):
                 key = tuple(resolved.get(c) for c in pairing)
                 published.setdefault(key, []).append(row["producer_id"])
@@ -659,6 +767,56 @@ async def _diff_absent(
     return await _with_cascades(spec, entries, store)
 
 
+async def _guard_dependents(
+    spec: TableSpec,
+    entries: Sequence[Entry],
+    archiving_tables: Mapping[str, set[str]],
+    archived_now: set[str],
+    store: LiveStore,
+) -> list[Entry]:
+    """An archive that would leave live rows naming the row is a `conflict` (#529).
+
+    The dependents this same plan archives do not count — the ordinary re-key
+    drops a role's spans with it. What is left is PM's own, or another producer's,
+    and which of the two records is right is a person's call.
+
+    Blocking one takes its id back out of ``archived_now`` — the set this run's
+    restores, creates and moves read to know which slots are freed — so the row
+    keeps its slot and whatever counted on it conflicts too rather than colliding.
+    That is why every archiving binding must be guarded before any of them diffs
+    a restore or a create.
+    """
+    ids = sorted({e.pm_id for e in entries if e.kind == "archive"})
+    if not ids:
+        return list(entries)
+    found = await store.dependent_ids(spec.target.dependents, ids)
+    out: list[Entry] = []
+    for e in entries:
+        left = {
+            table: [r for r in rows if r not in archiving_tables.get(table, set())]
+            for table, rows in (found.get(e.pm_id, {}) if e.kind == "archive" else {}).items()
+        }
+        left = {table: rows for table, rows in left.items() if rows}
+        if not left:
+            out.append(e)
+            continue
+        archived_now.discard(e.pm_id)
+        named = "; ".join(
+            f"{len(rows)} in {table} ({', '.join(sorted(rows)[:5])}"
+            + (", …)" if len(rows) > 5 else ")")
+            for table, rows in sorted(left.items())
+        )
+        out.append(
+            dataclasses.replace(
+                e,
+                kind="conflict",
+                effects={},
+                reason=f"archiving it would leave live rows naming it — {named}; a person decides",
+            )
+        )
+    return out
+
+
 async def _with_cascades(spec: TableSpec, entries: list[Entry], store: LiveStore) -> list[Entry]:
     """Each archive with the rows the database archives along with it (#527) —
     the #301 relationships on an assignment. Previewed because a restore does not
@@ -678,14 +836,27 @@ async def _with_cascades(spec: TableSpec, entries: list[Entry], store: LiveStore
 
 
 def _resolve_identity(
-    spec: TableSpec, row: dict, scope: Scope, creating: set[tuple[str, str]]
+    spec: TableSpec,
+    row: dict,
+    scope: Scope,
+    creating: Container[tuple[str, str]],
+    lookups: Mapping[Lookup, dict[str, str]] = MappingProxyType({}),
 ) -> dict[str, object] | str:
     """PM column → value for everything a create of ``row`` writes; a reference
-    resolves to its in-scope PM id, or to the row this run mints for it. Returns
-    the reason instead when a reference is neither — the row cannot be written."""
+    resolves to its in-scope PM id, or to the row this run mints for it, and a
+    slug through the vocabulary its `lookup` names (#529). Returns the reason
+    instead when one of them resolves nowhere — the row cannot be written."""
     out: dict[str, object] = {}
     for col, ident in spec.target.identity.items():
         value = row.get(col)
+        if ident.lookup is not None and value is not None:
+            found = lookups.get(ident.lookup, {}).get(value)
+            if found is None:
+                return (
+                    f"names {ident.lookup.table} {value!r}, which PM does not carry;"
+                    " a create cannot be written without it"
+                )
+            value = found
         if ident.entity is not None and value is None:
             return f"names no {ident.entity}; a create cannot be written without one"
         if ident.entity is not None:
@@ -707,6 +878,7 @@ async def _diff_creates(
     creating: set[tuple[str, str]],
     archived_now: set[str],
     restored: Mapping[tuple, list[str]],
+    lookups: Mapping[Lookup, dict[str, str]],
     store: LiveStore,
 ) -> list[Entry]:
     """A `create` per unanchored row, carrying the identity its INSERT writes (#527).
@@ -719,24 +891,32 @@ async def _diff_creates(
     same tenure.
     """
     table = spec.target.table
-    unique = spec.target.unique_live
+    indexes = spec.target.unique_live
     entries: list[Entry] = []
     pending: list[tuple[dict, dict[str, object]]] = []
     for row in creates:
-        resolved = _resolve_identity(spec, row, scope, creating)
+        resolved = _resolve_identity(spec, row, scope, creating, lookups)
         if isinstance(resolved, str):
             entries.append(_entry(spec, row, "stale", reason=resolved))
         else:
             pending.append((row, resolved))
 
+    # Each create takes a slot on the one index that covers it, if any (#529).
     slots: dict[str, tuple] = {}
-    if unique:
-        for row, resolved in pending:
-            slots[row["producer_id"]] = tuple(resolved.get(c) for c in unique)
+    for row, resolved in pending:
+        placed = _index_of(indexes, resolved)
+        if placed is not None:
+            slots[row["producer_id"]] = _slot_key(*placed, resolved)
     # A tuple naming a row this run mints has no holder yet, so it is not probed —
     # but two creates can still share it (CR 2).
-    probe = [k for k in dict.fromkeys(slots.values()) if not any(isinstance(v, Minted) for v in k)]
-    holders = await store.slot_holders(table, unique, probe) if probe else {}
+    probe: dict[int, list[tuple]] = {}
+    for i, key in dict.fromkeys(slots.values()):
+        if not any(isinstance(v, Minted) for v in key) and key not in probe.setdefault(i, []):
+            probe[i].append(key)
+    holders: dict[tuple, list[dict]] = {}
+    for i, keys in probe.items():
+        found = await store.slot_holders(table, indexes[i], keys)
+        holders.update({(i, key): rows for key, rows in found.items()})
     sharing: dict[tuple, list[str]] = {}
     for producer_id, key in slots.items():
         sharing.setdefault(key, []).append(producer_id)
@@ -744,12 +924,15 @@ async def _diff_creates(
     for row, resolved in pending:
         producer_id = row["producer_id"]
         key = slots.get(producer_id)
+        columns = indexes[key[0]].columns if key is not None else ()
         found = holders.get(key, []) if key is not None else []
         blocking = sorted(
             h["id"] for h in found if h.get("archived_at") is None and h["id"] not in archived_now
         )
         restoring = sorted(restored.get(key, [])) if key is not None else []
-        rivals = sorted(p for p in sharing.get(key, []) if p != producer_id) if key else []
+        rivals = (
+            sorted(p for p in sharing.get(key, []) if p != producer_id) if key is not None else []
+        )
         if blocking or restoring or rivals:
             held = ", ".join(
                 [
@@ -764,12 +947,12 @@ async def _diff_creates(
                     row,
                     "conflict",
                     reason=f"creating it would take the slot {held} holds on"
-                    f" ({', '.join(unique)}); a person decides",
+                    f" ({', '.join(columns)}); a person decides",
                 )
             )
             continue
         archived = tuple(
-            {"table": table, "columns": list(unique), "archived_holder": h["id"]}
+            {"table": table, "columns": list(columns), "archived_holder": h["id"]}
             for h in sorted(found, key=lambda h: h["id"])
             if h.get("archived_at") is not None
         )
@@ -799,25 +982,35 @@ async def _diff_restores(
     slots the restores take back, which a create or move of this run cannot."""
     if not restoring:
         return [], {}
-    unique = spec.target.unique_live
-    tuples = {row[spec.pm_key]: tuple(found.get(c) for c in unique) for row, found in restoring}
-    holders = await store.slot_holders(
-        spec.target.table, unique, list(dict.fromkeys(tuples.values()))
-    )
+    indexes = spec.target.unique_live
+    tuples: dict[str, tuple | None] = {}
+    for row, found in restoring:
+        placed = _index_of(indexes, found)
+        tuples[row[spec.pm_key]] = _slot_key(*placed, found) if placed is not None else None
+    holders: dict[tuple, list[dict]] = {}
+    probe: dict[int, list[tuple]] = {}
+    for slot in tuples.values():
+        if slot is not None and slot[1] not in probe.setdefault(slot[0], []):
+            probe[slot[0]].append(slot[1])
+    for i, keys in probe.items():
+        found_rows = await store.slot_holders(spec.target.table, indexes[i], keys)
+        holders.update({(i, key): rows for key, rows in found_rows.items()})
     sharing: dict[tuple, list[str]] = {}
     for pm_id, key in tuples.items():
-        sharing.setdefault(key, []).append(pm_id)
+        if key is not None:
+            sharing.setdefault(key, []).append(pm_id)
     entries: list[Entry] = []
     taken: dict[tuple, list[str]] = {}
     for row, _found in restoring:
         pm_id = row[spec.pm_key]
         key = tuples[pm_id]
+        columns = indexes[key[0]].columns if key is not None else ()
         blocking = sorted(
             h["id"]
             for h in holders.get(key, [])
             if h.get("archived_at") is None and h["id"] != pm_id and h["id"] not in archived_now
         )
-        rivals = sorted(p for p in sharing[key] if p != pm_id)
+        rivals = sorted(p for p in sharing.get(key, []) if p != pm_id) if key is not None else []
         if blocking or rivals:
             held = ", ".join([*blocking, *(f"the restore of {p}" for p in rivals)])
             entries.append(
@@ -826,11 +1019,12 @@ async def _diff_restores(
                     row,
                     "conflict",
                     reason=f"restoring {pm_id} would take the slot {held} holds"
-                    f" on ({', '.join(unique)}) — #424; a person decides",
+                    f" on ({', '.join(columns)}) — #424; a person decides",
                 )
             )
         else:
-            taken.setdefault(key, []).append(pm_id)
+            if key is not None:
+                taken.setdefault(key, []).append(pm_id)
             entries.append(
                 _entry(
                     spec,
@@ -921,7 +1115,7 @@ async def _diff_column(
     # #527: the entity binding of the same table, when it has one, decides three
     # things here: which moves are moves on its partial identity index, what a
     # create already wrote, and whether an archived row is its report or stale.
-    unique = tuple(entity.target.unique_live) if entity is not None else ()
+    unique = _index_columns(entity.target.unique_live) if entity is not None else ()
     written = {i.column for i in entity.target.identity.values()} if entity is not None else set()
     archives = entity is not None and entity.retraction == "archive"
     asserted = set(target.asserts_null)
@@ -942,7 +1136,7 @@ async def _diff_column(
         return [d for d in columns if row.get(d) is not None or d in asserted]
 
     entries: list[Entry] = []
-    moving: list[tuple[dict, str, tuple, dict]] = []
+    moving: list[tuple[dict, str, dict, dict]] = []
     for row in rows:
         pm_id = row.get(spec.pm_key)
         if pm_id is None:
@@ -992,8 +1186,8 @@ async def _diff_column(
             if found.get(columns[d]) != row.get(d)
         }
         if unique and set(changes) & set(unique):
-            slot = tuple(changes[c][1] if c in changes else found.get(c) for c in unique)
-            moving.append((row, pm_id, slot, changes))
+            after = {c: changes[c][1] if c in changes else found.get(c) for c in unique}
+            moving.append((row, pm_id, after, changes))
         else:
             entries.append(_entry(spec, row, "update" if changes else "noop", changes=changes))
     if moving:
@@ -1004,7 +1198,7 @@ async def _diff_column(
 async def _diff_moves(
     spec: TableSpec,
     entity: TableSpec,
-    moving: Sequence[tuple[dict, str, tuple, dict]],
+    moving: Sequence[tuple[dict, str, dict, dict]],
     plan: _EntityPlan,
     store: LiveStore,
 ) -> list[Entry]:
@@ -1013,23 +1207,36 @@ async def _diff_moves(
     archived by this plan — or another move, create or restore (CR 2) of this run
     onto it, is a `conflict`. Otherwise the UPDATE would fail the index
     mid-transaction."""
-    unique = entity.target.unique_live
-    holders = await store.slot_holders(
-        spec.target.table, unique, list(dict.fromkeys(slot for _, _, slot, _ in moving))
-    )
+    indexes = entity.target.unique_live
+    slots: dict[str, tuple | None] = {}
+    for row, _, after, _ in moving:
+        placed = _index_of(indexes, after)
+        slots[row["producer_id"]] = _slot_key(*placed, after) if placed is not None else None
+    probe: dict[int, list[tuple]] = {}
+    for slot in slots.values():
+        if slot is not None and slot[1] not in probe.setdefault(slot[0], []):
+            probe[slot[0]].append(slot[1])
+    holders: dict[tuple, list[dict]] = {}
+    for i, keys in probe.items():
+        found = await store.slot_holders(spec.target.table, indexes[i], keys)
+        holders.update({(i, key): rows for key, rows in found.items()})
     sharing: dict[tuple, list[str]] = {}
-    for row, _, slot, _ in moving:
-        sharing.setdefault(slot, []).append(row["producer_id"])
+    for row, _, _, _ in moving:
+        slot = slots[row["producer_id"]]
+        if slot is not None:
+            sharing.setdefault(slot, []).append(row["producer_id"])
     creates = plan.create_slots.get(entity.name, {})
     restores = plan.restore_slots.get(entity.name, {})
     entries: list[Entry] = []
-    for row, pm_id, slot, changes in moving:
+    for row, pm_id, _after, changes in moving:
+        slot = slots[row["producer_id"]]
+        columns = indexes[slot[0]].columns if slot is not None else ()
         blocking = sorted(
             h["id"]
             for h in holders.get(slot, [])
             if h.get("archived_at") is None and h["id"] != pm_id and h["id"] not in plan.archiving
         )
-        rivals = [p for p in sharing[slot] if p != row["producer_id"]]
+        rivals = [p for p in sharing.get(slot, []) if p != row["producer_id"]]
         rivals += [f"the create of {p}" for p in creates.get(slot, [])]
         rivals += [f"the restore of {p}" for p in restores.get(slot, []) if p != pm_id]
         if blocking or rivals:
@@ -1040,7 +1247,7 @@ async def _diff_moves(
                     row,
                     "conflict",
                     reason=f"moving {pm_id} would take the slot {held} holds on"
-                    f" ({', '.join(unique)}); a person decides",
+                    f" ({', '.join(columns)}); a person decides",
                 )
             )
         else:

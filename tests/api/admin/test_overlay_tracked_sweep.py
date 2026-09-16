@@ -34,7 +34,8 @@ _SLOT_WRITE = re.compile(
     r"(?:(?:person_names|organization_names|organization_acronyms|entity_events)\b"
     r"|\{names_table\})"
     r"|\bUPDATE\s+organizations\s+SET\b[^;]*?\bparent_id\s*="
-    r"|\bUPDATE\s+role_assignments\s+SET\b[^;]*?\b(?:start_date|end_date|is_current)\s*=",
+    r"|\bUPDATE\s+role_assignments\s+SET\b[^;]*?\b(?:start_date|end_date|is_current)\s*="
+    r"|\bUPDATE\s+roles\s+SET\b[^;]*?\btitle\s*=",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -73,6 +74,13 @@ TRACKED_SITES = {
     "_events_shared.py::event_edit_row_post",
     "_events_shared.py::event_archive",
     "_events_shared.py::event_unarchive",
+    # #527's four date sites and #529's title site: the regex that finds them is
+    # this file's, so a blind matcher would take them with it.
+    "role_assignments.py::ra_inline_dates_post",
+    "role_assignments.py::ra_inline_is_current",
+    "people_assignments.py::assignment_edit_row_post",
+    "roles_assignments_inline.py::assignment_edit_row_post",
+    "roles_detail.py::role_inline_title_post",
 }
 
 _FUNCS = (ast.FunctionDef, ast.AsyncFunctionDef)
@@ -177,3 +185,28 @@ def test_every_allowlist_entry_still_names_a_slot_writer():
     routes, helpers = _survey()
     assert sorted(set(ALLOWED_ROUTES) - set(routes)) == []
     assert sorted(set(ALLOWED_HELPERS) - helpers) == []
+
+
+def test_every_tracked_route_provisions_its_user():
+    """`tracked()` pins as ``user_id``, and ``curation_overlay.created_by`` is a
+    foreign key onto ``app_users(id)`` — so a route that wraps its write without
+    ``provision_app_user`` raises the first time its edit actually moves a slot,
+    which is the one case the wrapper exists for. A router factory is not a route:
+    it takes no ``Depends``, and the handlers nested in it are checked on their own.
+    """
+    offenders: list[str] = []
+    for path in sorted(ADMIN_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for fn in ast.walk(tree):
+            if not isinstance(fn, _FUNCS) or fn.name == "tracked":
+                continue
+            if "tracked" not in _calls(fn):
+                continue
+            params = ast.unparse(fn.args)
+            if "Depends(" in params and "provision_app_user" not in params:
+                offenders.append(f"{path.name}::{fn.name}")
+    assert sorted(offenders) == [], (
+        "Admin routes calling tracked() without provision_app_user — the first pin they"
+        f" write violates curation_overlay's app_users foreign key: {sorted(offenders)}."
+        " Depend on provision_app_user instead of get_admin_user."
+    )

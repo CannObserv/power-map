@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 
 from src.core.ingestion.applier import sql_identifier
 from src.core.ingestion.applier_merge import MERGE_PRIMITIVES
+from src.core.ingestion.mapping.manifest import Index
 
 __all__ = ["PostgresLiveStore"]
 
@@ -93,18 +94,48 @@ class PostgresLiveStore:
         return out
 
     async def slot_holders(
-        self, table: str, columns: Sequence[str], tuples: Sequence[tuple]
+        self, table: str, index: Index, tuples: Sequence[tuple]
     ) -> dict[tuple, list[dict]]:
         """One probe per tuple, ``IS NOT DISTINCT FROM`` per column — the index's own
-        NULL rule — so each column's type is Postgres's to infer, never ours."""
-        names = [sql_identifier(c) for c in columns]
-        where = " AND ".join(f"{c} IS NOT DISTINCT FROM ${i}" for i, c in enumerate(names, 1))
+        NULL rule — so each column's type is Postgres's to infer, never ours. A
+        folded column compares as the index stores it, and the index's own
+        predicate is applied, so a row it does not cover is no holder (#529)."""
+        terms = []
+        for i, col in enumerate(index.columns, 1):
+            name = sql_identifier(col)
+            terms.append(
+                f"lower({name}) IS NOT DISTINCT FROM lower(${i}::text)"
+                if index.fold.get(col) == "lower"
+                else f"{name} IS NOT DISTINCT FROM ${i}"
+            )
+        terms += [
+            f"{sql_identifier(col)} IS {'NULL' if state == 'null' else 'NOT NULL'}"
+            for col, state in index.when.items()
+        ]
+        where = " AND ".join(terms)
         sql = f"SELECT id, archived_at FROM {sql_identifier(table)} WHERE {where} ORDER BY id"
         out: dict[tuple, list[dict]] = {}
         for key in tuples:
             rows = await self._conn.fetch(sql, *key)
             if rows:
                 out[tuple(key)] = [dict(r) for r in rows]
+        return out
+
+    async def dependent_ids(
+        self, dependents: Mapping[str, Sequence[str]], ids: Sequence[str]
+    ) -> dict[str, dict[str, list[str]]]:
+        """Per id, the live rows of each dependent table naming it (#529) — the ids
+        themselves, since the guard subtracts the ones this plan archives."""
+        out: dict[str, dict[str, list[str]]] = {}
+        for table, columns in dependents.items():
+            match = " OR ".join(f"t.{sql_identifier(c)} = x.id" for c in columns)
+            sql = (
+                "SELECT x.id, t.id AS dependent FROM unnest($1::text[]) AS x(id)"
+                f" JOIN {sql_identifier(table)} t ON t.archived_at IS NULL AND ({match})"
+                " ORDER BY t.id"
+            )
+            for r in await self._conn.fetch(sql, list(ids)):
+                out.setdefault(r["id"], {}).setdefault(table, []).append(r["dependent"])
         return out
 
     async def cascade_counts(
