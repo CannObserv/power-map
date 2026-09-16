@@ -11,7 +11,13 @@ from collections.abc import Iterable, Mapping, Sequence
 import yaml
 
 from src.core.ingestion.crosswalk import PRODUCER_SOURCE
-from src.core.ingestion.mapping.manifest import MANIFEST_PATH, parse_manifest
+from src.core.ingestion.mapping.manifest import MANIFEST_PATH, Index, parse_manifest
+
+
+def _folded(index: Index, column: str, value):
+    """The value as the index stores it: `lower` where the manifest folds (#529)."""
+    return value.lower() if index.fold.get(column) == "lower" and isinstance(value, str) else value
+
 
 # Seeded vocabularies the real database always holds; a fake without them would
 # make the engine's lookup read look like a defect in every org test.
@@ -88,16 +94,26 @@ class FakeLiveStore:
         return dict(self._previews.get((loser_id, survivor_id), {}))
 
     async def slot_holders(
-        self, table: str, columns: Sequence[str], tuples: Sequence[tuple]
+        self, table: str, index: Index, tuples: Sequence[tuple]
     ) -> dict[tuple, list[dict]]:
-        """Rows holding each tuple of ``columns`` — NULLs equal, like the index."""
-        self.requested.append(("slot_holders", table, tuple(columns), tuple(tuples)))
-        wanted = set(tuples)
+        """Rows holding each tuple on ``index`` — NULLs equal, like the index, and
+        a row the index does not cover holds nothing (#529)."""
+        self.requested.append(("slot_holders", table, tuple(index.columns), tuple(tuples)))
+        wanted = {
+            tuple(_folded(index, c, v) for c, v in zip(index.columns, key, strict=True)): key
+            for key in tuples
+        }
         out: dict[tuple, list[dict]] = {}
         for r in self.tables.get(table, []):
-            key = tuple(r.get(c) for c in columns)
+            if not all(
+                (r.get(col) is None) == (state == "null") for col, state in index.when.items()
+            ):
+                continue
+            key = tuple(_folded(index, c, r.get(c)) for c in index.columns)
             if key in wanted:
-                out.setdefault(key, []).append({"id": r["id"], "archived_at": r.get("archived_at")})
+                out.setdefault(wanted[key], []).append(
+                    {"id": r["id"], "archived_at": r.get("archived_at")}
+                )
         return out
 
     async def cascade_counts(

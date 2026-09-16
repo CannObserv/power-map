@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 
 from src.core.ingestion.applier import sql_identifier
 from src.core.ingestion.applier_merge import MERGE_PRIMITIVES
+from src.core.ingestion.mapping.manifest import Index
 
 __all__ = ["PostgresLiveStore"]
 
@@ -93,12 +94,25 @@ class PostgresLiveStore:
         return out
 
     async def slot_holders(
-        self, table: str, columns: Sequence[str], tuples: Sequence[tuple]
+        self, table: str, index: Index, tuples: Sequence[tuple]
     ) -> dict[tuple, list[dict]]:
         """One probe per tuple, ``IS NOT DISTINCT FROM`` per column — the index's own
-        NULL rule — so each column's type is Postgres's to infer, never ours."""
-        names = [sql_identifier(c) for c in columns]
-        where = " AND ".join(f"{c} IS NOT DISTINCT FROM ${i}" for i, c in enumerate(names, 1))
+        NULL rule — so each column's type is Postgres's to infer, never ours. A
+        folded column compares as the index stores it, and the index's own
+        predicate is applied, so a row it does not cover is no holder (#529)."""
+        terms = []
+        for i, col in enumerate(index.columns, 1):
+            name = sql_identifier(col)
+            terms.append(
+                f"lower({name}) IS NOT DISTINCT FROM lower(${i}::text)"
+                if index.fold.get(col) == "lower"
+                else f"{name} IS NOT DISTINCT FROM ${i}"
+            )
+        terms += [
+            f"{sql_identifier(col)} IS {'NULL' if state == 'null' else 'NOT NULL'}"
+            for col, state in index.when.items()
+        ]
+        where = " AND ".join(terms)
         sql = f"SELECT id, archived_at FROM {sql_identifier(table)} WHERE {where} ORDER BY id"
         out: dict[tuple, list[dict]] = {}
         for key in tuples:

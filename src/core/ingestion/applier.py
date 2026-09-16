@@ -20,11 +20,12 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
+from types import MappingProxyType
 from typing import Protocol
 
 from src.core.ingestion.crosswalk import IN_SCOPE, PRODUCER_SOURCE, TOMBSTONE_TYPE
 from src.core.ingestion.mapping import BUILD_INFO, Manifest
-from src.core.ingestion.mapping.manifest import TableSpec
+from src.core.ingestion.mapping.manifest import Index, Lookup, TableSpec
 from src.core.ingestion.mapping.parquet import read_records
 
 __all__ = [
@@ -128,14 +129,15 @@ class LiveStore(Protocol):
         ...
 
     async def slot_holders(
-        self, table: str, columns: Sequence[str], tuples: Sequence[tuple]
+        self, table: str, index: Index, tuples: Sequence[tuple]
     ) -> dict[tuple, list[dict]]:
-        """Rows of ``table`` holding each tuple of ``columns``, as ``{id, archived_at}`` (#527).
+        """Rows of ``table`` holding each tuple on ``index``, as ``{id, archived_at}`` (#527).
 
         NULLs are equal — the partial identity indexes are ``NULLS NOT DISTINCT``
         — so the unarchived holders are exactly the rows an insert or unarchive of
         that tuple would collide with, and the archived ones are the hint that PM
-        once held it.
+        once held it. A row the index does not cover — its ``when`` unmet — is no
+        holder, and a folded column compares as the index stores it (#529).
         """
         ...
 
@@ -433,18 +435,37 @@ def _entry(spec: TableSpec, row: dict, kind: str, **kw) -> Entry:
     )
 
 
-def _slot_columns(spec: TableSpec) -> list[str]:
-    """The columns of a binding's one identity index.
+def _index_columns(indexes: Sequence[Index]) -> tuple[str, ...]:
+    """Every column the indexes key on or test — what a row must carry to be placed."""
+    out: list[str] = []
+    for index in indexes:
+        for col in (*index.columns, *index.when):
+            if col not in out:
+                out.append(col)
+    return tuple(out)
 
-    #529 step 1 made `unique_live` a list of indexes; until step 3 teaches the
-    engine to choose between them, a binding may still declare only one.
+
+def _index_of(indexes: Sequence[Index], values: Mapping[str, object]) -> tuple[int, Index] | None:
+    """The index covering a row with these values: the first whose ``when`` holds (#529).
+
+    None when none covers it — the row is outside every partial index, so it takes
+    no slot and collides with nothing.
     """
-    if len(spec.target.unique_live) > 1:
-        raise ApplierError(
-            f"{spec.name}: more than one unique_live index — #529 step 3 teaches the engine"
-            " to choose between them"
-        )
-    return list(spec.target.unique_live[0].columns) if spec.target.unique_live else []
+    for i, index in enumerate(indexes):
+        if all((values.get(col) is None) == (state == "null") for col, state in index.when.items()):
+            return i, index
+    return None
+
+
+async def _identity_lookups(spec: TableSpec, store: LiveStore) -> dict[Lookup, dict[str, str]]:
+    """Each PM vocabulary an identity column reads, once per run (#529)."""
+    out: dict[Lookup, dict[str, str]] = {}
+    for ident in spec.target.identity.values():
+        if ident.lookup is not None and ident.lookup not in out:
+            out[ident.lookup] = await store.lookup(
+                ident.lookup.table, ident.lookup.from_column, ident.lookup.to_column
+            )
+    return out
 
 
 def _entity_plan(
@@ -458,9 +479,13 @@ def _entity_plan(
         spec = manifest.tables.get(e.table)
         if e.kind != "create" or spec is None or not spec.target.unique_live:
             continue
-        columns = _slot_columns(spec)
-        slot = tuple(e.changes[c][1] for c in columns if c in e.changes)
-        if len(slot) == len(columns) and not any(isinstance(v, Minted) for v in slot):
+        values = {col: new for col, (_, new) in e.changes.items()}
+        placed = _index_of(spec.target.unique_live, values)
+        if placed is None:
+            continue
+        i, index = placed
+        slot = (i, tuple(values.get(c) for c in index.columns))
+        if not any(isinstance(v, Minted) for v in slot[1]):
             slots.setdefault(e.table, {}).setdefault(slot, []).append(e.producer_id)
     return _EntityPlan(
         archiving=frozenset(e.pm_id for e in entries if e.kind == "archive"),
@@ -530,7 +555,8 @@ async def _diff_entity(
     table = spec.target.table
     archiving = spec.retraction == "archive"
     anchored = [r for r in rows if r.get(spec.pm_key) is not None]
-    unique = tuple(_slot_columns(spec))
+    unique = _index_columns(spec.target.unique_live)
+    lookups = await _identity_lookups(spec, store)
     live = (
         await store.entity_rows(table, [r[spec.pm_key] for r in anchored], columns=unique)
         if anchored
@@ -542,7 +568,9 @@ async def _diff_entity(
     archived_now: set[str] = set()
     if archiving:
         entries.extend(
-            await _diff_absent(spec, rows, state, manifest, scope, store, creating, archived_now)
+            await _diff_absent(
+                spec, rows, state, manifest, scope, store, creating, archived_now, lookups
+            )
         )
 
     restoring: list[tuple[dict, dict]] = []
@@ -577,7 +605,9 @@ async def _diff_entity(
     creates = [r for r in rows if r.get(spec.pm_key) is None]
     hints = await _create_hints(spec, creates, state, manifest, store)
     entries.extend(
-        await _diff_creates(spec, creates, hints, scope, creating, archived_now, taken, store)
+        await _diff_creates(
+            spec, creates, hints, scope, creating, archived_now, taken, lookups, store
+        )
     )
 
     if spec.retraction == "report":
@@ -614,6 +644,7 @@ async def _diff_absent(
     store: LiveStore,
     creating: set[tuple[str, str]],
     archived_now: set[str],
+    lookups: Mapping[Lookup, dict[str, str]],
 ) -> list[Entry]:
     """Under `retraction: archive`, what absence means for each in-scope row (#527).
 
@@ -634,7 +665,7 @@ async def _diff_absent(
     published: dict[tuple, list[str]] = {}
     if pairing:
         for row in rows:
-            resolved = _resolve_identity(spec, row, scope, creating)
+            resolved = _resolve_identity(spec, row, scope, creating, lookups)
             if isinstance(resolved, dict):
                 key = tuple(resolved.get(c) for c in pairing)
                 published.setdefault(key, []).append(row["producer_id"])
@@ -691,14 +722,27 @@ async def _with_cascades(spec: TableSpec, entries: list[Entry], store: LiveStore
 
 
 def _resolve_identity(
-    spec: TableSpec, row: dict, scope: Scope, creating: set[tuple[str, str]]
+    spec: TableSpec,
+    row: dict,
+    scope: Scope,
+    creating: set[tuple[str, str]],
+    lookups: Mapping[Lookup, dict[str, str]] = MappingProxyType({}),
 ) -> dict[str, object] | str:
     """PM column → value for everything a create of ``row`` writes; a reference
-    resolves to its in-scope PM id, or to the row this run mints for it. Returns
-    the reason instead when a reference is neither — the row cannot be written."""
+    resolves to its in-scope PM id, or to the row this run mints for it, and a
+    slug through the vocabulary its `lookup` names (#529). Returns the reason
+    instead when one of them resolves nowhere — the row cannot be written."""
     out: dict[str, object] = {}
     for col, ident in spec.target.identity.items():
         value = row.get(col)
+        if ident.lookup is not None and value is not None:
+            found = lookups.get(ident.lookup, {}).get(value)
+            if found is None:
+                return (
+                    f"names {ident.lookup.table} {value!r}, which PM does not carry;"
+                    " a create cannot be written without it"
+                )
+            value = found
         if ident.entity is not None and value is None:
             return f"names no {ident.entity}; a create cannot be written without one"
         if ident.entity is not None:
@@ -720,6 +764,7 @@ async def _diff_creates(
     creating: set[tuple[str, str]],
     archived_now: set[str],
     restored: Mapping[tuple, list[str]],
+    lookups: Mapping[Lookup, dict[str, str]],
     store: LiveStore,
 ) -> list[Entry]:
     """A `create` per unanchored row, carrying the identity its INSERT writes (#527).
@@ -732,24 +777,33 @@ async def _diff_creates(
     same tenure.
     """
     table = spec.target.table
-    unique = _slot_columns(spec)
+    indexes = spec.target.unique_live
     entries: list[Entry] = []
     pending: list[tuple[dict, dict[str, object]]] = []
     for row in creates:
-        resolved = _resolve_identity(spec, row, scope, creating)
+        resolved = _resolve_identity(spec, row, scope, creating, lookups)
         if isinstance(resolved, str):
             entries.append(_entry(spec, row, "stale", reason=resolved))
         else:
             pending.append((row, resolved))
 
+    # Each create takes a slot on the one index that covers it, if any (#529).
     slots: dict[str, tuple] = {}
-    if unique:
-        for row, resolved in pending:
-            slots[row["producer_id"]] = tuple(resolved.get(c) for c in unique)
+    for row, resolved in pending:
+        placed = _index_of(indexes, resolved)
+        if placed is not None:
+            i, index = placed
+            slots[row["producer_id"]] = (i, tuple(resolved.get(c) for c in index.columns))
     # A tuple naming a row this run mints has no holder yet, so it is not probed —
     # but two creates can still share it (CR 2).
-    probe = [k for k in dict.fromkeys(slots.values()) if not any(isinstance(v, Minted) for v in k)]
-    holders = await store.slot_holders(table, unique, probe) if probe else {}
+    probe: dict[int, list[tuple]] = {}
+    for i, key in dict.fromkeys(slots.values()):
+        if not any(isinstance(v, Minted) for v in key) and key not in probe.setdefault(i, []):
+            probe[i].append(key)
+    holders: dict[tuple, list[dict]] = {}
+    for i, keys in probe.items():
+        found = await store.slot_holders(table, indexes[i], keys)
+        holders.update({(i, key): rows for key, rows in found.items()})
     sharing: dict[tuple, list[str]] = {}
     for producer_id, key in slots.items():
         sharing.setdefault(key, []).append(producer_id)
@@ -757,6 +811,7 @@ async def _diff_creates(
     for row, resolved in pending:
         producer_id = row["producer_id"]
         key = slots.get(producer_id)
+        columns = indexes[key[0]].columns if key is not None else ()
         found = holders.get(key, []) if key is not None else []
         blocking = sorted(
             h["id"] for h in found if h.get("archived_at") is None and h["id"] not in archived_now
@@ -777,12 +832,12 @@ async def _diff_creates(
                     row,
                     "conflict",
                     reason=f"creating it would take the slot {held} holds on"
-                    f" ({', '.join(unique)}); a person decides",
+                    f" ({', '.join(columns)}); a person decides",
                 )
             )
             continue
         archived = tuple(
-            {"table": table, "columns": list(unique), "archived_holder": h["id"]}
+            {"table": table, "columns": list(columns), "archived_holder": h["id"]}
             for h in sorted(found, key=lambda h: h["id"])
             if h.get("archived_at") is not None
         )
@@ -812,25 +867,39 @@ async def _diff_restores(
     slots the restores take back, which a create or move of this run cannot."""
     if not restoring:
         return [], {}
-    unique = _slot_columns(spec)
-    tuples = {row[spec.pm_key]: tuple(found.get(c) for c in unique) for row, found in restoring}
-    holders = await store.slot_holders(
-        spec.target.table, unique, list(dict.fromkeys(tuples.values()))
-    )
+    indexes = spec.target.unique_live
+    tuples: dict[str, tuple | None] = {}
+    for row, found in restoring:
+        placed = _index_of(indexes, found)
+        tuples[row[spec.pm_key]] = (
+            (placed[0], tuple(found.get(c) for c in placed[1].columns))
+            if placed is not None
+            else None
+        )
+    holders: dict[tuple, list[dict]] = {}
+    probe: dict[int, list[tuple]] = {}
+    for slot in tuples.values():
+        if slot is not None and slot[1] not in probe.setdefault(slot[0], []):
+            probe[slot[0]].append(slot[1])
+    for i, keys in probe.items():
+        found_rows = await store.slot_holders(spec.target.table, indexes[i], keys)
+        holders.update({(i, key): rows for key, rows in found_rows.items()})
     sharing: dict[tuple, list[str]] = {}
     for pm_id, key in tuples.items():
-        sharing.setdefault(key, []).append(pm_id)
+        if key is not None:
+            sharing.setdefault(key, []).append(pm_id)
     entries: list[Entry] = []
     taken: dict[tuple, list[str]] = {}
     for row, _found in restoring:
         pm_id = row[spec.pm_key]
         key = tuples[pm_id]
+        columns = indexes[key[0]].columns if key is not None else ()
         blocking = sorted(
             h["id"]
             for h in holders.get(key, [])
             if h.get("archived_at") is None and h["id"] != pm_id and h["id"] not in archived_now
         )
-        rivals = sorted(p for p in sharing[key] if p != pm_id)
+        rivals = sorted(p for p in sharing.get(key, []) if p != pm_id) if key is not None else []
         if blocking or rivals:
             held = ", ".join([*blocking, *(f"the restore of {p}" for p in rivals)])
             entries.append(
@@ -839,11 +908,12 @@ async def _diff_restores(
                     row,
                     "conflict",
                     reason=f"restoring {pm_id} would take the slot {held} holds"
-                    f" on ({', '.join(unique)}) — #424; a person decides",
+                    f" on ({', '.join(columns)}) — #424; a person decides",
                 )
             )
         else:
-            taken.setdefault(key, []).append(pm_id)
+            if key is not None:
+                taken.setdefault(key, []).append(pm_id)
             entries.append(
                 _entry(
                     spec,
@@ -934,7 +1004,7 @@ async def _diff_column(
     # #527: the entity binding of the same table, when it has one, decides three
     # things here: which moves are moves on its partial identity index, what a
     # create already wrote, and whether an archived row is its report or stale.
-    unique = tuple(_slot_columns(entity)) if entity is not None else ()
+    unique = _index_columns(entity.target.unique_live) if entity is not None else ()
     written = {i.column for i in entity.target.identity.values()} if entity is not None else set()
     archives = entity is not None and entity.retraction == "archive"
     asserted = set(target.asserts_null)
@@ -955,7 +1025,7 @@ async def _diff_column(
         return [d for d in columns if row.get(d) is not None or d in asserted]
 
     entries: list[Entry] = []
-    moving: list[tuple[dict, str, tuple, dict]] = []
+    moving: list[tuple[dict, str, dict, dict]] = []
     for row in rows:
         pm_id = row.get(spec.pm_key)
         if pm_id is None:
@@ -1005,8 +1075,8 @@ async def _diff_column(
             if found.get(columns[d]) != row.get(d)
         }
         if unique and set(changes) & set(unique):
-            slot = tuple(changes[c][1] if c in changes else found.get(c) for c in unique)
-            moving.append((row, pm_id, slot, changes))
+            after = {c: changes[c][1] if c in changes else found.get(c) for c in unique}
+            moving.append((row, pm_id, after, changes))
         else:
             entries.append(_entry(spec, row, "update" if changes else "noop", changes=changes))
     if moving:
@@ -1017,7 +1087,7 @@ async def _diff_column(
 async def _diff_moves(
     spec: TableSpec,
     entity: TableSpec,
-    moving: Sequence[tuple[dict, str, tuple, dict]],
+    moving: Sequence[tuple[dict, str, dict, dict]],
     plan: _EntityPlan,
     store: LiveStore,
 ) -> list[Entry]:
@@ -1026,23 +1096,40 @@ async def _diff_moves(
     archived by this plan — or another move, create or restore (CR 2) of this run
     onto it, is a `conflict`. Otherwise the UPDATE would fail the index
     mid-transaction."""
-    unique = _slot_columns(entity)
-    holders = await store.slot_holders(
-        spec.target.table, unique, list(dict.fromkeys(slot for _, _, slot, _ in moving))
-    )
+    indexes = entity.target.unique_live
+    slots: dict[str, tuple | None] = {}
+    for row, _, after, _ in moving:
+        placed = _index_of(indexes, after)
+        slots[row["producer_id"]] = (
+            (placed[0], tuple(after.get(c) for c in placed[1].columns))
+            if placed is not None
+            else None
+        )
+    probe: dict[int, list[tuple]] = {}
+    for slot in slots.values():
+        if slot is not None and slot[1] not in probe.setdefault(slot[0], []):
+            probe[slot[0]].append(slot[1])
+    holders: dict[tuple, list[dict]] = {}
+    for i, keys in probe.items():
+        found = await store.slot_holders(spec.target.table, indexes[i], keys)
+        holders.update({(i, key): rows for key, rows in found.items()})
     sharing: dict[tuple, list[str]] = {}
-    for row, _, slot, _ in moving:
-        sharing.setdefault(slot, []).append(row["producer_id"])
+    for row, _, _, _ in moving:
+        slot = slots[row["producer_id"]]
+        if slot is not None:
+            sharing.setdefault(slot, []).append(row["producer_id"])
     creates = plan.create_slots.get(entity.name, {})
     restores = plan.restore_slots.get(entity.name, {})
     entries: list[Entry] = []
-    for row, pm_id, slot, changes in moving:
+    for row, pm_id, _after, changes in moving:
+        slot = slots[row["producer_id"]]
+        columns = indexes[slot[0]].columns if slot is not None else ()
         blocking = sorted(
             h["id"]
             for h in holders.get(slot, [])
             if h.get("archived_at") is None and h["id"] != pm_id and h["id"] not in plan.archiving
         )
-        rivals = [p for p in sharing[slot] if p != row["producer_id"]]
+        rivals = [p for p in sharing.get(slot, []) if p != row["producer_id"]]
         rivals += [f"the create of {p}" for p in creates.get(slot, [])]
         rivals += [f"the restore of {p}" for p in restores.get(slot, []) if p != pm_id]
         if blocking or rivals:
@@ -1053,7 +1140,7 @@ async def _diff_moves(
                     row,
                     "conflict",
                     reason=f"moving {pm_id} would take the slot {held} holds on"
-                    f" ({', '.join(unique)}); a person decides",
+                    f" ({', '.join(columns)}); a person decides",
                 )
             )
         else:
