@@ -7,7 +7,7 @@ as `COALESCE(overlay, mapped)`, so the applier needs no per-row gate and a
 curator's correction is never silently reverted (design:
 `docs/plans/2026-09-11-curation-overlay-design.md`).
 
-## The eight slots
+## The nine slots
 
 A slot is a producer-owned field on an entity in the producer's row scope — a
 `live` or `merged` `producer_crosswalk` row. Outside that scope nothing here
@@ -23,6 +23,7 @@ applies: editing is direct curation, as before.
 | `assignment.start_date` | `role_assignments.start_date` | `role_assignments.py` dates form; the person- and role-page edit rows |
 | `assignment.end_date` | `role_assignments.end_date` | as `start_date` |
 | `assignment.is_current` | `role_assignments.is_current` (a pin stores `True`/`False`) | `role_assignments.py` currency toggle; both edit rows |
+| `role.title` | `roles.title` | `roles_detail.py` title editor (its structural editor writes the title back unchanged, #497) |
 
 The three assignment slots (#527) show on the assignment page. The model keeps
 each pinned pair legal against `chk_current_no_end_date`: a pinned current span

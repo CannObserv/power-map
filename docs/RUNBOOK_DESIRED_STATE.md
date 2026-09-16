@@ -64,6 +64,11 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   non-integer dissolved year, a non-date assignment date), applied nowhere.
   `unresolved_assignment_roles`: a span whose role_key names no published role,
   kept (dropping it would archive a live tenure) but never created.
+  `role_create_pm_would_refuse` (#529): a role PM has no row for that its own
+  guards would refuse to create — no title, a district without a type, a missing
+  or stray position (#273/#302) — dropped from `desired_roles`, since those are
+  triggers and a CHECK that fire mid-transaction. An **anchored** role is never
+  dropped: absence is what archives it.
   `build_desired_state` prints each WARN node and exits 0. Beside the key tests
   (a unique, non-null `span_key`, `role_key` or `producer_id`), one test halts:
   `desired_role_assignment_dates_current_has_no_end`, a current span with an
@@ -126,6 +131,19 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   and the relationships the #301 trigger archives with it, which a restore does
   not revive. A date that shrinks a span's window clamps its relationships, or
   archives those left with no window.
+- **Roles (#529).** A role the snapshot drops archives too — unless live rows
+  still name it that this plan does not archive, which makes it a `conflict`
+  naming them (`dependents`). The ordinary case is a re-key, where usa-wa drops
+  the role's spans with it. A blocked archive keeps its slot, so a create or
+  restore that counted on it conflicts rather than colliding. Absences are
+  therefore decided for every archiving binding before any of them decides a
+  restore or a create. A role's identity is two partial indexes (#261), and each
+  create, restore or title move is checked against the one covering it: the
+  structural tuple where the role has a jurisdiction, `lower(title)` where it has
+  none. A role's type and district arrive as PM slugs (`role_types.slug`,
+  `jurisdictions.slug`), and one PM does not carry is `stale`, never a failed
+  INSERT — `role_types` has no remote write path (#302), so a new type waits for
+  a deploy.
 - **Merges (#514).** A tombstone is `noop` once the live crosswalk resolves the
   loser's producer id to the survivor. Otherwise it is an actionable `merge`
   whose `effects` carry `person_merge.preview_person_merge` — each loser name
