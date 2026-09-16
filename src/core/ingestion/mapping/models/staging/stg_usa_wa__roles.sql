@@ -6,7 +6,6 @@ select
     nullif(trim(role_key), '') as role_key,
     nullif(trim(role_type), '') as role_type,
     nullif(trim(name), '') as name,
-    nullif(trim(span_kind), '') as span_kind,
     nullif(trim(org_entity_id), '') as org_entity_id,
     nullif(trim(district), '') as district,
     nullif(trim(qualifier), '') as qualifier
