@@ -185,3 +185,28 @@ def test_every_allowlist_entry_still_names_a_slot_writer():
     routes, helpers = _survey()
     assert sorted(set(ALLOWED_ROUTES) - set(routes)) == []
     assert sorted(set(ALLOWED_HELPERS) - helpers) == []
+
+
+def test_every_tracked_route_provisions_its_user():
+    """`tracked()` pins as ``user_id``, and ``curation_overlay.created_by`` is a
+    foreign key onto ``app_users(id)`` — so a route that wraps its write without
+    ``provision_app_user`` raises the first time its edit actually moves a slot,
+    which is the one case the wrapper exists for. A router factory is not a route:
+    it takes no ``Depends``, and the handlers nested in it are checked on their own.
+    """
+    offenders: list[str] = []
+    for path in sorted(ADMIN_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for fn in ast.walk(tree):
+            if not isinstance(fn, _FUNCS) or fn.name == "tracked":
+                continue
+            if "tracked" not in _calls(fn):
+                continue
+            params = ast.unparse(fn.args)
+            if "Depends(" in params and "provision_app_user" not in params:
+                offenders.append(f"{path.name}::{fn.name}")
+    assert sorted(offenders) == [], (
+        "Admin routes calling tracked() without provision_app_user — the first pin they"
+        f" write violates curation_overlay's app_users foreign key: {sorted(offenders)}."
+        " Depend on provision_app_user instead of get_admin_user."
+    )

@@ -338,7 +338,7 @@ async def role_inline_structural_post(
     role_type_id: str = Form(""),
     jurisdiction_id: str = Form(""),
     qualifier: str = Form(""),
-    user: AdminUser = Depends(get_admin_user),
+    user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
     """Save the structural tuple; the title is never touched here (#497)."""
