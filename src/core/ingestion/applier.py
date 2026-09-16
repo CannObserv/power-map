@@ -774,9 +774,13 @@ async def _guard_dependents(
 
     The dependents this same plan archives do not count — the ordinary re-key
     drops a role's spans with it. What is left is PM's own, or another producer's,
-    and which of the two records is right is a person's call. A blocked archive
-    keeps its slot, so a create or restore that counted on it conflicts too rather
-    than colliding.
+    and which of the two records is right is a person's call.
+
+    Blocking one takes its id back out of ``archived_now`` — the set this run's
+    restores, creates and moves read to know which slots are freed — so the row
+    keeps its slot and whatever counted on it conflicts too rather than colliding.
+    That is why every archiving binding must be guarded before any of them diffs
+    a restore or a create.
     """
     ids = sorted({e.pm_id for e in entries if e.kind == "archive"})
     if not ids:
@@ -922,7 +926,9 @@ async def _diff_creates(
             h["id"] for h in found if h.get("archived_at") is None and h["id"] not in archived_now
         )
         restoring = sorted(restored.get(key, [])) if key is not None else []
-        rivals = sorted(p for p in sharing.get(key, []) if p != producer_id) if key else []
+        rivals = (
+            sorted(p for p in sharing.get(key, []) if p != producer_id) if key is not None else []
+        )
         if blocking or restoring or rivals:
             held = ", ".join(
                 [
