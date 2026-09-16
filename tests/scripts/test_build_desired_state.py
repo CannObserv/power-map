@@ -20,6 +20,7 @@ from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, read_rows, write_p
 from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     DEFAULT_CROSSWALK,
     DEFAULT_OVERLAY,
+    DEFAULT_ROLE_TYPES,  # noqa: E402
     FIXTURE_STORE,
 )
 
@@ -37,6 +38,11 @@ def store(tmp_path):
         DEFAULT_OVERLAY,
         TABLES["curation_overlay"],
         root / PM_EXPORT_DIR / "curation_overlay.parquet",
+    )
+    write_parquet(
+        DEFAULT_ROLE_TYPES,
+        TABLES["role_types"],
+        root / PM_EXPORT_DIR / "role_types.parquet",
     )
     return root
 

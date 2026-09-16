@@ -109,6 +109,8 @@ _SLOTS = (
     ),
     # #527: the three columns usa-wa owns on an assignment, pinned apart so a
     # curator can hold a start and let the producer's end through, or the reverse
+    # #529: usa-wa owns a role's title; its structure is identity and PM may move it
+    Slot("role", "title", "Title", "SELECT title FROM roles WHERE id = $1"),
     Slot("assignment", "start_date", "Start date", _ASSIGNMENT_COLUMN.format("start_date")),
     Slot("assignment", "end_date", "End date", _ASSIGNMENT_COLUMN.format("end_date")),
     Slot("assignment", "is_current", "Current", _ASSIGNMENT_COLUMN.format("is_current")),

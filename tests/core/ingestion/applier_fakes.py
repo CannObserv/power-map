@@ -23,6 +23,10 @@ def _folded(index: Index, column: str, value):
 # make the engine's lookup read look like a defect in every org test.
 DEFAULT_LOOKUPS: dict[tuple[str, str, str], dict[str, str]] = {
     ("entity_event_types", "slug", "id"): {"dissolved": "EVT_DISSOLVED", "founded": "EVT_FOUNDED"},
+    # #529: the roles binding reads these two. A fixture publishing no role never
+    # consults them, but the engine loads a binding's vocabularies once per run.
+    ("role_types", "slug", "id"): {"committee_member": "RT_CM", "state_senator": "RT_SEN"},
+    ("jurisdictions", "slug", "id"): {"usa-wa-ld-34": "J34"},
 }
 
 
@@ -221,6 +225,19 @@ DESIRED_SPECS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("pm_id", "producer_id", "start_date", "end_date", "is_current"),
         ("TEXT", "TEXT", "DATE", "DATE", "BOOLEAN"),
     ),
+    "desired_roles": (
+        (
+            "pm_id",
+            "producer_id",
+            "org_producer_id",
+            "role_type",
+            "jurisdiction_slug",
+            "qualifier",
+            "title",
+        ),
+        ("TEXT",) * 7,
+    ),
+    "desired_role_titles": (("pm_id", "producer_id", "title"), ("TEXT",) * 3),
 }
 
 
@@ -342,9 +359,16 @@ def manifest_with_roles():
 
 
 def raw_with_assignments() -> dict:
-    """Production's manifest document plus the assignment bindings (deep copies)."""
+    """Production's manifest document plus the assignment bindings (deep copies).
+
+    Without the role bindings (#529): these fixtures anchor a role so a span can
+    resolve it, and a manifest that also diffs roles would read that anchor as an
+    absent role and archive it. `raw_with_roles` puts them back.
+    """
     with MANIFEST_PATH.open() as f:
         raw = yaml.safe_load(f)
+    for name in ROLE_TABLES:
+        raw["tables"].pop(name, None)
     for name, spec in yaml.safe_load(yaml.safe_dump(ASSIGNMENT_TABLES)).items():
         raw["tables"].setdefault(name, spec)
     return raw

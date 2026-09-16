@@ -60,7 +60,7 @@ def test_every_mart_is_declared_and_every_declaration_is_a_mart():
 def test_each_table_declares_key_retraction_and_owned_columns(table):
     spec = load_manifest().tables[table]
 
-    assert spec.entity in {"person", "organization", "assignment"}
+    assert spec.entity in {"person", "organization", "assignment", "role"}
     assert spec.key and all(isinstance(k, str) for k in spec.key)
     assert spec.retraction in {"none", "report", "archive"}
     assert isinstance(spec.owned_columns, list)
@@ -120,6 +120,8 @@ def test_the_four_shapes_cover_the_marts_as_designed():
         "desired_organization_merges": "merge",
         "desired_role_assignments": "entity",
         "desired_role_assignment_dates": "column",
+        "desired_roles": "entity",
+        "desired_role_titles": "column",
     }
 
 
@@ -284,6 +286,7 @@ OVERLAY_SLOTS = {
     ("assignment", "start_date"),
     ("assignment", "end_date"),
     ("assignment", "is_current"),
+    ("role", "title"),
 }
 
 

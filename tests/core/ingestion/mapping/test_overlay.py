@@ -107,4 +107,4 @@ def test_the_manifest_the_models_and_the_admin_agree_on_the_pinnable_fields():
 
 def test_the_vocabulary_parser_reads_every_pair_the_sql_names():
     """The sync test above must not pass by parsing nothing."""
-    assert len(_vocabulary_pairs()) == 8
+    assert len(_vocabulary_pairs()) == 9

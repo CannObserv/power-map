@@ -27,9 +27,10 @@ FIXTURE_VERSION = "v1"
 NOW = datetime(2026, 9, 10, tzinfo=UTC)
 
 
-# The one dbt warning the fixture is built to raise: P7 is published with a
-# blank name, as five real legislators are.
-EXPECTED_WARNINGS = ["not_null_stg_usa_wa__persons_name_full"]
+# The dbt warnings the fixture is built to raise: P7 is published with a blank
+# name, as five real legislators are, and R4 is a per-position seat published
+# without its position, which PM would refuse to create (#273/#529).
+EXPECTED_WARNINGS = ["not_null_stg_usa_wa__persons_name_full", "role_create_pm_would_refuse"]
 
 
 # Short, readable ids for fixture rows. Real ids are ULIDs; nothing here checks
@@ -93,7 +94,9 @@ def fixture_csv(
 # #527: two roles and four spans. R1/R2 are anchored; the open committee span and
 # the closed party span are anchored live, P3's span is a create (P3 is one too),
 # and the 2023-24 party span's anchor was archived — out of scope.
-R1, R2 = _ids("R", (1, 2))
+# R3 is a districted create; R4 is one PM would refuse — a per-position seat with
+# no position (#273), which desired_roles drops and a warn test names (#529).
+R1, R2, R3, R4 = _ids("R", (1, 2, 3, 4))
 MR1, MR2 = _ids("S", (1, 2))
 RA1, RA2, RA3 = _ids("A", (1, 2, 3))
 SPAN_OPEN = f"{P1}|committee-member-role:31640|committee|31640|2021-22"
@@ -115,6 +118,15 @@ DEFAULT_CROSSWALK = [
     crosswalk_row(SPAN_OPEN, RA1, "live", kind="assignment"),
     crosswalk_row(SPAN_CLOSED, RA2, "live", kind="assignment"),
     crosswalk_row(SPAN_OUT, RA3, "archived", kind="assignment"),
+]
+# PM's role-type vocabulary as the export carries it (#529): id, slug and the two
+# qualifier policies its triggers enforce (#273/#302).
+DEFAULT_ROLE_TYPES = [
+    ("rt-committee_member", "committee_member", False, False),
+    ("rt-party_member", "party_member", False, False),
+    ("rt-state_senator", "state_senator", False, False),
+    ("rt-state_representative", "state_representative", True, False),
+    ("rt-state_representative_at_large", "state_representative_at_large", False, True),
 ]
 DEFAULT_OVERLAY = [
     overlay_row("person", PM1, "name", "Curated One"),
@@ -194,8 +206,14 @@ def _build_cache(tmp_path_factory):
         pm = root / PM_EXPORT_DIR
         write_parquet(crosswalk, TABLES["producer_crosswalk"], pm / "producer_crosswalk.parquet")
         write_parquet(overlay, TABLES["curation_overlay"], pm / "curation_overlay.parquet")
+        write_parquet(DEFAULT_ROLE_TYPES, TABLES["role_types"], pm / "role_types.parquet")
         db = root.parent / "mapping.duckdb"
-        args = ["build"] + (["--select", select] if select else [])
+        # `--indirect-selection cautious`: a partial build runs a singular test only
+        # when every model it reads was selected, so a test of another family does
+        # not run against tables this build never made (#529).
+        args = ["build"] + (
+            ["--select", select, "--indirect-selection", "cautious"] if select else []
+        )
         result = run_dbt(args, snapshot_root=root, duckdb_path=str(db))
         if must_succeed:
             assert result.success, getattr(result, "exception", None) or _failures(result)

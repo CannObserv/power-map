@@ -75,6 +75,13 @@ TABLES: dict[str, TableSpec] = {
         ),
         types=("TEXT",) * 7 + ("TIMESTAMPTZ", "TIMESTAMPTZ", "TIMESTAMPTZ"),
     ),
+    # #529: the two policies the role triggers enforce (#273/#302), so the models
+    # can drop a create PM would refuse rather than let the applier plan it.
+    "role_types": TableSpec(
+        name="role_types",
+        columns=("id", "slug", "requires_qualifier", "forbids_qualifier"),
+        types=("TEXT", "TEXT", "BOOLEAN", "BOOLEAN"),
+    ),
 }
 
 Fetcher = Callable[[TableSpec], Awaitable[list[tuple]]]

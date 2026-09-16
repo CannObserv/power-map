@@ -250,7 +250,11 @@ def _indexes(where: str, raw: object) -> list[Index]:
         index = Index(
             columns=columns,
             fold={str(k): str(v) for k, v in (entry.get("fold") or {}).items()},
-            when={str(k): str(v) for k, v in (entry.get("when") or {}).items()},
+            # YAML's bare `null` parses to None, which is what it means here.
+            when={
+                str(k): "null" if v is None else str(v)
+                for k, v in (entry.get("when") or {}).items()
+            },
         )
         for col, how in index.fold.items():
             if col not in columns:

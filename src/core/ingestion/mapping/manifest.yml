@@ -198,3 +198,37 @@ tables:
       table: role_assignments
       columns: {start_date: start_date, end_date: end_date, is_current: is_current}
       asserts_null: [end_date]   # an open span clears PM's end date
+  desired_roles:
+    entity: role
+    key: [producer_id]           # usa-wa's role entity_id
+    pm_key: pm_id
+    retraction: archive          # #529: absent roles archive, unless PM rows depend on them
+    owned_columns: []            # the title is desired_role_titles'
+    target:
+      shape: entity
+      table: roles
+      identity:                  # written once, at create
+        org_producer_id:   {column: organization_id, entity: organization}
+        role_type:         {column: role_type_id, lookup: {table: role_types, from: slug, to: id}}
+        jurisdiction_slug: {column: jurisdiction_id, lookup: {table: jurisdictions, from: slug, to: id}}
+        qualifier:         qualifier
+        title:             title
+      unique_live:               # #261 split role identity by jurisdiction
+        - columns: [organization_id, role_type_id, jurisdiction_id, qualifier]
+          when: {jurisdiction_id: not_null}        # uq_role_structural
+        - columns: [organization_id, title]
+          fold: {title: lower}                     # uq_role_org_title
+          when: {jurisdiction_id: null}
+      dependents:                # a role archive must strand no live assignment
+        role_assignments: [role_id]
+  desired_role_titles:
+    entity: role
+    key: [producer_id]
+    pm_key: pm_id
+    retraction: none
+    owned_columns: [title]
+    overlay: title
+    target:
+      shape: column
+      table: roles
+      columns: {title: title}

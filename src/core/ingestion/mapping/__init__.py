@@ -65,6 +65,7 @@ USA_WA_SOURCES: dict[str, str] = {
 PM_SOURCES: dict[str, str] = {
     "producer_crosswalk": "PM_SRC_PRODUCER_CROSSWALK",
     "curation_overlay": "PM_SRC_CURATION_OVERLAY",
+    "role_types": "PM_SRC_ROLE_TYPES",  # #529: the qualifier policies (#273/#302)
 }
 
 
