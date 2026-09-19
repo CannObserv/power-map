@@ -27,9 +27,14 @@ Init after cloning: `git submodule update --init --recursive`
 Submodule freshness is maintained by the vendored `SessionStart` hook `.claude/hooks/skills-submodule-update.sh` — a **symlink** into `skills-vendor/gregoryfoster-skills/skills/managing-skills/scripts/`, so upstream fixes to the hook arrive with the next submodule bump.
 
 - Once per UTC day (`.git/skills-update.lock`), `main` only, scoped to `skills-vendor/` — never other submodules
-- Auto-commits the pointer bump (`chore: update skills submodules`); logs to `.git/skills-update.log`
+- Auto-commits the pointer bump (`chore: update skills submodules`) under a pathspec of what it staged **itself**, so a file you had staged is never swept into its commit; logs to `.git/skills-update.log`
+- **Pushes what it commits**, and retries anything an earlier run left unpushed — that pass runs on *every* session, ahead of the daily lock (upstream skills#293: unpushed is unshared, and a service reading the checkout may refuse to start on it). Never pulls, never force-pushes, explicit refspec only
+- **Touches no commit it did not write.** It matches its own three subjects exactly; a range carrying anything else is left alone, with a stderr warning when one of its own is stranded behind. A failed push is rolled back (`--soft`, to `HEAD~N`, so an unrelated dirty file survives) and the next session retries
+- A run that cannot push does not commit either — the bump waits for a session that can share it rather than piling up locally
 - Exits `0` on every non-fatal condition — a session can never be blocked by it
 - Opportunistically runs `install-doctor.sh` on **every** branch (not day-gated) so `.skills/doctor.sh` self-heals; the commit of that refresh stays behind the `main`-only + daily gates
+
+**What that means for ordinary work:** while `main` carries any commit the hook did not author — a review fix, a revert, anything unpushed — it refuses to commit *and* to push, and says so on stderr. Push `main` and the next session resumes on its own. `.skills/doctor.sh` reports the same state independently at session start.
 
 Replaced the legacy inline `UserPromptSubmit` one-liner, which committed submodule bumps on any branch and never refreshed the doctor. Do not re-add it — two mechanisms racing on the same submodule.
 
@@ -40,6 +45,8 @@ Force-refresh: `git submodule update --remote --merge -- skills-vendor/`
 ### Doctor
 
 `.skills/doctor.sh` diagnoses and repairs broken vendor symlinks / uninitialized submodules. It is a real **file copy**, not a symlink — a symlinked doctor would dangle in exactly the failure mode it exists to repair — and re-syncs itself from the vendored source on every run (upstream skills#84). Check with `bash .skills/doctor.sh --version`; silent + exit `0` means healthy.
+
+Two checks arrived with the `d3f91c8` pin. `main` ahead of its upstream is named at every session start (skills#293) — reported whoever wrote the commits, since only something running *on* the checkout can tell "the hook never ran" from "its commits are stranded here". And each override is compared against its vendor on **both** comparands: the recorded `version:`, and a diff of its `synced-from:` commit scoped to the override's own real files (skills#286). Only the second sees a vendor `SKILL.md` edited without a version bump. Advisory in every mode including `--check-only`, never an exit code, never auto-merged.
 
 To add a new external skill repo: follow the `managing-skills` skill.
 
@@ -176,6 +183,8 @@ A committed directory in `skills/` completely supersedes the vendor version (no 
 | Skill | Override reason |
 |---|---|
 | `brainstorming` | Project conventions (docs/plans/ path, commit format); invokes using-git-worktrees after design approval; FastAPI stack context; proactive-suggestion mode |
+
+The doctor reports this override as drifted from `obra-superpowers/brainstorming` (`synced-from: 3cee13e`, v1.0). **Expected, and tracked by #505** — the re-base onto v6.3.0's three-path router is decided (adopt verbatim) and deferred, not overlooked. Do not re-sync it as routine hygiene: Spike loosens two rules this project otherwise states unconditionally.
 
 ## Authoring New Skills
 
