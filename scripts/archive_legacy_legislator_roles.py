@@ -32,7 +32,6 @@ Usage:
     uv run python -m scripts.archive_legacy_legislator_roles --execute  # commit
 """
 
-import argparse
 import asyncio
 import re
 from collections import Counter
@@ -41,7 +40,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.db import generate_id
 from src.core.logging import configure_logging, get_logger
 
@@ -576,7 +575,7 @@ async def run(dsn: str, *, execute: bool) -> None:
 
 def main() -> None:
     configure_logging()
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument(
         "--execute",

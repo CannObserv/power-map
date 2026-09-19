@@ -16,14 +16,13 @@ Usage:
     uv run python -m scripts.backfill_org_jurisdiction_affiliations affiliations.csv --execute
 """
 
-import argparse
 import asyncio
 import csv
 import sys
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.db import generate_id
 from src.core.logging import configure_logging, get_logger
 
@@ -139,7 +138,7 @@ async def main(dsn: str, csv_path: str, execute: bool, has_header: bool) -> None
 
 if __name__ == "__main__":
     configure_logging()
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument("csv_path", help="Path to CSV file")
     parser.add_argument("--execute", action="store_true", help="Commit changes (default: dry run)")

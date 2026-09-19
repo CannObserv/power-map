@@ -19,14 +19,13 @@ Usage:
     uv run python -m scripts.backfill_assignment_relationships --execute  # mint edges
 """
 
-import argparse
 import asyncio
 import datetime
 from dataclasses import dataclass
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.assignment_relationships import (
     RelationshipClaim,
     RelationshipDisposition,
@@ -200,7 +199,7 @@ async def run(dsn: str, *, execute: bool) -> None:
 
 def main() -> None:
     configure_logging()
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument("--execute", action="store_true", help="Mint edges (default is dry-run)")
     args = parser.parse_args()

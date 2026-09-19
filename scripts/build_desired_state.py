@@ -19,10 +19,10 @@ Usage:
     uv run --group mapping python -m scripts.build_desired_state --root /srv/snap --out /srv/out
 """
 
-import argparse
 import sys
 from pathlib import Path
 
+from scripts._dsn import build_parser
 from src.core.ingestion.mapping import run_dbt, write_build_info, write_desired_state
 from src.core.logging import configure_logging, get_logger
 
@@ -58,9 +58,7 @@ def build(root: Path, out: Path, duckdb_path: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     """Entry point; returns the process exit code."""
     configure_logging()
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = build_parser(__doc__)
     parser.add_argument(
         "--root", default=DEFAULT_ROOT, help=f"Snapshot store (default {DEFAULT_ROOT})"
     )

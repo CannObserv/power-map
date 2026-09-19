@@ -12,6 +12,12 @@ not prevent:
 3. A script containing write SQL declares `--execute`. This is the assertion
    #402 exists because of: `--execute` was believed universal, two scripts did
    not have it, and nothing checked.
+4. A parser built from the module docstring does not let argparse **reflow**
+   it (#509). Without `RawDescriptionHelpFormatter`, argparse rewraps
+   `description`, so a docstring's `Usage:` block and `Exit codes:` list run
+   together into one paragraph — destroying the invocation examples, which are
+   the part an operator opens `--help` for. `build_parser()` in `scripts/_dsn.py`
+   is the ready-made way to comply.
 
 Deliberately **no allowlist.** An exemption list is a place for a live script
 to hide, and the executed-once migrations cost one mechanical edit each to
@@ -293,3 +299,131 @@ def test_write_sql_detector_finds_real_sql():
 def test_execute_flag_detector():
     assert declares_execute_flag(ast.parse(COMPLIANT))
     assert not declares_execute_flag(ast.parse('p.add_argument("--dry-run")'))
+
+
+# --------------------------------------------------------------------------- #
+# Assertion 4 — argparse must not reflow the module docstring (#509)
+# --------------------------------------------------------------------------- #
+
+# argparse rewraps `description` under every formatter but these two. Named
+# rather than matched on a "Raw" prefix so that adding one is a deliberate edit:
+# ArgumentDefaultsHelpFormatter reads like a reasonable choice and reflows.
+RAW_FORMATTERS = frozenset({"RawDescriptionHelpFormatter", "RawTextHelpFormatter"})
+
+
+def _formatter_is_raw(node: ast.expr) -> bool:
+    """True for `argparse.RawDescriptionHelpFormatter` or a bare imported name."""
+    if isinstance(node, ast.Attribute):
+        return node.attr in RAW_FORMATTERS
+    if isinstance(node, ast.Name):
+        return node.id in RAW_FORMATTERS
+    return False
+
+
+def reflowing_parsers(tree: ast.Module) -> list[int]:
+    """Line numbers of `ArgumentParser(description=__doc__)` calls that will reflow.
+
+    Scoped to `description=__doc__` on purpose — that is the whole defect. Four
+    scripts pass a one-line literal instead (`check_egress_ip`, `check_ready`,
+    `import_cannabis_observer`) or deliberately slice the docstring's first line
+    (`seed_442_historical_parties`), and a single line has no structure for
+    argparse to destroy. Widening this to every `description=` would fail them
+    for a defect they cannot have, which is how an exemption list gets started.
+
+    A call passing `**kwargs` is read as compliant rather than guessed at: the
+    sweep should never fail on a shape it cannot see into.
+    """
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = (
+            node.func.attr
+            if isinstance(node.func, ast.Attribute)
+            else getattr(node.func, "id", None)
+        )
+        if name != "ArgumentParser":
+            continue
+        keywords = {kw.arg: kw.value for kw in node.keywords}
+        if None in keywords:  # **kwargs — unjudgeable, so not an offence
+            continue
+        description = keywords.get("description")
+        if not (isinstance(description, ast.Name) and description.id == "__doc__"):
+            continue
+        formatter = keywords.get("formatter_class")
+        if formatter is None or not _formatter_is_raw(formatter):
+            offenders.append(node.lineno)
+    return offenders
+
+
+@pytest.mark.parametrize("path", script_paths(), ids=lambda p: p.name)
+def test_parser_does_not_reflow_the_docstring(path):
+    """Every `--help` keeps the line breaks its docstring was written with.
+
+    A script builds its parser with `build_parser(__doc__)` from `scripts/_dsn.py`,
+    or passes `formatter_class=argparse.RawDescriptionHelpFormatter` itself. The
+    helper exists so this is the default for a new script rather than something
+    each one has to remember; this sweep is what makes forgetting loud.
+    """
+    offenders = reflowing_parsers(_tree(path))
+    assert not offenders, (
+        f"{path.name} builds ArgumentParser(description=...) without a raw formatter at "
+        f"line(s) {offenders}, so argparse reflows the module docstring and any Usage: "
+        "block in it becomes one paragraph. Use build_parser(__doc__) from scripts/_dsn.py."
+    )
+
+
+def test_detector_flags_a_reflowing_parser():
+    source = "import argparse\np = argparse.ArgumentParser(description=__doc__)"
+    assert reflowing_parsers(ast.parse(source)) == [2]
+
+
+def test_detector_accepts_a_raw_formatter():
+    source = (
+        "import argparse\n"
+        "p = argparse.ArgumentParser(\n"
+        "    description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter\n"
+        ")"
+    )
+    assert reflowing_parsers(ast.parse(source)) == []
+
+
+def test_detector_rejects_a_reflowing_formatter():
+    """ArgumentDefaultsHelpFormatter looks deliberate and still reflows."""
+    source = (
+        "import argparse\n"
+        "p = argparse.ArgumentParser(\n"
+        "    description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter\n"
+        ")"
+    )
+    assert reflowing_parsers(ast.parse(source)) == [2]
+
+
+def test_detector_ignores_a_parser_with_no_description():
+    """Nothing to reflow, so nothing to require."""
+    assert reflowing_parsers(ast.parse("import argparse\np = argparse.ArgumentParser()")) == []
+
+
+def test_detector_ignores_a_one_line_literal_description():
+    """A literal has no Usage: block to wreck — four scripts legitimately do this."""
+    source = 'import argparse\np = argparse.ArgumentParser(description="Probe /ready (#347)")'
+    assert reflowing_parsers(ast.parse(source)) == []
+
+
+def test_detector_ignores_a_sliced_docstring():
+    """seed_442_historical_parties deliberately shows only the first line."""
+    source = 'import argparse\np = argparse.ArgumentParser(description=__doc__.split("x")[0])'
+    assert reflowing_parsers(ast.parse(source)) == []
+
+
+def test_detector_accepts_a_bare_imported_formatter_name():
+    source = (
+        "from argparse import ArgumentParser, RawDescriptionHelpFormatter\n"
+        "p = ArgumentParser(description=__doc__, formatter_class=RawDescriptionHelpFormatter)"
+    )
+    assert reflowing_parsers(ast.parse(source)) == []
+
+
+def test_compliant_sample_has_no_reflowing_parser():
+    """COMPLIANT builds a parser with no description — it must not be flagged."""
+    assert reflowing_parsers(ast.parse(COMPLIANT)) == []

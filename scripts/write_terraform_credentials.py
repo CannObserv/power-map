@@ -32,13 +32,13 @@ Usage:
     terraform -chdir=infra/terraform init -backend-config=backend.hcl
 """
 
-import argparse
 import json
 import os
 import sys
 from pathlib import Path
 
 from scripts._do_api import DEFAULT_CLUSTER, fetch_allowed_ips
+from scripts._dsn import build_parser
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -128,7 +128,7 @@ def main() -> None:
     """CLI entry point — exits 2 when a credential is missing."""
     configure_logging()
     repo_root = Path(__file__).resolve().parents[1]
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     parser.add_argument(
         "--env-file", type=Path, default=DEFAULT_ENV_FILE, help=f"default {DEFAULT_ENV_FILE}"
     )

@@ -395,6 +395,20 @@ rule. A script whose target flags are domain-named (`audit_schema_constraint_par
 takes `--target-url` / `--reference-url`) uses `default_dsn()` for the default
 and calls `echo_target(..., role=…)` per connection, so each gets its own line.
 
+**Every script builds its parser with `build_parser(__doc__)`** from
+`scripts/_dsn.py` (#509). A bare `argparse.ArgumentParser(description=__doc__)`
+lets argparse **reflow** the docstring, so a `Usage:` block and an
+`Exit codes:` list arrive in `--help` as one paragraph — destroying the
+invocation examples, which are the part an operator opened `--help` for.
+`build_parser` sets `formatter_class=argparse.RawDescriptionHelpFormatter` and
+passes through `prog`, `epilog` and the rest, so complying is shorter than not.
+
+Four scripts legitimately pass something else and are out of scope: a one-line
+literal (`check_egress_ip`, `check_ready`, `import_cannabis_observer`) or the
+docstring's first line only (`seed_442_historical_parties`) — a single line has
+no structure to destroy. The sweep is scoped to `description=__doc__` for that
+reason rather than carrying an exemption list.
+
 `redact_dsn()` drops the password *and* the query string, and returns `None`
 for anything that is not a parseable URL. **Callers never fall back to printing
 the raw string**: `urlparse` hands back a libpq keyword/value DSN

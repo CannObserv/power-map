@@ -21,13 +21,12 @@ Usage:
     uv run python -m scripts.check_api_anomalies --threshold 0      # disabled, exit 0
 """
 
-import argparse
 import asyncio
 import sys
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.anomaly import HOURLY_REQUEST_THRESHOLD, KeyActivity, key_activity
 from src.core.logging import configure_logging, get_logger
 
@@ -81,7 +80,7 @@ async def run(dsn: str, *, threshold: int) -> int:
 def main() -> None:
     """CLI entry point — exits 3 when any key is anomalous (systemd failure hook)."""
     configure_logging()
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument(
         "--threshold",

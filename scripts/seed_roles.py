@@ -20,7 +20,6 @@ Usage:
     uv run python -m scripts.seed_roles <path-to-roles.json> --execute  # commit
 """
 
-import argparse
 import asyncio
 import json
 from pathlib import Path
@@ -28,7 +27,7 @@ from typing import Any
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.logging import configure_logging, get_logger
 from src.core.observation import Disposition, resolve_role
 
@@ -159,7 +158,7 @@ async def run(dsn: str, seed_path: Path, *, execute: bool) -> None:
 
 def main() -> None:
     configure_logging()
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument("seed_file", type=Path, help="Path to the role seed JSON file")
     parser.add_argument(

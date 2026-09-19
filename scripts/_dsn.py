@@ -1,4 +1,5 @@
-"""Shared connection targeting for operational scripts (#402, #399).
+"""Shared CLI surface for operational scripts: connection targeting (#402, #399)
+and parser construction (#509).
 
 `DATABASE_URL` resolves to **production** from any directory, so a script that
 prints nothing about where it connected leaves no way to tell which database it
@@ -20,6 +21,11 @@ Two groups of function, with **different failure contracts**:
   `--test` without `TEST_DATABASE_URL`, or two targets named at once. Do not
   call it from anywhere that must survive bad input.
 
+`build_parser` is the third group and touches no DSN at all. It lives here
+because `add_dsn_args` already made this the one module every operational script
+imports, and the alternative was 40-odd scripts each remembering a keyword
+argument. It is guarded by the same AST sweep.
+
 Rationale, the label's `(host, port, dbname)` keying, the two dry-run shapes,
 and why `apply-schema.sh` keeps its own copy → `docs/RUNBOOKS.md`
 §"Operational scripts — dry run by default & target echo".
@@ -38,6 +44,7 @@ __all__ = [
     "UNKNOWN",
     "Target",
     "add_dsn_args",
+    "build_parser",
     "default_dsn",
     "describe_dsn",
     "echo_target",
@@ -163,6 +170,26 @@ def default_dsn() -> str | None:
     the echo, so a script that could use `add_dsn_args` + `resolve_dsn` should.
     """
     return os.environ.get("DATABASE_URL") or None
+
+
+def build_parser(doc: str | None, **kwargs) -> argparse.ArgumentParser:
+    """An `ArgumentParser` whose `--help` preserves the docstring's line breaks.
+
+    Every script here passes its module docstring as `description`, and argparse
+    reflows that by default: a `Usage:` block and an `Exit codes:` list arrive as
+    one paragraph, which destroys exactly the invocation examples an operator
+    opened `--help` to read (#509).
+
+    `RawDescriptionHelpFormatter` rather than `RawTextHelpFormatter`: the raw
+    treatment is wanted for the docstring, not for the per-flag `help=` strings,
+    which are written as prose and should still wrap to the terminal.
+
+    Pass-through `**kwargs` covers `prog`, `epilog` and friends; a caller that
+    overrides `formatter_class` is choosing to reflow and the AST sweep in
+    `tests/scripts/test_dsn_sweep.py` will say so.
+    """
+    kwargs.setdefault("formatter_class", argparse.RawDescriptionHelpFormatter)
+    return argparse.ArgumentParser(description=doc, **kwargs)
 
 
 def add_dsn_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:

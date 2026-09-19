@@ -21,12 +21,11 @@ Precision tier logic (evaluated in order):
 Unclassifiable rows are reported but never updated (precision stays NULL).
 """
 
-import argparse
 import asyncio
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 
 # ---------------------------------------------------------------------------
 # SQL helpers
@@ -136,7 +135,7 @@ def print_summary(buckets: dict[str, list[str]], *, dry_run: bool) -> None:
 
 async def _main() -> None:
     """Parse args, connect, audit, and optionally backfill."""
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument(
         "--execute",

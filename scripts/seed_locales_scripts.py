@@ -15,7 +15,6 @@ they are imported. Request-path code never validates these strings via
 the libraries — the DB FK is the authoritative check.
 """
 
-import argparse
 import asyncio
 import sys
 from collections.abc import Iterator
@@ -25,7 +24,7 @@ import langcodes
 import pycountry
 from langcodes.tag_parser import LanguageTagError
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 
 
 def enumerate_bcp47_locales() -> Iterator[dict]:
@@ -154,7 +153,7 @@ async def run(dsn: str, *, execute: bool) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument(
         "--execute",

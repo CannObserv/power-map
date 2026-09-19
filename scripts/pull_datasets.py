@@ -26,13 +26,13 @@ serves with no `datapackage.json`, which the report names; 1 a dataset failed,
 was incompatible, or was subscribed but absent from the catalog; 2 usage.
 """
 
-import argparse
 import asyncio
 import os
 import sys
 
 import httpx
 
+from scripts._dsn import build_parser
 from src.core.ingestion.datasets import (
     CatalogError,
     PullReport,
@@ -135,9 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     configure_logging()
     # Raw formatter: argparse otherwise reflows the docstring, running the
     # usage examples and the exit-code list together into one paragraph.
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = build_parser(__doc__)
     parser.add_argument(
         "--base-url",
         default=os.environ.get("USA_WA_DATASETS_URL", DEFAULT_BASE_URL),

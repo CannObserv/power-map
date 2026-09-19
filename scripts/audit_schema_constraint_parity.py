@@ -37,7 +37,6 @@ Usage:
     uv run python -m scripts.audit_schema_constraint_parity --reference-url "$TEST_DATABASE_URL"
 """
 
-import argparse
 import asyncio
 import os
 import sys
@@ -45,7 +44,7 @@ from urllib.parse import urlparse
 
 import asyncpg
 
-from scripts._dsn import default_dsn, echo_target
+from scripts._dsn import build_parser, default_dsn, echo_target
 from src.core.logging import configure_logging, get_logger
 from src.core.schema_parity import (
     VERSION_SENSITIVE_KINDS,
@@ -221,7 +220,7 @@ async def run(*, reference_url: str, target_url: str) -> int:
 def main() -> None:
     """CLI entry point — exits 3 on drift or misconfiguration (systemd failure hook)."""
     configure_logging()
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     parser.add_argument(
         "--target-url",
         default=default_dsn(),

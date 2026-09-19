@@ -25,7 +25,6 @@ Pre-conditions:
       (`apply_schema` will have run that block).
 """
 
-import argparse
 import asyncio
 from collections import Counter
 from dataclasses import dataclass, field
@@ -33,7 +32,7 @@ from typing import Literal
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.db import generate_id
 from src.core.logging import configure_logging, get_logger
 from src.core.person_merge import merge_person_into
@@ -307,7 +306,7 @@ CLEANUP_ACTIONS: list[CleanupAction] = [
 
 async def _main() -> None:
     configure_logging()
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument(
         "--execute",

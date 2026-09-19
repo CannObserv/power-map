@@ -47,7 +47,6 @@ Usage:
     uv run python -m scripts.attach_pdc_lobbyist_firms --execute  # commit
 """
 
-import argparse
 import asyncio
 from collections import Counter
 from datetime import UTC, date, datetime
@@ -55,7 +54,7 @@ from typing import Literal, TypedDict
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.db import generate_id
 from src.core.logging import configure_logging, get_logger
 from src.core.observation import Disposition, resolve_role
@@ -726,7 +725,7 @@ async def run(dsn: str, *, execute: bool) -> None:
 
 def main() -> None:
     configure_logging()
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument(
         "--execute",

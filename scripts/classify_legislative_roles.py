@@ -41,14 +41,13 @@ Usage:
     uv run python -m scripts.classify_legislative_roles --execute  # commit
 """
 
-import argparse
 import asyncio
 from collections import Counter
 from typing import Literal, NamedTuple, TypedDict
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -476,7 +475,7 @@ async def run(dsn: str, *, execute: bool) -> None:
 
 def main() -> None:
     configure_logging()
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument(
         "--execute", action="store_true", help="Commit changes (default is dry run)"

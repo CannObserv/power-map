@@ -28,7 +28,6 @@ Usage:
     uv run python -m scripts.seed_producer_crosswalk --export data/anchor-export --execute
 """
 
-import argparse
 import asyncio
 import json
 from datetime import datetime
@@ -36,7 +35,7 @@ from pathlib import Path
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.ingestion.crosswalk import (
     PRODUCER_SOURCE,
     Anchor,
@@ -184,7 +183,7 @@ async def run(dsn: str, export_dir: Path, *, source: str, execute: bool) -> None
 
 def main() -> None:
     configure_logging()
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument(
         "--export",

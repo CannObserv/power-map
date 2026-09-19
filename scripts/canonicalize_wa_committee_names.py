@@ -43,13 +43,12 @@ Usage:
     uv run python -m scripts.canonicalize_wa_committee_names --execute
 """
 
-import argparse
 import asyncio
 from dataclasses import dataclass
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -301,7 +300,7 @@ CANONICALIZE_ACTIONS: list[CanonicalizeName] = [
 
 async def _main() -> None:
     configure_logging()
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument(
         "--execute",

@@ -30,7 +30,6 @@ Usage:
     uv run python -m scripts.cleanup_role_assignment_ancillary_orphans --execute
 """
 
-import argparse
 import asyncio
 import sys
 from collections import defaultdict
@@ -38,7 +37,7 @@ from typing import Literal, NamedTuple
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from scripts.archive_legacy_legislator_roles import filer_id_from_url
 from src.core.ancillary_migrate import (
     TRIGGERLESS_ANCILLARY_TABLES,
@@ -341,7 +340,7 @@ async def _run(database_url: str, *, execute: bool) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument("--execute", action="store_true", help="Apply changes (default: dry run).")
     args = parser.parse_args()

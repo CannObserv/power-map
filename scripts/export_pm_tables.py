@@ -21,7 +21,6 @@ Exit codes: 0 both tables written; 1 a table is absent on the target (schema.sql
 not yet applied there); 2 usage.
 """
 
-import argparse
 import asyncio
 import sys
 from collections.abc import Awaitable, Callable
@@ -30,7 +29,7 @@ from pathlib import Path
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, TableSpec, write_parquet
 from src.core.logging import configure_logging, get_logger
 
@@ -116,9 +115,7 @@ async def _run_against(dsn: str, root: str) -> dict[str, int]:
 def main(argv: list[str] | None = None) -> int:
     """Entry point; returns the process exit code."""
     configure_logging()
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument(
         "--root", default=DEFAULT_ROOT, help=f"Snapshot store (default {DEFAULT_ROOT})"

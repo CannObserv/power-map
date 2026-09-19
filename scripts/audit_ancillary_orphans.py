@@ -22,13 +22,12 @@ Usage:
     uv run python -m scripts.audit_ancillary_orphans --test   # TEST_DATABASE_URL
 """
 
-import argparse
 import asyncio
 import sys
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.ancillary_migrate import (
     count_orphaned_citations,
     count_orphaned_role_ancillary,
@@ -71,7 +70,7 @@ async def _run(database_url: str) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     args = parser.parse_args()
     dsn = resolve_dsn(args, parser)

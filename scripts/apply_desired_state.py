@@ -40,7 +40,7 @@ from pathlib import Path
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.ingestion.applier import ApplierError, DesiredState, diff_desired
 from src.core.ingestion.applier_pg import PostgresLiveStore
 from src.core.ingestion.applier_report import (
@@ -236,9 +236,7 @@ async def _run_against(dsn: str, **kw) -> int:
 def main(argv: list[str] | None = None) -> int:
     """Entry point; returns the process exit code."""
     configure_logging()
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument(
         "--execute", action="store_true", help="Write the diff (default: dry run, report only)"

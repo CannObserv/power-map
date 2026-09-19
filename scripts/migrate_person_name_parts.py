@@ -36,7 +36,6 @@ Pre-conditions:
       path is `tmp/person_name_parts_analysis.csv` (overridable).
 """
 
-import argparse
 import asyncio
 import csv
 from collections import Counter
@@ -45,7 +44,7 @@ from pathlib import Path
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.api.admin.people_name_parts import upsert_or_delete_parts
 from src.core.logging import configure_logging, get_logger
 
@@ -152,7 +151,7 @@ async def run_migration(
 
 async def _main() -> None:
     configure_logging()
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument(
         "--execute",

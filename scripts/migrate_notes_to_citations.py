@@ -19,14 +19,13 @@ Usage:
     uv run python -m scripts.migrate_notes_to_citations --assignment-id <id>
 """
 
-import argparse
 import asyncio
 import re
 import sys
 
 import asyncpg
 
-from scripts._dsn import add_dsn_args, resolve_dsn
+from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.citations import CitationClaim, apply_citation_observations
 from src.core.logging import configure_logging, get_logger
 
@@ -93,7 +92,7 @@ async def _run(database_url: str, execute: bool, assignment_id: str | None) -> i
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = build_parser(__doc__)
     add_dsn_args(parser)
     parser.add_argument(
         "--execute", action="store_true", help="Write citations (default: dry-run)."
