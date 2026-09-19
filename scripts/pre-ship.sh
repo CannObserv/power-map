@@ -50,6 +50,8 @@ power-map's pre-ship gate. Runs, in order:
   - Format check (Prettier)  npm run format:js:check  (if package.json has it)
   - Tests (JS)               npm run test:js          (if package.json has it)
 
+It also warns (never fails) when worktree zombies are detected.
+
 Exits non-zero on any failure. Must pass before committing or pushing.
 
 Diverges from the vendored gate only in the Python invocation: that one passes
@@ -119,10 +121,14 @@ fi
 # which pipefail would otherwise propagate into set -e.
 WORKING_TREE_DIRTY=$(grep -v '^??' "$STATUS_OUT" | grep -v '^[ M]M.*vendor/' || true)
 
-# The stamp prefix matches the vendored gate's, so the two share a slot rather
-# than each re-running a suite the other just passed.
+# A stamp slot of our OWN, deliberately not the vendored gate's. The two run
+# different selections — 2,309 tests here against its 2,516 — and a stamp means
+# "the suite passed for this SHA", so a shared slot lets one gate's verdict speak
+# for a selection the other never ran. The direction that would bite is ours
+# passing and the vendored gate then skipping; it is latent only because Step 1
+# resolves this copy first, which is not a property worth depending on.
 if [[ -n "$CURRENT_SHA" ]]; then
-  STAMP_FILE="/tmp/$(basename "$PROJECT_ROOT")-tests-clean-${CURRENT_SHA}"
+  STAMP_FILE="/tmp/$(basename "$PROJECT_ROOT")-tests-clean-local-${CURRENT_SHA}"
 else
   STAMP_FILE=""
 fi
