@@ -195,7 +195,7 @@ Each line says what a task would need the doc for — load the one that matches,
 - [docs/TESTING.md](docs/TESTING.md) — each test tier, the integration marker, the endpoint-test client, Vitest, the browser a11y sweep, the ship gate
 - [docs/RUNBOOKS.md](docs/RUNBOOKS.md) — data operations: importer, seeds, role sweep, TTL prune, operational-script dry-run rules
 - [docs/RUNBOOK_DESIRED_STATE.md](docs/RUNBOOK_DESIRED_STATE.md) — the dataset-subscription chain: pull, build, apply, and what a nightly run blocks on
-- [docs/AUDITS.md](docs/AUDITS.md) — the recurring integrity audits, and which of them carry systemd timers
+- [docs/AUDITS.md](docs/AUDITS.md) — the recurring integrity audits and uptime guards, and which carry systemd timers
 - [docs/RUNBOOK_DB_TRIAGE.md](docs/RUNBOOK_DB_TRIAGE.md) — DB unreachable: `/ready` reasons, egress-IP drift
 - [docs/RUNBOOK_DB_MIGRATION.md](docs/RUNBOOK_DB_MIGRATION.md) — DB cutover checklist, maintenance window, rollback
 - [docs/SKILLS.md](docs/SKILLS.md) — vendored skill inventory, submodule refresh, hook command form, index health (the daily `unresolved %` line is not a defect)

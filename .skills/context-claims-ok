@@ -52,3 +52,36 @@ docs/SCHEMA.md :: duplicate :: role_types.expects_jurisdiction
 docs/SCHEMA.md :: duplicate :: role_types.requires_qualifier
 docs/SCHEMA.md :: disproven :: scripts/migrate_notes_to_citations.py
 docs/SCHEMA.md :: duplicate :: src.core.org_lifecycle.check_assignment_lifespan
+
+# --- COMMANDS.md curation: the timer roster's rows and the two operational-script
+#     sections were rewritten, so these atoms left docs/COMMANDS.md. Each is still
+#     in the surface, spelled the way its owning doc spells it. Refuted by command
+#     (`grep -rlF -- '<atom>' docs/*.md`, excluding COMMANDS.md itself):
+#       unknown — assume production, add_dsn_args, resolve_dsn, echo_target -> docs/RUNBOOKS.md
+#       READY_PROBE_* (the row used `_TIMEOUT`/`_ATTEMPTS`/`_RETRY_DELAY` shorthand;
+#         docs/AUDITS.md writes each name in full)                          -> docs/AUDITS.md
+#       citation (the orphan audit's third scope)                           -> docs/AUDITS.md
+#       build_desired_state, uv run --group mapping                         -> docs/RUNBOOK_DESIRED_STATE.md
+#       playwright install chromium                                         -> docs/TESTING.md
+#       sync-schema-to-do.sh                                                -> docs/COMMANDS.md § Deploy > Guards (same file)
+#       prune_outbox --execute (module form, not the scripts/ path form)    -> docs/RUNBOOKS.md:332
+#       power-map-prune / -desired-state (the roster drops the `.timer`
+#         suffix; the install snippet supplies it as `<unit>.timer`)        -> the roster itself
+#     The one with no second home is `power-map-datasets-pull.timer`: the roster
+#     names the unit, and the unit files live in infra/, which is not a doc.
+docs/COMMANDS.md :: duplicate :: (production|test|unknown — assume production)
+docs/COMMANDS.md :: duplicate :: _ATTEMPTS
+docs/COMMANDS.md :: duplicate :: _RETRY_DELAY
+docs/COMMANDS.md :: duplicate :: _TIMEOUT
+docs/COMMANDS.md :: duplicate :: add_dsn_args(parser)
+docs/COMMANDS.md :: duplicate :: citation
+docs/COMMANDS.md :: duplicate :: echo_target()
+docs/COMMANDS.md :: duplicate :: power-map-datasets-pull.timer
+docs/COMMANDS.md :: duplicate :: power-map-desired-state.timer
+docs/COMMANDS.md :: duplicate :: power-map-prune.timer
+docs/COMMANDS.md :: duplicate :: resolve_dsn(args, parser)
+docs/COMMANDS.md :: duplicate :: scripts/build_desired_state.py
+docs/COMMANDS.md :: duplicate :: scripts/prune_outbox.py --execute
+docs/COMMANDS.md :: duplicate :: sync-schema-to-do.sh
+docs/COMMANDS.md :: duplicate :: uv run --group mapping
+docs/COMMANDS.md :: duplicate :: uv sync --group browser && playwright install chromium

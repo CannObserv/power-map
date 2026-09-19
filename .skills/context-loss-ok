@@ -227,3 +227,51 @@ docs/SCHEMA.md :: tighten :: - Inline constraint drift (#307/#312/#315): `CREATE
 docs/SCHEMA.md :: tighten :: - Seeded lookups — slug reconciliation (#458): every seeded lookup p
 docs/SCHEMA.md :: tighten :: - Integration test fixtures: acquire from `db_pool` (session-scoped),
 docs/SCHEMA.md :: tighten :: - A11y test tiers: **static lint** (`test_aria_labels.py`, template so
+
+# --- docs/COMMANDS.md curation: 10,867 -> 8,274 tokens, under the 10,000 per-doc
+#     budget. Three findings, all the shape #518 found in docs/SCHEMA.md — a
+#     pointer that grew into the thing it points at.
+#
+#     1. § Scheduled timers (2,611 tokens, 23% of the file) was a ten-row table
+#        whose every row RESTATED the doc it ended by naming; the section's own
+#        preamble already said "the per-script detail is in the section named in
+#        each row". Rewritten as an actual roster — unit, cadence, script, detail
+#        doc — after checking each row's detail really is in the doc it names. Two
+#        rows failed that check (`check_ready.py` and `check_egress_ip.py` existed
+#        NOWHERE else), so those were RELOCATED into docs/AUDITS.md as their own
+#        sections before the roster was shortened.
+#     2. § Operational script safety (1,035) was two paragraphs: the first
+#        duplicating docs/RUNBOOKS.md §"Operational scripts" claim for claim, the
+#        second duplicating this same file's § Deploy > Guards (#398) — and
+#        pointing at it ("Full rules → docs/COMMANDS.md § Deploy"), a pointer from
+#        the file to itself. Replaced by a real pointer.
+#     3. § Operational script targets keeps its three invocation forms — this is
+#        the commands doc — and sheds the rules docs/RUNBOOKS.md owns.
+#
+#     `--claims` reconciles it: 16 atoms left the file, 0 unaccounted for
+#     (.skills/context-claims-ok). Entries are longest-first, because a line is
+#     charged to the first entry that matches it.
+docs/COMMANDS.md :: tighten :: | Per-key API anomaly check | hourly `power-map-anomaly.timer` runs `scripts/check_api_anomalies.py` — journal
+docs/COMMANDS.md :: tighten :: | usa-wa dataset pull | nightly 09:00 UTC `power-map-datasets-pull.timer` runs `scripts/pull_datasets.py` — fe
+docs/COMMANDS.md :: tighten :: | Desired-state chain (dry-run applier) | nightly 09:30 UTC `power-map-desired-state.timer` runs one oneshot —
+docs/COMMANDS.md :: tighten :: | Schema-parity audit | daily `power-map-schema-parity.timer` runs `scripts/audit_schema_constraint_parity.py`
+docs/COMMANDS.md :: tighten :: | role / role_assignment / citation ancillary orphan audit | daily `power-map-ancillary-orphans.timer` runs `s
+docs/COMMANDS.md :: tighten :: | assignment-relationship window audit | daily `power-map-assignment-rel-windows.timer` runs `scripts/audit_as
+docs/COMMANDS.md :: tighten :: | Readiness uptime guard | every 2 min `power-map-ready.timer` runs `scripts/check_ready.py` — probes `GET loc
+docs/COMMANDS.md :: tighten :: | Egress-IP drift guard | every 5 min `power-map-egress-ip.timer` runs `scripts/check_egress_ip.py` — compares
+docs/COMMANDS.md :: tighten :: | Weekly a11y sweep | weekly `power-map-a11y.timer` (Sun 04:00 UTC) runs `scripts/run-a11y-sweep.sh` — both a1
+docs/COMMANDS.md :: tighten :: **Operational scripts — dry run by default (#402):** `DATABASE_URL` resolves to **production** from any direct
+docs/COMMANDS.md :: tighten :: **apply-schema guards (#398):** `apply-schema.sh` writes to **production** on the bare invocation and is `Exec
+docs/COMMANDS.md :: tighten :: | Outbox/tombstone TTL prune | daily `power-map-prune.timer` runs `scripts/prune_outbox.py --execute` (90-day
+docs/COMMANDS.md :: tighten :: Enforced by `tests/scripts/test_dsn_sweep.py` (AST, no allowlist). Full rules →
+docs/COMMANDS.md :: tighten :: - `--test` **hard-errors** when `TEST_DATABASE_URL` is unset — it never falls
+docs/COMMANDS.md :: tighten :: `production` too. An unrecognised target reads `unknown — assume production`.
+docs/COMMANDS.md :: tighten :: Every unit below reports failure through `systemctl --failed`; the per-script
+docs/COMMANDS.md :: tighten :: - A script that writes still needs `--execute`; the flags above only choose
+docs/COMMANDS.md :: tighten :: - The label keys on `(host, port, dbname)`, so the migrations DSN labels
+docs/COMMANDS.md :: tighten :: - `--test` together with `--database-url` is a usage error.
+docs/COMMANDS.md :: tighten :: [`docs/RUNBOOKS.md`](RUNBOOKS.md) §"Operational scripts".
+docs/COMMANDS.md :: tighten :: detail is in the section named in each row.
+docs/COMMANDS.md :: tighten :: *where*, never *whether*.
+docs/COMMANDS.md :: tighten :: back to `DATABASE_URL`.
+docs/COMMANDS.md :: tighten :: | Situation | Action |

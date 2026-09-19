@@ -370,7 +370,6 @@ uv run ruff check --fix .
 
 ## Operational script targets (#399)
 
-
 Every script in `scripts/` that opens a connection takes the same two flags and
 echoes a labelled target to stderr before connecting:
 
@@ -384,16 +383,10 @@ uv run python -m scripts.<name> --database-url DSN   # somewhere else
 target: co_pm_db_production_user@co-pm-db-1-….ondigitalocean.com:25060/co_pm_db_production (production)
 ```
 
-- `--test` **hard-errors** when `TEST_DATABASE_URL` is unset — it never falls
-  back to `DATABASE_URL`.
-- `--test` together with `--database-url` is a usage error.
-- The label keys on `(host, port, dbname)`, so the migrations DSN labels
-  `production` too. An unrecognised target reads `unknown — assume production`.
-- A script that writes still needs `--execute`; the flags above only choose
-  *where*, never *whether*.
-
-Enforced by `tests/scripts/test_dsn_sweep.py` (AST, no allowlist). Full rules →
-[`docs/RUNBOOKS.md`](RUNBOOKS.md) §"Operational scripts".
+`--test` **hard-errors** when `TEST_DATABASE_URL` is unset rather than falling
+back to production, and choosing *where* is never choosing *whether* — a script
+that writes still needs `--execute`. The label's keying, the remaining rules and
+the sweep that enforces them → [RUNBOOKS.md](RUNBOOKS.md) §"Operational scripts".
 
 ---
 
@@ -412,28 +405,43 @@ git submodule update --remote --merge skills-vendor/gregoryfoster-skills skills-
 
 ## Scheduled timers
 
+Every unit below reports failure through `systemctl --failed`, and each one that
+can alert opens a GitHub issue and closes it on recovery — the alert state lives
+in the issue, never in a local file. **The per-script detail is in the doc each
+row names**; this is a roster, not a reference.
 
-Every unit below reports failure through `systemctl --failed`; the per-script
-detail is in the section named in each row.
+| Timer | Cadence | Runs | Detail |
+|---|---|---|---|
+| `power-map-ready` | 2 min | `check_ready.py` — probes `/ready`; exit 3 only when two attempts fail | [AUDITS.md](AUDITS.md) |
+| `power-map-egress-ip` | 5 min | `check_egress_ip.py` — egress IP vs the cluster's live Trusted Sources | [AUDITS.md](AUDITS.md) |
+| `power-map-anomaly` | hourly | `check_api_anomalies.py` — per-key request-rate threshold | [AUDITS.md](AUDITS.md) |
+| `power-map-datasets-pull` | 09:00 UTC | `pull_datasets.py` — lands usa-wa snapshots; writes no DB rows | [RUNBOOKS.md](RUNBOOKS.md) |
+| `power-map-desired-state` | 09:30 UTC | export → build → apply, the applier **dry run**; a failed step stops the chain | [RUNBOOK_DESIRED_STATE.md](RUNBOOK_DESIRED_STATE.md) |
+| `power-map-prune` | daily | `prune_outbox.py --execute` — outbox/tombstone TTL | [RUNBOOKS.md](RUNBOOKS.md) |
+| `power-map-schema-parity` | daily | `audit_schema_constraint_parity.py` — prod vs reference DDL | [AUDITS.md](AUDITS.md) |
+| `power-map-ancillary-orphans` | daily | `audit_ancillary_orphans.py` — no-FK polymorphic orphans | [AUDITS.md](AUDITS.md) |
+| `power-map-assignment-rel-windows` | daily | `audit_assignment_relationship_windows.py` — drifted RA→RA edge windows | [AUDITS.md](AUDITS.md) |
+| `power-map-a11y` | Sun 04:00 UTC | `run-a11y-sweep.sh` — both a11y tiers against the test DB | [TESTING.md](TESTING.md) |
 
-| Situation | Action |
-|---|---|
-| Outbox/tombstone TTL prune | daily `power-map-prune.timer` runs `scripts/prune_outbox.py --execute` (90-day window, `entity_changes` + `deleted_entities`); see `docs/RUNBOOKS.md` |
-| Per-key API anomaly check | hourly `power-map-anomaly.timer` runs `scripts/check_api_anomalies.py` — journal WARNING + exit 3 per key ≥ `API_ANOMALY_HOURLY_THRESHOLD` req/hr (#294); human layer = Admin → Activity → API Requests per-key panel; see `docs/AUDITS.md` |
-| usa-wa dataset pull | nightly 09:00 UTC `power-map-datasets-pull.timer` runs `scripts/pull_datasets.py` — fetches usa-wa's catalog over an exe.dev VM bearer token (`USA_WA_TOKEN`), lands every subscribed dataset whose latest version is not already held into `data/usa_wa_snapshots/`, verifies each `data.csv` against the length and digest the catalog states, and prunes to the newest `--keep` versions (never the one just landed). Writes **no** database rows — the gated step is the applier (#499). Exit 1 on a failed digest, an incompatible schema major, or a subscribed dataset the catalog does not carry. Runs an hour after usa-wa publishes at 08:00 UTC; see `docs/RUNBOOKS.md` |
-| Desired-state chain (dry-run applier) | nightly 09:30 UTC `power-map-desired-state.timer` runs one oneshot — `scripts/export_pm_tables.py` → `scripts/build_desired_state.py` → `scripts/apply_desired_state.py` (the **dry run**; never `--execute`) — each under `uv run --group mapping`; a step failing stops the chain. Exit 0 for verdict `clean`/`blocked` (both recorded; the streak #501 waits on), 3 for `stale`. See `docs/RUNBOOK_DESIRED_STATE.md` |
-| Schema-parity audit | daily `power-map-schema-parity.timer` runs `scripts/audit_schema_constraint_parity.py` — snapshots full `pg_get_constraintdef` + `pg_get_functiondef` + `pg_get_triggerdef` on reference (`PARITY_REFERENCE_URL`, default `TEST_DATABASE_URL`) vs prod, exit 3 on any missing/different object, per-kind breakdown `constraint.*`/`function.*`/`trigger.*` (#315 constraints + #331 functions/triggers; `CREATE TABLE IF NOT EXISTS` inline-drift + `CREATE OR REPLACE` body-drift; extension-owned/internal excluded; function/trigger diff skipped on a PG-major mismatch); see `docs/AUDITS.md` |
-| role / role_assignment / citation ancillary orphan audit | daily `power-map-ancillary-orphans.timer` runs `scripts/audit_ancillary_orphans.py` — anti-join count of no-FK polymorphic ancillary keyed on a non-existent parent, over **three** scopes: `role_assignment` (`links`/`contact_methods`/`field_confidence`/`identifiers`, #324), `role` (`links`/`contact_methods`, #326), and `citation` (all 7 citable entity types, #319); exit 3 on any orphan, breakdown namespaced `role.*`/`role_assignment.*`/`citation.*`. Recovery: `scripts/cleanup_role_assignment_ancillary_orphans.py` (heuristic re-home, dry-run → `--execute`; role_assignment-only — role/citation orphans go to manual triage); see `docs/AUDITS.md` |
-| assignment-relationship window audit | daily `power-map-assignment-rel-windows.timer` runs `scripts/audit_assignment_relationship_windows.py` — report-only reconcile of active `role_assignment_relationships` edges whose window drifted outside the intersection of both endpoint assignment windows (or whose endpoint archived); shares the `cascade_assignment_relationships` clamp rule (#301). Categories `clamp`/`inverted`/`archived_endpoint`; **exit 3 on any finding** (#363) so a drifted run surfaces in `systemctl --failed`. `--execute` clamps/archives and always exits 0 (supervised); see `docs/AUDITS.md` |
-| Readiness uptime guard | every 2 min `power-map-ready.timer` runs `scripts/check_ready.py` — probes `GET localhost:8000/ready`, retries once after 10s, exits 3 only when **both** attempts fail (a lone blip stays quiet). Journal WARNING carries the reason slug (`no_pool`/`pool_timeout`/`db_error`/`unreachable`/`probe_timeout`/`http_<code>`), which is most of the triage. On failure it opens a single `ready-regression` GH issue (summary + journal pointer only — public repo) and **stays quiet while that issue is open**, since a comment per run would be ~30/hour; recovery comments once and closes it, so no local state file is needed. Exists because `/ready` was correct and unread during the 2026-08-09 outage (#347). Hatches: `READY_CHECK_NO_GH=1`, `READY_CHECK_FORCE_FAIL=1`; overrides `READY_PROBE_URL`/`_TIMEOUT`/`_ATTEMPTS`/`_RETRY_DELAY` |
-| Egress-IP drift guard | every 5 min `power-map-egress-ip.timer` runs `scripts/check_egress_ip.py` — compares this host's public egress IP against the cluster's **live Trusted Sources** read from the DO API (`DO_API_TOKEN`), falling back to `EGRESS_EXPECTED_IPS` when there is no token or the API is unreachable; exit 3 + `egress-ip-drift` GH issue carrying the **new address** on mismatch. The API source also catches our rule being *removed*, which a hand-maintained copy cannot see. An empty Trusted Sources list means DO is applying no IP restriction at all — reported, never drift. The DO cluster gates on source IP and the exe.dev egress IP is NAT'd and unpinned, so a rotation kills every DB-backed route (2026-08-09, #410). Losing every lookup service is **not** drift — WARNING, exit 0. Since #409 the allowlist is read live, so there is nothing to keep in sync. Triage → `docs/RUNBOOK_DB_TRIAGE.md`. Hatches: `EGRESS_CHECK_NO_GH=1`, `EGRESS_CHECK_FORCE_FAIL=1` |
-| Weekly a11y sweep | weekly `power-map-a11y.timer` (Sun 04:00 UTC) runs `scripts/run-a11y-sweep.sh` — both a11y tiers (lxml `test_a11y_render.py -m integration` + Playwright/axe `test_a11y_browser.py -m browser`, #369) against the test DB, own uvicorn on an ephemeral port. **Chromium guard** exits 2 if Playwright's browser is absent (else the tier importorskips to a vacuous pass); one-time `uv sync --group browser && playwright install chromium`. Non-zero exit → `systemctl --failed`; on failure the runner opens-or-updates the `a11y-regression` GH issue (closes on recovery), and the `SessionStart` hook `.claude/hooks/a11y-status-reminder.sh` surfaces status when you open Claude on the VM. See `docs/TESTING.md` |
+An audit timer exits **3** on a finding, which is what puts it in
+`systemctl --failed`; exit 1 is a real error. Installing or inspecting any of
+them takes the same shape:
+
+```bash
+sudo cp infra/<unit>.service infra/<unit>.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now <unit>.timer
+
+systemctl list-timers <unit>.timer     # next / last run
+sudo systemctl start <unit>.service    # run once, now
+sudo journalctl -u <unit> -f           # findings
+```
 
 ---
 
 ## Operational script safety
 
-
-**Operational scripts — dry run by default (#402):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates the write behind `--execute` and calls `echo_target()` (`scripts/_dsn.py`) before connecting — the gate stops an unintended write, the echo makes an intended one attributable. `redact_dsn()` returns `None` for a non-URL DSN and callers **never** fall back to the raw string (a libpq keyword/value DSN puts the password in `urlparse`'s `path`). Dry runs come in two shapes — read-only preview, or real work rolled back; the second must account for side effects that do *not* roll back (the importer parses addresses locally rather than spending validator quota). DDL is never implicit: `--apply-schema` is opt-in and requires `--execute`. `apply-schema.sh` keeps a duplicate copy of the redaction on purpose (`ExecStartPre` — an import failure = failed prod restart), pinned by a parity test. **#399** made this uniform across all 37 scripts: `add_dsn_args(parser)` + `resolve_dsn(args, parser)` give every script `--database-url` and `--test` (which **hard-errors** when `TEST_DATABASE_URL` is unset rather than falling back to production), and the echo carries a `(production|test|unknown — assume production)` label keyed on `(host, port, dbname)` — not the DSN string, since production is reached as two users. `tests/scripts/test_dsn_sweep.py` enforces all three rules by AST with **no allowlist**. Full rules → [`docs/RUNBOOKS.md`](RUNBOOKS.md) §"Operational scripts".
-
-**apply-schema guards (#398):** `apply-schema.sh` writes to **production** on the bare invocation and is `ExecStartPre` on the unit — so every guard it grows must be untrippable by the systemd shape (main checkout, no TTY, no flags), else a guard bug becomes a failed prod restart; that covers the diagnostics too (the target echo degrades to `(unparsed DSN — cannot redact)` rather than aborting, and never echoes a non-URL DSN — it would carry the password). Hard-fail (exit 2): linked worktree, declined TTY confirmation. Warn only: tracked modifications, branch ≠ `main`. The script `cd`s to its own repo root first, so the checkout it reports is the tree whose `schema.sql` it applies. `--test` targets `TEST_DATABASE_URL` and is the door for worktree schema work (`sync-schema-to-do.sh` delegates to it); `--yes` skips the guards; `--dry-run` stops after the target echo. Full rules → `docs/COMMANDS.md` § Deploy.
+Scripts that write are dry run by default and gate the write behind `--execute`;
+every script that connects echoes a labelled target first. The rules, the
+resolver and the no-allowlist AST sweep that enforces them →
+[RUNBOOKS.md](RUNBOOKS.md) §"Operational scripts". `apply-schema.sh`'s own
+guards are in § Deploy → Guards (#398) above.

@@ -274,3 +274,70 @@ systemctl list-timers power-map-ancillary-orphans.timer    # next/last run
 sudo systemctl start power-map-ancillary-orphans.service   # run once, now
 sudo journalctl -u power-map-ancillary-orphans -f          # orphan breakdown on failure
 ```
+
+---
+
+## Readiness uptime guard (issue #347)
+
+Not an integrity audit — an uptime guard — but it carries a timer and surfaces
+the same way, so its detail lives here with the rest of the roster. Moved from
+`docs/COMMANDS.md` § Scheduled timers (#518-class curation); it existed nowhere
+else.
+
+`scripts/check_ready.py` probes `GET localhost:8000/ready` every two minutes,
+retries once after 10s, and exits 3 only when **both** attempts fail — a lone
+blip stays quiet. The journal WARNING carries the reason slug, which is most of
+the triage: `no_pool` / `pool_timeout` / `db_error` / `unreachable` /
+`probe_timeout` / `http_<code>`. A `pool_timeout` usually means the egress IP
+rotated out of DO Trusted Sources → [RUNBOOK_DB_TRIAGE.md](RUNBOOK_DB_TRIAGE.md).
+
+On failure it opens a single `ready-regression` GitHub issue — summary and a
+journal pointer only, because the repo is public — and then **stays quiet while
+that issue is open**: a comment per run would be ~30/hour. Recovery comments
+once and closes it, so the alert state lives in the issue and no local state
+file is needed.
+
+It exists because `/ready` was correct and unread throughout the 2026-08-09
+outage (#347).
+
+```bash
+uv run "${env_args[@]}" python -m scripts.check_ready       # probe once, now
+sudo journalctl -u power-map-ready -f                       # reason slug on failure
+```
+
+| Override | Effect |
+|---|---|
+| `READY_PROBE_URL`, `READY_PROBE_TIMEOUT` | target and per-attempt timeout |
+| `READY_PROBE_ATTEMPTS`, `READY_PROBE_RETRY_DELAY` | retry shape |
+| `READY_CHECK_NO_GH=1` | probe and report, never touch GitHub |
+| `READY_CHECK_FORCE_FAIL=1` | force the failure path (exercises the issue flow) |
+
+## Egress-IP drift guard (issue #410)
+
+Also an uptime guard rather than an integrity audit, and here for the same
+reason. Moved from `docs/COMMANDS.md` § Scheduled timers; it existed nowhere
+else.
+
+`scripts/check_egress_ip.py` runs every five minutes and compares this host's
+public egress IP against the cluster's **live** Trusted Sources, read from the
+DigitalOcean API (`DO_API_TOKEN`). With no token, or an unreachable API, it
+falls back to `EGRESS_EXPECTED_IPS`. A mismatch is exit 3 plus an
+`egress-ip-drift` GitHub issue carrying the **new** address.
+
+Reading the allowlist live rather than keeping a hand-maintained copy is what
+catches our rule being *removed* — a copy cannot see that — and since #409 there
+is nothing to keep in sync. Two readings are deliberately not drift: an **empty**
+Trusted Sources list means DO is applying no IP restriction at all, which is
+reported rather than alerted; and losing every lookup service is a WARNING at
+exit 0, because "I cannot tell" is not "it changed".
+
+It matters because the DO cluster gates on source IP while the exe.dev egress IP
+is NAT'd and unpinned, so a rotation kills every DB-backed route — the
+2026-08-09 outage (#410). Triage → [RUNBOOK_DB_TRIAGE.md](RUNBOOK_DB_TRIAGE.md).
+
+```bash
+uv run "${env_args[@]}" python -m scripts.check_egress_ip   # compare once, now
+sudo journalctl -u power-map-egress-ip -f
+```
+
+Hatches: `EGRESS_CHECK_NO_GH=1`, `EGRESS_CHECK_FORCE_FAIL=1`.

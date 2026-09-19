@@ -68,7 +68,8 @@ Then close the loop so it does not silently recur:
 ### Scheduled guards
 
 `power-map-ready.timer` (every 2 min, #347) catches the effect; the
-`ready-regression` GitHub issue carries the slug. `power-map-egress-ip.timer`
+`ready-regression` GitHub issue carries the slug; both guards' cadence,
+hatches and overrides are in [AUDITS.md](AUDITS.md). `power-map-egress-ip.timer`
 (every 5 min, #410) catches this specific cause and hands over the new address.
 Install / update either:
 
