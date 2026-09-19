@@ -3,17 +3,22 @@
     {
       "name": "database-schema",
       "path": "./src/core/schema.sql",
-      "description": "PostgreSQL DDL — all tables, indexes, triggers, constraints, views (v_org_display_names, v_person_display_names), and seed data. Source of truth for the data model."
+      "description": "PostgreSQL DDL \u2014 all tables, indexes, triggers, constraints, views (v_org_display_names, v_person_display_names), and seed data. Source of truth for the data model."
     },
     {
       "name": "agent-guidelines",
       "path": "./AGENTS.md",
-      "description": "Agent guidelines — project overview, development methodology (TDD), environment/tooling, project layout, admin/public API conventions, DB conventions, and the index of the reference-docs tree."
+      "description": "Agent guidelines \u2014 project overview, development methodology (TDD), environment/tooling, project layout, admin/public API conventions, DB conventions, and the index of the reference-docs tree."
     },
     {
       "name": "reference-docs",
       "path": "./docs",
-      "description": "The whole reference-doc tree, indexed recursively. Domain and data: schema tables and indexes, validity windows, observation semantics, person/org names. Public API: auth, scopes, pagination, conditional requests, the change feed, and per-resource endpoint contracts. Admin dashboard: auth and archive model, HTMX partial patterns, UI components, forms, merge flows, visual style, accessibility. Operating it: everyday commands, test tiers, runbooks, recurring integrity audits, DB triage and migration. Also holds docs/plans — historical feature design docs and implementation plans."
+      "description": "The whole reference-doc tree, indexed recursively. Domain and data: schema tables and indexes, validity windows, observation semantics, person/org names. Public API: auth, scopes, pagination, conditional requests, the change feed, and per-resource endpoint contracts. Admin dashboard: auth and archive model, HTMX partial patterns, UI components, forms, merge flows, visual style, accessibility. Operating it: everyday commands, test tiers, runbooks, recurring integrity audits, DB triage and migration. Also holds docs/plans \u2014 historical feature design docs and implementation plans."
+    },
+    {
+      "name": "deployment-topology",
+      "path": "./infra",
+      "description": "systemd units and Terraform. The API unit (power-map.service, port 8000) and the readiness probe; the scheduled timers and their paired services \u2014 datasets-pull and desired-state (the nightly ingestion chain), schema-parity, prune, anomaly, ancillary-orphans, assignment-rel-windows, egress-ip, a11y \u2014 each naming the script it runs and its cadence; and the Terraform describing the DigitalOcean database and its trusted sources. Source of truth for what runs on the VM, when, and under which unit."
     }
   ]
 }
