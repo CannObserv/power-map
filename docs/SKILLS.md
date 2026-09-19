@@ -33,6 +33,7 @@ Submodule freshness is maintained by the vendored `SessionStart` hook `.claude/h
 - A run that cannot push does not commit either — the bump waits for a session that can share it rather than piling up locally
 - Exits `0` on every non-fatal condition — a session can never be blocked by it
 - Opportunistically runs `install-doctor.sh` on **every** branch (not day-gated) so `.skills/doctor.sh` self-heals; the commit of that refresh stays behind the `main`-only + daily gates
+- `timeout: 120` (#534, skills#259): one budget covers a `--remote` fetch per vendored repo *plus* the push, and a kill between them strands `main`. Registered **ahead of** the socraticode hooks, which read vendored scripts this one heals — `install-refresh.sh` appends last, so re-check the order after a re-run
 
 **What that means for ordinary work:** while `main` carries any commit the hook did not author — a review fix, a revert, anything unpushed — it refuses to commit *and* to push, and says so on stderr. Push `main` and the next session resumes on its own. `.skills/doctor.sh` reports the same state independently at session start.
 
