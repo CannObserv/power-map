@@ -320,8 +320,40 @@ def _formatter_is_raw(node: ast.expr) -> bool:
     return False
 
 
+def _judge_parser_call(node: ast.Call, name: str | None) -> bool:
+    """True when this call builds a docstring parser that will reflow it.
+
+    Two shapes, because there are two ways to build one here:
+
+    * `argparse.ArgumentParser(description=__doc__)` — reflows unless it passes a
+      raw `formatter_class`.
+    * `build_parser(__doc__, ...)` — raw by default, so it reflows only when the
+      caller *overrides* `formatter_class` with a non-raw one. Judging this shape
+      is what makes `build_parser`'s docstring true: it tells callers the sweep
+      will catch an override, and before #509's CR it did not (the detector
+      matched only the `ArgumentParser` name, so the helper was a blind spot in
+      the guard written to protect it).
+    """
+    keywords = {kw.arg: kw.value for kw in node.keywords}
+    if None in keywords:  # **kwargs — unjudgeable, so not an offence
+        return False
+    formatter = keywords.get("formatter_class")
+
+    if name == "ArgumentParser":
+        description = keywords.get("description")
+        if not (isinstance(description, ast.Name) and description.id == "__doc__"):
+            return False
+        return formatter is None or not _formatter_is_raw(formatter)
+
+    if name == "build_parser":
+        # No override is the compliant case — that is the whole point of the helper.
+        return formatter is not None and not _formatter_is_raw(formatter)
+
+    return False
+
+
 def reflowing_parsers(tree: ast.Module) -> list[int]:
-    """Line numbers of `ArgumentParser(description=__doc__)` calls that will reflow.
+    """Line numbers of docstring-parser calls that will reflow the docstring.
 
     Scoped to `description=__doc__` on purpose — that is the whole defect. Four
     scripts pass a one-line literal instead (`check_egress_ip`, `check_ready`,
@@ -342,16 +374,7 @@ def reflowing_parsers(tree: ast.Module) -> list[int]:
             if isinstance(node.func, ast.Attribute)
             else getattr(node.func, "id", None)
         )
-        if name != "ArgumentParser":
-            continue
-        keywords = {kw.arg: kw.value for kw in node.keywords}
-        if None in keywords:  # **kwargs — unjudgeable, so not an offence
-            continue
-        description = keywords.get("description")
-        if not (isinstance(description, ast.Name) and description.id == "__doc__"):
-            continue
-        formatter = keywords.get("formatter_class")
-        if formatter is None or not _formatter_is_raw(formatter):
+        if _judge_parser_call(node, name):
             offenders.append(node.lineno)
     return offenders
 
@@ -397,6 +420,32 @@ def test_detector_rejects_a_reflowing_formatter():
         ")"
     )
     assert reflowing_parsers(ast.parse(source)) == [2]
+
+
+def test_detector_flags_a_build_parser_that_overrides_the_formatter():
+    """The helper is raw by default, so an override is a deliberate reflow.
+
+    `build_parser`'s docstring tells callers this sweep will say so; this is the
+    assertion that makes that true.
+    """
+    source = (
+        "from scripts._dsn import build_parser\n"
+        "import argparse\n"
+        "p = build_parser(__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)"
+    )
+    assert reflowing_parsers(ast.parse(source)) == [3]
+
+
+def test_detector_accepts_a_plain_build_parser_call():
+    """No override is the compliant case."""
+    source = "from scripts._dsn import build_parser\np = build_parser(__doc__)"
+    assert reflowing_parsers(ast.parse(source)) == []
+
+
+def test_detector_accepts_build_parser_with_an_unrelated_keyword():
+    """prog/epilog pass through and say nothing about the formatter."""
+    source = "from scripts._dsn import build_parser\np = build_parser(__doc__, prog='x')"
+    assert reflowing_parsers(ast.parse(source)) == []
 
 
 def test_detector_ignores_a_parser_with_no_description():
