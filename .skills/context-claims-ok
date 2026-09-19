@@ -1,0 +1,54 @@
+# Warranted dropped ATOMS — backticked spans a curation rewrote away from
+# AGENTS.md whose claim is nonetheless still carried in the surface.
+# Form: PATH :: WARRANT :: ATOM   (matched WHOLE, not as a substring)
+#
+# --- #518/#521: the Infrastructure situation table became four hazard bullets,
+#     and the Public API auth bullet lost its per-dep parenthetical. Both atoms
+#     below are verbatim in a destination doc; the checker cannot see them
+#     because there they sit inside a fenced code block / ordinary prose rather
+#     than a backticked span, so it reads them as gone. Refuted by command:
+#       grep -c -- '--reload --log-config src/core/log_config.json' docs/COMMANDS.md  -> 1 (line 270)
+#       grep -rl 'key_id' docs/*.md | wc -l                                           -> 5+
+AGENTS.md :: duplicate :: --reload --log-config src/core/log_config.json
+AGENTS.md :: duplicate :: key_id
+
+# --- #518: docs/SCHEMA.md's "DB key rules at a glance" index went 10,249 -> 6,055
+#     tokens by shortening index lines that had grown into paragraphs restating
+#     their target doc (the #428 index-cannot-grow rule). Each atom below left the
+#     INDEX; every one is still documented in the doc that owns the rule, spelled
+#     the way that doc spells it. Refuted by command (`grep -rlF -- '<atom>' docs/*.md`,
+#     the looser spelling in parentheses):
+#       requires_qualifier / expects_jurisdiction  -> docs/SCHEMA_INDEXES.md, docs/API_ROLES.md
+#       rel_type, staff_of                         -> docs/OBSERVATIONS.md, docs/API_ASSIGNMENTS.md
+#       is_canonical (+ its CHECK)                 -> docs/NAMES.md, docs/ADMIN_NAMES.md, docs/SCHEMA_VALIDITY.md
+#       citations/{entity_type} (both endpoints)   -> docs/PUBLIC_API.md
+#       edit-row                                   -> docs/ADMIN_NAMES.md, docs/HTMX.md
+#       ON DELETE CASCADE                          -> docs/OBSERVATIONS.md
+#       role_assignment', entity_id                -> docs/ANCILLARY.md
+#       curator                                    -> docs/OBSERVATIONS.md
+#       confdeltype <> 'n'                         -> docs/SCHEMA_INDEXES.md
+#       role_assignments_relationships.py          -> docs/OBSERVATIONS.md
+#       src.core.org_lifecycle.check_assignment_lifespan -> docs/OBSERVATIONS.md
+#       .notes                                     -> docs/OBSERVATIONS.md
+#     The one exception is the completed .notes migration: its runbook lives in
+#     docs/archive/RUNBOOKS_COMPLETED.md § "Notes → citations migration (issue #319)",
+#     which measure-context.sh excludes as archival — so the atom reads as gone while
+#     the runbook is intact. A finished one-off migration is exactly what the archive
+#     is for; an index of live DB rules is not where it belongs.
+docs/SCHEMA.md :: duplicate :: (entity_type='role_assignment', entity_id)
+docs/SCHEMA.md :: duplicate :: (from,to,rel_type)
+docs/SCHEMA.md :: duplicate :: --staff_of-->
+docs/SCHEMA.md :: duplicate :: .notes
+docs/SCHEMA.md :: duplicate :: CHECK (NOT is_canonical OR visibility='public')
+docs/SCHEMA.md :: duplicate :: GET /api/v1/citations/{entity_type}/{id}
+docs/SCHEMA.md :: duplicate :: POST /admin/people/{pid}/names/{nid}/edit-row/
+docs/SCHEMA.md :: duplicate :: POST /api/v1/citations/{entity_type}/{id}/observations
+docs/SCHEMA.md :: duplicate :: REFERENCES role_assignments ON DELETE CASCADE
+docs/SCHEMA.md :: duplicate :: citations:[]
+docs/SCHEMA.md :: duplicate :: confdeltype <> 'n'
+docs/SCHEMA.md :: duplicate :: curator/pre-#334
+docs/SCHEMA.md :: duplicate :: role_assignments_relationships.py
+docs/SCHEMA.md :: duplicate :: role_types.expects_jurisdiction
+docs/SCHEMA.md :: duplicate :: role_types.requires_qualifier
+docs/SCHEMA.md :: disproven :: scripts/migrate_notes_to_citations.py
+docs/SCHEMA.md :: duplicate :: src.core.org_lifecycle.check_assignment_lifespan

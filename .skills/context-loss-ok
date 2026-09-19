@@ -120,3 +120,110 @@ AGENTS.md :: duplicate :: split by subject since #407 — complete index at the 
 #                                                                   rows twelve lines above
 #     The rule that must stay inline — DATABASE_URL is production everywhere, so gate
 #     behind `--execute` and `echo_target()` first — is unchanged.
+
+# --- #518/#521: AGENTS.md back under its 6000-token budget while GAINING eight
+#     index lines (the six API_* resource docs, ADMIN_OVERLAY, RUNBOOK_DESIRED_STATE),
+#     so links.unindexed went 8 -> 0. Nothing was deleted outright: every line below
+#     was rewritten in place or replaced by a shorter form whose claims survive, and
+#     `--claims` reconciles that independently — 192 atoms at base, 0 dropped
+#     (the two the atom scanner could not see carry entries in .skills/context-claims-ok).
+#
+#     The Infrastructure situation table became four hazard bullets. The table's
+#     value was the commands, and those are verbatim in docs/COMMANDS.md — verified
+#     by grep before removal, one row at a time. What AGENTS.md keeps is only what
+#     is dangerous to learn late: that apply-schema.sh targets production from any
+#     directory, that the dev server runs from a worktree, and what a /ready
+#     pool_timeout means.
+AGENTS.md :: tighten :: | After code change (production) | `sudo systemctl restart power-map` — also applies any schema changes |
+AGENTS.md :: tighten :: | After schema change only (no restart) | `bash scripts/apply-schema.sh` — **targets PRODUCTION**; main checkout only (#398) |
+AGENTS.md :: tighten :: | Applying a schema change from a worktree | `bash scripts/apply-schema.sh --test` — the bare command refuses in a linked worktree (exit 2) |
+AGENTS.md :: tighten :: | Worktree dev testing | kill+restart dev server on 8001 with
+AGENTS.md :: tighten :: | Service debugging | `sudo journalctl -u power-map -f` |
+AGENTS.md :: tighten :: | Quick prod health check | `curl -fsS localhost:8000/health && curl -fsS localhost:8000/ready`
+AGENTS.md :: tighten :: | DB unreachable / `pool_timeout` | Egress IP likely rotated out of DO Trusted Sources
+
+#     The env-file idiom was a four-line shell block duplicated verbatim in
+#     docs/COMMANDS.md § Environment; AGENTS.md now states the two paths and the
+#     precedence and points there.
+AGENTS.md :: tighten :: Load both via uv's dotenv parser (gated on existence — uv errors hard on a missing `--env-file`):
+AGENTS.md :: tighten :: See `docs/COMMANDS.md` § Environment.
+
+#     A pointer from a file to itself: the "### SocratiCode" subsection's whole body
+#     was "See **Code Exploration Policy** above" — a section of the same file, 24
+#     tokens to say so.
+AGENTS.md :: duplicate :: ### SocratiCode
+AGENTS.md :: duplicate :: See **Code Exploration Policy** above.
+
+#     "No inline module imports; all at file top" and "Explicit imports only" are
+#     one rule stated twice, in the same bullet list. Merged into one bullet.
+AGENTS.md :: duplicate :: - Explicit imports only
+AGENTS.md :: tighten :: - No inline module imports; all at file top
+
+#     Key Rules bullets: the rule stays, the reasoning goes to the doc each block
+#     already names as "Full conventions →". Destinations verified by grep before
+#     removal (test_js_required_policy + savepoint in docs/ADMIN.md,
+#     stamped_transaction in docs/CONVENTIONS.md, reconcile_seeded_slugs in
+#     docs/SCHEMA_INDEXES.md).
+AGENTS.md :: tighten :: - **JS required (#287)**: the admin is an HTMX app, not progressively enhanced.
+AGENTS.md :: tighten :: - Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived;
+AGENTS.md :: tighten :: - Auth deps (all from `src.api.public.deps`): `require_api_key` (read), `require_key` (read + `key_id`), `require_scope("scope:id")` (write);
+AGENTS.md :: tighten :: - Route handlers acquire connections via `Depends(get_db)` only — never `src.core.db.acquire()` (escapes `app.dependency_overrides`, breaks test isolation).
+AGENTS.md :: tighten :: - Every inline `CHECK`/`FK`/`ON DELETE` change ships an idempotent reconciliation `DO` block,
+AGENTS.md :: tighten :: **Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory,
+
+#     Project Layout: four entries lost a parenthetical each. The #497 gate name
+#     (`test_src_core_wa_free.py`) is the only claim among them, and it is still in
+#     the same block's own sentence plus tests/.
+AGENTS.md :: tighten :: docs/           — Reference docs, split by subject — complete index at the end of this file
+AGENTS.md :: tighten :: infra/          — systemd units (API + prune timer) + terraform
+AGENTS.md :: tighten :: tests/          — Mirrors src/ structure; js/ for Vitest
+AGENTS.md :: tighten :: src/static/     — Static assets; vendor/ is SHA-pinned and excluded from linting
+AGENTS.md :: tighten :: src/core/       — Shared domain logic (db, schema.sql, normalizers, ingestion);
+
+#     The worktree rule is the one line here that got LONGER: #505 adds the spike
+#     exemption, so AGENTS.md and skills/brainstorming stop contradicting each other.
+#     Every word of the base line survives in it.
+AGENTS.md :: tighten :: **All development work must be done in a git worktree** — never edit the main checkout directly.
+
+#     Detail Docs index lines. API_ENTITIES' line now names its six children, which
+#     are listed under it; COMMANDS and TESTING each gained the ship gate (#539);
+#     two more lost a word to fit the budget.
+AGENTS.md :: tighten :: - [docs/API_ENTITIES.md](docs/API_ENTITIES.md) — one-table index routing to the per-resource endpoint docs
+AGENTS.md :: tighten :: - [docs/COMMANDS.md](docs/COMMANDS.md) — everyday commands: setup, env files, provisioning, deploy, the dev loop, linting, scheduled timers
+AGENTS.md :: tighten :: - [docs/TESTING.md](docs/TESTING.md) — how to run each test tier, the integration marker, the endpoint-test client, Vitest conventions, the browser a11y sweep
+AGENTS.md :: tighten :: - [docs/RUNBOOK_DB_TRIAGE.md](docs/RUNBOOK_DB_TRIAGE.md) — DB unreachable: `/ready` reasons, egress-IP triage
+AGENTS.md :: tighten :: - [docs/CONTEXT.md](docs/CONTEXT.md) — the rules this file obeys: its token budget, index lines that stay pointers,
+
+# --- #518: docs/SCHEMA.md's index section, 17,006 of the file's 25,935 bytes, had
+#     grown from one-line-per-rule pointers into paragraphs restating their target
+#     doc — against the #428 index-cannot-grow rule, and the reason the file sat
+#     over its 10,000-token budget. Every line below was rewritten IN PLACE as a
+#     pointer keeping the rule's name and the one fact that decides whether you need
+#     to open the target; the detail it shed is in the doc each line's
+#     `Full rules →` names, verified section by section before removal. `--claims`
+#     reconciles it independently: 17 atoms left the index, 0 unaccounted for
+#     (.skills/context-claims-ok).
+#
+#     One line was RELOCATED rather than tightened: the inline-constraint-drift rule
+#     carried #392's backfill-before-trigger ordering, which existed nowhere else, so
+#     it moved into docs/SCHEMA_INDEXES.md § Unique Indexes before the index line was
+#     shortened to point there.
+docs/SCHEMA.md :: tighten :: them; since #428 that is never this file.
+docs/SCHEMA.md :: tighten :: - Route handlers acquire connections via `Depends(get_db)` only — ne
+docs/SCHEMA.md :: tighten :: - Entity search (#316): every `search_tsv @@ …` predicate goes throu
+docs/SCHEMA.md :: tighten :: - Roles: a role's **structural fields** are `role_type_id` (FK `role_t
+docs/SCHEMA.md :: tighten :: - Role-type vocabulary is **governed** (#266): a slug earns a row only
+docs/SCHEMA.md :: tighten :: - Org lifespan bounds (#307): org end = `v_org_lifespan.ended_on` (der
+docs/SCHEMA.md :: tighten :: - Org parent — authoritative reparent (#334): `organizations.parent_
+docs/SCHEMA.md :: tighten :: - Merge dedup — role_assignment ancillary (#324): `links`/`contact_m
+docs/SCHEMA.md :: tighten :: - Ancillary `entity_changes` emit — DB touch triggers (#327): the pa
+docs/SCHEMA.md :: tighten :: - Citations — write semantics (#319): `citations` is a polymorphic n
+docs/SCHEMA.md :: tighten :: - Role-assignment relationships — RA→RA edges (#301): `role_assign
+docs/SCHEMA.md :: tighten :: - Person-name visibility rule (deadnames, hidden, legal-only): see `do
+docs/SCHEMA.md :: tighten :: - Person **canonical/display** name (#308): `person_names.is_canonical
+docs/SCHEMA.md :: tighten :: - Structured name parts: `person_name_parts` is a 1:0..1 sidecar to `p
+docs/SCHEMA.md :: tighten :: - BCP 47 / ISO 15924 lookup tables (`bcp47_locales`, `iso15924_scripts
+docs/SCHEMA.md :: tighten :: - Inline constraint drift (#307/#312/#315): `CREATE TABLE IF NOT EXIST
+docs/SCHEMA.md :: tighten :: - Seeded lookups — slug reconciliation (#458): every seeded lookup p
+docs/SCHEMA.md :: tighten :: - Integration test fixtures: acquire from `db_pool` (session-scoped),
+docs/SCHEMA.md :: tighten :: - A11y test tiers: **static lint** (`test_aria_labels.py`, template so

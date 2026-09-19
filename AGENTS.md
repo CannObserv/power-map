@@ -43,12 +43,12 @@ Full tool table, prefetch query, per-tool guidance: [`docs/SOCRATICODE.md`](docs
 src/api/        — FastAPI app (ASGI, routes, auth, schemas)
   admin/        — Jinja2 + HTMX admin dashboard
   public/       — JSON API (X-API-Key auth, server-to-server)
-src/core/       — Shared domain logic (db, schema.sql, normalizers, ingestion); `ingestion/mapping/` is the dbt-duckdb project and the only place usa-wa ontology lives (#497, gate: `test_src_core_wa_free.py`)
-src/static/     — Static assets; vendor/ is SHA-pinned and excluded from linting
-tests/          — Mirrors src/ structure; js/ for Vitest
-docs/           — Reference docs, split by subject — complete index at the end of this file
+src/core/       — Shared domain logic (db, schema.sql, normalizers, ingestion); `ingestion/mapping/` is the dbt-duckdb project, the only place usa-wa ontology lives (#497)
+src/static/     — Static assets; vendor/ is SHA-pinned, excluded from linting
+tests/          — Mirrors src/; js/ for Vitest
+docs/           — Reference docs, by subject; index at the end of this file
 scripts/        — One-off operational scripts
-infra/          — systemd units (API + prune timer) + terraform
+infra/          — systemd units + terraform
 ```
 
 ## Admin Dashboard Key Rules
@@ -56,9 +56,9 @@ infra/          — systemd units (API + prune timer) + terraform
 Full conventions → `docs/ADMIN.md`
 Accessibility rules and their test tiers → `docs/ACCESSIBILITY.md`
 
-- **JS required (#287)**: the admin is an HTMX app, not progressively enhanced. Never add `method="post" action=…` to an `hx-post` control to "support no-JS" — the admin's `hx-get` reveals mean the forms don't exist without JS anyway. The 303 fallbacks serve non-HTMX *clients*, not browsers. Guard: `test_js_required_policy.py`
+- **JS required (#287)**: the admin is an HTMX app, not progressively enhanced. Never add `method="post" action=…` to an `hx-post` control to "support no-JS" — the 303 fallbacks serve non-HTMX *clients*, not browsers. Guard: `test_js_required_policy.py`
 - Auth: `user: AdminUser = Depends(get_admin_user)` on every route
-- Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete requires archived (409 otherwise). Unarchive is **fallible** on `roles` / `role_assignments` (#424): their identity indexes are partial on `archived_at IS NULL`, so a freed slot can be reoccupied — savepoint + warning flash, never a bare `UPDATE`
+- Archive model: `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived; hard delete requires archived (409 otherwise). Unarchive is **fallible** on `roles` / `role_assignments` (#424) — a freed slot can be reoccupied, so savepoint + warning flash, never a bare `UPDATE`
 - Every mutation route: HTMX partial via `is_htmx(request)` **plus** a `with_flash(url, key)` `RedirectResponse` fallback — CI-enforced by `test_mutation_fallback_sweep.py`
 - Flash: `flash_trigger(level, body)`; always `markupsafe.escape()` DB-derived values
 - Status filters (#306), dup-count invalidation, citation counts (#341): each carries a rule and a sweep test — read `docs/ADMIN.md` before touching a list or a merge path
@@ -67,7 +67,7 @@ Accessibility rules and their test tiers → `docs/ACCESSIBILITY.md`
 
 Full conventions → `docs/CONVENTIONS.md`
 
-- Auth deps (all from `src.api.public.deps`): `require_api_key` (read), `require_key` (read + `key_id`), `require_scope("scope:id")` (write); 403 missing/insufficient, 401 invalid. Write txns open via `stamped_transaction(db, key_id)`, never bare `db.transaction()` (#491, sweep-enforced)
+- Auth deps from `src.api.public.deps` only: `require_api_key` / `require_key` (read), `require_scope("scope:id")` (write); 403 missing/insufficient, 401 invalid. Write txns open via `stamped_transaction(db, key_id)`, never bare `db.transaction()` (#491, sweep-enforced)
 - All routes: Pydantic `response_model` + `operation_id`; no `dict[str, Any]` returns
 - Lists: `{"data": [...], "meta": {...}}`, fetch `limit+1` for `has_more`; every paginated `ORDER BY` **must end with a unique column** (#297)
 - Timestamps: `datetime` + `@field_serializer` → `TimestampStr` via `fmt_ts()`, never hand-built (#440)
@@ -80,12 +80,12 @@ Full conventions → `docs/SCHEMA.md`
 
 - PKs: ULIDs via `generate_id()` from `src.core.db`
 - `updated_at`: maintained by DB triggers — never set manually
-- Route handlers acquire connections via `Depends(get_db)` only — never `src.core.db.acquire()` (escapes `app.dependency_overrides`, breaks test isolation). Sole route exception: `GET /ready` (#343)
+- Route handlers acquire connections via `Depends(get_db)` only — never `src.core.db.acquire()` (breaks test isolation). Sole route exception: `GET /ready` (#343)
 - Display names: always use `v_org_display_names` / `v_person_display_names` views; never join name tables directly for display
 - Raw `person_names` access: AND-append `visibility='public'` or call `visible_names_filter()` from `src.core.db`. Lint enforces.
 - Integration tests: require `TEST_DATABASE_URL`; never run against the production DB
 - Integration test fixtures acquire from the session-scoped `db_pool`; endpoint tests use the lifespan-less rollback client (#288)
-- Every inline `CHECK`/`FK`/`ON DELETE` change ships an idempotent reconciliation `DO` block, placed **before** any `set_updated_at()` trigger on that table (#307/#312/#315/#392); daily `power-map-schema-parity.timer` is the continuous guard. Seeds of a UNIQUE-natural-key lookup stage rows in `_seed_<table>` + `reconcile_seeded_slugs()` first (#458) — a bare `INSERT … VALUES` aborts on a duplicate slug
+- Every inline `CHECK`/`FK`/`ON DELETE` change ships an idempotent reconciliation `DO` block, placed **before** any `set_updated_at()` trigger on that table (#307/#312/#315/#392); daily `power-map-schema-parity.timer` guards it. Seeds of a UNIQUE-natural-key lookup stage rows in `_seed_<table>` + `reconcile_seeded_slugs()` first (#458)
 - Temporal and provenance invariants — org lifespan (#307), assignment/event/citation observations, org parent (#334), RA→RA edges (#301), canonical person name (#308), merge identity & signals (#324/#327/#467), entity search (#316), role-type vocabulary (#266) — each has exact rules in the `docs/SCHEMA*.md` family, `docs/OBSERVATIONS.md`, `docs/API_ASSIGNMENTS.md`, or `docs/MERGE.md`. Read them before changing any of them.
 
 ## Infrastructure
@@ -103,44 +103,30 @@ Single VM; port split:
 ```bash
 bash scripts/worktree-setup.sh <worktree-path>
 ```
-It replaces the `.venv` symlink `worktree-create.sh` leaves behind with a real per-worktree environment (`uv sync --group browser --group seed --group mapping`), initialises the `skills-vendor/` submodules, and symlinks the gitignored `.env` and `data/cannabis_observer` — without them a worktree's baseline is red and a test short of main's (#482). **Never share a venv with the main checkout** — that is production's working directory, and its systemd units' `uv run` / `ExecStartPre=uv sync` rewrite a shared venv mid-suite, taking the browser tier with it (`docs/COMMANDS.md` § Worktree setup). Refuses (exit 2) against the main checkout.
+Gives the worktree its own `.venv`, initialises the `skills-vendor/` submodules, and symlinks the gitignored `.env` and `data/cannabis_observer`; refuses (exit 2) against the main checkout. **Never share a venv with the main checkout** — that is production's working directory, and its units' `uv run` / `ExecStartPre=uv sync` rewrite a shared venv mid-suite, taking the browser tier with it. Full rules → `docs/COMMANDS.md` § Worktree setup.
 
 exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 
-| Situation | Action |
-|---|---|
-| After code change (production) | `sudo systemctl restart power-map` — also applies any schema changes |
-| After schema change only (no restart) | `bash scripts/apply-schema.sh` — **targets PRODUCTION**; main checkout only (#398) |
-| Applying a schema change from a worktree | `bash scripts/apply-schema.sh --test` — the bare command refuses in a linked worktree (exit 2) |
-| Worktree dev testing | kill+restart dev server on 8001 with `--reload --log-config src/core/log_config.json` from worktree dir (see README / `docs/COMMANDS.md` for the full command) |
-| Service debugging | `sudo journalctl -u power-map -f` |
-| Quick prod health check | `curl -fsS localhost:8000/health && curl -fsS localhost:8000/ready` — unauthenticated probes (#343); `/ready` 503 reason: `no_pool`/`pool_timeout`/`db_error` |
-| DB unreachable / `pool_timeout` | Egress IP likely rotated out of DO Trusted Sources — full triage in `docs/RUNBOOK_DB_TRIAGE.md` (#410) |
+Only the hazards are here; every command itself is in `docs/COMMANDS.md`.
+
+- `bash scripts/apply-schema.sh` **targets PRODUCTION from any directory** — main checkout only, and it refuses in a linked worktree (exit 2, #398). From a worktree, `--test`.
+- `sudo systemctl restart power-map` also applies any pending schema change.
+- The dev server on 8001 always runs from a worktree, never the main checkout.
+- `/health` + `/ready` are unauthenticated probes (#343); a `pool_timeout` from `/ready` means the egress IP likely rotated out of DO Trusted Sources → `docs/RUNBOOK_DB_TRIAGE.md` (#410).
 
 Scheduled timers all surface failure through `systemctl --failed` — roster, cadences and scripts in `docs/COMMANDS.md` § Scheduled timers.
 
-**Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates the write behind `--execute` and calls `echo_target()` (`scripts/_dsn.py`) before connecting. The uniform flags, the resolver, and the no-allowlist AST sweep that enforces them → `docs/RUNBOOKS.md` § Operational scripts.
+**Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates its write behind `--execute` and echoes its target first. Uniform flags, the `scripts/_dsn.py` resolver, and the AST sweep enforcing them → `docs/RUNBOOKS.md` § Operational scripts.
 
 Full command reference: `docs/COMMANDS.md`
 
 ### Environment files
 
-Load both via uv's dotenv parser (gated on existence — uv errors hard on a missing `--env-file`):
-```bash
-env_args=()
-[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
-[ -f .env ] && env_args+=(--env-file .env)
-uv run "${env_args[@]}" <cmd>
-```
-See `docs/COMMANDS.md` § Environment.
+`/etc/power-map/.env` then `.env`, later winning — loaded via uv's dotenv parser and gated on existence, because uv errors hard on a missing `--env-file`. The `env_args` idiom every command below uses → `docs/COMMANDS.md` § Environment.
 
 ## Agent Skills & Tools
 
 Skills in `skills/` (agentskills.io) and `.claude/skills/` (Claude Code). Reference: `docs/SKILLS.md`
-
-### SocratiCode
-
-See **Code Exploration Policy** above.
 
 ## Conventions
 
@@ -165,10 +151,9 @@ Entry points only: call `configure_logging()` once.
 **Version bumps:** update `pyproject.toml` and `package.json` together — the `check-version-sync` pre-commit hook enforces this.
 
 **General:**
-- No inline module imports; all at file top
+- Imports explicit and at file top — never inline in a function
 - Docstrings for public modules, classes, functions
 - Test structure mirrors source (`src/foo.py` → `tests/test_foo.py`)
-- Explicit imports only
 - Small, focused functions
 
 ## Detail Docs
@@ -184,12 +169,19 @@ Each line says what a task would need the doc for — load the one that matches,
 **Public API**
 
 - [docs/PUBLIC_API.md](docs/PUBLIC_API.md) — auth, scopes, rate limits, pagination, conditional requests; routes to [CHANGE_FEED](docs/CHANGE_FEED.md)
-- [docs/API_ENTITIES.md](docs/API_ENTITIES.md) — one-table index routing to the per-resource endpoint docs (filters, response shapes, collection quirks); load the resource you need, not the set
+- [docs/API_ENTITIES.md](docs/API_ENTITIES.md) — one-table index over the resource docs below; load one, not the set
+  - [API_PEOPLE](docs/API_PEOPLE.md) — people, identify, name reads
+  - [API_ORGS](docs/API_ORGS.md) — orgs, hierarchy, lifespan
+  - [API_ROLES](docs/API_ROLES.md) — roles and the role-type catalog
+  - [API_ASSIGNMENTS](docs/API_ASSIGNMENTS.md) — assignments, RA→RA relationships
+  - [API_EVENTS](docs/API_EVENTS.md) — entity events
+  - [API_JURISDICTIONS](docs/API_JURISDICTIONS.md) — jurisdictions and districts
 - [docs/CONVENTIONS.md](docs/CONVENTIONS.md) — request/response contracts every route follows, the API request log, ingestion
 
 **Admin dashboard**
 
 - [docs/ADMIN.md](docs/ADMIN.md) — server side: auth, archive model, HTMX partials, flash, status filters; routes on to [ADMIN_PANELS](docs/ADMIN_PANELS.md) and [ADMIN_NAMES](docs/ADMIN_NAMES.md)
+- [docs/ADMIN_OVERLAY.md](docs/ADMIN_OVERLAY.md) — the curation overlay: editing a field a dataset owns, and what survives a re-apply
 - [docs/HTMX.md](docs/HTMX.md) — interaction patterns: swaps, redirects, flash, pagination, inline edit, guarded deletes, live header sync
 - [docs/UI.md](docs/UI.md) — components and table/list conventions: buttons, badges, modals, page headers, empty states, the row-key contract
 - [docs/FORMS.md](docs/FORMS.md) — the hand-built composite controls: typeahead, address confirm, paired dates
@@ -199,12 +191,13 @@ Each line says what a task would need the doc for — load the one that matches,
 
 **Operating it**
 
-- [docs/COMMANDS.md](docs/COMMANDS.md) — everyday commands: setup, env files, provisioning, deploy, the dev loop, linting, scheduled timers
-- [docs/TESTING.md](docs/TESTING.md) — how to run each test tier, the integration marker, the endpoint-test client, Vitest conventions, the browser a11y sweep
+- [docs/COMMANDS.md](docs/COMMANDS.md) — everyday commands: setup, env files, provisioning, deploy, the dev loop, linting, timers, the ship gate
+- [docs/TESTING.md](docs/TESTING.md) — each test tier, the integration marker, the endpoint-test client, Vitest, the browser a11y sweep, the ship gate
 - [docs/RUNBOOKS.md](docs/RUNBOOKS.md) — data operations: importer, seeds, role sweep, TTL prune, operational-script dry-run rules
+- [docs/RUNBOOK_DESIRED_STATE.md](docs/RUNBOOK_DESIRED_STATE.md) — the dataset-subscription chain: pull, build, apply, and what a nightly run blocks on
 - [docs/AUDITS.md](docs/AUDITS.md) — the recurring integrity audits, and which of them carry systemd timers
-- [docs/RUNBOOK_DB_TRIAGE.md](docs/RUNBOOK_DB_TRIAGE.md) — DB unreachable: `/ready` reasons, egress-IP triage
+- [docs/RUNBOOK_DB_TRIAGE.md](docs/RUNBOOK_DB_TRIAGE.md) — DB unreachable: `/ready` reasons, egress-IP drift
 - [docs/RUNBOOK_DB_MIGRATION.md](docs/RUNBOOK_DB_MIGRATION.md) — DB cutover checklist, maintenance window, rollback
 - [docs/SKILLS.md](docs/SKILLS.md) — vendored skill inventory, submodule refresh, hook command form, index health (the daily `unresolved %` line is not a defect)
 - [docs/SOCRATICODE.md](docs/SOCRATICODE.md) — the exploration policy's other half: full tool table, prefetch string, per-tool notes, graph health
-- [docs/CONTEXT.md](docs/CONTEXT.md) — the rules this file obeys: its token budget, index lines that stay pointers, and why a count here carries a command or no number at all
+- [docs/CONTEXT.md](docs/CONTEXT.md) — the rules this file obeys: its token budget, index lines that stay pointers, why a count carries a command or no number

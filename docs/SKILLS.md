@@ -59,11 +59,11 @@ To add a new external skill repo: follow the `managing-skills` skill.
 - `docs/` and `tests/` are deliberately absent — a doc edit is not a signal to check the docs, and TDD means every branch touches `tests/`, which would make the gate constant.
 - The guard also mirrors the vendored `path_matches` in Python so an entry can be checked the way the gate will check it, and corroborates that mirror against the vendored source. A miss there is an upstream refactor to re-anchor against — never a reason to edit `skills-vendor/`.
 
-`.skills/doc-sections` is the other half: the advice printed on a hit. The two files resolve **independently** and each replaces its defaults wholesale, so tailoring one alone is a supported state — the gate prints the other's defaults and says which half is still its own. This repo shipped #496 and #529 in that state, and both times the advice named an AGENTS.md route table and a README quick start that #405/#407 had already removed, while staying silent about the docs that actually owed the edit (`docs/RUNBOOKS.md`, then `docs/RUNBOOK_DESIRED_STATE.md`).
+`.skills/doc-sections` is the other half: the advice printed on a hit. The two files resolve **independently** and each replaces its defaults wholesale, so tailoring one alone is a supported state — the gate prints the other's defaults and names which half is still its own. This repo shipped #496 and #529 that way, and both times the advice named an AGENTS.md route table and a README quick start that #405/#407 had already removed, while staying silent about the doc that owed the edit.
 
-- **Every line prints on every hit** — `doc-check.sh` has no per-path routing. So each line leads with its *paths* and the docs follow, and the file stays at ten lines rather than one per doc: advice nobody reads fails the same way as advice written for another repo.
-- `tests/test_doc_sensitive_paths.py` guards it: every doc named must be a tracked file (a glob must match one), every line must name a doc, and each sensitive-path family must have somewhere to send a reader. The first is what the #407 split would otherwise break in silence — a section line outliving its doc keeps printing.
-- A file that exists but is empty or unreadable exits `2` rather than falling back, so a broken tailoring cannot silently revert to the defaults.
+- **Every line prints on every hit** — `doc-check.sh` has no per-path routing. So each line leads with its *paths*, docs following, and the file stays at ten lines rather than one per doc: advice nobody reads fails the same way as advice written for another repo.
+- `tests/test_doc_sensitive_paths.py` guards it: every doc named must be tracked (a glob must match one), every line must name a doc, and each sensitive-path family must have somewhere to send a reader. The first is what the #407 split would otherwise break in silence.
+- Empty or unreadable exits `2` rather than falling back, so a broken tailoring cannot silently revert.
 
 ## Available Skills
 
@@ -156,27 +156,19 @@ If the line returns, it means the plugin's cached server and the pin have drifte
 
 #### The server is pinned, not installed per launch (#537)
 
-`~/.socraticode/pin` holds `socraticode@1.14.0`, installed once. `mcp-driver.mjs resolve` reports `pinned install v1.14.0 (/home/exedev/.socraticode/pin)`; before the pin it reported `npx -y --prefer-online socraticode@latest`, which revalidates against the registry on **every** launch, so a warm npx cache was not a warm path on any day the package moved.
+`~/.socraticode/pin` holds `socraticode@1.14.0`, installed once. `mcp-driver.mjs resolve` reports `pinned install v1.14.0`; before the pin it reported `npx -y --prefer-online socraticode@latest`, which revalidates against the registry on **every** launch — so a warm npx cache was not a warm path on any day the package moved.
 
-Measured on this host, 2026-09-19, by `init-socraticode/scripts/preflight.sh --check`: **7.2 GiB, no swap**, Docker and Ollama up, Node v22.22.2 — `Preflight PASSED`. Memory is above the skill's 4 GiB warn line, but two other facts decided it:
+Measured here 2026-09-19 (`init-socraticode/scripts/preflight.sh --check`): **7.2 GiB, no swap**, preflight PASSED. Memory is above the skill's 4 GiB warn line, so two other facts decided it — the host also runs production (`power-map.service` plus eight timers), and with no swap the kernel fails atomic allocations in unrelated processes rather than OOM-killing one. exe.dev session processes inherit `oom_score_adj` **-1000**, so the killer can never pick the session and takes the production service instead; that is how a sibling VM's 2026-09-16 outage presented — nothing killed, the bus down 57m (skills#295). Upstream measured 75 MB for a pinned launch against **1.2 G at the cgroup** for a cold install, every throttle event landing in the install.
 
-- **The host also runs production.** `power-map.service` and eight sibling timers share this memory with every interactive session.
-- **No swap.** Past the ceiling the kernel fails atomic allocations in unrelated processes rather than OOM-killing one — and exe.dev session processes inherit `oom_score_adj` **-1000** from `exe-init`/`sshd`, so the killer can never pick the session and takes the production service instead. That is how a sibling VM's 2026-09-16 outage presented: nothing killed, `tailscaled` and `ksoftirqd` failing allocations, the bus down 57m (skills#295).
-
-Upstream measured the difference on an 8 GiB host: 75 MB for a pinned launch, 129 MB for a plugin launch on a warm npx cache, and **1.2 G at the cgroup** for a cold install plus server plus full index — with all 126 `MemoryHigh` throttle events landing in the *install*, none in indexing. The health hook runs the driver from `SessionStart` once per UTC day, concurrently with the plugin launching the same command, so that path was live here.
-
-**Pinning the driver does not pin the session.** Claude Code cannot override a plugin's MCP command, so the plugin keeps launching `@latest` — a known limitation, not a misconfiguration. The daily health check measures the gap and reports a defect only when the two differ by a minor or major release; a patch apart stays quiet, since a pin is meant to lag. Today pin and `npm view socraticode version` are both `1.14.0`, so the gap is zero.
-
-Re-pinning is deliberate, never `@latest`:
+**Pinning the driver does not pin the session.** Claude Code cannot override a plugin's MCP command, so the plugin keeps launching `@latest` — a known limitation. The health check reports a defect only when the two differ by a minor or major release; today both are `1.14.0`. Re-pin deliberately, never `@latest`:
 
 ```bash
 npm view socraticode version        # pick a literal
 systemd-run --user --scope -p MemoryHigh=1200M -p MemoryMax=1536M \
   -- npm install --prefix ~/.socraticode/pin socraticode@<version>
-node skills-vendor/gregoryfoster-skills/skills/init-socraticode/scripts/mcp-driver.mjs resolve /home/exedev/power-map
 ```
 
-`infra/power-map.service` carries the other half — `MemoryLow=512M` and `OOMScoreAdjust=-900`, so the service is no longer the most attractive OOM target on a box whose sessions sit at -1000. A cap on the session cannot substitute for that reservation. Two host-level steps from skills#295 are **not** applied: `vm.min_free_kbytes` is still the default `10993` (low for 7.2 GiB) and `earlyoom` is inactive. Both need root and a maintenance decision.
+`infra/power-map.service` carries the other half (`MemoryLow=512M`, `OOMScoreAdjust=-900`). Two host steps are **not** applied, both needing root: `vm.min_free_kbytes` is still the default `10993`, and `earlyoom` is inactive.
 
 ### The policy block is curation-exempt
 

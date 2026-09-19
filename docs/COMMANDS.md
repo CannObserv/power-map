@@ -350,38 +350,8 @@ uv run pre-commit run pytest --all-files
 
 Hook ids: `ruff`, `pytest`, `eslint`, `prettier`, `vitest`, `bats`, `shellcheck`
 
----
-
-## Ship gate
-
-```bash
-bash scripts/pre-ship.sh          # what shipping-work Step 1 runs here
-```
-
-`shipping-work-python-fastapi` Step 1 resolves `scripts/<name>.sh` from the repo
-root **before** the skill directory, so this project-local copy is what runs. It
-covers the vendored gate's stages — ruff check, ruff format --check, the Python
-suite, then ESLint / Prettier / vitest when `package.json` declares them — and
-shares its per-SHA `/tmp/<root>-tests-clean-<sha>` stamp slot.
-
-It exists for one reason (#539). The vendored gate runs
-`uv run pytest … -m "not integration"`, and that `-m` **replaces** our `addopts`
-default of `-m 'not integration and not browser'` rather than narrowing it. The
-browser tier is then *requested*: 2,309 tests become 2,516, the extra 207 being
-the Playwright tier. Where Playwright is absent (the main checkout)
-`tests/optional_groups.py` refuses with exit 2, correctly — the tier would
-collect 0 tests and exit green, the vacuous pass #433 exists to stop. Where it is
-present (any worktree, which `scripts/worktree-setup.sh` syncs `--group browser`
-into) it is worse: the ship gate silently acquires 207 tests wanting a live
-database, a server and Chromium. Our copy passes no `-m` at all and lets
-`addopts` supply it, and adds `--group seed` to match the pre-commit
-`pytest (unit)` hook, which the vendored gate omitted.
-
-`tests/scripts/test_pre_ship_gate.py` keeps the copy honest: it reads the
-vendored gate back and fails if a stage exists there and not here, and fails the
-day the vendored pytest line stops hardcoding the marker — at which point the
-right move is to **delete** `scripts/pre-ship.sh` and let Step 1 resolve upstream
-again (#463: a divergence should retire itself).
+Ship gate: `bash scripts/pre-ship.sh` — a project-local copy of the vendored gate
+(#539); why, and when to delete it → [TESTING.md](TESTING.md) § Ship gate.
 
 ---
 
