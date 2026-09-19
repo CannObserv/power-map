@@ -188,9 +188,11 @@ A committed directory in `skills/` completely supersedes the vendor version (no 
 
 | Skill | Override reason |
 |---|---|
-| `brainstorming` | Project conventions (docs/plans/ path, commit format); invokes using-git-worktrees after design approval; FastAPI stack context; proactive-suggestion mode |
+| `brainstorming` | Project conventions (docs/plans/ path, `#<n> [type]:` commit format, the `gh issue create` block); invokes using-git-worktrees after design approval; writing-plans optional rather than mandatory; FastAPI stack context; a Scope detection section upstream has no equivalent for |
 
-The doctor reports this override as drifted from `obra-superpowers/brainstorming` (`synced-from: 3cee13e`, v1.0). **Expected, and tracked by #505** — the re-base onto v6.3.0's three-path router is decided (adopt verbatim) and deferred, not overlooked. Do not re-sync it as routine hygiene: Spike loosens two rules this project otherwise states unconditionally.
+Re-based onto the three-path router at `synced-from: 5bf4e78` (obra v6.4.1), v2.0 — #505/#530/#532 (the pin had moved past the v6.3.0 the issues named; the router is unchanged between them). The doctor reports no drift for it.
+
+**Spike is deliberately exempt from two otherwise-unconditional project rules** — AGENTS.md's worktree rule and this skill's design-doc rule. That is the decision #505 implements, not an oversight: re-tightening Spike back to always-worktree undoes it. The skill's *What the path costs here* table and AGENTS.md's worktree paragraph are the two halves of that carve-out and must keep agreeing.
 
 ## Authoring New Skills
 

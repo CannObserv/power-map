@@ -97,7 +97,7 @@ Single VM; port split:
 | 8000 | Production API (`--workers 2`) | systemd (`power-map.service`) |
 | 8001 | Dev server (`--reload`) | manual, always from a worktree |
 
-**All development work must be done in a git worktree** — never edit the main checkout directly. `brainstorming` is the entry point that triggers worktree setup via `using-git-worktrees`. After teardown, run `git worktree prune`.
+**All development work must be done in a git worktree** — never edit the main checkout directly. `brainstorming` is the entry point that triggers worktree setup via `using-git-worktrees`. After teardown, run `git worktree prune`. Sole exemption (#505): a **spike** — a read-only or throwaway probe answering a feasibility question, keeping no code. Keeping anything re-classifies the task, and that lands in a worktree.
 
 **Worktree setup (required after creation, #450):** run
 ```bash
