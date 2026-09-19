@@ -113,7 +113,54 @@ find a count, apply the three forms above by hand.
 
 Every live `docs/*.md` must be reachable by following links from `AGENTS.md`,
 directly or through a routing doc (`SCHEMA.md`, `ADMIN.md`, `API_ENTITIES.md`
-carry pointers to their own sub-docs). That reachability, not membership of the
-top-level index, is what keeps the index one line per *subject* while the tree
-holds one file per *topic* — and it is why splitting a doc (#407, #428, #444)
-adds no line to `AGENTS.md` at all.
+carry pointers to their own sub-docs).
+
+**Reachable is not routable, and reachability alone is no longer enough (#521).**
+An agent routes by the *words in `AGENTS.md`*, not by the link graph, so a doc
+reached only through another doc is rarely found: the cohort's routing probe
+reached such a child 2/12 times against 12/12 with a line of its own. This repo
+read `docs_orphaned: 0` while eight docs — the six `API_*` resources behind
+`API_ENTITIES.md`, plus `RUNBOOK_DESIRED_STATE.md` and `ADMIN_OVERLAY.md` — were
+in exactly that state. `measure-context.sh` reports them as `links.unindexed`,
+and this repo now carries **zero**.
+
+So a split does add lines to `AGENTS.md`, and the budget has to pay for them: a
+short description directly under its parent routes as well as a full clause
+(34/36 against 30/36 measured), which is what makes eight of them affordable.
+The one exception is an **annex** — a doc no task needs except by way of its
+parent. If the complete index genuinely cannot fit the budget, report that
+rather than forcing it.
+
+This supersedes the earlier reading that splitting a doc "adds no line to
+`AGENTS.md` at all" (#407, #428, #444), which held while `docs_orphaned` was the
+only reachability metric there was.
+
+---
+
+## Warrant files — how a removal is justified
+
+`curating-context` may only delete content that is duplicated elsewhere in the
+surface, refuted by a command, or class D. Everything else is a **move**. Four
+tracked files in `.skills/` hold the judgements that back a run, so the reasoning
+lives in the repo rather than in a commit message nobody re-reads:
+
+| File | Holds |
+|---|---|
+| `context-loss-ok` | Whole lines a run **rewrote** rather than moved — `PATH :: WARRANT :: CONTENT` |
+| `context-claims-ok` | Individual **atoms** (backticked spans, issue refs, link targets) a tightening dropped |
+| `context-seams-ok` | References to moved content that are legitimate as they stand |
+| `context-counts-ok` | Rot-prone counts that carry neither a command nor reduced precision |
+
+The warrant vocabulary is **closed** — `retarget`, `rename`, `duplicate`,
+`disproven`, `default`, `tighten`, `index` — and an unrecognised one is refused
+rather than ignored, because a mute allowlist is not a judgement. `tighten`
+requires `--claims`, so a rewrite cannot certify itself: line matching proves the
+moves, atom matching proves the rewrites.
+
+Two rules make these files trustworthy rather than a place for losses to hide.
+**Never warrant a line you have not read against its replacement.** And an entry
+should carry the command that refutes the loss — `grep -rlF -- '<atom>' docs/*.md`
+— so a later reader can re-run the check instead of trusting the note.
+
+`prove-no-loss.sh --base <branch-point> --file <path> --claims` is what reads
+them; `lost: 0` with `claims_dropped: 0` is the verdict a curation ships on.
