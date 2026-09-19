@@ -15,5 +15,17 @@ ExecStart=uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 2
 Restart=on-failure
 RestartSec=5s
 
+# Memory reservation (#537). This host is 7.2 GiB with NO swap and also carries
+# interactive agent sessions, whose processes inherit oom_score_adj -1000 from
+# exe-init/sshd — so the OOM killer can never pick them and takes this service
+# instead. Without swap the kernel tends to fail atomic allocations in unrelated
+# processes (tailscaled, ksoftirqd) rather than kill anything at all, which is how
+# the 2026-09-16 outage on a sibling VM presented: nothing killed, the bus down
+# 57m. MemoryLow asks the kernel to reclaim from other cgroups before this one;
+# OOMScoreAdjust puts the service back in reach of the session processes' -1000
+# instead of sitting at 0 as the most attractive target on the box.
+MemoryLow=512M
+OOMScoreAdjust=-900
+
 [Install]
 WantedBy=multi-user.target

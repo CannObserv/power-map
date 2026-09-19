@@ -148,9 +148,35 @@ Do not write the reverse of this into the docs — a sibling repo distrusted a c
 
 #### Reading the daily `graph was built by v…` line
 
-The second expected daily finding, and the newer one. Since the `d3f91c8` pin the health check compares the build that **cut** the graph against the server it is talking to (skills#297) — and here those are two different installs. The graph is built by the Claude Code plugin's pinned server (`~/.claude/plugins/cache/socraticode/socraticode/1.13.1`), while `mcp-driver.mjs` — which the hook runs — launches `npx socraticode@latest`, currently `1.14.0`. So the line reads `built by v1.13.1, older than the running server (v1.14.0)`, and unlike the `unresolved %` line it is a **defect**, so it sets the hook's exit code.
+**Cleared by the #537 pin — kept because it explains what to do if it returns.** It was the second expected daily finding. Since the `d3f91c8` pin the health check compares the build that **cut** the graph against the server it is talking to (skills#297) — and here those are two different installs. The graph is built by the Claude Code plugin's pinned server (`~/.claude/plugins/cache/socraticode/socraticode/1.13.1`), while `mcp-driver.mjs` — which the hook runs — resolves the pinned install below, currently `1.14.0`. So the line reads `built by v1.13.1, older than the running server (v1.14.0)`, and unlike the `unresolved %` line it is a **defect**, so it sets the hook's exit code.
 
-**Its prescribed remedy cannot clear it here.** `codebase_graph_build` through the plugin stamps the plugin's own version again: measured 2026-09-19, a rebuild finished in 5.8s and the graph still read `Built by: v1.13.1`. The fix is to update the plugin (`claude plugin install socraticode@socraticode`) and restart Claude Code so the MCP server reloads, *then* rebuild. Until then the finding is accurate and not actionable by rebuild — do not read a second rebuild as the answer.
+**Its prescribed remedy could not clear it, and pinning did.** `codebase_graph_build` through the plugin stamps the plugin's own version again: measured 2026-09-19, a rebuild finished in 5.8s and the graph still read `Built by: v1.13.1`, so a second rebuild was never the answer. Pinning the driver's server (above) was — the health check now runs a `1.14.0` server against a `1.14.0` graph and reports `builder: {state: "current"}`, so the hook is silent and exits `0`.
+
+If the line returns, it means the plugin's cached server and the pin have drifted a feature release apart. Check with `mcp-driver.mjs resolve` and `npm view socraticode version`; the remedies are to re-pin (above) or to update the plugin (`claude plugin install socraticode@socraticode`) and restart Claude Code so the MCP server reloads. Do not reach for a rebuild.
+
+#### The server is pinned, not installed per launch (#537)
+
+`~/.socraticode/pin` holds `socraticode@1.14.0`, installed once. `mcp-driver.mjs resolve` reports `pinned install v1.14.0 (/home/exedev/.socraticode/pin)`; before the pin it reported `npx -y --prefer-online socraticode@latest`, which revalidates against the registry on **every** launch, so a warm npx cache was not a warm path on any day the package moved.
+
+Measured on this host, 2026-09-19, by `init-socraticode/scripts/preflight.sh --check`: **7.2 GiB, no swap**, Docker and Ollama up, Node v22.22.2 — `Preflight PASSED`. Memory is above the skill's 4 GiB warn line, but two other facts decided it:
+
+- **The host also runs production.** `power-map.service` and eight sibling timers share this memory with every interactive session.
+- **No swap.** Past the ceiling the kernel fails atomic allocations in unrelated processes rather than OOM-killing one — and exe.dev session processes inherit `oom_score_adj` **-1000** from `exe-init`/`sshd`, so the killer can never pick the session and takes the production service instead. That is how a sibling VM's 2026-09-16 outage presented: nothing killed, `tailscaled` and `ksoftirqd` failing allocations, the bus down 57m (skills#295).
+
+Upstream measured the difference on an 8 GiB host: 75 MB for a pinned launch, 129 MB for a plugin launch on a warm npx cache, and **1.2 G at the cgroup** for a cold install plus server plus full index — with all 126 `MemoryHigh` throttle events landing in the *install*, none in indexing. The health hook runs the driver from `SessionStart` once per UTC day, concurrently with the plugin launching the same command, so that path was live here.
+
+**Pinning the driver does not pin the session.** Claude Code cannot override a plugin's MCP command, so the plugin keeps launching `@latest` — a known limitation, not a misconfiguration. The daily health check measures the gap and reports a defect only when the two differ by a minor or major release; a patch apart stays quiet, since a pin is meant to lag. Today pin and `npm view socraticode version` are both `1.14.0`, so the gap is zero.
+
+Re-pinning is deliberate, never `@latest`:
+
+```bash
+npm view socraticode version        # pick a literal
+systemd-run --user --scope -p MemoryHigh=1200M -p MemoryMax=1536M \
+  -- npm install --prefix ~/.socraticode/pin socraticode@<version>
+node skills-vendor/gregoryfoster-skills/skills/init-socraticode/scripts/mcp-driver.mjs resolve /home/exedev/power-map
+```
+
+`infra/power-map.service` carries the other half — `MemoryLow=512M` and `OOMScoreAdjust=-900`, so the service is no longer the most attractive OOM target on a box whose sessions sit at -1000. A cap on the session cannot substitute for that reservation. Two host-level steps from skills#295 are **not** applied: `vm.min_free_kbytes` is still the default `10993` (low for 7.2 GiB) and `earlyoom` is inactive. Both need root and a maintenance decision.
 
 ### The policy block is curation-exempt
 
