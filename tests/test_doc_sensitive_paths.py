@@ -295,10 +295,33 @@ class TestTheMirrorStillDescribesTheGate:
 SECTIONS_PATH = REPO_ROOT / ".skills" / "doc-sections"
 
 # A section line is prose, not a pattern, so the doc it names is recovered by
-# matching path-shaped tokens rather than by parsing the line. `docs/SCHEMA*.md`
-# is a glob on purpose — the SCHEMA family is three files and the advice is for
-# all of them.
+# matching path-shaped tokens rather than by parsing the line.
+#
+# Two spellings, because the advice uses both: a qualified `docs/ADMIN.md`, and a
+# bare `ADMIN_PANELS` where a line has already established the directory ("then
+# ADMIN_PANELS, ADMIN_NAMES, ADMIN_OVERLAY"). Matching only the qualified form
+# left six docs unchecked — ADMIN_PANELS, ADMIN_NAMES, ADMIN_OVERLAY,
+# API_ENTITIES, SCHEMA_INDEXES, SCHEMA_VALIDITY — which is the exact silent
+# failure this guard exists to close, since they are named advice like any other.
+#
+# A glob (`docs/SCHEMA*.md`) is supported and currently unused; the family is
+# spelled out instead. `test_the_glob_branch_still_works` keeps that branch honest
+# rather than leaving it to rot unexercised.
 DOC_TOKEN = re.compile(r"\b(?:docs/[A-Za-z0-9_*]+\.md|AGENTS\.md|README\.md|CLAUDE\.md)\b")
+
+# A bare SHOUTY name, which resolves under docs/. Requires an underscore or two
+# segments so ordinary prose in caps cannot be mistaken for a filename.
+BARE_DOC_TOKEN = re.compile(r"\b(?<!/)([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b")
+
+
+def named_docs(line: str) -> list[str]:
+    """Every doc path a section line names, in either spelling."""
+    docs = list(DOC_TOKEN.findall(line))
+    qualified = {d.rsplit("/", 1)[-1].removesuffix(".md") for d in docs}
+    for bare in BARE_DOC_TOKEN.findall(line):
+        if bare not in qualified:
+            docs.append(f"docs/{bare}.md")
+    return docs
 
 
 @pytest.fixture(scope="module")
@@ -322,7 +345,7 @@ def test_the_sections_file_names_at_least_one_section(sections: list[str]) -> No
 
 def test_every_section_names_a_doc(sections: list[str]) -> None:
     """Advice with no doc in it cannot route anyone anywhere."""
-    empty = [line for line in sections if not DOC_TOKEN.search(line)]
+    empty = [line for line in sections if not named_docs(line)]
     assert not empty, f"these section lines name no doc: {empty}"
 
 
@@ -336,7 +359,7 @@ def test_every_named_doc_exists(sections: list[str], tracked_files: list[str]) -
     tracked = set(tracked_files)
     missing: list[str] = []
     for line in sections:
-        for token in DOC_TOKEN.findall(line):
+        for token in named_docs(line):
             if "*" in token:
                 if not any(fnmatch(f, token) for f in tracked):
                     missing.append(token)
@@ -346,6 +369,31 @@ def test_every_named_doc_exists(sections: list[str], tracked_files: list[str]) -
         f"named in .skills/doc-sections but not tracked: {sorted(set(missing))}. "
         "Re-point the advice at the doc that replaced them."
     )
+
+
+def test_the_glob_branch_still_works() -> None:
+    """`docs/SCHEMA*.md` is supported but unused, so exercise it directly.
+
+    An unexercised branch in a guard is a branch nobody knows is broken.
+    """
+    assert named_docs("x -> docs/SCHEMA*.md: tables") == ["docs/SCHEMA*.md"]
+    assert any(fnmatch(f, "docs/SCHEMA*.md") for f in ("docs/SCHEMA_INDEXES.md",))
+
+
+def test_bare_names_are_recovered_as_docs() -> None:
+    """The CR-2 gap: a bare SHOUTY name is advice, and must be checked too."""
+    line = "src/api/admin/ -> docs/ADMIN.md (then ADMIN_PANELS, ADMIN_NAMES)"
+    assert named_docs(line) == ["docs/ADMIN.md", "docs/ADMIN_PANELS.md", "docs/ADMIN_NAMES.md"]
+
+
+def test_a_bare_name_already_named_qualified_is_not_doubled() -> None:
+    """`docs/ADMIN_OVERLAY.md` and a later bare ADMIN_OVERLAY are one doc."""
+    assert named_docs("docs/ADMIN_OVERLAY.md and ADMIN_OVERLAY again") == ["docs/ADMIN_OVERLAY.md"]
+
+
+def test_prose_in_caps_is_not_mistaken_for_a_doc() -> None:
+    """A single all-caps word is prose; a filename here always has an underscore."""
+    assert named_docs("HTMX partial plus a 303 fallback -> docs/ADMIN.md") == ["docs/ADMIN.md"]
 
 
 def test_the_advice_covers_the_families_the_gate_watches(sections: list[str]) -> None:
