@@ -39,7 +39,9 @@ they close, both of which read as a pass in the gate itself:
 """
 
 import os
+import re
 import subprocess
+from fnmatch import fnmatch
 from pathlib import Path
 
 import pytest
@@ -271,3 +273,117 @@ class TestTheMirrorStillDescribesTheGate:
         repo commits to is unchanged; only how the gate notices it is.
         """
         assert "if override_present .skills/doc-sensitive-paths; then" in source, self.REFACTOR_HINT
+
+
+# --------------------------------------------------------------------------- #
+# `.skills/doc-sections` — the advice half of the same mechanism (#510/#540)
+# --------------------------------------------------------------------------- #
+#
+# `.skills/doc-sensitive-paths` says what the gate WATCHES; `.skills/doc-sections`
+# says what to do about a hit. `doc-check.sh` resolves the two independently and
+# each replaces its defaults wholesale, so tailoring one and not the other is a
+# supported state that prints advice written for another repo's layout — which is
+# exactly what shipping #496 and #529 hit. The defaults name an AGENTS.md "route
+# table" and "skill inventory" that #405/#407 moved into docs/, and a README
+# quick start this repo does not have.
+#
+# The assertion that earns its place here is the one a grep cannot make: every
+# doc a section line names still exists. The #407 split moved eighteen docs, and
+# a section line surviving a doc that moved is silent — the advice keeps printing
+# and keeps pointing at nothing.
+
+SECTIONS_PATH = REPO_ROOT / ".skills" / "doc-sections"
+
+# A section line is prose, not a pattern, so the doc it names is recovered by
+# matching path-shaped tokens rather than by parsing the line. `docs/SCHEMA*.md`
+# is a glob on purpose — the SCHEMA family is three files and the advice is for
+# all of them.
+DOC_TOKEN = re.compile(r"\b(?:docs/[A-Za-z0-9_*]+\.md|AGENTS\.md|README\.md|CLAUDE\.md)\b")
+
+
+@pytest.fixture(scope="module")
+def sections() -> list[str]:
+    """The committed advice, parsed the way `doc-check.sh` parses it."""
+    return parse_entries(SECTIONS_PATH.read_text())
+
+
+def test_the_sections_file_exists() -> None:
+    """Without it the gate prints defaults describing a layout this repo does not have."""
+    assert SECTIONS_PATH.is_file(), (
+        f"missing {SECTIONS_PATH.relative_to(REPO_ROOT)} — the gate falls back to advice "
+        "naming an AGENTS.md route table and a README quick start that do not exist here"
+    )
+
+
+def test_the_sections_file_names_at_least_one_section(sections: list[str]) -> None:
+    """A present-but-empty file is exit 2: doc-check.sh refuses rather than reverting."""
+    assert sections, "the file exists but names no sections; delete it to fall back to the defaults"
+
+
+def test_every_section_names_a_doc(sections: list[str]) -> None:
+    """Advice with no doc in it cannot route anyone anywhere."""
+    empty = [line for line in sections if not DOC_TOKEN.search(line)]
+    assert not empty, f"these section lines name no doc: {empty}"
+
+
+def test_every_named_doc_exists(sections: list[str], tracked_files: list[str]) -> None:
+    """The load-bearing assertion: no section line outlives the doc it points at.
+
+    This is the failure the #407 doc split would otherwise create in silence — a
+    moved or renamed doc leaves the advice intact and pointing at nothing, and a
+    gate that exits 1 with wrong advice is worse than one that exits 1 with none.
+    """
+    tracked = set(tracked_files)
+    missing: list[str] = []
+    for line in sections:
+        for token in DOC_TOKEN.findall(line):
+            if "*" in token:
+                if not any(fnmatch(f, token) for f in tracked):
+                    missing.append(token)
+            elif token not in tracked:
+                missing.append(token)
+    assert not missing, (
+        f"named in .skills/doc-sections but not tracked: {sorted(set(missing))}. "
+        "Re-point the advice at the doc that replaced them."
+    )
+
+
+def test_the_advice_covers_the_families_the_gate_watches(sections: list[str]) -> None:
+    """Every sensitive-path family has somewhere to send a reader.
+
+    The gate's own note for the half-tailored case is about *defaults leaking in*;
+    nothing warns that a tailored file is merely thin. These are the trees whose
+    docs actually drifted in #496 and #529.
+    """
+    blob = "\n".join(sections)
+    for doc in (
+        "docs/SCHEMA",  # src/core/schema.sql
+        "docs/RUNBOOK_DESIRED_STATE.md",  # src/core/ingestion/ — the #529 miss
+        "docs/RUNBOOKS.md",  # scripts/ — the #496 miss
+        "docs/COMMANDS.md",  # infra/, timers, the hook roster
+        "docs/SKILLS.md",  # .claude/, skills/, .gitmodules
+        "docs/SOCRATICODE.md",  # .socraticodecontextartifacts.json
+        "docs/ADMIN",  # src/api/admin/, src/templates/
+        "docs/PUBLIC_API.md",  # src/api/public/
+        "docs/STYLE.md",  # src/static/
+        "docs/CONTEXT.md",  # AGENTS.md's own budget
+    ):
+        assert doc in blob, f"no section line routes a reader at {doc}"
+
+
+@pytest.mark.skipif(
+    not vendor_skills.vendor_skills_present(),
+    reason=vendor_skills.SKIP_REASON,
+)
+def test_the_gate_still_reads_this_project_sections_file() -> None:
+    """Same re-anchoring contract as the path list: the override path is ours.
+
+    A miss is an upstream refactor to re-anchor against — never a reason to edit
+    `skills-vendor/`.
+    """
+    source = DOC_CHECK_PATH.read_text()
+    assert "if override_present .skills/doc-sections; then" in source, (
+        "The vendored doc-check.sh no longer reads .skills/doc-sections at this path. "
+        f"Re-read {DOC_CHECK_PATH.name} and re-anchor; treat it as an upstream change, "
+        "not a rollback, and never edit skills-vendor/."
+    )

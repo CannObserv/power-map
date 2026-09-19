@@ -50,7 +50,7 @@ Two checks arrived with the `d3f91c8` pin. `main` ahead of its upstream is named
 
 To add a new external skill repo: follow the `managing-skills` skill.
 
-### Sensitive-path list (#488)
+### Sensitive-path list and its advice (#488, #510/#540)
 
 `.skills/doc-sensitive-paths` is this repo's replacement for the built-in `SENSITIVE_PATHS` in `shipping-work-python-fastapi/scripts/doc-check.sh` (Step 1.5) — one path per line, blank lines and `#`-comments ignored, same grammar as `.skills/import-targets`. It **replaces** the defaults wholesale; five of those twelve (`CHANGELOG.md`, `alembic/versions/`, `deploy/`, `src/models/`, `.env.example`) describe a layout this service does not have.
 
@@ -58,6 +58,12 @@ To add a new external skill repo: follow the `managing-skills` skill.
 - A list where **no** entry matches a tracked file exits `2`; dead entries on a green run print as a note. `tests/test_doc_sensitive_paths.py` is the ratchet: every entry must match a tracked file, each documented tree must stay covered, and the pin must contain skills#252 (below it the file is ignored in silence).
 - `docs/` and `tests/` are deliberately absent — a doc edit is not a signal to check the docs, and TDD means every branch touches `tests/`, which would make the gate constant.
 - The guard also mirrors the vendored `path_matches` in Python so an entry can be checked the way the gate will check it, and corroborates that mirror against the vendored source. A miss there is an upstream refactor to re-anchor against — never a reason to edit `skills-vendor/`.
+
+`.skills/doc-sections` is the other half: the advice printed on a hit. The two files resolve **independently** and each replaces its defaults wholesale, so tailoring one alone is a supported state — the gate prints the other's defaults and says which half is still its own. This repo shipped #496 and #529 in that state, and both times the advice named an AGENTS.md route table and a README quick start that #405/#407 had already removed, while staying silent about the docs that actually owed the edit (`docs/RUNBOOKS.md`, then `docs/RUNBOOK_DESIRED_STATE.md`).
+
+- **Every line prints on every hit** — `doc-check.sh` has no per-path routing. So each line leads with its *paths* and the docs follow, and the file stays at ten lines rather than one per doc: advice nobody reads fails the same way as advice written for another repo.
+- `tests/test_doc_sensitive_paths.py` guards it: every doc named must be a tracked file (a glob must match one), every line must name a doc, and each sensitive-path family must have somewhere to send a reader. The first is what the #407 split would otherwise break in silence — a section line outliving its doc keeps printing.
+- A file that exists but is empty or unreadable exits `2` rather than falling back, so a broken tailoring cannot silently revert to the defaults.
 
 ## Available Skills
 

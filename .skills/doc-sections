@@ -1,0 +1,35 @@
+# Doc sections for shipping-work's doc-check.sh, Step 1.5 (#510/#540).
+#
+# The advice half of the gate. `.skills/doc-sensitive-paths` says what it
+# WATCHES; this says what to do about a hit. `doc-check.sh` resolves the two
+# independently and each REPLACES its defaults wholesale, so tailoring only the
+# list is a supported state that prints advice written for another layout — the
+# skill says so on every half-tailored hit, and shipping #496 and #529 both hit
+# it. The defaults name an AGENTS.md "route table" and "skill inventory" that
+# #405/#407 moved into docs/, and a README quick start this repo never had.
+#
+# One section per line, blank lines and `#`-comment LINES ignored; a `#` later
+# in a line is content, so the issue refs below are safe. Prose, not patterns —
+# nothing matches these against the diff.
+#
+# **Every line is printed on every hit** — the gate has no per-path routing. So
+# each line LEADS WITH ITS PATHS, not with its docs: a reader knows what they
+# changed and scans the left edge for it. That is also why this is ten lines and
+# not eighteen, one per doc: advice nobody reads is the same failure as advice
+# written for another repo, just quieter.
+#
+# Guarded by tests/test_doc_sensitive_paths.py: every doc named here must be a
+# tracked file, and every sensitive-path family must have somewhere to send a
+# reader. That closes what the #407 split would otherwise create in silence — a
+# section line outliving the doc it points at, still printing.
+
+src/core/schema.sql → docs/SCHEMA.md, docs/SCHEMA_INDEXES.md, docs/SCHEMA_VALIDITY.md: tables, columns, indexes, temporal validity. An inline CHECK/FK/ON DELETE change also owes an idempotent reconciliation DO block, placed before that table's set_updated_at() trigger (#307/#312/#315/#392)
+src/core/ingestion/ → docs/RUNBOOK_DESIRED_STATE.md: the dataset-subscription chain (pull, build, apply), the crosswalk, what a nightly run blocks on. The doc #529 owed an edit and the built-in advice never named
+scripts/ → docs/RUNBOOKS.md, docs/AUDITS.md: per-script runbooks, the operational-script rules (--execute gating, echo_target, the DSN resolver), and which recurring audits carry timers. The doc #496 owed an edit
+infra/, .pre-commit-config.yaml, pyproject.toml, package.json → docs/COMMANDS.md: systemd unit and timer roster, the pre-commit hook roster, env files, deploy and dev-loop commands. A version bump moves pyproject.toml and package.json together
+src/api/public/ → docs/PUBLIC_API.md, docs/CONVENTIONS.md, then the resource's own doc via docs/API_ENTITIES.md: auth and scopes, pagination, conditional GET, the contracts every route follows
+src/api/public/ write paths → docs/OBSERVATIONS.md: identity vs payload, refine-in-place, op="retract", the source_key_id gate. Read before changing anything that carries provenance
+src/api/admin/, src/templates/ → docs/ADMIN.md (then ADMIN_PANELS, ADMIN_NAMES, ADMIN_OVERLAY), docs/HTMX.md, docs/UI.md, docs/FORMS.md: routes, the archive model, HTMX partial + 303 fallback pairs, flash, status filters, panels, components, the composite controls
+src/static/ → docs/STYLE.md, docs/ACCESSIBILITY.md: brand, colour, dark mode, CSS tokens, breakpoints; WCAG 2.1 AA markup rules and which a11y tier covers them. A tier that moved also touches docs/TESTING.md
+.claude/, skills/, .gitmodules, .socraticodecontextartifacts.json → docs/SKILLS.md, docs/SOCRATICODE.md: skill inventory, the local-override roster and its synced-from stamps, the submodule roster, hook command form and timeouts, the SessionStart prefetch string
+AGENTS.md, CLAUDE.md, README.md → docs/CONTEXT.md: the token budget, why index lines stay pointers and cannot grow (#428), the weekly cadence (#471). AGENTS.md owns index lines and the Key Rules blocks only, README.md orientation only — detail belongs in the doc they point at
