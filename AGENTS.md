@@ -122,7 +122,7 @@ Full command reference: `docs/COMMANDS.md`
 
 ### Environment files
 
-`/etc/power-map/.env` then `.env`, later winning — loaded via uv's dotenv parser and gated on existence, because uv errors hard on a missing `--env-file`. The `env_args` idiom every command below uses → `docs/COMMANDS.md` § Environment.
+`/etc/power-map/.env` then `.env`, later winning — loaded via uv's dotenv parser and gated on existence, because uv errors hard on a missing `--env-file`. The `env_args` idiom every `uv run` here depends on → `docs/COMMANDS.md` § Environment.
 
 ## Agent Skills & Tools
 
