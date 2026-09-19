@@ -180,7 +180,7 @@ bash "${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/<script>.sh"
 
 The `:-.` fallback is load-bearing. A bare `$CLAUDE_PROJECT_DIR` becomes `bash "/.claude/hooks/…"` when the variable is unset and errors on every session start; a cwd-relative command runs the wrong file when the hook process starts anywhere but the repo root. Guarded by `tests/sh/claude_hooks.bats`, which also asserts every registered hook exists and every hook symlink resolves.
 
-Entries installed by `managing-skills/scripts/install-hook.sh` carry a trailing `# <marker>` comment (`socraticode-reminder.sh` has `# socraticode-prefetch` since #463). It is the installer's dedupe key, written into the *command string* so a re-run can recognize its own entry by reading `settings.json` alone — not decoration, and not something to tidy away. **Never hand-wire a vendored hook:** run the installer, which writes the symlink and the registration together and upgrades a legacy hand-typed copy in place.
+Entries installed by `managing-skills/scripts/install-hook.sh` carry a trailing `# <marker>` comment (`socraticode-reminder.sh` has `# socraticode-prefetch` since #463; `socraticode-health.sh` has `# socraticode-health` since the 2026-09-19 audit re-run, which also gave the two entries their `timeout` values — 5s and 120s). It is the installer's dedupe key, written into the *command string* so a re-run can recognize its own entry by reading `settings.json` alone — not decoration, and not something to tidy away. **Never hand-wire a vendored hook:** run the installer, which writes the symlink and the registration together and upgrades a legacy hand-typed copy in place.
 
 ## Local Overrides
 
