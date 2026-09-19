@@ -134,11 +134,17 @@ What it catches that three green lights do not:
 
 #### Reading the daily `unresolved N%` line
 
-The hook reports `graph unresolved 65.7% (> 50%) — corroborates a resolver problem` here **every day, and that is not a defect.** `unresolvedPct` counts *call* edges whose callee resolves to no first-party symbol, so any codebase leaning on frameworks and stdlib runs high by construction — `asyncpg`, `ULID`, `os`, FastAPI and pytest are not in this repo and no re-index lowers it. Judge on `verdict` and edges/file; power-map is `verdict: ok` at 1.49 edges/file against a 0.1 floor.
+The hook reports `graph unresolved 63.2% (> 50%)` here **every day, and that is not a defect.** `unresolvedPct` counts *call* edges whose callee resolves to no first-party symbol, so any codebase leaning on frameworks and stdlib runs high by construction — `asyncpg`, `ULID`, `os`, FastAPI and pytest are not in this repo and no re-index lowers it. Judge on `verdict` and edges/file; power-map is `verdict: ok` at 1.640 edges/file against a 0.1 floor (1,337 edges across 815 files, re-measured 2026-09-19).
 
 Verified rather than assumed, by the differential test: `codebase_graph_query` on `src/core/db.py` returns exactly one outbound edge (`src/core/logging.py` — precisely its one first-party import) and 217 unique importers, matching an `rg` sweep over every import spelling at 217. No misses, no false positives. **The import graph is exact; treat `codebase_graph_query` and `codebase_impact` as trustworthy.**
 
 Do not write the reverse of this into the docs — a sibling repo distrusted a correct tool for weeks on that misreading, costing an `rg` round-trip per dependency question (gregoryfoster/skills#198). The distinguishing signal for the real defect (SocratiCode#107) is *near-zero edges/file*, not a high percentage. If you do suspect the graph, re-run the differential test above rather than reasoning from the number.
+
+#### Reading the daily `graph was built by v…` line
+
+The second expected daily finding, and the newer one. Since the `d3f91c8` pin the health check compares the build that **cut** the graph against the server it is talking to (skills#297) — and here those are two different installs. The graph is built by the Claude Code plugin's pinned server (`~/.claude/plugins/cache/socraticode/socraticode/1.13.1`), while `mcp-driver.mjs` — which the hook runs — launches `npx socraticode@latest`, currently `1.14.0`. So the line reads `built by v1.13.1, older than the running server (v1.14.0)`, and unlike the `unresolved %` line it is a **defect**, so it sets the hook's exit code.
+
+**Its prescribed remedy cannot clear it here.** `codebase_graph_build` through the plugin stamps the plugin's own version again: measured 2026-09-19, a rebuild finished in 5.8s and the graph still read `Built by: v1.13.1`. The fix is to update the plugin (`claude plugin install socraticode@socraticode`) and restart Claude Code so the MCP server reloads, *then* rebuild. Until then the finding is accurate and not actionable by rebuild — do not read a second rebuild as the answer.
 
 ### The policy block is curation-exempt
 
@@ -148,7 +154,7 @@ That is the deliberate trade for idempotence: a marked block is patched in place
 
 ### Context artifacts
 
-`.socraticodecontextartifacts.json` points `codebase_context_search` at the project's non-code knowledge. Three entries: `src/core/schema.sql`, `AGENTS.md`, and `docs` — the last a **directory**, indexed recursively.
+`.socraticodecontextartifacts.json` points `codebase_context_search` at the project's non-code knowledge. Four entries: `src/core/schema.sql`, `AGENTS.md`, `docs`, and `infra` — the last two **directories**, indexed recursively. `infra` was added by the 2026-09-19 audit re-run: the systemd units and Terraform are what answers *what runs on this VM, when, and under which unit*, and nothing else in the manifest carries it.
 
 Name directories, not files. The manifest previously listed four individual docs; the #407 split grew the tree to 32 and left 29 unreachable, which reads as "no results" rather than "not indexed". Globs do not work — the server `stat()`s the literal value. Guarded by `tests/test_context_artifacts.py`, which fails if any `docs/*.md` stops being reachable.
 
