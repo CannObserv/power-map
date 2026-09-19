@@ -51,7 +51,10 @@ silently — the hook's output cannot drift from itself.
 - **`codebase_search`** takes a natural-language query, not a regex. It ranks by
   embedding similarity, so an empty result means "nothing scored above the
   threshold", not "no such code" — retry with `minScore: 0` before concluding
-  absence.
+  absence. With `includeLinked: true` it also searches linked projects, but
+  only those whose paths resolve: a missing path — no checkout, no stub — is
+  dropped without a word.
+  The daily health check names any that do not.
 - **`codebase_impact` / `codebase_graph_query`** read the AST dependency graph,
   which is built separately from the embeddings. If the graph is stale or
   low-yield they answer *empty* rather than erroring — see **Graph health**.
@@ -66,6 +69,16 @@ silently — the hook's output cannot drift from itself.
   only per-artifact index status there is — `codebase_status` gives a count
   and never a name — then re-run `codebase_context_index`. The once-per-day
   health check reports this gap too, and names the artifact.
+  A third diagnosis has no empty result to warn you at all: the artifact is
+  indexed, the answer arrives, and it is **stale**. Nothing guarantees a
+  re-index when the source changes, so an edited file — or a new file under a
+  directory artifact like `docs/plans/` — leaves the count at N/N while search
+  answers from the old chunks. Measured: three of one repo's fourteen artifacts
+  were behind their sources at a moment this check reported `14/14`.
+  `codebase_context` prints each artifact's index time beside its status;
+  compare it against the source, and for a directory against its **newest
+  file**, not the directory's own timestamp. The daily check does exactly that
+  and names the stale artifacts.
 - **The file watcher is ephemeral.** It lives only while an MCP server process
   is running. After a long gap, or after a reboot, re-run `codebase_index`
   rather than trusting the index to be current.
@@ -193,10 +206,17 @@ reports it, names both versions and names `codebase_graph_build`.
 ## Index scope
 
 `.socraticodeignore` (repo root, gitignore syntax, layered on the built-in
-defaults and `.gitignore`) controls what gets embedded. Editing it affects
-**subsequent** scans only — re-index to apply it. Vendored trees dominate the
-index if left in, and vendored prose outranks first-party code in
-`codebase_search` results.
+defaults and `.gitignore`) controls what gets embedded **by the code index**.
+Since socraticode 1.13 directory context artifacts run that same chain, but
+**rooted at the artifact directory, not the repo** — so a repo-root
+`.socraticodeignore` never reaches a subtree artifact, and only ignore files
+inside the artifact path do. The built-in defaults (`build`, `dist`, `vendor`,
+`coverage`, `*.lock`, `__pycache__`…) **do** apply inside one, and drop those
+names silently: scope each artifact to the subtree you want embedded, then
+check it for default-ignored names you meant to keep. Editing
+`.socraticodeignore` affects **subsequent** scans only — re-index to apply it.
+Vendored trees dominate the index if left in, and vendored prose outranks
+first-party code in `codebase_search` results.
 <!-- END socraticode-doc -->
 
 ## Repo-specific notes
