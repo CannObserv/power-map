@@ -133,8 +133,6 @@ async def run(
 def main(argv: list[str] | None = None) -> int:
     """Entry point; returns the process exit code."""
     configure_logging()
-    # Raw formatter: argparse otherwise reflows the docstring, running the
-    # usage examples and the exit-code list together into one paragraph.
     parser = build_parser(__doc__)
     parser.add_argument(
         "--base-url",
