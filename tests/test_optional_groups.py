@@ -9,9 +9,13 @@ less than it did, with nothing to point at.
 
 These tests lock the two guards that make that loss loud: an explicit
 `-m browser` run with Playwright absent must abort, and any run missing an
-optional group must say so in the terminal summary.
+optional group must say so in the terminal summary. A third (#545) locks the
+premise both rest on: that a pruned environment *skips* those modules at all,
+rather than failing to collect them.
 """
 
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -137,3 +141,48 @@ def test_install_hint_names_every_registered_group():
     """A group the hint omits is one the banner tells you to install incompletely."""
     for group in og.OPTIONAL_GROUPS:
         assert f"--group {group}" in og.INSTALL_HINT
+
+
+# --- collection with every optional group absent (#545) ---------------------
+
+# A `None` entry in sys.modules makes `import <name>` (and every submodule
+# import under it) raise ImportError, exactly as an uninstalled package does —
+# and `importlib.util.find_spec` reads it as absent, so the banner fires too.
+_COLLECT_WITH_BLOCKED_PACKAGES = """
+import sys
+for name in sys.argv[1].split(","):
+    sys.modules[name] = None
+import pytest
+sys.exit(pytest.main(["--collect-only", "-q", "--no-cov", "-p", "no:cacheprovider", "tests"]))
+"""
+
+
+def test_unit_suite_collects_with_every_optional_group_absent():
+    """Prod's venv — pruned by ExecStartPre's exact `uv sync` — must still collect.
+
+    A module that imports an optional group's package at module scope without
+    `importorskip` is a collection *error*, not a skip, and the pre-commit unit
+    hook (`-x`) stops on it: every commit made in the main checkout failed on
+    `test_applier_merge_registry.py` importing dbt, while every worktree — whose
+    venv carries every group — passed. Blocking the root package of each
+    group's registered probe in a fresh interpreter reproduces that failure
+    wherever this runs. Only the probes are blocked, not everything a group
+    pulls in: a module importing solely a transitive dependency (`agate` under
+    dbt, `greenlet` under Playwright) is outside this net.
+    """
+    roots = sorted(
+        {probe.split(".")[0] for probes in og.OPTIONAL_GROUPS.values() for probe in probes}
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", _COLLECT_WITH_BLOCKED_PACKAGES, ",".join(roots)],
+        cwd=PYPROJECT.parent,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    output = result.stdout + result.stderr
+
+    assert "NOT RUN" in output, "the packages were not blocked — nothing was simulated"
+    errors = [line for line in output.splitlines() if line.startswith("ERROR ")]
+    assert errors == []
+    assert result.returncode == 0, output[-3000:]

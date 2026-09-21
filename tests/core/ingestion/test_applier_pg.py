@@ -7,8 +7,10 @@ what the columns are called, how NULLs compare in a tuple — is proven here.
 import pytest
 import pytest_asyncio
 
-from src.core.db import generate_id
-from src.core.ingestion.applier_pg import PostgresLiveStore
+pytest.importorskip("duckdb")
+
+from src.core.db import generate_id  # noqa: E402
+from src.core.ingestion.applier_pg import PostgresLiveStore  # noqa: E402
 
 pytestmark = [pytest.mark.integration]
 

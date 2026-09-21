@@ -62,6 +62,15 @@ an UPDATE" are asserted on the emitted SQL (`FakeConn` records statements and
 the transaction outcome). `write_desired(dir, **tables)` builds a loadable
 desired-state directory from dicts.
 
+Every module here calls `pytest.importorskip("duckdb")` before its first
+`src.core.ingestion` import — integration modules included, since collection
+imports a module before its marker deselects it. `applier_pg` reaches dbt
+through `mapping`, and the main checkout's venv is production's, pruned of the
+`mapping` group on every restart: an unguarded module is a collection *error*
+there, and every commit made in main fails the unit hook (#545).
+`tests/test_optional_groups.py` collects the suite with each optional group's
+package blocked and fails on any such error.
+
 `tests/scripts/test_apply_desired_state_db.py` is the integration tier for
 what the fake cannot prove — the asyncpg store's SQL, apply-twice-is-a-no-op,
 a gated create writing nothing, an execute writing exactly the predicted
