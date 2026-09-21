@@ -3218,13 +3218,13 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- Migration (#543): created_by_key_id shipped NOT NULL with a plain
--- REFERENCES api_keys(id) — NO ACTION, the only FK into api_keys without an
--- ON DELETE action — so a key that had ever written an embedding could not be
--- deleted (the admin delete 500'd on the FK violation). Now nullable + ON
--- DELETE SET NULL, the #311 provenance convention every source_key_id follows:
--- the embedding survives its key, unattributed. CREATE TABLE IF NOT EXISTS
--- no-ops on the existing table, so both halves are reconciled here (#315
+-- Migration (#543): created_by_key_id shipped NOT NULL with a plain REFERENCES
+-- api_keys(id) — NO ACTION, the only FK into api_keys without an ON DELETE
+-- action — so a key that had ever written an embedding could not be deleted
+-- (the admin delete 500'd on the FK violation). Now nullable + ON DELETE SET
+-- NULL, the #311 provenance convention every source_key_id FK follows: the
+-- embedding survives its key, unattributed. CREATE TABLE IF NOT EXISTS no-ops
+-- on the existing table, so both halves are reconciled here (#315
 -- modifier-drift shape), keyed on attnotnull / confdeltype so a correct table
 -- is untouched. The FK is found by column, not name (the auto-name truncates).
 DO $$
