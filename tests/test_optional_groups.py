@@ -164,8 +164,11 @@ def test_unit_suite_collects_with_every_optional_group_absent():
     `importorskip` is a collection *error*, not a skip, and the pre-commit unit
     hook (`-x`) stops on it: every commit made in the main checkout failed on
     `test_applier_merge_registry.py` importing dbt, while every worktree — whose
-    venv carries every group — passed. Blocking each group's root package in a
-    fresh interpreter reproduces the pruned environment wherever this runs.
+    venv carries every group — passed. Blocking the root package of each
+    group's registered probe in a fresh interpreter reproduces that failure
+    wherever this runs. Only the probes are blocked, not everything a group
+    pulls in: a module importing solely a transitive dependency (`agate` under
+    dbt, `greenlet` under Playwright) is outside this net.
     """
     roots = sorted(
         {probe.split(".")[0] for probes in og.OPTIONAL_GROUPS.values() for probe in probes}
