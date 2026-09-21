@@ -142,6 +142,7 @@ async def test_apply_schema_relaxes_voice_embedding_key_provenance(db_pool):
         "SELECT is_nullable FROM information_schema.columns"
         " WHERE table_name = $1 AND column_name = 'created_by_key_id'"
     )
+    oid_sql = "SELECT oid FROM pg_constraint WHERE conrelid = $1::regclass AND conname = $2"
     async with db_pool.acquire() as conn:
         await conn.execute(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {conname}")
         await conn.execute(f"ALTER TABLE {table} ALTER COLUMN created_by_key_id SET NOT NULL")
@@ -155,12 +156,14 @@ async def test_apply_schema_relaxes_voice_embedding_key_provenance(db_pool):
         await apply_schema(conn)
         assert await conn.fetchval(_CONFDELTYPE_SQL, table, conname) == "n"
         assert await conn.fetchval(nullable_sql, table) == "YES"
-        repaired_def = await conn.fetchval(_CONSTRAINT_DEF_SQL, table, conname)
+        repaired_oid = await conn.fetchval(oid_sql, table, conname)
 
-        # Idempotent: a second apply leaves the already-correct FK alone.
+        # Idempotent: a second apply leaves the already-correct FK alone — the same
+        # pg_constraint row, not a DROP + re-ADD that reproduces the definition while
+        # re-locking and re-validating the table on every restart's apply.
         await apply_schema(conn)
         assert await conn.fetchval(_CONSTRAINT_COUNT_SQL, table, conname) == 1
-        assert await conn.fetchval(_CONSTRAINT_DEF_SQL, table, conname) == repaired_def
+        assert await conn.fetchval(oid_sql, table, conname) == repaired_oid
 
 
 async def test_apply_schema_swaps_the_full_overlay_index_for_the_partial_one(db_pool):
