@@ -5,10 +5,14 @@ applier calls it through `applier_merge.MERGE_PRIMITIVES`. A name in the first
 and not the second would load cleanly and fail at 09:30 with a KeyError.
 """
 
-from src.core.ingestion import applier_merge
-from src.core.ingestion.mapping import load_manifest
-from src.core.ingestion.mapping.manifest import MERGE_PRIMITIVES
-from src.core.person_merge import merge_person_into, preview_person_merge
+import pytest
+
+pytest.importorskip("duckdb")
+
+from src.core.ingestion import applier_merge  # noqa: E402
+from src.core.ingestion.mapping import load_manifest  # noqa: E402
+from src.core.ingestion.mapping.manifest import MERGE_PRIMITIVES  # noqa: E402
+from src.core.person_merge import merge_person_into, preview_person_merge  # noqa: E402
 
 
 def test_every_primitive_the_manifest_may_name_is_registered():

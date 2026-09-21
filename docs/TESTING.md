@@ -129,7 +129,12 @@ Notes:
   and any run missing an optional group gets a red `NOT RUN` summary line. A new
   entry in `[dependency-groups]` must register an import probe in
   `OPTIONAL_GROUPS` — `tests/test_optional_groups.py` ratchets it against
-  `pyproject.toml`.
+  `pyproject.toml`. Both rest on the skip actually happening: a module that
+  imports an optional group's package at module scope — directly, or via
+  `applier_pg` → `mapping` → dbt — before its `importorskip` is a collection
+  *error* in the pruned main checkout, and every commit made there fails the
+  unit hook (#545). The same file collects the suite with every group's package
+  blocked and fails on any such error.
 - **Automated weekly** by `power-map-a11y.timer` (#369, below) — it runs this tier
   plus the lxml render tier and surfaces failures. Run it manually too as a
   pre-release gate (before tagging a version / restarting prod).

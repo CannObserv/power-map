@@ -11,11 +11,13 @@ so the index never raises.
 import pytest
 import pytest_asyncio
 
-from src.core.db import generate_id
-from src.core.ingestion.applier import DesiredState, diff_desired
-from src.core.ingestion.applier_pg import PostgresLiveStore
-from src.core.ingestion.applier_write import apply_diff
-from tests.core.ingestion.applier_fakes import manifest_with_roles
+pytest.importorskip("duckdb")
+
+from src.core.db import generate_id  # noqa: E402
+from src.core.ingestion.applier import DesiredState, diff_desired  # noqa: E402
+from src.core.ingestion.applier_pg import PostgresLiveStore  # noqa: E402
+from src.core.ingestion.applier_write import apply_diff  # noqa: E402
+from tests.core.ingestion.applier_fakes import manifest_with_roles  # noqa: E402
 
 pytestmark = [pytest.mark.integration]
 
