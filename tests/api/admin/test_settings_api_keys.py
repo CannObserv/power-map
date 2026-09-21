@@ -272,6 +272,41 @@ async def test_api_keys_delete(client, db):
         await db.execute("DELETE FROM app_users WHERE id=$1", uid)
 
 
+async def test_api_keys_delete_key_that_wrote_voice_embeddings(client, db):
+    """#543: a key that wrote a voice embedding deletes; the embedding survives, unattributed.
+
+    ``created_by_key_id`` shipped as a NOT NULL FK with no ON DELETE action, so deleting
+    any key that had ever written an embedding raised ForeignKeyViolationError — a 500.
+    """
+    _, kid, _ = await _make_user_and_key(db)
+    pid, eid = generate_id(), generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_embeddings_pyannote_community_1_embed"
+        " (id, person_id, embedding, embedding_dim, activity_ms, audio_sample_rate_hz,"
+        "  source_service, source_job_id, source_segment, recorded_at, created_by_key_id)"
+        " VALUES ($1, $2, $3::vector, 256, 1000, 16000, 'observo', 'job_543', 0, now(), $4)",
+        eid,
+        pid,
+        "[" + ",".join(["0.1"] * 256) + "]",
+        kid,
+    )
+
+    r = await client.delete(
+        f"/admin/settings/api-keys/{kid}/",
+        headers={**AUTH_HEADERS, "HX-Request": "true"},
+    )
+
+    assert r.status_code == 200
+    assert await db.fetchrow("SELECT id FROM api_keys WHERE id=$1", kid) is None
+    embedding = await db.fetchrow(
+        "SELECT created_by_key_id FROM person_embeddings_pyannote_community_1_embed WHERE id=$1",
+        eid,
+    )
+    assert embedding is not None
+    assert embedding["created_by_key_id"] is None
+
+
 async def test_api_keys_delete_404_when_not_found(client, db):
     r = await client.delete(
         "/admin/settings/api-keys/nonexistent/",

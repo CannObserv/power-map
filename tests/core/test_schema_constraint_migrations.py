@@ -129,6 +129,40 @@ async def test_apply_schema_repairs_fk_on_delete_action(db_pool):
         assert await conn.fetchval(_CONSTRAINT_DEF_SQL, table, conname) == repaired_def
 
 
+async def test_apply_schema_relaxes_voice_embedding_key_provenance(db_pool):
+    """#543: an embedding table that predates the fix loses NOT NULL and gains SET NULL.
+
+    Reproduce prod's shape — ``created_by_key_id`` NOT NULL, FK at plain NO ACTION
+    (``confdeltype = 'a'``) — then assert apply_schema repairs both halves. The
+    inline change alone no-ops on an existing table (the #315 modifier-drift class).
+    """
+    table = "person_embeddings_pyannote_community_1_embed"
+    conname = "person_embeddings_pyannote_community_1_e_created_by_key_id_fkey"
+    nullable_sql = (
+        "SELECT is_nullable FROM information_schema.columns"
+        " WHERE table_name = $1 AND column_name = 'created_by_key_id'"
+    )
+    async with db_pool.acquire() as conn:
+        await conn.execute(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {conname}")
+        await conn.execute(f"ALTER TABLE {table} ALTER COLUMN created_by_key_id SET NOT NULL")
+        await conn.execute(
+            f"ALTER TABLE {table} ADD CONSTRAINT {conname} "
+            "FOREIGN KEY (created_by_key_id) REFERENCES api_keys(id)"
+        )
+        assert await conn.fetchval(_CONFDELTYPE_SQL, table, conname) == "a"
+        assert await conn.fetchval(nullable_sql, table) == "NO"
+
+        await apply_schema(conn)
+        assert await conn.fetchval(_CONFDELTYPE_SQL, table, conname) == "n"
+        assert await conn.fetchval(nullable_sql, table) == "YES"
+        repaired_def = await conn.fetchval(_CONSTRAINT_DEF_SQL, table, conname)
+
+        # Idempotent: a second apply leaves the already-correct FK alone.
+        await apply_schema(conn)
+        assert await conn.fetchval(_CONSTRAINT_COUNT_SQL, table, conname) == 1
+        assert await conn.fetchval(_CONSTRAINT_DEF_SQL, table, conname) == repaired_def
+
+
 async def test_apply_schema_swaps_the_full_overlay_index_for_the_partial_one(db_pool):
     """#498: a database that predates unpin-as-archive carries the full unique index,
     and `CREATE UNIQUE INDEX IF NOT EXISTS` no-ops on it by name — without its own

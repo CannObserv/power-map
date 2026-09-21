@@ -42,7 +42,7 @@ The roles admin surfaces a role's structural fields (`role_type_id` / `jurisdict
 
 ### Person voice-embeddings section (#284)
 
-`src.api.admin.people_embeddings` adds a **read-only** "Voice Embeddings" section to the Person detail view. No create/paste-in (the row's NOT-NULL voice provenance + `created_by_key_id` FK make console entry impractical); no metadata edit; no similarity search.
+`src.api.admin.people_embeddings` adds a **read-only** "Voice Embeddings" section to the Person detail view. No create/paste-in (the row's NOT-NULL voice provenance has no honest console source; `created_by_key_id` is nullable only so its key stays deletable — #543 — not as a curator door); no metadata edit; no similarity search.
 
 - **Registry-driven, multi-model**: `fetch_person_embeddings(db, registry, person_id, include_archived=…)` loops `app.state.embedding_registry.all()` and unions rows across every model table, tagging each with its `model_id`. Table names come **only from the registry** (never user input) — same injection-safe pattern as the public embeddings API. Loaded in the `person_detail` handler and rendered server-side like Identifiers.
 - **Vector column**: only a preview (`left(embedding::text, 10)`) is rendered in-page; the full 256-float literal is fetched on demand from `GET …/{model_id}/{eid}/vector/` (`PlainTextResponse`) by `embedding-copy.js` (document-delegated, site-wide, boost-safe), which writes it to the clipboard and fires a `showFlash` event.
