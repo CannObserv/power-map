@@ -39,6 +39,7 @@ decides whether you need to open the target, and nothing more.
 
 - `apply_schema(conn)` is idempotent (`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`); wraps in a transaction
 - `updated_at`: maintained by DB triggers — never set manually in application code
+- FKs into `api_keys` (#543): `ON DELETE CASCADE` for rows the key owns (scopes, subscriptions), `ON DELETE SET NULL` for rows it only sourced (every `source_key_id` FK, embeddings' `created_by_key_id`) — never the default NO ACTION, which makes a key undeletable (the admin delete 500s). Sweep: `tests/core/test_schema_api_key_references.py`
 - Phone: normalize to E.164 via `PhoneNormalizer` from `src.core.normalizers.phone`
 - Email: validate via `EmailNormalizer` from `src.core.normalizers.email`
 - Integration tests (marked `integration`) require `TEST_DATABASE_URL` env var; `tests/conftest.py` redirects `DATABASE_URL` → `TEST_DATABASE_URL` and skips when absent — never runs against the production DB

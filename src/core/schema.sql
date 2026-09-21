@@ -3202,7 +3202,7 @@ CREATE TABLE IF NOT EXISTS person_embeddings_pyannote_community_1_embed (
     source_segment       INT         NOT NULL,
     recorded_at          TIMESTAMPTZ NOT NULL,
 
-    created_by_key_id    CHAR(26)    NOT NULL REFERENCES api_keys(id),
+    created_by_key_id    CHAR(26)    REFERENCES api_keys(id) ON DELETE SET NULL,  -- #543; NULL = writing key since deleted
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     archived_at          TIMESTAMPTZ,
     meta                 JSONB       NOT NULL DEFAULT '{}'::jsonb,
@@ -3216,6 +3216,49 @@ DO $$ BEGIN
         ADD CONSTRAINT person_embeddings_pyannote_community_1_embed_sample_rate_check
         CHECK (audio_sample_rate_hz > 0);
 EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Migration (#543): created_by_key_id shipped NOT NULL with a plain REFERENCES
+-- api_keys(id) — NO ACTION, the only FK into api_keys without an ON DELETE
+-- action — so a key that had ever written an embedding could not be deleted
+-- (the admin delete 500'd on the FK violation). Now nullable + ON DELETE SET
+-- NULL, the #311 provenance convention every source_key_id FK follows: the
+-- embedding survives its key, unattributed. CREATE TABLE IF NOT EXISTS no-ops
+-- on the existing table, so both halves are reconciled here (#315
+-- modifier-drift shape), keyed on attnotnull / confdeltype so a correct table
+-- is untouched. The FK is found by column, not name (the auto-name truncates).
+DO $$
+DECLARE
+    fk_name TEXT;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_attribute
+        WHERE attrelid = 'person_embeddings_pyannote_community_1_embed'::regclass
+          AND attname  = 'created_by_key_id'
+          AND attnotnull
+    ) THEN
+        ALTER TABLE person_embeddings_pyannote_community_1_embed
+            ALTER COLUMN created_by_key_id DROP NOT NULL;
+    END IF;
+
+    SELECT c.conname INTO fk_name
+    FROM pg_constraint c
+    JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+    WHERE c.conrelid = 'person_embeddings_pyannote_community_1_embed'::regclass
+      AND c.contype  = 'f'
+      AND c.confrelid = 'api_keys'::regclass
+      AND a.attname  = 'created_by_key_id'
+      AND c.confdeltype <> 'n'  -- 'n' = SET NULL; anything else is drift
+    LIMIT 1;
+
+    IF fk_name IS NOT NULL THEN
+        EXECUTE format(
+            'ALTER TABLE person_embeddings_pyannote_community_1_embed DROP CONSTRAINT %I',
+            fk_name);
+        ALTER TABLE person_embeddings_pyannote_community_1_embed
+            ADD CONSTRAINT person_embeddings_pyannote_community_1_e_created_by_key_id_fkey
+            FOREIGN KEY (created_by_key_id) REFERENCES api_keys(id) ON DELETE SET NULL;
+    END IF;
 END $$;
 
 CREATE INDEX IF NOT EXISTS person_embeddings_pyannote_community_1_embed_person_id_idx
