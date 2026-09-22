@@ -226,10 +226,19 @@ as authentication — and the script refuses to start with no token at all.
   by then. `scripts/seed_producer_crosswalk.py` reads it directly, so
   `--export data/usa_wa_snapshots/pm_anchors/<version>` needs no hand-staging.
 - **Pruning spares the version just landed**, whatever `--keep` says.
-- **Exit 1** on a failed verification, a contract its pin refuses, or a
-  subscribed dataset the catalog does not carry. That last one matters: a
-  renamed dataset that silently pulls nothing is indistinguishable from a quiet
-  night otherwise.
+- **The catalog carries the publisher's heartbeat (#551, usa-wa#386).**
+  `checked_at` says the publisher completed a run — it advances every night
+  whether or not anything minted — and `stale_after` is the deadline for the
+  next one (the 08:00 run plus 45 minutes of grace). Both are written verbatim
+  to `pull.json` at the store root, which the build reads. A fresh `checked_at`
+  covers the **publisher**, not everything upstream of it: a failed source
+  harvest and a registrar conflict both leave it fresh. A catalog published
+  before usa-wa#386 carries neither, and absent is never late.
+- **Exit 1** on a failed verification, a contract its pin refuses, a subscribed
+  dataset the catalog does not carry, or a pull past `stale_after`. The last two
+  matter for the same reason: a renamed dataset that pulls nothing, and a
+  producer behind its clock, are both indistinguishable from a quiet night —
+  every dataset reads `unchanged` and the run is otherwise green.
 
 Writes only into `data/usa_wa_snapshots/` (gitignored) — never the database, so
 there is no `--execute` gate here. The gated step is the applier (#499).

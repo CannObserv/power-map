@@ -22,7 +22,16 @@ from pathlib import Path
 from dbt.adapters.duckdb.connections import DuckDBConnectionManager
 from dbt.cli.main import dbtRunner, dbtRunnerResult
 
-from src.core.ingestion.datasets import DATA_FILE, SnapshotStore
+from src.core.ingestion.datasets import (
+    DATA_FILE,
+    PACKAGE_FILE,
+    SNAPSHOT_FILE,
+    CatalogError,
+    SnapshotStore,
+    Subscription,
+    load_subscription,
+    parse_moment,
+)
 from src.core.ingestion.mapping.manifest import MANIFEST_PATH, Manifest, load_manifest
 from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, export_table
 from src.core.logging import get_logger
@@ -36,7 +45,11 @@ __all__ = [
     "Manifest",
     "RunPaths",
     "USA_WA_SOURCES",
+    "check_contracts",
+    "held_contract",
+    "held_contracts",
     "load_manifest",
+    "producer_state",
     "resolved_versions",
     "run_dbt",
     "source_env",
@@ -91,6 +104,106 @@ def resolved_versions(
         if version is not None:
             resolved[name] = version
     return resolved
+
+
+def _stated_contract(path: Path) -> str | None:
+    """The bare `contract_hash` a provenance file states, or None.
+
+    Unreadable counts as unstated: the fallback below then tries the other file,
+    and a version that states nothing anywhere is already a defined outcome.
+    """
+    try:
+        raw = json.loads(path.read_text()).get("contract_hash")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return None
+    # `snapshot.json` records it bare, `datapackage.json` prefixed.
+    return raw.rpartition(":")[2].lower() if isinstance(raw, str) and raw else None
+
+
+def held_contract(snapshot_root: Path | str, name: str, version: str) -> str | None:
+    """The contract a held version states — `snapshot.json`, else `datapackage.json`.
+
+    Only versions landed by the #536 puller record it in `snapshot.json`; the
+    four sources landed before it carry it in `datapackage.json` alone, which
+    usa-wa#385's baseline re-mint published. None means neither states one.
+    """
+    d = SnapshotStore(snapshot_root).version_dir(name, version)
+    return _stated_contract(d / SNAPSHOT_FILE) or _stated_contract(d / PACKAGE_FILE)
+
+
+def held_contracts(
+    snapshot_root: Path | str, *, versions: Mapping[str, str] | None = None
+) -> dict[str, str | None]:
+    """The contract each resolved source's held snapshot states — `BUILD.json`'s record."""
+    return {
+        name: held_contract(snapshot_root, name, version)
+        for name, version in resolved_versions(snapshot_root, versions=versions).items()
+    }
+
+
+def check_contracts(
+    snapshot_root: Path | str,
+    *,
+    versions: Mapping[str, str] | None = None,
+    subscription: Subscription | None = None,
+) -> list[str]:
+    """Why each resolved source must not be built from, one sentence each (#553).
+
+    The pin in `models/sources.yml` gates **landing** (#536); `resolved_versions`
+    consults nothing. A snapshot landed under an older contract stays the newest
+    one the store holds until a replacement lands, so a build between deploying
+    a re-pin and the next successful pull pairs the new models with the old
+    shape. The nightly chain is safe by ordering alone — pull 09:00, build
+    09:30 — which leaves the hand-run right after a re-pin, the one someone
+    actually does.
+
+    A version stating no contract anywhere is pre-usa-wa#385 and cannot be
+    compared: that **warns and does not refuse**. Refusing would stop every
+    build against a store landed before #536 until each dataset happened to
+    re-mint, and a store that far behind is the staleness check's finding
+    (#535/#551), not this one's.
+    """
+    pins = (subscription or load_subscription()).pins
+    findings: list[str] = []
+    for name, version in resolved_versions(snapshot_root, versions=versions).items():
+        pin = pins.get(name)
+        if pin is None:
+            # A source the models read with no pin is what `test_project.py`'s
+            # parity test forbids; here there is simply no contract to compare.
+            continue
+        pinned = pin.contract_hash
+        contract = held_contract(snapshot_root, name, version)
+        if contract is None:
+            logger.warning(
+                "%s %s states no contract_hash — landed before usa-wa#385, so the"
+                " models cannot be checked against it; pull it again to check it",
+                name,
+                version,
+            )
+        elif contract != pinned:
+            findings.append(
+                f"{name} {version} holds contract sha256:{contract}, but the models are"
+                f" pinned to sha256:{pinned} — pull before building"
+            )
+    return findings
+
+
+def producer_state(snapshot_root: Path | str, *, now: datetime | None = None) -> dict | None:
+    """What the last pull recorded of the publisher's heartbeat, judged at ``now`` (#551).
+
+    None when no pull has recorded one — a hand-made store, or a pull older
+    than #551. Unknown is not late, and nothing downstream reads it as late.
+    """
+    record = SnapshotStore(snapshot_root).pull_record()
+    if record is None:
+        return None
+    try:
+        deadline = parse_moment(record.get("stale_after"), label="pull.json stale_after")
+    except CatalogError:
+        # Someone edited the record; that is not evidence about the producer.
+        logger.warning("pull.json states an unreadable stale_after — not read as stale")
+        deadline = None
+    return {**record, "stale": bool(deadline and (now or datetime.now(UTC)) > deadline)}
 
 
 def source_env(
@@ -216,15 +329,23 @@ def write_build_info(
     """Record what the desired state was built from (#499; round-2 finding 24).
 
     `BUILD.json` beside the tables: the dataset version each source resolved
-    to, the digest of each PM export the models joined, the row counts, and
-    when. The applier copies it into every run summary and ledger line, so a
-    diff can always be traced to the inputs that produced it.
+    to and the contract it holds (#553), the publisher's heartbeat as the last
+    pull recorded it (#551), the digest of each PM export the models joined, the
+    row counts, and when. The applier copies it into every run summary and
+    ledger line, so a diff can always be traced to the inputs that produced it.
     """
     root = Path(snapshot_root)
     info = {
         "built_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
         "snapshot_root": str(root.resolve()),
         "datasets": resolved_versions(root, versions=versions),
+        # Beside the versions: a diff traced to a version alone cannot say which
+        # shape produced it, and a version is re-minted over unchanged data (#553).
+        "contracts": held_contracts(root, versions=versions),
+        # Whether the publisher was behind its own clock when this was built
+        # (#551). The applier's ledger reads it; the gate refuses a streak built
+        # on it.
+        "producer": producer_state(root),
         "pm_exports": {
             table: _sha256(root / PM_EXPORT_DIR / f"{table}.parquet") for table in PM_SOURCES
         },

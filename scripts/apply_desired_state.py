@@ -8,7 +8,8 @@ ownership manifest; the Python knows neither WA nor a table name.
 
 Every run writes `data/applier/<run-id>/{diff.jsonl,summary.json,summary.md}`
 and appends a line to `data/applier/ledger.jsonl`. `--execute` is offered only
-after `streak` consecutive clean dry runs carrying this run's diff digest. A
+after `streak` consecutive clean dry runs carrying this run's diff digest, none
+of them built while usa-wa was behind its heartbeat deadline (#551). A
 refused `--execute` is recorded as `refused`, not as a dry run: an attempt at
 the gate does not count towards opening it. A diff holding an actionable
 producer merge is a merge phase (#514): its verdict weighs merges, conflicts and
@@ -50,6 +51,7 @@ from src.core.ingestion.applier_report import (
     diff_digest,
     ledger_line,
     may_execute,
+    producer_stale,
     read_ledger,
     run_id_for,
     verdict_for,
@@ -218,6 +220,14 @@ def _log_summary(summary: dict, run_dir: Path, ledger_path: Path, streak: int) -
             "  merge phase: %d merge(s) to apply first; deferred to the next diff: %s",
             len(summary["merges"]),
             deferred,
+        )
+    if producer_stale(summary):
+        # A night before the gate reads it off the ledger (#551). Every dataset
+        # reads `unchanged` on such a run, so nothing else in it says so.
+        logger.warning(
+            "  usa-wa was behind its heartbeat deadline when this was built — these"
+            " inputs are of unknown currency, and this run does not count towards the"
+            " --execute streak"
         )
     logger.info("  report: %s", run_dir)
     if summary["mode"] == "dry":

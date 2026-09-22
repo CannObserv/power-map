@@ -27,8 +27,19 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
 - **A model rewritten for a new contract re-pins it in the same diff.** Each
   `usa_wa` source in `models/sources.yml` carries the `schema_major` and
   `contract_hash` its model reads (#536), and step 1 lands nothing else — see
-  `docs/RUNBOOKS.md` § Pull usa-wa dataset snapshots. The build reads the newest
-  snapshot the store holds, so pull after deploying a re-pin, before building.
+  `docs/RUNBOOKS.md` § Pull usa-wa dataset snapshots. That gate covers
+  **landing**; step 3 resolves each source to the newest version the store
+  holds, which between a re-pin's deploy and the next successful pull is still
+  the old-contract one. So the build checks it (#553): a held contract that is
+  not its pin **fails step 3** by name — the dataset, the version, and both
+  contracts — and `power-map-desired-state.service` stops the chain there, so
+  the applier never sees a desired state built from the wrong shape. The held
+  contract is read from `snapshot.json`, falling back to that version's
+  `datapackage.json`, which is where the four sources landed before #536 carry
+  it. A version stating one **nowhere** is pre-usa-wa#385: it warns and does not
+  refuse, since nothing can be compared and no re-mint is worth blocking every
+  build on. Pull after deploying a re-pin, before building — now a check, not
+  only a habit.
 - **Models never open a database.** PM's two tables cross the seam as Parquet
   (step 2), so `dbt build` is hermetic and its tests run in the unit tier on
   fixtures. Neither step 2 nor 3 carries `--execute`: nothing writes a database.
@@ -109,7 +120,10 @@ uv run --group mapping "${env_args[@]}" python -m scripts.apply_desired_state --
 Every run writes `data/applier/<run-id>/` — `diff.jsonl` (one actionable entry
 per line, sorted by `entry_id`, never a noop), `summary.json`, `summary.md` —
 and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
-`BUILD.json` from the build, copied into the summary.
+`BUILD.json` from the build, copied into the summary: per source the version
+**and the contract** it held (#553), so a diff traces to the shape and not only
+to the version — a re-mint moves the version over byte-identical data — plus
+the publisher's heartbeat as the last pull recorded it (#551).
 
 - **Entry kinds.** `create` (an entity PM lacks; carries a hint naming PM rows
   already holding the asserted name — a probable twin), `insert` (a child row),
@@ -202,6 +216,15 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
   org-cycle guard) is the same rollback. A refused `--execute` is recorded as
   mode `refused`, which is not a dry run and so restarts the streak: attempts at
   the gate never add up to opening it, and only the nightly chain builds it.
+- **A run built while usa-wa was behind its heartbeat deadline does not count
+  towards the streak (#551).** `BUILD.json` carries `producer.stale`, judged at
+  build time against the `stale_after` the pull recorded; the ledger line
+  carries it and the gate refuses any line holding it, naming the run. A stable
+  digest is the whole evidence the gate consumes, and "the producer's data has
+  settled" and "nobody has been able to read the producer" produce the same
+  one. The dry run says so in its journal line and in `summary.md`. A ledger
+  line written before this existed carries no such key and still counts, so a
+  deploy does not restart a streak the nightly has been building.
 - **Thresholds** live in `manifest.yml` (`creates 0`, `merges 0`, `conflicts 0`,
   `stale 0`, `archives 0`, `restores 0`, `updates` unlimited). The flip (#501)
   passes `--allow-creates N`, `--allow-merges N`, `--allow-archives N`,

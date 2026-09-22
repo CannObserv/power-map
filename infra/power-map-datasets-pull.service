@@ -16,7 +16,9 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # Writes only into data/usa_wa_snapshots/, never the database; the gated step
 # is the applier (#499). Takes no flags: the subscription is the pins in the
 # mapping project's sources.yml (#536). Exits 1 when a dataset failed
-# verification, published a contract its pin refuses, or was subscribed but
-# absent from the catalog — so all three reach `systemctl --failed` instead of
-# passing as a quiet night.
+# verification, published a contract its pin refuses, was subscribed but absent
+# from the catalog, or the publisher is past the `stale_after` it published
+# (#551) — so all four reach `systemctl --failed` instead of passing as a quiet
+# night. The last two are the ones that look most like one: every dataset then
+# reads `unchanged`.
 ExecStart=uv run python -m scripts.pull_datasets

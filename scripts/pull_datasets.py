@@ -27,15 +27,24 @@ Usage:
     uv run "${env_args[@]}" python -m scripts.pull_datasets --dataset persons
     uv run "${env_args[@]}" python -m scripts.pull_datasets --root /srv/snapshots --keep 5
 
+**The catalog carries a heartbeat (#551).** `checked_at` says the publisher
+completed a run, `stale_after` the deadline for the next one. Both are recorded
+in `pull.json` at the store root, which the build reads; a pull past the
+deadline fails the run, because every dataset then reads `unchanged` and a
+producer behind the clock is indistinguishable from a settled night otherwise.
+
 Exit codes: 0 all subscribed datasets are held — including any the publisher
 serves with no `datapackage.json`, which the report names; 1 a dataset failed,
-was incompatible, or was subscribed but absent from the catalog; 2 usage — no
-token, a `--dataset` that is not pinned, or a pin file that will not load.
+was incompatible, was subscribed but absent from the catalog, or the publisher
+is past its own `stale_after`; 2 usage — no token, a `--dataset` that is not
+pinned, or a pin file that will not load.
 """
 
 import asyncio
 import os
 import sys
+from collections.abc import Callable
+from datetime import UTC, datetime
 
 import httpx
 
@@ -82,14 +91,15 @@ def build_subscription(datasets: list[str], *, pinned: Subscription) -> Subscrip
 def _log_report(report: PullReport) -> None:
     # Every outcome `failed_run` counts is in the headline: it is the line that
     # gets grepped, and "0 failed" on a run that exits 1 contradicts the exit
-    # code for two of the three ways a pull can fail.
+    # code for three of the four ways a pull can fail.
     logger.info(
-        "pull complete: %d landed, %d unchanged, %d failed, %d incompatible, %d missing",
+        "pull complete: %d landed, %d unchanged, %d failed, %d incompatible, %d missing%s",
         len(report.landed),
         len(report.skipped),
         len(report.failed),
         len(report.incompatible),
         len(report.missing),
+        ", producer stale" if report.producer_stale else "",
     )
     for name in report.landed:
         logger.info("  landed    %s", name)
@@ -103,6 +113,8 @@ def _log_report(report: PullReport) -> None:
         logger.error("  INCOMPATIBLE %s — %s", name, reason)
     for name in report.missing:
         logger.error("  MISSING   %s — subscribed, but the catalog does not carry it", name)
+    if report.producer_stale:
+        logger.error("  STALE     %s", report.producer_stale)
 
 
 async def run(
@@ -113,16 +125,17 @@ async def run(
     subscription: Subscription,
     keep: int,
     client: httpx.AsyncClient | None = None,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> PullReport:
     """Fetch the catalog, land what is subscribed, prune what is stale."""
     owns_client = client is None
     client = client or httpx.AsyncClient(timeout=60.0)
     try:
         catalog = await fetch_catalog(base_url, token=token, client=client)
-        logger.info("catalog lists %d dataset(s) at %s", len(catalog), base_url)
+        logger.info("catalog lists %d dataset(s) at %s", len(catalog.entries), base_url)
         report = await pull(
             base_url,
-            catalog,
+            catalog.entries,
             store,
             token=token,
             client=client,
@@ -132,11 +145,19 @@ async def run(
         if owns_client:
             await client.aclose()
 
+    # The heartbeat (#551), recorded whatever it says: `BUILD.json` reads it to
+    # state whether the desired state was built on a producer behind its clock,
+    # and the gate at the far end of the chain reads that.
+    at = now()
+    store.record_pull(catalog, at=at)
+    if catalog.stale(at):
+        report.producer_stale = catalog.lateness(at)
+
     # Prune after landing, sparing the version this run just fetched: a `--keep`
     # smaller than the number of versions must never delete the newest one. Note
     # this is the newest *published* version, not the one the applier last
     # applied — nothing records that yet (#499).
-    for entry in catalog:
+    for entry in catalog.entries:
         if not subscription.wants(entry):
             continue
         removed = store.prune(entry.name, keep=keep, keep_version=entry.latest_version)
