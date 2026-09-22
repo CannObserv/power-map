@@ -305,9 +305,15 @@ class Subscription:
         major that did not move proves nothing about the shape.
         """
         pin = self.pins[entry.name]
+        # Both refusals that follow a moved contract name the published pair, so
+        # the line is everything a re-pin needs.
+        contract = (
+            f"contract sha256:{entry.contract_hash}" if entry.contract_hash else "no contract_hash"
+        )
+        published = f"schema {entry.schema_version}, {contract}"
         if entry.schema_major != pin.schema_major:
             return (
-                f"publishes schema {entry.schema_version}, pinned to major {pin.schema_major}:"
+                f"publishes {published}; pinned to major {pin.schema_major}:"
                 " the mapping models need a change before it lands"
             )
         if entry.contract_hash is None:
@@ -317,8 +323,7 @@ class Subscription:
             )
         if entry.contract_hash != pin.contract_hash:
             return (
-                f"contract changed within major {pin.schema_major} (schema "
-                f"{entry.schema_version}, contract sha256:{entry.contract_hash}):"
+                f"contract changed within major {pin.schema_major} ({published}):"
                 " review it, then re-pin"
             )
         return None

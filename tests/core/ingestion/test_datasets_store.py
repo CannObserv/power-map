@@ -397,6 +397,31 @@ async def test_pull_refuses_a_dataset_whose_schema_major_moved(tmp_path):
     assert not store.has("pm_anchors", "v1-aaa")
 
 
+async def test_a_moved_major_names_the_contract_to_re_pin_to(tmp_path):
+    """A re-pin needs both values; the line should not send anyone to catalog.json (CR 2)."""
+    store = SnapshotStore(tmp_path)
+
+    async with httpx.AsyncClient(transport=serving()) as client:
+        report = await pull(
+            "https://usa-wa.exe.xyz:8000",
+            [entry(schema="2.0.0", contract_hash="d1" * 32)],
+            store,
+            token="tok",
+            client=client,
+            subscription=pinned("pm_anchors"),
+        )
+
+    ((_, reason),) = report.incompatible
+    assert f"sha256:{'d1' * 32}" in reason
+
+
+def test_a_moved_major_with_no_contract_hash_says_so_rather_than_printing_none():
+    reason = pinned("pm_anchors").refusal(entry(schema="2.0.0", contract_hash=None))
+
+    assert "no contract_hash" in reason
+    assert "None" not in reason
+
+
 async def test_a_contract_change_within_the_pinned_major_is_refused(tmp_path):
     """usa-wa's gate is one-way: a contract change needs *a* bump, not a major one.
 

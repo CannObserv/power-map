@@ -203,8 +203,10 @@ as authentication — and the script refuses to start with no token at all.
   sources are the whole subscription, so the nightly takes no flags. `--dataset`
   only narrows it; an unpinned name exits 2. A version whose `contract_hash`
   differs from its pin is refused, not landed; the major only words the refusal
-  (moved: the models need a change; same: review, then re-pin). Re-pinning is a
-  diff to that file, reviewed with the model change it implies. Majors are per
+  (moved: the models need a change; same: review, then re-pin). The INCOMPATIBLE
+  line names the published schema and contract hash — both values a re-pin
+  needs. Re-pinning is a diff to that file, reviewed with the model change it
+  implies. Majors are per
   dataset and never compared across datasets (usa-wa#385).
 - **Hash-skip.** A version already in the store is not re-fetched; a night with
   nothing new upstream costs one catalog request.
