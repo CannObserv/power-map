@@ -19,9 +19,11 @@ path. This tier found that divergence (deferred-script vs inline-mount ordering)
 as an xfail; #435 fixed it with the mount queue, so it is now a plain test.
 
 ``test_inline_edit_form_survives_its_overlay_note`` (#547) opens the role title
-and assignment dates edit forms and waits out their overlay-note loads: a host
-that inherited the form's ``hx-target`` swapped the note over the whole form.
-The static rule is ``test_self_loading_hosts.py``; this is the real-htmx seam.
+and assignment dates edit forms, outside and inside the producer's scope, and
+waits out their overlay-note loads: a host that inherited the form's
+``hx-target`` swapped the note (empty, or the one-line warning) over the whole
+form. The static rule is ``test_self_loading_hosts.py``; this is the real-htmx
+seam. Its in-scope rows are module-owned (``in_scope_ids``), like the merge pair.
 
 Every navigation goes through ``goto_with_retry`` (#436) — a bounded retry on
 Chromium renderer crashes, which this VM produces on ~1% of navigations.
@@ -87,6 +89,44 @@ async def merge_pair(browser_db, seeded_ids):
     finally:
         await conn.close()
     return pair
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="session")
+async def in_scope_ids(browser_db, seeded_ids):
+    """A disposable role and assignment inside the producer's row scope (#547).
+
+    In scope, the overlay-note fragment is a real ``<p class="overlay-note">``
+    rather than empty — the other face of the inherited-target bug, which swapped
+    that line over the whole form. Owned by this module, like ``merge_pair``:
+    the shared seed's role and assignment stay out of scope for sibling files.
+    """
+    conn = await asyncpg.connect(browser_db)
+    try:
+        ids = {"role_id": generate_id(), "assignment_id": generate_id()}
+        await conn.execute(
+            "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Smoke Scoped Role')",
+            ids["role_id"],
+            seeded_ids["org_id"],
+        )
+        await conn.execute(
+            "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
+            ids["assignment_id"],
+            seeded_ids["person_id"],
+            ids["role_id"],
+        )
+        for kind, key in (("role", "role_id"), ("assignment", "assignment_id")):
+            await conn.execute(
+                "INSERT INTO producer_crosswalk"
+                " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
+                " VALUES ($1, 'usa_wa', $2, $3, $4, $4, 'live')",
+                generate_id(),
+                kind,
+                f"smoke-scoped-{kind}",
+                ids[key],
+            )
+    finally:
+        await conn.close()
+    return ids
 
 
 async def test_typeahead_select_fills_hidden_id(live_server, seeded_ids, page):
@@ -188,6 +228,7 @@ async def _open_inline_edit(page, url: str, edit_path: str, notes: int):
     return page
 
 
+@pytest.mark.parametrize("scope", ["outside", "inside"])
 @pytest.mark.parametrize(
     ("detail", "seed_key", "field", "edit_path", "notes", "inputs"),
     [
@@ -203,22 +244,36 @@ async def _open_inline_edit(page, url: str, edit_path: str, notes: int):
     ],
 )
 async def test_inline_edit_form_survives_its_overlay_note(
-    live_server, seeded_ids, page, detail, seed_key, field, edit_path, notes, inputs
+    live_server,
+    seeded_ids,
+    in_scope_ids,
+    page,
+    scope,
+    detail,
+    seed_key,
+    field,
+    edit_path,
+    notes,
+    inputs,
 ):
     """#547: an edit form's overlay-note host loads into itself, not the form.
 
     The host sat inside the ``<form>`` with no ``hx-target``, inherited the
-    form's, and swapped the note over the whole field — for these out-of-scope
-    seeds an empty note, so the label, input and buttons all vanished. Waits
-    for the note loads to settle, then asserts the form is still there.
+    form's, and swapped the note over the whole field: outside the producer's
+    scope an empty note, so the label, input and buttons all vanished; inside
+    it, the one-line note alone. Waits for the note loads to settle, then
+    asserts the form is still there — with the note in it when in scope.
     """
-    url = f"{live_server}{detail}{seeded_ids[seed_key]}/"
+    ids = seeded_ids if scope == "outside" else in_scope_ids
+    url = f"{live_server}{detail}{ids[seed_key]}/"
     page = await _open_inline_edit(page, url, edit_path, notes)
     form = page.locator(f"{field} form")
     for selector in inputs:
         assert await form.locator(selector).is_visible(), f"{selector} gone once the note loaded"
     assert await form.locator('button[type="submit"]:has-text("Save")').is_visible()
     assert await form.locator(".overlay-note-host").count() == notes
+    shown = notes if scope == "inside" else 0
+    assert await form.locator(".overlay-note-host > .overlay-note").count() == shown
 
 
 async def test_people_list_merge_flow(live_server, merge_pair, page):
