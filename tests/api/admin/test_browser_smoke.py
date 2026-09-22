@@ -18,14 +18,24 @@ A third case, ``test_typeahead_wires_on_hard_load``, covers the hard-load entry
 path. This tier found that divergence (deferred-script vs inline-mount ordering)
 as an xfail; #435 fixed it with the mount queue, so it is now a plain test.
 
+``test_inline_edit_form_survives_its_overlay_note`` (#547) opens the role title
+and assignment dates edit forms, outside and inside the producer's scope, and
+waits out their overlay-note loads: a host that inherited the form's
+``hx-target`` swapped the note (empty, or the one-line warning) over the whole
+form. ``test_dup_badge_link_navigates_the_page`` (#547) clicks the People dup
+badge's link: the host's own ``hx-target="this"``, inherited, loaded the
+duplicates page into the badge. The static rule is
+``test_self_loading_hosts.py``; these are the real-htmx seam.
+
 Every navigation goes through ``goto_with_retry`` (#436) — a bounded retry on
 Chromium renderer crashes, which this VM produces on ~1% of navigations.
 
 Runs on the shared browser-tier session fixtures in ``conftest.py`` (#300/#426):
-``live_server`` + ``page`` + ``seeded_ids``. The merge flow MUTATES data, so it
-seeds its own disposable people pair (module fixture below) and never touches
-the shared session seed other files rely on — session teardown truncates, so no
-cleanup is needed.
+``live_server`` + ``page`` + ``seeded_ids``. Rows a flow mutates or depends on
+beyond that seed are module-owned fixtures below — ``merge_pair`` (the merge
+deletes one), ``dup_twins`` (a person dup count), ``in_scope_ids`` (producer-scope
+rows) — so the shared session seed other files rely on stays as seeded. Session
+teardown truncates, so no cleanup is needed.
 
 Run (isolated, marker-gated — same constraints as ``test_a11y_browser.py``)::
 
@@ -54,6 +64,8 @@ pytestmark = [pytest.mark.browser]
 _WINNER_NAME = "Smoke Merge Winner"
 _LOSER_NAME = "Smoke Merge Loser"
 _MERGE_QUERY = "Smoke%20Merge"
+# Same-named pair: similarity 1.0, so the People dup badge has a count and a link.
+_DUP_TWIN_NAME = "Smoke Dup Twin"
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="session")
@@ -82,6 +94,69 @@ async def merge_pair(browser_db, seeded_ids):
     finally:
         await conn.close()
     return pair
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="session")
+async def dup_twins(browser_db, seeded_ids):
+    """Two same-named people, so the People dup badge renders its link (#547).
+
+    Module-owned like ``merge_pair``; the name stays clear of its ``?q=`` search.
+    Drops the cached person dup count, which an earlier page load may have
+    stored as 0 for the TTL.
+    """
+    conn = await asyncpg.connect(browser_db)
+    try:
+        for _ in range(2):
+            pid = generate_id()
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+            await conn.execute(
+                "INSERT INTO person_names (id, person_id, name, is_canonical)"
+                " VALUES ($1, $2, $3, TRUE)",
+                generate_id(),
+                pid,
+                _DUP_TWIN_NAME,
+            )
+        await conn.execute("DELETE FROM dup_count_cache WHERE entity_type = 'person'")
+    finally:
+        await conn.close()
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="session")
+async def in_scope_ids(browser_db, seeded_ids):
+    """A disposable role and assignment inside the producer's row scope (#547).
+
+    In scope, the overlay-note fragment is a real ``<p class="overlay-note">``
+    rather than empty — the other face of the inherited-target bug, which swapped
+    that line over the whole form. Owned by this module, like ``merge_pair``:
+    the shared seed's role and assignment stay out of scope for sibling files.
+    """
+    conn = await asyncpg.connect(browser_db)
+    try:
+        ids = {"role_id": generate_id(), "assignment_id": generate_id()}
+        await conn.execute(
+            "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Smoke Scoped Role')",
+            ids["role_id"],
+            seeded_ids["org_id"],
+        )
+        await conn.execute(
+            "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
+            ids["assignment_id"],
+            seeded_ids["person_id"],
+            ids["role_id"],
+        )
+        for kind, key in (("role", "role_id"), ("assignment", "assignment_id")):
+            await conn.execute(
+                "INSERT INTO producer_crosswalk"
+                " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
+                " VALUES ($1, 'usa_wa', $2, $3, $4, $4, 'live')",
+                generate_id(),
+                kind,
+                f"smoke-scoped-{kind}",
+                ids[key],
+            )
+    finally:
+        await conn.close()
+    return ids
 
 
 async def test_typeahead_select_fills_hidden_id(live_server, seeded_ids, page):
@@ -159,6 +234,94 @@ async def test_typeahead_wires_on_hard_load(live_server, seeded_ids, page):
         state="visible", timeout=5_000
     )
     assert await inp.get_attribute("aria-expanded") == "true"
+
+
+# Counts overlay-note loads as htmx settles them. ``htmx:afterSettle`` fires on
+# the swap target, which is still in the document whichever element that is —
+# so the count advances even when an inherited target swallowed the host.
+_COUNT_NOTE_SETTLES = """() => {
+  window.__noteSettles = 0;
+  document.body.addEventListener('htmx:afterSettle', (e) => {
+    const url = e.detail.xhr ? e.detail.xhr.responseURL : '';
+    if (url.includes('variant=note')) window.__noteSettles += 1;
+  });
+}"""
+
+
+async def _open_inline_edit(page, url: str, edit_path: str, notes: int):
+    """Load ``url``, click the Edit whose ``hx-get`` ends ``edit_path``, and wait
+    until the edit form's ``notes`` overlay-note hosts have loaded and settled."""
+    page, _ = await goto_with_retry(page, url)
+    await page.evaluate(_COUNT_NOTE_SETTLES)
+    await page.click(f'button[hx-get$="{edit_path}"]')
+    await page.wait_for_function(f"() => window.__noteSettles >= {notes}", timeout=5_000)
+    return page
+
+
+@pytest.mark.parametrize("scope", ["outside", "inside"])
+@pytest.mark.parametrize(
+    ("detail", "seed_key", "field", "edit_path", "notes", "inputs"),
+    [
+        ("/admin/roles/", "role_id", "#title-field", "/inline/title/edit/", 1, ("#title-input",)),
+        (
+            "/admin/role-assignments/",
+            "assignment_id",
+            "#dates-field",
+            "/inline/dates/edit/",
+            2,
+            ("#start-date-input", "#end-date-input"),
+        ),
+    ],
+)
+async def test_inline_edit_form_survives_its_overlay_note(
+    live_server,
+    seeded_ids,
+    in_scope_ids,
+    page,
+    scope,
+    detail,
+    seed_key,
+    field,
+    edit_path,
+    notes,
+    inputs,
+):
+    """#547: an edit form's overlay-note host loads into itself, not the form.
+
+    The host sat inside the ``<form>`` with no ``hx-target``, inherited the
+    form's, and swapped the note over the whole field: outside the producer's
+    scope an empty note, so the label, input and buttons all vanished; inside
+    it, the one-line note alone. Waits for the note loads to settle, then
+    asserts the form is still there — with the note in it when in scope.
+    """
+    ids = seeded_ids if scope == "outside" else in_scope_ids
+    url = f"{live_server}{detail}{ids[seed_key]}/"
+    page = await _open_inline_edit(page, url, edit_path, notes)
+    form = page.locator(f"{field} form")
+    for selector in inputs:
+        assert await form.locator(selector).is_visible(), f"{selector} gone once the note loaded"
+    assert await form.locator('button[type="submit"]:has-text("Save")').is_visible()
+    assert await form.locator(".overlay-note-host").count() == notes
+    shown = notes if scope == "inside" else 0
+    assert await form.locator(".overlay-note-host > .overlay-note").count() == shown
+
+
+@pytest.mark.parametrize("start", ["/admin/people/", "/admin/"])
+async def test_dup_badge_link_navigates_the_page(live_server, dup_twins, page, start):
+    """#547: a boosted link inside a self-loading host navigates the page.
+
+    The host names ``hx-target="this"`` for its own load. Inherited, that
+    ``this`` still means the host, and htmx's boosted-link ``body`` fallback
+    applies only when no ``hx-target`` is found — so the badge's link loaded
+    the duplicates page into the badge. The host disinherits its target and swap.
+    """
+    page, _ = await goto_with_retry(page, f"{live_server}{start}")
+    link = page.locator('[hx-get^="/admin/_dup-badge/people/"] a[href]').first
+    await link.wait_for(state="visible", timeout=5_000)
+    await link.click()
+    await page.wait_for_selector('h1:has-text("Duplicate People")', timeout=5_000)
+    assert await page.locator("main").count() == 1, "the duplicates page nested in the badge"
+    assert await page.locator('[hx-get^="/admin/_dup-badge/people/"] h1').count() == 0
 
 
 async def test_people_list_merge_flow(live_server, merge_pair, page):

@@ -78,6 +78,8 @@ CSS handles loading automatically — no per-form JS:
        ...>
 ```
 
+**Rule:** a self-loading host (`hx-trigger="load…"`) names its own `hx-target="this"` and `hx-swap`, wherever it sits — a partial can't see the ancestors it will inherit from — and `hx-disinherit="hx-target hx-swap"`, or its fragment's boosted links swap into the host (#547). Never `hx-disinherit="*"`: it cuts `hx-boost` too. Guard: `test_self_loading_hosts.py`.
+
 ### Do not mix table elements and non-table elements in one HTMX response
 
 A `<tr>` and a `<div>` **cannot be siblings** in the same HTMX response body. When HTMX parses a response, it sets the HTML as `innerHTML` of a container `<div>`. A `<tr>` in non-table context is invalid HTML — the browser's foster-parenting algorithm moves or strips it. HTMX has special-case handling for table elements, but only when the **entire response** is a table fragment. Mixed content breaks that detection and silently discards the `<tr>`.

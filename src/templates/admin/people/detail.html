@@ -55,7 +55,7 @@
         {% endif %}
       </div>
     </div>
-    <div class="overlay-slot-host" hx-get="/admin/_overlay/person/{{ person.id }}/name/" hx-trigger="load, refreshOverlay from:body" hx-swap="innerHTML"></div>
+    <div class="overlay-slot-host" hx-get="/admin/_overlay/person/{{ person.id }}/name/" hx-trigger="load, refreshOverlay from:body" hx-target="this" hx-swap="innerHTML" hx-disinherit="hx-target hx-swap"></div>
     <div class="table-wrapper">
       <table id="names-table" class="data-table" style="table-layout:fixed">
         <thead><tr>

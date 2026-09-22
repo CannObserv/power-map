@@ -184,9 +184,10 @@ Notes:
     server never renders: inline edit rows, merge mode, portal and stacked modals,
     the archived-entity delete confirm.
   - `test_browser_smoke.py` (#368) — not a11y: real-browser flow smoke (typeahead
-    select, merge confirm) behind the fast happy-dom Vitest tier. It **mutates**
-    data, so it seeds its own disposable rows and never touches the shared session
-    seed — keep that rule when adding flows.
+    select, merge confirm; #547: an inline edit form outliving its overlay note, a
+    dup-badge link navigating the page) behind the fast happy-dom Vitest tier. It **mutates** data, so it seeds its
+    own disposable rows and never touches the shared session seed — keep that
+    rule when adding flows.
 
 ### Weekly a11y sweep timer (production, #369)
 

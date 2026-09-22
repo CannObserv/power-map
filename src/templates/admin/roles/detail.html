@@ -32,7 +32,7 @@
     <div style="margin-top:var(--space-5)">
       {% include "admin/roles/partials/_title_read.html" %}
       {# #529: outside the inline-edit swap target, refreshed when a pin lands #}
-      <div class="overlay-slot-host" hx-get="/admin/_overlay/role/{{ role.id }}/title/" hx-trigger="load, refreshOverlay from:body" hx-swap="innerHTML"></div>
+      <div class="overlay-slot-host" hx-get="/admin/_overlay/role/{{ role.id }}/title/" hx-trigger="load, refreshOverlay from:body" hx-target="this" hx-swap="innerHTML" hx-disinherit="hx-target hx-swap"></div>
     </div>
 
     {% include "admin/roles/partials/_structural_read.html" %}

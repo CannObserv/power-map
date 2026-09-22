@@ -76,7 +76,9 @@ re-pointed to the survivor, as the live `parent_id` is (`docs/MERGE.md`).
   `badge--pinned`, the value as a curator reads it (a parent's name, *kept
   empty* for NULL), who, when, the note, and an **Unpin**. Empty outside scope.
 - **The edit note** — the same route with `?variant=note`, hosted in the name,
-  acronym, parent and org event forms: *Saving a change pins your value*.
+  acronym, parent, org event, role title and assignment dates forms: *Saving a
+  change pins your value*. The host loads into itself (`hx-target="this"`), never
+  the form around it (#547).
 - **Pin / Unpin** — `POST …/pin/` and `…/unpin/`: HTMX partial plus the
   `with_flash` fallback to the entity page (`?flash=pinned|unpinned`). Each acts
   only on what the line showed: Pin only while no pin is live (else

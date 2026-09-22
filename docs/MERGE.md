@@ -10,12 +10,11 @@ roles list and detail screens.
 ## Dedup Workflow
 
 
-1. **Banner** on org list when `count_org_duplicates(db) > 0` — `.alert--notice` with link to review screen
+1. **Banner** on the org list while the count is non-zero — `.alert--notice` with a link to the review screen
 2. **Review screen** at `/admin/orgs/duplicates/` — shows potential duplicate pairs
-3. **Actions:** merge, **link as successors** (orgs, #469), or dismiss per pair — HTMX partial response + OOB flash
-4. **Nav badge** updates via lazy `hx-get="/admin/orgs/duplicate-count-badge/"` with `hx-trigger="load"`
-5. **Cache:** `count_org_duplicates(db)` is TTL-cached (5 min, process-local). Call `_invalidate_dup_count_cache()` after merge, link, or dismiss
-6. **Caveat:** cache is per-process — under multi-worker gunicorn, counts may lag up to 5 min per worker
+3. **Actions:** merge, **link as successors** (orgs, #469), or dismiss per pair — HTMX partial response + `flash_trigger`, which also fires `refreshDupBadge`
+4. **Badges:** the list banners and the dashboard/entities cards are self-loading hosts on `/admin/_dup-badge/{people,orgs}/?variant=banner|card` (`hx-trigger="load, refreshDupBadge from:body"`), so each action re-counts them in place. Host markup: `docs/HTMX.md` § HTMX attribute inheritance (#547)
+5. **Cache:** `count_org_duplicates(db)` / `count_person_duplicates(db)` are TTL-cached 5 min in the `dup_count_cache` table, shared by every worker. Call `invalidate_dup_count_cache(db)` after merge, link, or dismiss
 
 ### Merge vs. succession — who owns the key (#469)
 
