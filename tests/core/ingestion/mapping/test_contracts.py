@@ -221,3 +221,20 @@ def test_a_provenance_file_truncated_mid_character_reads_as_unstated(tmp_path):
     (d / "snapshot.json").write_bytes(b'{"contract_hash": "\xff\xfe')
 
     assert held_contract(tmp_path, "persons", VERSION) == PINNED
+
+
+def test_build_info_judges_the_producer_at_the_moment_it_is_given(tmp_path):
+    """CR 6: the field deciding whether a run counts towards the `--execute`
+    streak was the one thing in BUILD.json no test could pin to a moment."""
+    store = tmp_path / "store"
+    held(store, snapshot=PINNED)
+    _pull_record(store, "2026-09-24T08:45:00.000000Z")
+
+    info = write_build_info(
+        tmp_path / "out",
+        snapshot_root=store,
+        counts={},
+        now=datetime(2026, 9, 26, tzinfo=UTC),
+    )
+
+    assert info["producer"]["stale"] is True

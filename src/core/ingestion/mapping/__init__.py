@@ -329,6 +329,7 @@ def write_build_info(
     snapshot_root: Path | str,
     counts: Mapping[str, int],
     versions: Mapping[str, str] | None = None,
+    now: datetime | None = None,
 ) -> dict:
     """Record what the desired state was built from (#499; round-2 finding 24).
 
@@ -337,6 +338,10 @@ def write_build_info(
     pull recorded it (#551), the digest of each PM export the models joined, the
     row counts, and when. The applier copies it into every run summary and
     ledger line, so a diff can always be traced to the inputs that produced it.
+
+    ``now`` judges the producer's deadline; it defaults to the current moment,
+    and exists so the one field deciding whether a run counts towards the
+    `--execute` streak can be pinned to a moment in a test (CR 6).
     """
     root = Path(snapshot_root)
     info = {
@@ -349,7 +354,7 @@ def write_build_info(
         # Whether the publisher was behind its own clock when this was built
         # (#551). The applier's ledger reads it; the gate refuses a streak built
         # on it.
-        "producer": producer_state(root),
+        "producer": producer_state(root, now=now),
         "pm_exports": {
             table: _sha256(root / PM_EXPORT_DIR / f"{table}.parquet") for table in PM_SOURCES
         },
