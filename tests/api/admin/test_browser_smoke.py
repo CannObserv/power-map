@@ -22,17 +22,20 @@ as an xfail; #435 fixed it with the mount queue, so it is now a plain test.
 and assignment dates edit forms, outside and inside the producer's scope, and
 waits out their overlay-note loads: a host that inherited the form's
 ``hx-target`` swapped the note (empty, or the one-line warning) over the whole
-form. The static rule is ``test_self_loading_hosts.py``; this is the real-htmx
-seam. Its in-scope rows are module-owned (``in_scope_ids``), like the merge pair.
+form. ``test_dup_badge_link_navigates_the_page`` (#547) clicks the People dup
+badge's link: the host's own ``hx-target="this"``, inherited, loaded the
+duplicates page into the badge. The static rule is
+``test_self_loading_hosts.py``; these are the real-htmx seam.
 
 Every navigation goes through ``goto_with_retry`` (#436) — a bounded retry on
 Chromium renderer crashes, which this VM produces on ~1% of navigations.
 
 Runs on the shared browser-tier session fixtures in ``conftest.py`` (#300/#426):
-``live_server`` + ``page`` + ``seeded_ids``. The merge flow MUTATES data, so it
-seeds its own disposable people pair (module fixture below) and never touches
-the shared session seed other files rely on — session teardown truncates, so no
-cleanup is needed.
+``live_server`` + ``page`` + ``seeded_ids``. Rows a flow mutates or depends on
+beyond that seed are module-owned fixtures below — ``merge_pair`` (the merge
+deletes one), ``dup_twins`` (a person dup count), ``in_scope_ids`` (producer-scope
+rows) — so the shared session seed other files rely on stays as seeded. Session
+teardown truncates, so no cleanup is needed.
 
 Run (isolated, marker-gated — same constraints as ``test_a11y_browser.py``)::
 
