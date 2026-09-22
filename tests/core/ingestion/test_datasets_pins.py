@@ -79,3 +79,14 @@ def test_the_committed_sources_file_pins_its_datasets():
     subscription = load_subscription()
 
     assert subscription.pins
+
+
+@pytest.mark.parametrize("contract_hash", [f"sha256:{PERSONS}", PERSONS.upper(), "abc"])
+def test_a_pin_refuses_a_hash_it_could_never_match(contract_hash):
+    """The catalog's hash is parsed bare and lowercase (CR 3).
+
+    A pin built any other way reports a contract change every night, which reads
+    as upstream drift rather than as the coding error it is.
+    """
+    with pytest.raises(ValueError, match="bare"):
+        Pin(2, contract_hash)

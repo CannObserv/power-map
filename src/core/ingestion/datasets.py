@@ -287,6 +287,15 @@ class Pin:
     schema_major: int
     contract_hash: str
 
+    def __post_init__(self) -> None:
+        # Compared verbatim with the catalog's hash, which `parse_catalog` makes
+        # bare and lowercase. Any other spelling could never match, and would
+        # read every night as a contract change upstream.
+        if not _SHA256_HEX.match(self.contract_hash):
+            raise ValueError(
+                f"contract_hash {self.contract_hash!r} must be a bare lowercase sha256 digest"
+            )
+
 
 @dataclass(frozen=True)
 class Subscription:
