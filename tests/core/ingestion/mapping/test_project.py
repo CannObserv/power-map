@@ -48,8 +48,8 @@ def test_the_puller_subscribes_to_exactly_the_datasets_the_models_read():
     """The pins in sources.yml are the nightly's whole subscription (#536).
 
     A source the models read but the puller does not fetch builds, night after
-    night, from whatever the store last held; a pin nothing reads fails the
-    nightly over a dataset PM cannot consume.
+    night, from whatever the store last held; a pin nothing reads is pulled for
+    nothing, and fails the nightly whenever that dataset's contract moves.
     """
     assert set(load_subscription().pins) == set(USA_WA_SOURCES)
 
