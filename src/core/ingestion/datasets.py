@@ -34,7 +34,7 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -643,7 +643,7 @@ async def _fetch_file(
 
 async def pull(
     base_url: str,
-    catalog: list[CatalogEntry],
+    catalog: Sequence[CatalogEntry],
     store: SnapshotStore,
     *,
     token: str,
