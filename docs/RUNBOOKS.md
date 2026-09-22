@@ -183,8 +183,8 @@ uv run "${env_args[@]}" python -m scripts.sweep_role_data_quality --execute  # c
 verified, verbatim, versioned local snapshots.
 
 ```bash
-uv run "${env_args[@]}" python -m scripts.pull_datasets                      # conformed tier
-uv run "${env_args[@]}" python -m scripts.pull_datasets --dataset pm_anchors # by name
+uv run "${env_args[@]}" python -m scripts.pull_datasets                     # every pinned dataset
+uv run "${env_args[@]}" python -m scripts.pull_datasets --dataset persons   # one of them
 ```
 
 **Auth is an exe.dev VM bearer token in `USA_WA_TOKEN`** (header
@@ -197,9 +197,15 @@ that page as a catalog and reports an empty one. The puller therefore does not
 follow redirects, asserts the content type, and names every auth-shaped outcome
 as authentication — and the script refuses to start with no token at all.
 
-- **Subscription.** No `--dataset` flag means every `conformed`-tier product.
-  Naming datasets **replaces** that default rather than extending it. `pm_anchors`
-  is tier `cutover`, so it is pulled by name.
+- **The subscription is the pins (#536).** Each `usa_wa` source in
+  `src/core/ingestion/mapping/models/sources.yml` carries `meta.schema_major` and
+  `meta.contract_hash` — the contract its model was written against — and those
+  sources are the whole subscription, so the nightly takes no flags. `--dataset`
+  only narrows it; an unpinned name exits 2. A version whose `contract_hash`
+  differs from its pin is refused, not landed; the major only words the refusal
+  (moved: the models need a change; same: review, then re-pin). Re-pinning is a
+  diff to that file, reviewed with the model change it implies. Majors are per
+  dataset and never compared across datasets (usa-wa#385).
 - **Hash-skip.** A version already in the store is not re-fetched; a night with
   nothing new upstream costs one catalog request.
 - **Landing is atomic.** Files are verified into a staging directory and moved
@@ -213,12 +219,12 @@ as authentication — and the script refuses to start with no token at all.
   otherwise make a one-second blip a permanently schema-less snapshot for the
   life of that version.
 - **Each version carries `snapshot.json`** — name, version, schema version,
-  digest, row count, `generated_at`. That is what lets a consumer verify a
+  digest, contract hash, row count, `generated_at`. That is what lets a consumer verify a
   snapshot without a second catalog fetch that may answer with a newer version
   by then. `scripts/seed_producer_crosswalk.py` reads it directly, so
   `--export data/usa_wa_snapshots/pm_anchors/<version>` needs no hand-staging.
 - **Pruning spares the version just landed**, whatever `--keep` says.
-- **Exit 1** on a failed verification, an incompatible schema major, or a
+- **Exit 1** on a failed verification, a contract its pin refuses, or a
   subscribed dataset the catalog does not carry. That last one matters: a
   renamed dataset that silently pulls nothing is indistinguishable from a quiet
   night otherwise.
@@ -235,15 +241,16 @@ there is no `--execute` gate here. The gated step is the applier (#499).
 every PM id through PM's merge history, and writes `producer_crosswalk` —
 transition safeguard 1 of the dataset-subscription design (#490).
 
-**Seed from the catalog's `pm_anchors`** (#525), pulled by name. A snapshot the
-puller landed (`data.csv` + `snapshot.json`) and usa-wa's VM-file layout
-(`anchors.csv` + `manifest.json`) are both read and verified the same way. The
+**Seed from `pm_anchors`** (#525). A snapshot the puller landed (`data.csv` +
+`snapshot.json`) and usa-wa's VM-file layout (`anchors.csv` + `manifest.json`)
+are both read and verified the same way. `pm_anchors` left the catalog after the
+#501 cutover and is not pinned, so the puller no longer fetches it: seed from the
+version already in the store, or from a VM-file export. The
 contract is four columns, `kind,usa_wa_id,pm_id,span_key`: an assignment anchor
 carries its key in the published dataset, and an empty key means usa-wa has no
 published row for it.
 
 ```bash
-uv run "${env_args[@]}" python -m scripts.pull_datasets --dataset pm_anchors
 uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
     --export data/usa_wa_snapshots/pm_anchors/<version>             # dry run: prints the report
 uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
