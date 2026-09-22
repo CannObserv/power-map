@@ -155,6 +155,6 @@ def test_self_loading_hosts_disinherit_what_they_name():
         if "*" in disinherited or leaked:
             offenders.append(f"{where} (disinherits {disinherited or 'nothing'}, names {named})")
     assert not offenders, (
-        "a load-triggered host must list exactly what it names in hx-disinherit, never *, or its "
+        "a load-triggered host must list what it names in hx-disinherit, never *, or its "
         "fragment's links inherit the host's target (#547):\n  " + "\n  ".join(offenders)
     )
