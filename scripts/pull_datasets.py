@@ -70,7 +70,12 @@ def build_subscription(datasets: list[str], *, pinned: Subscription) -> Subscrip
         return pinned
     unpinned = sorted(set(datasets) - set(pinned.pins))
     if unpinned:
-        raise ValueError(f"not pinned: {', '.join(unpinned)} — pin it in {PINS_PATH}")
+        # Not "pin it": a pin exists only on a source the models read, and the
+        # mapping project's parity test refuses one for anything else.
+        raise ValueError(
+            f"not pinned: {', '.join(unpinned)} — only the datasets the mapping models "
+            f"read are pinned ({PINS_PATH})"
+        )
     return Subscription({name: pinned.pins[name] for name in datasets})
 
 
