@@ -373,13 +373,15 @@ def test_an_unwritable_store_is_a_sentence_not_a_traceback(monkeypatch, tmp_path
     stub = _client()
     monkeypatch.setattr("scripts.pull_datasets.httpx.AsyncClient", lambda **kw: stub)
     monkeypatch.setattr("scripts.pull_datasets.load_subscription", lambda: PINNED)
-    monkeypatch.setattr(
-        SnapshotStore, "record_pull", lambda *a, **kw: (_ for _ in ()).throw(OSError("No space"))
-    )
+
+    def full_disk(*a, **kw):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(SnapshotStore, "record_pull", full_disk)
 
     code = main(["--root", str(tmp_path)])
 
     logged = capsys.readouterr().out
     assert code == 1
-    assert "unwritable" in logged and "No space" in logged
+    assert "snapshot store" in logged and "No space left on device" in logged
     assert "Traceback" not in logged

@@ -227,8 +227,10 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         # `record_pull` and `prune` are the two filesystem calls outside `pull`'s
         # own per-dataset guard, so a full disk turned a run that had landed and
-        # verified every dataset into a traceback (CR 3).
-        logger.error("snapshot store %s unwritable: %s", args.root, exc)
+        # verified every dataset into a traceback (CR 3). Worded as where the run
+        # failed rather than as a verdict on the store (CR 13): `ssl.SSLError` is
+        # an OSError too, and "unwritable" would be a lie about it.
+        logger.error("pull failed against the snapshot store %s: %s", args.root, exc)
         return 1
     return 1 if report.failed_run else 0
 
