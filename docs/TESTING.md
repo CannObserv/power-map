@@ -317,33 +317,20 @@ Files that do NOT need this block:
 ## Ship gate
 
 `shipping-work-python-fastapi` Step 1 resolves `scripts/<name>.sh` from the repo
-root **before** the skill directory, so this repo's `scripts/pre-ship.sh` is what
-runs. It covers the vendored gate's stages — ruff check, ruff format --check, the
-Python suite, then ESLint / Prettier / vitest when `package.json` declares them —
-and shares its per-SHA `/tmp/<root>-tests-clean-<sha>` stamp slot.
+root **before** the skill directory; this repo has no `scripts/pre-ship.sh`, so
+the vendored gate runs: ruff check, ruff format --check, the Python suite, then
+ESLint / Prettier / vitest when `package.json` declares them.
 
-It exists for one reason (#539). The vendored gate runs
-`uv run pytest … -m "not integration"`, and that `-m` **replaces** our `addopts`
-default of `-m 'not integration and not browser'` rather than narrowing it. The
-browser tier is then *requested*: measured here, 2,309 tests become 2,516, and
-the extra 207 are exactly the Playwright tier. Where Playwright is absent (the
-main checkout) `optional_groups.py` refuses with exit 2, correctly — the tier
-would collect 0 tests and exit green, the vacuous pass #433 exists to stop. Where
-it is present (any worktree, which `scripts/worktree-setup.sh` syncs
-`--group browser` into) it is worse: the ship gate silently acquires 207 tests
-wanting a live database, a server and Chromium.
+One file tailors it: `.skills/pre-ship-uv-args` (`--group seed`), which the gate
+puts after `uv run` in every uv call so it runs the suite the pre-commit
+`pytest (unit)` hook runs. The gate passes **no `-m`**: it deselects
+integration-marked tests with a collection plugin, so `addopts`'
+`-m 'not integration and not browser'` still applies. A command-line `-m`
+*replaces* `addopts` and requests the browser tier, which is why #539 kept a
+local copy until upstream fixed both points (skills#304). #549 deleted the copy
+(#463: a divergence retires itself).
 
-Our copy passes **no `-m` at all**, letting `addopts` supply it, and adds
-`--group seed` to match the pre-commit `pytest (unit)` hook — the second, quieter
-divergence #539 names.
-
-A delegating wrapper would be the better shape and does not work: the only seam
-that skips the vendored pytest stage is that stamp, and it requires a clean
-working tree, while Step 1 runs *before* Step 2 ("ensure a clean working tree").
-
-`tests/scripts/test_pre_ship_gate.py` keeps the copy honest. Every stage banner
-in the vendored gate must appear in ours, so a stage upstream adds fails a test
-rather than quietly not running on ship day; and the vendored pytest line must
-still hardcode the marker — the day it takes an override, that test fails and the
-right move is to **delete** `scripts/pre-ship.sh` and let Step 1 resolve upstream
-again (#463: a divergence should retire itself).
+Guards: `tests/scripts/test_pre_ship_gate.py` fails if a local gate reappears,
+if the vendored gate stops reading the args file or passes `-m` again, or if the
+args file and the hook disagree. `tests/sh/pre_ship.bats` runs the vendored gate
+against our real args file with a stubbed `uv`.
