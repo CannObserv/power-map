@@ -259,6 +259,12 @@ def run_dbt(
     ``["parse"]``, ``["test", "--select", "..."]``). Project, profile, target
     and log paths are always supplied here so nothing depends on the cwd or on
     ``~/.dbt``.
+
+    **This does not check the held contracts** (#553). `check_contracts` is the
+    build *script*'s gate, because every fixture build goes through here against
+    a store that states no contract at all. A hand-run of `run_dbt` therefore
+    builds from whatever the store holds — call `check_contracts` first if that
+    matters (CR 7).
     """
     root = Path(snapshot_root)
     if target_path:

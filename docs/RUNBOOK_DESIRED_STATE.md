@@ -39,7 +39,9 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   it. A version stating one **nowhere** is pre-usa-wa#385: it warns and does not
   refuse, since nothing can be compared and no re-mint is worth blocking every
   build on. Pull after deploying a re-pin, before building — now a check, not
-  only a habit.
+  only a habit. The check is `build_desired_state.py`'s, not `run_dbt`'s: every
+  fixture build goes through `run_dbt` against a store that states no contract,
+  so a hand-run of it builds unchecked.
 - **Models never open a database.** PM's two tables cross the seam as Parquet
   (step 2), so `dbt build` is hermetic and its tests run in the unit tier on
   fixtures. Neither step 2 nor 3 carries `--execute`: nothing writes a database.
