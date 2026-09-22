@@ -224,6 +224,12 @@ def main(argv: list[str] | None = None) -> int:
         # publisher. A traceback in the journal buries that sentence.
         logger.error("catalog unreadable: %s", exc)
         return 1
+    except OSError as exc:
+        # `record_pull` and `prune` are the two filesystem calls outside `pull`'s
+        # own per-dataset guard, so a full disk turned a run that had landed and
+        # verified every dataset into a traceback (CR 3).
+        logger.error("snapshot store %s unwritable: %s", args.root, exc)
+        return 1
     return 1 if report.failed_run else 0
 
 

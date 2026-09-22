@@ -364,3 +364,22 @@ async def test_a_stale_producer_is_named_in_the_headline_the_operator_greps(tmp_
     headline = next(r.getMessage() for r in caplog.records if "pull complete" in r.getMessage())
 
     assert "producer stale" in headline
+
+
+def test_an_unwritable_store_is_a_sentence_not_a_traceback(monkeypatch, tmp_path, capsys):
+    """CR 3: `record_pull` and `prune` sit outside `pull`'s per-dataset OSError
+    guard, so a full disk ended a run that had landed everything in a traceback."""
+    monkeypatch.setenv("USA_WA_TOKEN", "tok")
+    stub = _client()
+    monkeypatch.setattr("scripts.pull_datasets.httpx.AsyncClient", lambda **kw: stub)
+    monkeypatch.setattr("scripts.pull_datasets.load_subscription", lambda: PINNED)
+    monkeypatch.setattr(
+        SnapshotStore, "record_pull", lambda *a, **kw: (_ for _ in ()).throw(OSError("No space"))
+    )
+
+    code = main(["--root", str(tmp_path)])
+
+    logged = capsys.readouterr().out
+    assert code == 1
+    assert "unwritable" in logged and "No space" in logged
+    assert "Traceback" not in logged
