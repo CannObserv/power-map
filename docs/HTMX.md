@@ -78,6 +78,8 @@ CSS handles loading automatically — no per-form JS:
        ...>
 ```
 
+**Rule:** a self-loading host (`hx-trigger="load…"` — overlay lines and notes, dup badges) names its own `hx-target="this"` and `hx-swap`, wherever it sits. #547: the role title form's note host inherited the `<form>`'s `hx-target="#title-field"` and its empty note blanked the whole field. A partial can't see the page that includes it, so the rule is unconditional. Guard: `test_self_loading_hosts.py`.
+
 ### Do not mix table elements and non-table elements in one HTMX response
 
 A `<tr>` and a `<div>` **cannot be siblings** in the same HTMX response body. When HTMX parses a response, it sets the HTML as `innerHTML` of a container `<div>`. A `<tr>` in non-table context is invalid HTML — the browser's foster-parenting algorithm moves or strips it. HTMX has special-case handling for table elements, but only when the **entire response** is a table fragment. Mixed content breaks that detection and silently discards the `<tr>`.

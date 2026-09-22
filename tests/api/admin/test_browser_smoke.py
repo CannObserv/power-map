@@ -18,6 +18,11 @@ A third case, ``test_typeahead_wires_on_hard_load``, covers the hard-load entry
 path. This tier found that divergence (deferred-script vs inline-mount ordering)
 as an xfail; #435 fixed it with the mount queue, so it is now a plain test.
 
+``test_inline_edit_form_survives_its_overlay_note`` (#547) opens the role title
+and assignment dates edit forms and waits out their overlay-note loads: a host
+that inherited the form's ``hx-target`` swapped the note over the whole form.
+The static rule is ``test_self_loading_hosts.py``; this is the real-htmx seam.
+
 Every navigation goes through ``goto_with_retry`` (#436) — a bounded retry on
 Chromium renderer crashes, which this VM produces on ~1% of navigations.
 
@@ -159,6 +164,55 @@ async def test_typeahead_wires_on_hard_load(live_server, seeded_ids, page):
         state="visible", timeout=5_000
     )
     assert await inp.get_attribute("aria-expanded") == "true"
+
+
+# Counts overlay-note loads as htmx settles them. ``htmx:afterSettle`` fires on
+# the swap target, which is still in the document whichever element that is —
+# so the count advances even when an inherited target swallowed the host.
+_COUNT_NOTE_SETTLES = """() => {
+  window.__noteSettles = 0;
+  document.body.addEventListener('htmx:afterSettle', (e) => {
+    const url = e.detail.xhr ? e.detail.xhr.responseURL : '';
+    if (url.includes('variant=note')) window.__noteSettles += 1;
+  });
+}"""
+
+
+async def _open_inline_edit(page, url: str, edit_path: str, notes: int):
+    """Load ``url``, click the Edit whose ``hx-get`` ends ``edit_path``, and wait
+    until the edit form's ``notes`` overlay-note hosts have loaded and settled."""
+    page, _ = await goto_with_retry(page, url)
+    await page.evaluate(_COUNT_NOTE_SETTLES)
+    await page.click(f'button[hx-get$="{edit_path}"]')
+    await page.wait_for_function(f"() => window.__noteSettles >= {notes}", timeout=5_000)
+    return page
+
+
+@pytest.mark.parametrize(
+    ("kind", "edit_path", "notes", "inputs"),
+    [
+        ("role", "/inline/title/edit/", 1, ("#title-input",)),
+        ("ra", "/inline/dates/edit/", 2, ("#start-date-input", "#end-date-input")),
+    ],
+)
+async def test_inline_edit_form_survives_its_overlay_note(
+    live_server, seeded_ids, page, kind, edit_path, notes, inputs
+):
+    """#547: an edit form's overlay-note host loads into itself, not the form.
+
+    The host sat inside the ``<form>`` with no ``hx-target``, inherited the
+    form's, and swapped the note over the whole field — for these out-of-scope
+    seeds an empty note, so the label, input and buttons all vanished. Waits
+    for the note loads to settle, then asserts the form is still there.
+    """
+    url = {
+        "role": f"{live_server}/admin/roles/{seeded_ids['role_id']}/",
+        "ra": f"{live_server}/admin/role-assignments/{seeded_ids['assignment_id']}/",
+    }[kind]
+    page = await _open_inline_edit(page, url, edit_path, notes)
+    for selector in inputs:
+        assert await page.locator(selector).is_visible(), f"{selector} gone once the note loaded"
+    assert await page.locator('button[type="submit"]:has-text("Save")').is_visible()
 
 
 async def test_people_list_merge_flow(live_server, merge_pair, page):

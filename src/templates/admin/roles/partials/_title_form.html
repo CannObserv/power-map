@@ -13,7 +13,7 @@
                 hx-swap="outerHTML">Cancel</button>
       </div>
     </div>
-    <div class="overlay-note-host" hx-get="/admin/_overlay/role/{{ role.id }}/title/?variant=note" hx-trigger="load" hx-swap="innerHTML"></div>
+    <div class="overlay-note-host" hx-get="/admin/_overlay/role/{{ role.id }}/title/?variant=note" hx-trigger="load" hx-target="this" hx-swap="innerHTML"></div>
     <div class="form-group" style="margin-bottom:0">
       <input id="title-input" type="text" name="title" value="{{ role.title or '' }}" required>
     </div>
