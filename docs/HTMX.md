@@ -78,7 +78,7 @@ CSS handles loading automatically — no per-form JS:
        ...>
 ```
 
-**Rule:** a self-loading host (`hx-trigger="load…"` — overlay lines and notes, dup badges) names its own `hx-target="this"` and `hx-swap`, wherever it sits. #547: the role title form's note host inherited the `<form>`'s `hx-target="#title-field"` and its empty note blanked the whole field. A partial can't see the page that includes it, so the rule is unconditional. Guard: `test_self_loading_hosts.py`.
+**Rule:** a self-loading host (`hx-trigger="load…"`) names its own `hx-target="this"` and `hx-swap`, wherever it sits — a partial can't see the ancestors it will inherit from (#547). Guard: `test_self_loading_hosts.py`.
 
 ### Do not mix table elements and non-table elements in one HTMX response
 
