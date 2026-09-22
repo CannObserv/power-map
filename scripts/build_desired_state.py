@@ -18,7 +18,8 @@ compared, and no re-mint is worth blocking every build on.
 
 Exit codes: 0 built and written; 1 a held snapshot is not its pin, the build
 failed, or a dbt test *errored* (a dbt *warning* — the fixture-known blank
-names — does not fail the run, but is printed); 2 usage. A successful run also
+names — does not fail the run, but is printed); 2 usage, which includes a pin
+file that will not load, as it does for the puller. A successful run also
 writes `BUILD.json` beside the tables: the dataset versions and contracts, the
 producer heartbeat the last pull recorded (#551), and the PM-export digests.
 
@@ -92,7 +93,13 @@ def main(argv: list[str] | None = None) -> int:
         "--duckdb", default=DEFAULT_DUCKDB, help=f"duckdb working file (default {DEFAULT_DUCKDB})"
     )
     args = parser.parse_args(argv)
-    return build(Path(args.root), Path(args.out), Path(args.duckdb))
+    try:
+        return build(Path(args.root), Path(args.out), Path(args.duckdb))
+    except ValueError as exc:
+        # `check_contracts` loads the pins, and a malformed one is configuration
+        # like a bad flag — the puller already answers it with a sentence and
+        # exit 2 (#536 CR 4). A traceback here would read as a broken step.
+        parser.error(str(exc))
 
 
 if __name__ == "__main__":

@@ -151,3 +151,21 @@ def test_a_build_records_the_contract_each_source_held(store, tmp_path):
     contracts = json.loads((tmp_path / "out" / "BUILD.json").read_text())["contracts"]
     assert contracts["persons"] == load_subscription().pins["persons"].contract_hash
     assert contracts["roles"] is None
+
+
+def test_an_unreadable_pin_file_is_a_usage_error_not_a_traceback(
+    store, tmp_path, capsys, monkeypatch
+):
+    """CR 2: the puller answers the same bad file with a sentence and exit 2, so
+    one malformed pin must not read as configuration in step 1 and a crash in step 3."""
+
+    def unreadable(*a, **kw):
+        raise ValueError("sources.yml: usa_wa.persons: meta.schema_major None is not an integer")
+
+    monkeypatch.setattr("src.core.ingestion.mapping.load_subscription", unreadable)
+
+    with pytest.raises(SystemExit) as exc:
+        main(_args(store, tmp_path))
+
+    assert exc.value.code == 2
+    assert "usa_wa.persons" in capsys.readouterr().err
