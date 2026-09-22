@@ -5,6 +5,13 @@ version: 2
 # applies), and the `_pm/` Parquet exports of PM's own tables. An unset var
 # renders as '' so `dbt parse` succeeds without data; a run then fails on the
 # read, which is the right place to fail.
+#
+# Each usa_wa source also carries its pin (#536): the `schema_major` and
+# `contract_hash` its model was written against. They are the nightly puller's
+# whole subscription — a version whose contract hash differs is refused, not
+# landed, and the major only says whether the models need a change or a review.
+# A shape change and its re-pin belong in the same diff. Majors are per dataset
+# and never comparable across datasets (usa-wa#385).
 sources:
   - name: usa_wa
     description: usa-wa's published conformed datasets, verbatim from the snapshot store (#496).
@@ -12,23 +19,35 @@ sources:
       - name: persons
         meta:
           external_location: "read_csv('{{ env_var('PM_SRC_PERSONS', '') }}', header=true, all_varchar=true)"
+          schema_major: 2
+          contract_hash: "sha256:dddb4e9f24859f3522f22c1f0e9ba4f31f6cc6faba05b7ef601a568be97c3a7f"
       - name: organizations
         meta:
           external_location: "read_csv('{{ env_var('PM_SRC_ORGANIZATIONS', '') }}', header=true, all_varchar=true)"
+          schema_major: 1
+          contract_hash: "sha256:4fe2ccad8a27e284b1a8c2c7d82b3eed1b8f75143ab1eefdd38ed51160f0d22e"
       - name: person_crosswalk
         description: usa-wa's own crosswalk — entity → source keys, with merged_into tombstones (design § gap E).
         meta:
           external_location: "read_csv('{{ env_var('PM_SRC_PERSON_CROSSWALK', '') }}', header=true, all_varchar=true)"
+          schema_major: 2
+          contract_hash: "sha256:419fdff3370e4b25464108e9a43892ed8f15eda534777bda2cc93f91ac830d81"
       - name: org_crosswalk
         meta:
           external_location: "read_csv('{{ env_var('PM_SRC_ORG_CROSSWALK', '') }}', header=true, all_varchar=true)"
+          schema_major: 1
+          contract_hash: "sha256:f3c0b7f7247675e72bf8dec31a8d15d62f35d284e2a4c5eb17380e05cc451104"
       - name: assignments
         description: Spans, each identified by its structural span_key (#525, #527).
         meta:
           external_location: "read_csv('{{ env_var('PM_SRC_ASSIGNMENTS', '') }}', header=true, all_varchar=true)"
+          schema_major: 1
+          contract_hash: "sha256:8f7ac44291103ac59140197e322358e438f213735b0f0824fcf350416197df5c"
       - name: roles
         meta:
           external_location: "read_csv('{{ env_var('PM_SRC_ROLES', '') }}', header=true, all_varchar=true)"
+          schema_major: 1
+          contract_hash: "sha256:9c4d5880f4c8a22be6c9d87859dcdc21c2879a0304a5de4dca8fe2bae26c7554"
 
   - name: pm
     description: PM's own tables, exported to Parquet by scripts/export_pm_tables.py so the models never open a database connection.

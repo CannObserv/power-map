@@ -4,6 +4,12 @@ Step 1 of the #490 PM-side pipeline. Fetches the catalog, lands every subscribed
 dataset whose latest version is not already held, verifies each against the
 length and digest the catalog states, and prunes old versions.
 
+**The subscription is the pins (#536).** Each dataset the mapping models read is
+pinned in `meta` on its source in `src/core/ingestion/mapping/models/sources.yml`
+— a `schema_major` and a `contract_hash` — and those pins are the whole
+subscription, so the nightly needs no flags. A version whose contract differs
+from its pin is refused, not landed; re-pinning is a reviewed diff, not a flag.
+
 **No `--execute` flag, deliberately.** The #402/#399 rule gates writes to the
 production *database*, and this script never opens a database connection: it
 writes only into its own snapshot store, and a re-run with nothing new upstream
@@ -18,12 +24,13 @@ meet it.
 
 Usage:
     uv run "${env_args[@]}" python -m scripts.pull_datasets
-    uv run "${env_args[@]}" python -m scripts.pull_datasets --dataset pm_anchors
+    uv run "${env_args[@]}" python -m scripts.pull_datasets --dataset persons
     uv run "${env_args[@]}" python -m scripts.pull_datasets --root /srv/snapshots --keep 5
 
 Exit codes: 0 all subscribed datasets are held — including any the publisher
 serves with no `datapackage.json`, which the report names; 1 a dataset failed,
-was incompatible, or was subscribed but absent from the catalog; 2 usage.
+was incompatible, or was subscribed but absent from the catalog; 2 usage — no
+token, a `--dataset` that is not pinned, or a pin file that will not load.
 """
 
 import asyncio
@@ -34,11 +41,13 @@ import httpx
 
 from scripts._dsn import build_parser
 from src.core.ingestion.datasets import (
+    PINS_PATH,
     CatalogError,
     PullReport,
     SnapshotStore,
     Subscription,
     fetch_catalog,
+    load_subscription,
     pull,
 )
 from src.core.logging import configure_logging, get_logger
@@ -47,17 +56,30 @@ logger = get_logger(__name__)
 
 DEFAULT_BASE_URL = "https://usa-wa.exe.xyz:8000"
 DEFAULT_ROOT = "data/usa_wa_snapshots"
-DEFAULT_SCHEMA_MAJOR = 1
 DEFAULT_KEEP = 3
 TOKEN_VAR = "USA_WA_TOKEN"
 
 
-def build_subscription(datasets: list[str], *, schema_major: int) -> Subscription:
-    """Named datasets **replace** the conformed-tier default rather than extending it."""
-    return Subscription(names=frozenset(datasets) if datasets else None, schema_major=schema_major)
+def build_subscription(datasets: list[str], *, pinned: Subscription) -> Subscription:
+    """Named datasets **narrow** the pinned set, each keeping its own pin.
+
+    A name with no pin is refused rather than pulled: landing it would mean
+    landing a contract nobody pinned.
+    """
+    if not datasets:
+        return pinned
+    unpinned = sorted(set(datasets) - set(pinned.pins))
+    if unpinned:
+        # Not "pin it": a pin exists only on a source the models read, and the
+        # mapping project's parity test refuses one for anything else.
+        raise ValueError(
+            f"not pinned: {', '.join(unpinned)} — only the datasets the mapping models "
+            f"read are pinned ({PINS_PATH})"
+        )
+    return Subscription({name: pinned.pins[name] for name in datasets})
 
 
-def _log_report(report: PullReport, *, schema_major: int) -> None:
+def _log_report(report: PullReport) -> None:
     # Every outcome `failed_run` counts is in the headline: it is the line that
     # gets grepped, and "0 failed" on a run that exits 1 contradicts the exit
     # code for two of the three ways a pull can fail.
@@ -77,13 +99,8 @@ def _log_report(report: PullReport, *, schema_major: int) -> None:
         logger.warning("  landed    %s — with no datapackage.json (see #497)", name)
     for name, reason in report.failed:
         logger.error("  FAILED    %s — %s", name, reason)
-    for name, schema_version in report.incompatible:
-        logger.error(
-            "  INCOMPATIBLE %s — publishes schema %s, this consumer is pinned to major %s",
-            name,
-            schema_version,
-            schema_major,
-        )
+    for name, reason in report.incompatible:
+        logger.error("  INCOMPATIBLE %s — %s", name, reason)
     for name in report.missing:
         logger.error("  MISSING   %s — subscribed, but the catalog does not carry it", name)
 
@@ -126,7 +143,7 @@ async def run(
         for version in removed:
             logger.info("  pruned    %s %s", entry.name, version)
 
-    _log_report(report, schema_major=subscription.schema_major)
+    _log_report(report)
     return report
 
 
@@ -146,17 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         "--dataset",
         action="append",
         default=[],
-        help="Dataset to pull; repeatable. Omit for every conformed product.",
-    )
-    parser.add_argument(
-        "--schema-major",
-        type=int,
-        default=DEFAULT_SCHEMA_MAJOR,
-        help=(
-            "Dataset schema major this consumer is pinned to "
-            f"(default {DEFAULT_SCHEMA_MAJOR}); a dataset publishing another is "
-            "reported INCOMPATIBLE and never landed"
-        ),
+        help="Pinned dataset to pull; repeatable. Omit for every pinned dataset.",
     )
     parser.add_argument(
         "--keep",
@@ -174,6 +181,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(
             f"{TOKEN_VAR} is not set — mint one with 'ssh exe.dev ssh-key generate-api-key'"
         )
+    try:
+        subscription = build_subscription(args.dataset, pinned=load_subscription())
+    except ValueError as exc:
+        # A malformed pin lands here too: it is configuration, like a bad flag.
+        parser.error(str(exc))
 
     try:
         report = asyncio.run(
@@ -181,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.base_url,
                 token=token,
                 store=SnapshotStore(args.root),
-                subscription=build_subscription(args.dataset, schema_major=args.schema_major),
+                subscription=subscription,
                 keep=args.keep,
             )
         )

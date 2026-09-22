@@ -11,10 +11,14 @@ import httpx
 import pytest
 
 from scripts.pull_datasets import build_subscription, main, run
-from src.core.ingestion.datasets import CatalogEntry, CatalogError, SnapshotStore
+from src.core.ingestion.datasets import CatalogEntry, CatalogError, Pin, SnapshotStore, Subscription
 
 DATA = b"kind,usa_wa_id,pm_id\n"
 DIGEST = hashlib.sha256(DATA).hexdigest()
+CONTRACT = "c0" * 32
+# What the nightly subscribes to in these tests: `persons` only. `main` reads
+# the real sources.yml, so tests through `main` patch the loader to this.
+PINNED = Subscription({"persons": Pin(1, CONTRACT)})
 
 CATALOG = {
     "datasets": [
@@ -23,6 +27,7 @@ CATALOG = {
             "tier": "conformed",
             "latest_version": "v1-aaa",
             "schema_version": "1.5.0",
+            "contract_hash": f"sha256:{CONTRACT}",
             "hash": f"sha256:{DIGEST}",
             "rows": 1,
             "bytes": len(DATA),
@@ -51,18 +56,48 @@ def _client(catalog=CATALOG, data=DATA):
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-def test_no_dataset_flag_means_the_conformed_tier():
-    assert build_subscription([], schema_major=1).names is None
+def test_no_dataset_flag_pulls_every_pinned_dataset():
+    pinned = Subscription({"persons": Pin(2, CONTRACT), "roles": Pin(1, CONTRACT)})
+
+    assert build_subscription([], pinned=pinned) == pinned
 
 
-def test_named_datasets_replace_the_default_rather_than_extend_it():
-    """Naming staging must not silently keep pulling every conformed product too."""
-    sub = build_subscription(["stg_wsl_committees"], schema_major=1)
+def test_a_named_dataset_narrows_the_pinned_set_and_keeps_its_pin():
+    """Naming one dataset no longer means restating the rest of the subscription."""
+    pinned = Subscription({"persons": Pin(2, CONTRACT), "roles": Pin(1, CONTRACT)})
 
-    assert sub.names == frozenset({"stg_wsl_committees"})
+    assert build_subscription(["persons"], pinned=pinned).pins == {"persons": Pin(2, CONTRACT)}
 
 
-async def test_a_clean_pull_lands_the_conformed_tier_and_exits_zero(tmp_path):
+def test_an_unpinned_dataset_name_is_a_usage_error(monkeypatch, tmp_path, capsys):
+    """Pulling it would mean landing a contract nobody pinned."""
+    monkeypatch.setenv("USA_WA_TOKEN", "tok")
+    monkeypatch.setattr("scripts.pull_datasets.load_subscription", lambda: PINNED)
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--root", str(tmp_path), "--dataset", "stg_wsl_committees"])
+
+    assert exc.value.code == 2
+    assert "stg_wsl_committees" in capsys.readouterr().err
+
+
+def test_an_unreadable_pin_file_is_a_usage_error_not_a_traceback(monkeypatch, tmp_path, capsys):
+    """A bad pin is configuration, like a bad flag: a sentence and exit 2 (CR 4)."""
+
+    def unreadable():
+        raise ValueError("sources.yml: usa_wa.persons: meta.schema_major None is not an integer")
+
+    monkeypatch.setenv("USA_WA_TOKEN", "tok")
+    monkeypatch.setattr("scripts.pull_datasets.load_subscription", unreadable)
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--root", str(tmp_path)])
+
+    assert exc.value.code == 2
+    assert "usa_wa.persons" in capsys.readouterr().err
+
+
+async def test_a_clean_pull_lands_the_pinned_datasets_and_exits_zero(tmp_path):
     store = SnapshotStore(tmp_path)
 
     async with _client() as client:
@@ -70,7 +105,7 @@ async def test_a_clean_pull_lands_the_conformed_tier_and_exits_zero(tmp_path):
             "https://usa-wa.exe.xyz:8000",
             token="tok",
             store=store,
-            subscription=build_subscription([], schema_major=1),
+            subscription=PINNED,
             keep=3,
             client=client,
         )
@@ -87,7 +122,7 @@ async def test_a_corrupt_download_makes_the_run_fail(tmp_path):
             "https://usa-wa.exe.xyz:8000",
             token="tok",
             store=SnapshotStore(tmp_path),
-            subscription=build_subscription([], schema_major=1),
+            subscription=PINNED,
             keep=3,
             client=client,
         )
@@ -109,7 +144,7 @@ async def test_pruning_spares_the_version_this_run_landed(tmp_path):
             "https://usa-wa.exe.xyz:8000",
             token="tok",
             store=store,
-            subscription=build_subscription([], schema_major=1),
+            subscription=PINNED,
             keep=1,
             client=client,
         )
@@ -135,11 +170,31 @@ def test_a_clean_run_exits_zero_through_main(monkeypatch, tmp_path):
     # itself, so patching the class through it would make `_client()` recurse.
     stub = _client()
     monkeypatch.setattr("scripts.pull_datasets.httpx.AsyncClient", lambda **kw: stub)
+    monkeypatch.setattr("scripts.pull_datasets.load_subscription", lambda: PINNED)
 
     code = main(["--root", str(tmp_path)])
 
     assert code == 0
     assert SnapshotStore(tmp_path).has("persons", "v1-aaa")
+
+
+def test_an_unflagged_run_lands_a_corpus_spanning_majors(monkeypatch, tmp_path):
+    """#536's acceptance: the nightly passes no flags, and each dataset has its own major."""
+    persons = dict(CATALOG["datasets"][0], schema_version="2.0.0")
+    roles = dict(CATALOG["datasets"][0], name="roles", schema_version="1.3.0")
+    monkeypatch.setenv("USA_WA_TOKEN", "tok")
+    stub = _client(catalog={"datasets": [persons, roles]})
+    monkeypatch.setattr("scripts.pull_datasets.httpx.AsyncClient", lambda **kw: stub)
+    monkeypatch.setattr(
+        "scripts.pull_datasets.load_subscription",
+        lambda: Subscription({"persons": Pin(2, CONTRACT), "roles": Pin(1, CONTRACT)}),
+    )
+
+    code = main(["--root", str(tmp_path)])
+
+    assert code == 0
+    assert SnapshotStore(tmp_path).has("persons", "v1-aaa")
+    assert SnapshotStore(tmp_path).has("roles", "v1-aaa")
 
 
 def test_an_unreadable_catalog_is_reported_as_a_sentence_not_a_traceback(
@@ -171,22 +226,22 @@ def test_an_unreadable_catalog_is_reported_as_a_sentence_not_a_traceback(
     assert "Traceback" not in logged
 
 
-async def test_the_incompatible_line_names_the_pin_actually_in_force(tmp_path, caplog):
-    """The flag exists for a major cutover; the message must not name the default."""
-    catalog = {"datasets": [dict(CATALOG["datasets"][0], schema_version="1.5.0")]}
-
-    async with _client(catalog=catalog) as client:
+async def test_the_incompatible_line_names_the_datasets_own_pin(tmp_path, caplog):
+    """With a pin per dataset there is no single major the line could name instead."""
+    async with _client() as client:
         with caplog.at_level(logging.ERROR, logger="scripts.pull_datasets"):
             await run(
                 "https://usa-wa.exe.xyz:8000",
                 token="tok",
                 store=SnapshotStore(tmp_path),
-                subscription=build_subscription([], schema_major=2),
+                subscription=Subscription({"persons": Pin(2, CONTRACT)}),
                 keep=3,
                 client=client,
             )
 
-    assert any("pinned to major 2" in r.getMessage() for r in caplog.records)
+    lines = [r.getMessage() for r in caplog.records if "INCOMPATIBLE" in r.getMessage()]
+    assert len(lines) == 1
+    assert "persons" in lines[0] and "1.5.0" in lines[0] and "pinned to major 2" in lines[0]
 
 
 async def test_the_headline_counts_every_outcome_that_fails_the_run(tmp_path, caplog):
@@ -197,7 +252,9 @@ async def test_the_headline_counts_every_outcome_that_fails_the_run(tmp_path, ca
                 "https://usa-wa.exe.xyz:8000",
                 token="tok",
                 store=SnapshotStore(tmp_path),
-                subscription=build_subscription(["persons", "renamed_away"], schema_major=1),
+                subscription=Subscription(
+                    {"persons": Pin(1, CONTRACT), "renamed_away": Pin(1, CONTRACT)}
+                ),
                 keep=3,
                 client=client,
             )
@@ -224,7 +281,7 @@ async def test_a_snapshot_landed_without_its_package_is_named_in_the_report(tmp_
                 "https://usa-wa.exe.xyz:8000",
                 token="tok",
                 store=SnapshotStore(tmp_path),
-                subscription=build_subscription([], schema_major=1),
+                subscription=PINNED,
                 keep=3,
                 client=client,
             )

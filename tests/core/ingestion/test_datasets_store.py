@@ -15,6 +15,7 @@ import pytest
 
 from src.core.ingestion.datasets import (
     CatalogEntry,
+    Pin,
     PullReport,
     SnapshotStore,
     Subscription,
@@ -24,9 +25,19 @@ from src.core.ingestion.datasets import (
 DATA = b"kind,usa_wa_id,pm_id\nperson,01KV6T7RTS5PVF1HB94T5X23HY,01KV6SW78XKRQDWC4MPWNEPQ5A\n"
 DIGEST = hashlib.sha256(DATA).hexdigest()
 PACKAGE = b'{"name": "pm_anchors", "resources": []}'
+# Any 64-hex fingerprint; what matters is only whether the pin and entry agree.
+CONTRACT = "c0" * 32
 
 
-def entry(name="pm_anchors", version="v1-aaa", *, sha256=DIGEST, schema="1.5.0", tier="cutover"):
+def entry(
+    name="pm_anchors",
+    version="v1-aaa",
+    *,
+    sha256=DIGEST,
+    schema="1.5.0",
+    tier="cutover",
+    contract_hash=CONTRACT,
+):
     return CatalogEntry(
         name=name,
         tier=tier,
@@ -36,7 +47,13 @@ def entry(name="pm_anchors", version="v1-aaa", *, sha256=DIGEST, schema="1.5.0",
         rows=1,
         bytes=len(DATA),
         generated_at="2026-09-09T04:34:02Z",
+        contract_hash=contract_hash,
     )
+
+
+def pinned(*names, major=1, contract_hash=CONTRACT):
+    """A subscription pinning each of ``names`` to the same contract."""
+    return Subscription({name: Pin(major, contract_hash) for name in names})
 
 
 def serving(body=DATA, package=PACKAGE):
@@ -69,7 +86,7 @@ async def _pull_one(store, transport):
             store,
             token="tok",
             client=client,
-            subscription=Subscription(names=frozenset({"pm_anchors"}), schema_major=1),
+            subscription=pinned("pm_anchors"),
         )
 
 
@@ -179,6 +196,7 @@ def test_a_landed_version_records_its_own_provenance(tmp_path):
     assert meta["name"] == "pm_anchors"
     assert meta["version"] == "v1-aaa"
     assert meta["sha256"] == DIGEST
+    assert meta["contract_hash"] == CONTRACT
     assert meta["generated_at"] == "2026-09-09T04:34:02Z"
 
 
@@ -265,7 +283,7 @@ async def test_pull_lands_a_subscribed_dataset(tmp_path):
             store,
             token="tok",
             client=client,
-            subscription=Subscription(names=frozenset({"pm_anchors"}), schema_major=1),
+            subscription=pinned("pm_anchors"),
         )
 
     assert report.landed == ["pm_anchors"]
@@ -289,7 +307,7 @@ async def test_pull_skips_a_version_already_stored(tmp_path):
             store,
             token="tok",
             client=client,
-            subscription=Subscription(names=frozenset({"pm_anchors"}), schema_major=1),
+            subscription=pinned("pm_anchors"),
         )
 
     assert report.skipped == ["pm_anchors"]
@@ -306,20 +324,22 @@ async def test_pull_ignores_a_dataset_outside_the_subscription(tmp_path):
             store,
             token="tok",
             client=client,
-            subscription=Subscription(names=frozenset({"pm_anchors"}), schema_major=1),
+            subscription=pinned("pm_anchors"),
         )
 
     assert report.landed == ["pm_anchors"]
     assert not store.has("stg_wsl_committees", "v1-aaa")
 
 
-async def test_the_default_subscription_takes_conformed_products_only(tmp_path):
-    """Staging is the triage surface, not something PM applies."""
+async def test_a_conformed_dataset_with_no_pin_is_neither_pulled_nor_a_failure(tmp_path):
+    """The pins are the subscription (#536), not a filter over the conformed tier.
+
+    A new upstream product the mapping models do not read is nothing to land and
+    nothing to refuse: failing the nightly over it would page someone for a
+    dataset PM cannot consume.
+    """
     store = SnapshotStore(tmp_path)
-    catalog = [
-        entry(name="persons", tier="conformed"),
-        entry(name="stg_wsl_committees", tier="staging"),
-    ]
+    catalog = [entry(name="persons", tier="conformed"), entry(name="brand_new", tier="conformed")]
 
     async with httpx.AsyncClient(transport=serving()) as client:
         report = await pull(
@@ -328,11 +348,32 @@ async def test_the_default_subscription_takes_conformed_products_only(tmp_path):
             store,
             token="tok",
             client=client,
-            subscription=Subscription(names=None, schema_major=1),
+            subscription=pinned("persons"),
         )
 
     assert report.landed == ["persons"]
-    assert report.missing == []
+    assert not report.failed_run
+    assert not store.has("brand_new", "v1-aaa")
+
+
+async def test_a_corpus_spanning_majors_lands_when_each_dataset_is_pinned(tmp_path):
+    """The #536 failure: no single major accepted persons@2 and roles@1 together."""
+    store = SnapshotStore(tmp_path)
+    catalog = [entry(name="persons", schema="2.0.0"), entry(name="roles", schema="1.3.0")]
+    subscription = Subscription({"persons": Pin(2, CONTRACT), "roles": Pin(1, CONTRACT)})
+
+    async with httpx.AsyncClient(transport=serving()) as client:
+        report = await pull(
+            "https://usa-wa.exe.xyz:8000",
+            catalog,
+            store,
+            token="tok",
+            client=client,
+            subscription=subscription,
+        )
+
+    assert report.landed == ["persons", "roles"]
+    assert not report.failed_run
 
 
 async def test_pull_refuses_a_dataset_whose_schema_major_moved(tmp_path):
@@ -346,11 +387,84 @@ async def test_pull_refuses_a_dataset_whose_schema_major_moved(tmp_path):
             store,
             token="tok",
             client=client,
-            subscription=Subscription(names=frozenset({"pm_anchors"}), schema_major=1),
+            subscription=pinned("pm_anchors"),
         )
 
-    assert report.incompatible == [("pm_anchors", "2.0.0")]
+    ((name, reason),) = report.incompatible
+    assert name == "pm_anchors"
+    assert "2.0.0" in reason and "pinned to major 1" in reason
     assert report.failed_run
+    assert not store.has("pm_anchors", "v1-aaa")
+
+
+async def test_a_moved_major_names_the_contract_to_re_pin_to(tmp_path):
+    """A re-pin needs both values; the line should not send anyone to catalog.json (CR 2)."""
+    store = SnapshotStore(tmp_path)
+
+    async with httpx.AsyncClient(transport=serving()) as client:
+        report = await pull(
+            "https://usa-wa.exe.xyz:8000",
+            [entry(schema="2.0.0", contract_hash="d1" * 32)],
+            store,
+            token="tok",
+            client=client,
+            subscription=pinned("pm_anchors"),
+        )
+
+    ((_, reason),) = report.incompatible
+    assert f"sha256:{'d1' * 32}" in reason
+
+
+def test_a_moved_major_with_no_contract_hash_says_so_rather_than_printing_none():
+    reason = pinned("pm_anchors").refusal(entry(schema="2.0.0", contract_hash=None))
+
+    assert "no contract_hash" in reason
+    assert "None" not in reason
+
+
+async def test_a_contract_change_within_the_pinned_major_is_refused(tmp_path):
+    """usa-wa's gate is one-way: a contract change needs *a* bump, not a major one.
+
+    A column dropped under a minor bump passes a major-only pin, and the models
+    read every column as varchar, so a type change never errors at all. The hash
+    is the thing that cannot drift from the shape.
+    """
+    store = SnapshotStore(tmp_path)
+
+    async with httpx.AsyncClient(transport=serving()) as client:
+        report = await pull(
+            "https://usa-wa.exe.xyz:8000",
+            [entry(schema="1.6.0", contract_hash="d1" * 32)],
+            store,
+            token="tok",
+            client=client,
+            subscription=pinned("pm_anchors"),
+        )
+
+    ((name, reason),) = report.incompatible
+    assert name == "pm_anchors"
+    assert "within major 1" in reason
+    assert report.failed_run
+    assert not store.has("pm_anchors", "v1-aaa")
+
+
+async def test_an_entry_that_stops_publishing_its_contract_hash_is_refused(tmp_path):
+    """Treating "no hash" as "no check" would let a publisher regression switch the gate off."""
+    store = SnapshotStore(tmp_path)
+
+    async with httpx.AsyncClient(transport=serving()) as client:
+        report = await pull(
+            "https://usa-wa.exe.xyz:8000",
+            [entry(contract_hash=None)],
+            store,
+            token="tok",
+            client=client,
+            subscription=pinned("pm_anchors"),
+        )
+
+    ((name, reason),) = report.incompatible
+    assert name == "pm_anchors"
+    assert "no contract_hash" in reason
     assert not store.has("pm_anchors", "v1-aaa")
 
 
@@ -370,7 +484,7 @@ async def test_an_unparseable_schema_version_fails_only_its_own_dataset(tmp_path
             store,
             token="tok",
             client=client,
-            subscription=Subscription(names=frozenset({"broken", "pm_anchors"}), schema_major=1),
+            subscription=pinned("broken", "pm_anchors"),
         )
 
     assert report.landed == ["pm_anchors"]
@@ -387,7 +501,7 @@ async def test_pull_records_a_corrupt_download_as_a_failure(tmp_path):
             store,
             token="tok",
             client=client,
-            subscription=Subscription(names=frozenset({"pm_anchors"}), schema_major=1),
+            subscription=pinned("pm_anchors"),
         )
 
     assert [name for name, _ in report.failed] == ["pm_anchors"]
@@ -407,7 +521,7 @@ async def test_one_dataset_failing_does_not_stop_the_others(tmp_path):
             store,
             token="tok",
             client=client,
-            subscription=Subscription(names=frozenset({"broken", "pm_anchors"}), schema_major=1),
+            subscription=pinned("broken", "pm_anchors"),
         )
 
     assert report.landed == ["pm_anchors"]
@@ -437,7 +551,7 @@ async def test_a_filesystem_failure_fails_its_dataset_not_the_run(tmp_path, monk
             store,
             token="tok",
             client=client,
-            subscription=Subscription(names=frozenset({"broken", "pm_anchors"}), schema_major=1),
+            subscription=pinned("broken", "pm_anchors"),
         )
 
     assert report.landed == ["pm_anchors"]
@@ -455,7 +569,7 @@ async def test_a_subscription_naming_a_dataset_the_catalog_lacks_is_reported(tmp
             store,
             token="tok",
             client=client,
-            subscription=Subscription(names=frozenset({"pm_anchors", "gone"}), schema_major=1),
+            subscription=pinned("gone", "pm_anchors"),
         )
 
     assert report.missing == ["gone"]

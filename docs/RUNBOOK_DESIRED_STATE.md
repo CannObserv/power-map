@@ -24,6 +24,11 @@ uv run --group mapping "${env_args[@]}" python -m scripts.export_pm_tables    # 
 uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 3. dbt build → data/desired_state/*.parquet
 ```
 
+- **A model rewritten for a new contract re-pins it in the same diff.** Each
+  `usa_wa` source in `models/sources.yml` carries the `schema_major` and
+  `contract_hash` its model reads (#536), and step 1 lands nothing else — see
+  `docs/RUNBOOKS.md` § Pull usa-wa dataset snapshots. The build reads the newest
+  snapshot the store holds, so pull after deploying a re-pin, before building.
 - **Models never open a database.** PM's two tables cross the seam as Parquet
   (step 2), so `dbt build` is hermetic and its tests run in the unit tier on
   fixtures. Neither step 2 nor 3 carries `--execute`: nothing writes a database.
