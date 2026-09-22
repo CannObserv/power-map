@@ -153,19 +153,34 @@ def test_a_build_records_the_contract_each_source_held(store, tmp_path):
     assert contracts["roles"] is None
 
 
-def test_an_unreadable_pin_file_is_a_usage_error_not_a_traceback(
-    store, tmp_path, capsys, monkeypatch
-):
+def test_an_unreadable_pin_file_is_a_usage_error_not_a_traceback(tmp_path, capsys, monkeypatch):
     """CR 2: the puller answers the same bad file with a sentence and exit 2, so
-    one malformed pin must not read as configuration in step 1 and a crash in step 3."""
+    one malformed pin must not read as configuration in step 1 and a crash in step 3.
 
-    def unreadable(*a, **kw):
+    No `store` fixture (CR 14): the load is the first thing `main` does, before
+    anything reads a snapshot.
+    """
+
+    def unreadable():
         raise ValueError("sources.yml: usa_wa.persons: meta.schema_major None is not an integer")
 
-    monkeypatch.setattr("src.core.ingestion.mapping.load_subscription", unreadable)
+    monkeypatch.setattr("scripts.build_desired_state.load_subscription", unreadable)
 
     with pytest.raises(SystemExit) as exc:
-        main(_args(store, tmp_path))
+        main(_args(tmp_path / "store", tmp_path))
 
     assert exc.value.code == 2
     assert "usa_wa.persons" in capsys.readouterr().err
+
+
+def test_a_failure_inside_the_build_is_not_reported_as_a_usage_error(store, tmp_path, monkeypatch):
+    """CR 10: round one caught ValueError around the whole build, so an export
+    that failed exited 2 under an argparse usage banner."""
+
+    def boom(*a, **kw):
+        raise ValueError("parquet export failed")
+
+    monkeypatch.setattr("scripts.build_desired_state.write_desired_state", boom)
+
+    with pytest.raises(ValueError, match="parquet export failed"):
+        main(_args(store, tmp_path))

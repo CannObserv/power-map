@@ -32,6 +32,7 @@ import sys
 from pathlib import Path
 
 from scripts._dsn import build_parser
+from src.core.ingestion.datasets import Subscription, load_subscription
 from src.core.ingestion.mapping import (
     check_contracts,
     run_dbt,
@@ -47,11 +48,13 @@ DEFAULT_OUT = "data/desired_state"
 DEFAULT_DUCKDB = "data/mapping.duckdb"
 
 
-def build(root: Path, out: Path, duckdb_path: Path) -> int:
+def build(
+    root: Path, out: Path, duckdb_path: Path, *, subscription: Subscription | None = None
+) -> int:
     """Check the held contracts, run `dbt build`, report, and export; return the exit code."""
     # Before dbt, not after: a build from the wrong shape is not a build to
     # inspect. The chain stops here, so the applier never sees its output.
-    if findings := check_contracts(root):
+    if findings := check_contracts(root, subscription=subscription):
         for finding in findings:
             logger.error("  CONTRACT  %s", finding)
         logger.error(
@@ -94,12 +97,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        return build(Path(args.root), Path(args.out), Path(args.duckdb))
+        # Loaded here rather than inside `check_contracts` so the `ValueError`
+        # a malformed pin raises is the *only* thing this catches (CR 10): round
+        # one wrapped the whole build, which turned a failed parquet export into
+        # an argparse usage banner. A bad pin is configuration, like a bad flag,
+        # and the puller already answers it with a sentence and exit 2 (#536 CR 4).
+        subscription = load_subscription()
     except ValueError as exc:
-        # `check_contracts` loads the pins, and a malformed one is configuration
-        # like a bad flag — the puller already answers it with a sentence and
-        # exit 2 (#536 CR 4). A traceback here would read as a broken step.
         parser.error(str(exc))
+    return build(Path(args.root), Path(args.out), Path(args.duckdb), subscription=subscription)
 
 
 if __name__ == "__main__":
