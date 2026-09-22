@@ -29,8 +29,8 @@ Usage:
 
 Exit codes: 0 all subscribed datasets are held — including any the publisher
 serves with no `datapackage.json`, which the report names; 1 a dataset failed,
-was incompatible, or was subscribed but absent from the catalog; 2 usage,
-including a `--dataset` that is not pinned.
+was incompatible, or was subscribed but absent from the catalog; 2 usage — no
+token, a `--dataset` that is not pinned, or a pin file that will not load.
 """
 
 import asyncio

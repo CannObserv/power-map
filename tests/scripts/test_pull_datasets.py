@@ -81,6 +81,22 @@ def test_an_unpinned_dataset_name_is_a_usage_error(monkeypatch, tmp_path, capsys
     assert "stg_wsl_committees" in capsys.readouterr().err
 
 
+def test_an_unreadable_pin_file_is_a_usage_error_not_a_traceback(monkeypatch, tmp_path, capsys):
+    """A bad pin is configuration, like a bad flag: a sentence and exit 2 (CR 4)."""
+
+    def unreadable():
+        raise ValueError("sources.yml: usa_wa.persons: meta.schema_major None is not an integer")
+
+    monkeypatch.setenv("USA_WA_TOKEN", "tok")
+    monkeypatch.setattr("scripts.pull_datasets.load_subscription", unreadable)
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--root", str(tmp_path)])
+
+    assert exc.value.code == 2
+    assert "usa_wa.persons" in capsys.readouterr().err
+
+
 async def test_a_clean_pull_lands_the_pinned_datasets_and_exits_zero(tmp_path):
     store = SnapshotStore(tmp_path)
 
