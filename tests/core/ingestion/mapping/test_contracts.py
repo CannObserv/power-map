@@ -212,3 +212,12 @@ def test_a_held_source_nothing_pins_has_no_contract_to_compare(tmp_path):
     held(tmp_path, snapshot=PINNED)
 
     assert check_contracts(tmp_path, subscription=SUBSCRIPTION) == []
+
+
+def test_a_provenance_file_truncated_mid_character_reads_as_unstated(tmp_path):
+    """CR 1: `read_text` raises `UnicodeDecodeError`, not a JSON error, so the
+    narrower catch let the one shape of truncation through that it named."""
+    d = held(tmp_path, snapshot=None, package=f"sha256:{PINNED}")
+    (d / "snapshot.json").write_bytes(b'{"contract_hash": "\xff\xfe')
+
+    assert held_contract(tmp_path, "persons", VERSION) == PINNED

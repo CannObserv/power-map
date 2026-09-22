@@ -114,7 +114,11 @@ def _stated_contract(path: Path) -> str | None:
     """
     try:
         raw = json.loads(path.read_text()).get("contract_hash")
-    except (OSError, json.JSONDecodeError, AttributeError):
+    except (OSError, ValueError, AttributeError):
+        # ValueError covers both `json.JSONDecodeError` and the
+        # `UnicodeDecodeError` a write truncated mid multi-byte character
+        # raises from `read_text` (CR 1); AttributeError, a document whose top
+        # level is not an object.
         return None
     # `snapshot.json` records it bare, `datapackage.json` prefixed.
     return raw.rpartition(":")[2].lower() if isinstance(raw, str) and raw else None

@@ -683,3 +683,11 @@ def test_a_stale_producer_fails_the_run(tmp_path):
     report.producer_stale = "usa-wa is behind the clock: …"
 
     assert report.failed_run
+
+
+def test_a_run_record_truncated_mid_character_reads_as_none(tmp_path):
+    """CR 1: the docstring promises a truncated write cannot stop a build, and
+    `UnicodeDecodeError` is a ValueError rather than a `json.JSONDecodeError`."""
+    (tmp_path / "pull.json").write_bytes(b'{"checked_at": "\xff\xfe')
+
+    assert SnapshotStore(tmp_path).pull_record() is None

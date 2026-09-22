@@ -524,7 +524,11 @@ class SnapshotStore:
         path = self.root / PULL_FILE
         try:
             return json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
+            # ValueError, not `json.JSONDecodeError`: a write truncated mid
+            # multi-byte character raises `UnicodeDecodeError` from `read_text`,
+            # which is a ValueError and not a JSON error — the one shape of
+            # truncation the narrower catch let through (CR 1).
             return None
 
     def land(self, entry: CatalogEntry, files: dict[str, bytes]) -> Path:
