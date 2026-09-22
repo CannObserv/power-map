@@ -26,7 +26,6 @@ TEMPLATES = Path(__file__).resolve().parents[3] / "src" / "templates"
 
 _JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.DOTALL)
 _OPEN_TAG = re.compile(r"<[a-zA-Z][\w-]*\s[^>]*>")
-_TRIGGER = re.compile(r"""\shx-trigger=(["'])(.*?)\1""", re.DOTALL)
 # The event name ends at whitespace or a ``[filter]``; ``loadMore`` is another event.
 _LOAD_EVENT = re.compile(r"load(?![\w-])")
 
@@ -36,10 +35,22 @@ def _fires_on_load(trigger: str) -> bool:
     return any(_LOAD_EVENT.match(spec.strip()) for spec in trigger.split(","))
 
 
-def _trigger_value(tag: str) -> str | None:
-    """The opening tag's ``hx-trigger`` value, single- or double-quoted; None when absent."""
-    match = _TRIGGER.search(tag)
+def _attr(tag: str, name: str) -> str | None:
+    """The opening tag's ``name`` value, single- or double-quoted; None when absent.
+
+    The leading whitespace keeps ``data-hx-swap`` from reading as ``hx-swap``.
+    """
+    match = re.search(rf"""\s{name}=(["'])(.*?)\1""", tag, re.DOTALL)
     return match.group(2) if match else None
+
+
+def _undeclared(tag: str) -> list[str]:
+    """The ``hx-target`` / ``hx-swap`` a host leaves to inheritance.
+
+    ``hx-swap="none"`` swaps nothing, so that host needs no target.
+    """
+    needed = ("hx-swap",) if _attr(tag, "hx-swap") == "none" else ("hx-target", "hx-swap")
+    return [attr for attr in needed if _attr(tag, attr) is None]
 
 
 def _self_loading_hosts() -> list[tuple[str, str]]:
@@ -52,7 +63,7 @@ def _self_loading_hosts() -> list[tuple[str, str]]:
     for path in sorted(TEMPLATES.rglob("*.html")):
         source = _JINJA_COMMENT.sub(lambda m: "\n" * m.group().count("\n"), path.read_text())
         for tag in _OPEN_TAG.finditer(source):
-            trigger = _trigger_value(tag.group())
+            trigger = _attr(tag.group(), "hx-trigger")
             if trigger is not None and _fires_on_load(trigger):
                 line = source.count("\n", 0, tag.start()) + 1
                 hosts.append((f"{path.relative_to(TEMPLATES)}:{line}", tag.group()))
@@ -73,13 +84,22 @@ def test_fires_on_load_reads_each_trigger_spec():
     assert not _fires_on_load("load-more from:body")
 
 
-def test_trigger_value_reads_either_quote_style():
-    """A single-quoted ``hx-trigger`` is read like a double-quoted one; none is ``None``."""
-    assert _trigger_value('<div hx-trigger="load" hx-get="/x">') == "load"
-    assert _trigger_value("<div hx-trigger='load, refreshOverlay from:body'>") == (
+def test_attr_reads_either_quote_style():
+    """A single-quoted attribute is read like a double-quoted one; an absent one is ``None``."""
+    assert _attr('<div hx-trigger="load" hx-get="/x">', "hx-trigger") == "load"
+    assert _attr("<div hx-trigger='load, refreshOverlay from:body'>", "hx-trigger") == (
         "load, refreshOverlay from:body"
     )
-    assert _trigger_value('<div hx-get="/x">') is None
+    assert _attr('<div hx-get="/x">', "hx-trigger") is None
+    assert _attr('<div data-hx-swap="none">', "hx-swap") is None
+
+
+def test_undeclared_exempts_only_a_swapless_host_from_a_target():
+    """``hx-swap="none"`` in either quote style needs no target; nothing else is exempt."""
+    assert _undeclared('<div hx-trigger="load">') == ["hx-target", "hx-swap"]
+    assert _undeclared('<div hx-trigger="load" hx-swap="none">') == []
+    assert _undeclared("<div hx-trigger='load' hx-swap='none'>") == []
+    assert _undeclared('<div hx-trigger="load" hx-swap="innerHTML">') == ["hx-target"]
 
 
 def test_self_loading_hosts_are_discovered():
@@ -94,10 +114,7 @@ def test_self_loading_hosts_name_their_own_target_and_swap():
     """No self-loading host inherits ``hx-target`` or ``hx-swap`` from an ancestor (#547)."""
     offenders = []
     for where, tag in _self_loading_hosts():
-        if 'hx-swap="none"' in tag:
-            continue
-        missing = [attr for attr in ("hx-target", "hx-swap") if not re.search(rf"\s{attr}=", tag)]
-        if missing:
+        if missing := _undeclared(tag):
             offenders.append(f"{where} (no {', '.join(missing)})")
     assert not offenders, (
         'a load-triggered host must name its own hx-target (usually "this") and hx-swap, '
@@ -109,9 +126,8 @@ def test_self_loading_hosts_disinherit_what_they_name():
     """What a host names for its own load stops at the host, not its fragment (#547)."""
     offenders = []
     for where, tag in _self_loading_hosts():
-        match = re.search(r"""\shx-disinherit=(["'])(.*?)\1""", tag)
-        disinherited = match.group(2).split() if match else []
-        named = [attr for attr in ("hx-target", "hx-swap") if re.search(rf"\s{attr}=", tag)]
+        disinherited = (_attr(tag, "hx-disinherit") or "").split()
+        named = [attr for attr in ("hx-target", "hx-swap") if _attr(tag, attr) is not None]
         leaked = [attr for attr in named if attr not in disinherited]
         if "*" in disinherited or leaked:
             offenders.append(f"{where} (disinherits {disinherited or 'nothing'}, names {named})")
