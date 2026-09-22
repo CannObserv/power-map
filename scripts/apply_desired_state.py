@@ -160,7 +160,8 @@ async def run(
             # made of — so a fresh streak opened an execute against inputs
             # nobody had been able to refresh, while the run logged that it did
             # not count towards the streak.
-            ok, why = False, (
+            ok = False
+            why = (
                 "this run was built while usa-wa was behind its heartbeat deadline;"
                 " its inputs are of unknown currency"
             )
