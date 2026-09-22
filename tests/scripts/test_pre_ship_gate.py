@@ -1,45 +1,34 @@
-"""Guards `scripts/pre-ship.sh`, this repo's ship gate (#539).
+"""Guards this repo's ship gate: the vendored `pre-ship.sh`, tailored by one file (#549).
 
 `shipping-work-python-fastapi` Step 1 resolves `scripts/<name>.sh` from the repo
-root **before** the skill directory, so a project-local copy is the sanctioned
-tailoring point. This repo needs one because the vendored gate runs:
+root **before** the skill directory. #539 put a copy there because the vendored
+gate ran `uv run pytest … -m "not integration"` — that `-m` **replaced** our
+`addopts` default of `-m 'not integration and not browser'` and so requested the
+browser tier — and because it omitted the `--group seed` our pre-commit hook
+passes. Upstream fixed both (skills#304): integration-marked items are now
+deselected by a collection plugin, leaving `addopts` alone, and
+`.skills/pre-ship-uv-args` puts the project's arguments after `uv run` in every
+uv call. The copy's own ratchet fired on the bump that brought that in, and it
+was deleted (#549, #463: a divergence retires itself).
 
-    uv run pytest $PYTEST_COV_FLAG -x -m "not integration"
+What keeps the vendored gate right for this repo:
 
-and that `-m` **replaces** our `addopts` default of
-`-m 'not integration and not browser'`. The browser tier is then *requested*,
-and `tests/optional_groups.py` is right to refuse: with Playwright absent the
-tier collects 0 tests and exits green, which is the vacuous pass #433 exists to
-prevent. In a provisioned worktree the same invocation is worse than an exit 2 —
-Playwright *is* installed there, so ~200 browser tests that need a live database,
-a server and Chromium are pulled into the ship gate. The marker is hardcoded and
-there is no env knob, so no amount of wrapping fixes it from outside.
+* `test_no_local_gate_shadows_the_vendored_one` — a `scripts/pre-ship.sh` would
+  win Step 1 again and stop receiving upstream fixes without saying so.
+* `test_the_vendored_gate_reads_our_uv_args_file` — the knob we depend on must
+  still exist, or `.skills/pre-ship-uv-args` is inert and the gate runs a
+  narrower suite than the hook.
+* `test_the_vendored_gate_leaves_the_marker_alone` — the #539 defect, watched
+  upstream now: the day a vendored pytest line passes `-m` again, this fails
+  rather than the ship gate silently acquiring the browser tier.
+* `test_our_uv_args_match_the_pre_commit_hook` — the ship gate and the pre-commit
+  `pytest (unit)` hook run one suite definition.
 
-**Why this is a copy and not a delegating wrapper.** The vendored script documents
-a wrapper pattern, and it is the right shape for env loading — but it cannot reach
-the pytest stage. The one seam that skips that stage is the per-SHA stamp, and it
-requires a clean working tree (`-z "$WORKING_TREE_DIRTY"`), while Step 1 runs
-*before* Step 2 ("ensure a clean working tree"). So on the run that matters the
-delegate always re-runs pytest with its own marker.
-
-A copy drifts, which is the cost the issue names. These assertions are what makes
-it not drift silently:
-
-* `test_every_vendored_stage_is_covered` — the vendored stage list is read back
-  and each stage must appear here. A stage upstream adds fails this test rather
-  than quietly not running on ship day.
-* `test_the_divergence_is_still_necessary` — the vendored pytest line must still
-  hardcode the marker. The day upstream takes a marker override, this fails and
-  the right fix is to **delete** our copy and delegate. A local divergence should
-  retire itself (#463), not outlive its reason.
-* `test_our_invocation_matches_the_pre_commit_hook` — the ship gate and the
-  pre-commit gate must run the same suite. The second divergence #539 names is
-  that the vendored script omits `--group seed`, so it ran a narrower suite than
-  our own hook even before the marker.
+`tests/sh/pre_ship.bats` runs the vendored gate against our real args file.
 """
 
 import re
-import subprocess
+import shlex
 from pathlib import Path
 
 import pytest
@@ -48,6 +37,7 @@ from tests import vendor_skills
 
 REPO_ROOT = Path(__file__).parents[2]
 LOCAL_GATE = REPO_ROOT / "scripts" / "pre-ship.sh"
+UV_ARGS_FILE = REPO_ROOT / ".skills" / "pre-ship-uv-args"
 PRE_COMMIT = REPO_ROOT / ".pre-commit-config.yaml"
 
 VENDORED_GATE = (
@@ -58,19 +48,9 @@ VENDORED_GATE = (
     / "pre-ship.sh"
 )
 
-# `echo "=== Lint (ruff) ==="` — the stage banners the vendored gate prints.
-STAGE_BANNER = re.compile(r'echo\s+"===\s*(.+?)\s*==="')
-
-RETIRE_HINT = (
-    'The vendored pre-ship.sh no longer hardcodes `-m "not integration"`. That was the '
-    "only reason scripts/pre-ship.sh exists: DELETE it and let Step 1 resolve the vendored "
-    "gate again, rather than maintaining a copy whose reason has retired (#539, #463)."
-)
-
-
-@pytest.fixture(scope="module")
-def local_source() -> str:
-    return LOCAL_GATE.read_text()
+# An executable pytest run through uv, either spelling: `uv run … pytest` or the
+# vendored `uv_run pytest`. `\bpytest\b` does not match the `pytest_cov` probe.
+PYTEST_RUN = re.compile(r"^\s*(?:[A-Z_]+=\S+\s+)*(?:uv run\b|uv_run\b).*\bpytest\b")
 
 
 @pytest.fixture(scope="module")
@@ -80,94 +60,70 @@ def vendored_source() -> str:
     return VENDORED_GATE.read_text()
 
 
-def test_the_local_gate_exists() -> None:
-    """Without it Step 1 resolves the vendored gate, which exits 2 on this repo."""
-    assert LOCAL_GATE.is_file(), f"missing {LOCAL_GATE.relative_to(REPO_ROOT)}"
+def _uv_args_of(entry: str) -> list[str]:
+    """The arguments between `uv run` and `pytest` in a hook's command line."""
+    words = shlex.split(entry)
+    start = words.index("run") + 1
+    return words[start : words.index("pytest")]
 
 
-def test_the_local_gate_is_executable_bash() -> None:
-    """Step 1 invokes it as `bash <path>`, but a gate nobody can run directly is a trap."""
-    source = LOCAL_GATE.read_text()
-    assert source.startswith("#!/usr/bin/env bash"), "missing or wrong shebang"
-    assert "set -euo pipefail" in source, "a ship gate must not continue past a failed stage"
-
-
-def test_the_divergence_is_still_necessary(vendored_source: str) -> None:
-    """The load-bearing ratchet: our reason to diverge must still be true.
-
-    Asserted on the vendored *pytest invocation* rather than anywhere in the file,
-    so an upstream comment mentioning the marker cannot keep this green.
-    """
-    # The real invocation, not the `echo` of it inside usage() — that one carries
-    # the marker backslash-escaped and would keep this green on its own.
-    invocation = next(
-        (line for line in vendored_source.splitlines() if re.match(r"\s*uv run pytest\b", line)),
-        None,
-    )
-    assert invocation is not None, (
-        "the vendored gate no longer runs pytest at all — re-read it before trusting this copy"
-    )
-    assert '-m "not integration"' in invocation, RETIRE_HINT
-
-
-def test_every_vendored_stage_is_covered(local_source: str, vendored_source: str) -> None:
-    """A stage upstream adds must not silently stop running on ship day."""
-    vendored_stages = set(STAGE_BANNER.findall(vendored_source))
-    assert vendored_stages, "found no stage banners upstream — re-anchor STAGE_BANNER"
-    local_stages = set(STAGE_BANNER.findall(local_source))
-    missing = vendored_stages - local_stages
-    assert not missing, (
-        f"the vendored gate runs stages this copy does not: {sorted(missing)}. Add them here, "
-        "or (if upstream dropped the reason for this copy) delete the copy."
-    )
-
-
-def test_our_invocation_matches_the_pre_commit_hook(local_source: str) -> None:
-    """One suite definition, two gates. #539's second divergence was `--group seed`."""
-    hook = next(
-        (
-            line.strip()
-            for line in PRE_COMMIT.read_text().splitlines()
-            if "pytest" in line and "entry:" in line
-        ),
-        None,
-    )
-    assert hook is not None, "no pytest entry found in .pre-commit-config.yaml"
-    assert "--group seed" in hook, "the pre-commit hook no longer passes --group seed"
-    assert "--group seed" in local_source, (
-        "scripts/pre-ship.sh must pass --group seed, matching the pre-commit `pytest (unit)` hook; "
-        "the vendored gate omits it and so ran a narrower suite than our own gate"
-    )
-
-
-def test_it_does_not_override_the_marker(local_source: str) -> None:
-    """The fix itself: `addopts` supplies the marker, so the gate must not pass `-m`.
-
-    Any `-m` on the command line replaces the ini default wholesale — that is the
-    entire defect. Re-adding one here, even the full expression, re-creates the
-    class of bug (the two would then have to be kept in sync by memory).
-    """
-    # Executable lines only. This file quotes the vendored invocation in its own
-    # comments and in --help, precisely to explain the divergence.
-    pytest_lines = [
-        line for line in local_source.splitlines() if re.match(r"\s*uv run .*\bpytest\b", line)
+def _uv_args_file() -> list[str]:
+    """`.skills/pre-ship-uv-args` as the vendored gate reads it: words, `#` lines skipped."""
+    return [
+        word
+        for line in UV_ARGS_FILE.read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+        for word in line.split()
     ]
-    assert pytest_lines, "the gate does not run pytest"
-    for line in pytest_lines:
-        assert " -m " not in line, (
-            f"{line.strip()!r} passes -m, which replaces the addopts marker wholesale. "
-            "Let pyproject.toml's addopts supply it."
+
+
+def test_uv_args_of_reads_the_hook_entry():
+    """The parser: everything between `uv run` and `pytest`, nothing after."""
+    entry = 'uv run --group seed pytest --no-cov -x -m "not integration and not browser"'
+    assert _uv_args_of(entry) == ["--group", "seed"]
+    assert _uv_args_of("uv run pytest -x") == []
+
+
+def test_no_local_gate_shadows_the_vendored_one() -> None:
+    """Step 1 probes `scripts/` first: a copy there would stop upstream fixes reaching us."""
+    assert not LOCAL_GATE.exists(), (
+        f"{LOCAL_GATE.relative_to(REPO_ROOT)} shadows the vendored gate. Tailor it through "
+        ".skills/pre-ship-uv-args, or — if upstream regressed — say why here before re-adding "
+        "a copy (#539, #549)."
+    )
+
+
+def test_the_vendored_gate_reads_our_uv_args_file(vendored_source: str) -> None:
+    """Without the knob, our args file does nothing and the gate runs a narrower suite."""
+    assert ".skills/pre-ship-uv-args" in vendored_source, (
+        "the vendored gate no longer reads .skills/pre-ship-uv-args — --group seed is lost"
+    )
+
+
+def test_the_vendored_gate_leaves_the_marker_alone(vendored_source: str) -> None:
+    """Any `-m` on a pytest command line replaces the `addopts` marker wholesale (#539)."""
+    runs = [line for line in vendored_source.splitlines() if PYTEST_RUN.match(line)]
+    assert runs, "found no pytest invocation in the vendored gate — re-anchor PYTEST_RUN"
+    for line in runs:
+        assert not re.search(r"\s-m\s", line), (
+            f"{line.strip()!r} passes -m again, which requests the browser tier here. "
+            "Restore a project-local gate (see the module docstring) until upstream fixes it."
         )
 
 
-def test_the_help_flag_works() -> None:
-    """A gate that cannot explain itself gets invoked wrongly under pressure."""
-    proc = subprocess.run(
-        ["bash", str(LOCAL_GATE), "--help"],
-        capture_output=True,
-        text=True,
-        cwd=REPO_ROOT,
+def test_our_uv_args_match_the_pre_commit_hook() -> None:
+    """One suite definition, two gates: the ship gate runs what the hook runs."""
+    entry = next(
+        (
+            line.split("entry:", 1)[1].strip()
+            for line in PRE_COMMIT.read_text().splitlines()
+            if "entry:" in line and "pytest" in line
+        ),
+        None,
     )
-    assert proc.returncode == 0, f"--help exited {proc.returncode}: {proc.stderr}"
-    assert "pre-ship" in proc.stdout.lower()
-    assert "Exit codes:" in proc.stdout
+    assert entry is not None, "no pytest entry found in .pre-commit-config.yaml"
+    assert UV_ARGS_FILE.is_file(), f"missing {UV_ARGS_FILE.relative_to(REPO_ROOT)}"
+    assert _uv_args_file() == _uv_args_of(entry), (
+        f".skills/pre-ship-uv-args gives {_uv_args_file()}, the pre-commit pytest hook "
+        f"{_uv_args_of(entry)}: the ship gate would run a different suite from the hook"
+    )

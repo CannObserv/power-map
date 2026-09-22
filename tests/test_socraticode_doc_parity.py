@@ -241,7 +241,9 @@ def test_the_pin_carries_the_unresolvedpct_explanation() -> None:
 def test_the_template_says_unresolvedpct_is_not_a_verdict() -> None:
     """Corroboration: the pinned template carries the sentence the block carried."""
     template = TEMPLATE_PATH.read_text()
-    assert "corroboration, not a verdict" in template, REFACTOR_HINT
+    # skills#308 reworded "corroboration, not a verdict" to the stronger
+    # "never evidence for it" — the same claim, re-anchored here (#549).
+    assert "never evidence for it" in template, REFACTOR_HINT
     assert "edges/file" in template, REFACTOR_HINT
 
 
@@ -276,8 +278,10 @@ def test_the_doc_still_explains_the_figure_it_stopped_correcting(doc: str) -> No
     """
     lowered = doc.lower()
     for concept, needle in (
-        ("that it is corroboration, not a verdict", "corroboration, not a verdict"),
-        ("that it counts call edges", "call edges"),
+        # skills#308: never evidence for the verdict, and the server's own
+        # denominator — every captured symbol edge, not call edges alone (#549).
+        ("that it is never evidence for the verdict", "never evidence for it"),
+        ("that it counts every captured symbol edge", "captured symbol edges"),
         ("that edges/file is what the gate keys on", "edges/file"),
         ("the differential test against rg", "`rg`"),
     ):

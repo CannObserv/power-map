@@ -141,7 +141,7 @@ What it catches that three green lights do not:
 
 #### Reading the daily `unresolved N%` line
 
-The hook reports `graph unresolved 63.2% (> 50%)` here **every day, and that is not a defect.** `unresolvedPct` counts *call* edges whose callee resolves to no first-party symbol, so any codebase leaning on frameworks and stdlib runs high by construction — `asyncpg`, `ULID`, `os`, FastAPI and pytest are not in this repo and no re-index lowers it. Judge on `verdict` and edges/file; power-map is `verdict: ok` at 1.640 edges/file against a 0.1 floor (1,337 edges across 815 files, re-measured 2026-09-19).
+The hook reports `graph unresolved 63.2% (> 50%)` here **every day, and that is not a defect.** `unresolvedPct` is the share of captured symbol edges (calls, imports, re-exports, type or value references) that match no project symbol — the server's own denominator (skills#308) — so any codebase leaning on frameworks and stdlib runs high by construction — `asyncpg`, `ULID`, `os`, FastAPI and pytest are not in this repo and no re-index lowers it. Judge on `verdict` and edges/file; power-map is `verdict: ok` at 1.640 edges/file against a 0.1 floor (1,337 edges across 815 files, re-measured 2026-09-19).
 
 Verified rather than assumed, by the differential test: `codebase_graph_query` on `src/core/db.py` returns exactly one outbound edge (`src/core/logging.py` — precisely its one first-party import) and 217 unique importers, matching an `rg` sweep over every import spelling at 217. No misses, no false positives. **The import graph is exact; treat `codebase_graph_query` and `codebase_impact` as trustworthy.**
 

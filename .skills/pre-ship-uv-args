@@ -1,0 +1,5 @@
+# Arguments the vendored pre-ship.sh puts after `uv run` in every uv call (#549).
+# Must match the pre-commit `pytest (unit)` hook's, so the ship gate runs the same
+# suite: without `seed`, its tests importorskip into skips and the gate passes
+# having run less. Guard: tests/scripts/test_pre_ship_gate.py.
+--group seed
