@@ -419,3 +419,28 @@ async def test_a_run_on_a_stale_producer_says_so_in_the_journal(world, caplog):
         await _run(world, store)
 
     assert any("heartbeat" in r.getMessage() for r in caplog.records)
+
+
+async def test_a_fresh_streak_does_not_open_an_execute_built_on_a_stale_producer(world):
+    """CR 9: the ledger holds the runs *before* this one, so the gate never asked
+    this of the run it was authorising. A frozen input leaves the digest
+    unchanged — which is the evidence the streak is made of — so three fresh dry
+    runs opened an execute against inputs nobody had been able to refresh, while
+    that run logged that it did not count towards the streak."""
+    build_info = {"datasets": {"persons": "v1"}, "producer": {"stale": False}}
+    (world["desired"] / "BUILD.json").write_text(json.dumps(build_info))
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+    for _ in range(3):
+        assert await _run(world, store) == 0
+    # The producer falls behind; the desired state is byte-for-byte the same.
+    (world["desired"] / "BUILD.json").write_text(
+        json.dumps({**build_info, "producer": {"stale": True}})
+    )
+    conn = FakeConn()
+
+    code = await _run(world, store, execute=True, conn=conn)
+
+    assert code == 1
+    assert conn.events == []
+    assert read_ledger(world["out"] / LEDGER)[-1]["mode"] == "refused"

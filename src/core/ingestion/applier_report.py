@@ -27,7 +27,9 @@ the same thing agree whatever order the engine emitted them in.
 ``may_execute`` is the gate: ``streak`` consecutive clean dry runs carrying one
 digest, which the current run must reproduce — none of them built while usa-wa
 was behind its own heartbeat deadline (#551), because a frozen input and a
-settled diff are indistinguishable from inside a run.
+settled diff are indistinguishable from inside a run. The ledger holds only the
+runs *before* this one, so the execute's own staleness is the caller's to check
+(`producer_stale`), beside its verdict.
 """
 
 import hashlib
@@ -186,13 +188,17 @@ def _by_table(diff: Diff) -> dict[str, dict[str, int]]:
     return dict(sorted(tables.items()))
 
 
-def producer_stale(summary: dict) -> bool:
+def producer_stale(build_info: dict | None) -> bool:
     """Was the publisher behind its own heartbeat deadline when this was built (#551)?
 
-    `BUILD.json` states it; absent means no pull recorded a heartbeat — a
-    hand-made store, or a build older than #551. Unknown is not late.
+    Takes `BUILD.json` rather than a whole summary (CR 9): the gate has to ask
+    this of the run it is about to *authorise*, which has no summary yet — and
+    that was the run it never asked.
+
+    Absent means no pull recorded a heartbeat — a hand-made store, or a build
+    older than #551. Unknown is not late.
     """
-    return bool(((summary.get("build_info") or {}).get("producer") or {}).get("stale"))
+    return bool(((build_info or {}).get("producer") or {}).get("stale"))
 
 
 def _markdown(summary: dict) -> str:
@@ -205,7 +211,7 @@ def _markdown(summary: dict) -> str:
     datasets = (summary.get("build_info") or {}).get("datasets") or {}
     if datasets:
         lines.append("Built from " + ", ".join(f"{k}@{v}" for k, v in datasets.items()) + ".")
-    if producer_stale(summary):
+    if producer_stale(summary.get("build_info")):
         producer = summary["build_info"]["producer"]
         lines += [
             "",
@@ -349,7 +355,7 @@ def ledger_line(summary: dict) -> dict:
         "exceeded": summary["exceeded"],
         "datasets": (summary.get("build_info") or {}).get("datasets"),
         # The gate reads the ledger, never `BUILD.json`, so the fact travels here.
-        "producer_stale": producer_stale(summary),
+        "producer_stale": producer_stale(summary.get("build_info")),
     }
 
 

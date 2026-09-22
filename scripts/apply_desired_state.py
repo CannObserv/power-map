@@ -8,8 +8,9 @@ ownership manifest; the Python knows neither WA nor a table name.
 
 Every run writes `data/applier/<run-id>/{diff.jsonl,summary.json,summary.md}`
 and appends a line to `data/applier/ledger.jsonl`. `--execute` is offered only
-after `streak` consecutive clean dry runs carrying this run's diff digest, none
-of them built while usa-wa was behind its heartbeat deadline (#551). A
+after `streak` consecutive clean dry runs carrying this run's diff digest —
+neither they nor the execute itself built while usa-wa was behind its heartbeat
+deadline (#551). A
 refused `--execute` is recorded as `refused`, not as a dry run: an attempt at
 the gate does not count towards opening it. A diff holding an actionable
 producer merge is a merge phase (#514): its verdict weighs merges, conflicts and
@@ -152,6 +153,17 @@ async def run(
         ok, why = may_execute(read_ledger(ledger_path), digest=digest, streak=streak)
         if verdict.verdict != "clean":
             ok, why = False, f"this run is {verdict.verdict} ({_exceeded(verdict)})"
+        if producer_stale(state.build_info):
+            # The ledger holds the runs *before* this one, so the gate never
+            # asked this of the run it was authorising (CR 9). A frozen input
+            # leaves the digest unchanged, which is the evidence the streak is
+            # made of — so a fresh streak opened an execute against inputs
+            # nobody had been able to refresh, while the run logged that it did
+            # not count towards the streak.
+            ok, why = False, (
+                "this run was built while usa-wa was behind its heartbeat deadline;"
+                " its inputs are of unknown currency"
+            )
         if not ok:
             logger.error("execute refused: %s — recorded as a refused attempt", why)
             mode, code = "refused", EXIT_REFUSED
@@ -221,13 +233,13 @@ def _log_summary(summary: dict, run_dir: Path, ledger_path: Path, streak: int) -
             len(summary["merges"]),
             deferred,
         )
-    if producer_stale(summary):
+    if producer_stale(summary.get("build_info")):
         # A night before the gate reads it off the ledger (#551). Every dataset
         # reads `unchanged` on such a run, so nothing else in it says so.
         logger.warning(
             "  usa-wa was behind its heartbeat deadline when this was built — these"
-            " inputs are of unknown currency, and this run does not count towards the"
-            " --execute streak"
+            " inputs are of unknown currency, so this run neither opens nor extends"
+            " the --execute streak"
         )
     logger.info("  report: %s", run_dir)
     if summary["mode"] == "dry":

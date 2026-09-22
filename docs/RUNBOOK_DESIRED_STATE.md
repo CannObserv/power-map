@@ -218,10 +218,13 @@ the publisher's heartbeat as the last pull recorded it (#551).
   org-cycle guard) is the same rollback. A refused `--execute` is recorded as
   mode `refused`, which is not a dry run and so restarts the streak: attempts at
   the gate never add up to opening it, and only the nightly chain builds it.
-- **A run built while usa-wa was behind its heartbeat deadline does not count
-  towards the streak (#551).** `BUILD.json` carries `producer.stale`, judged at
+- **A run built while usa-wa was behind its heartbeat deadline neither opens nor
+  extends the streak (#551).** `BUILD.json` carries `producer.stale`, judged at
   build time against the `stale_after` the pull recorded; the ledger line
-  carries it and the gate refuses any line holding it, naming the run. A stable
+  carries it and the gate refuses any line holding it, naming the run. The
+  **execute's own** staleness refuses it too — the ledger holds only the runs
+  before this one, so a fresh streak would otherwise open an execute against
+  inputs nobody had been able to refresh. A stable
   digest is the whole evidence the gate consumes, and "the producer's data has
   settled" and "nobody has been able to read the producer" produce the same
   one. The dry run says so in its journal line and in `summary.md`. A ledger
