@@ -189,11 +189,12 @@ async def _open_inline_edit(page, url: str, edit_path: str, notes: int):
 
 
 @pytest.mark.parametrize(
-    ("kind", "field", "edit_path", "notes", "inputs"),
+    ("detail", "seed_key", "field", "edit_path", "notes", "inputs"),
     [
-        ("role", "#title-field", "/inline/title/edit/", 1, ("#title-input",)),
+        ("/admin/roles/", "role_id", "#title-field", "/inline/title/edit/", 1, ("#title-input",)),
         (
-            "ra",
+            "/admin/role-assignments/",
+            "assignment_id",
             "#dates-field",
             "/inline/dates/edit/",
             2,
@@ -202,7 +203,7 @@ async def _open_inline_edit(page, url: str, edit_path: str, notes: int):
     ],
 )
 async def test_inline_edit_form_survives_its_overlay_note(
-    live_server, seeded_ids, page, kind, field, edit_path, notes, inputs
+    live_server, seeded_ids, page, detail, seed_key, field, edit_path, notes, inputs
 ):
     """#547: an edit form's overlay-note host loads into itself, not the form.
 
@@ -211,10 +212,7 @@ async def test_inline_edit_form_survives_its_overlay_note(
     seeds an empty note, so the label, input and buttons all vanished. Waits
     for the note loads to settle, then asserts the form is still there.
     """
-    url = {
-        "role": f"{live_server}/admin/roles/{seeded_ids['role_id']}/",
-        "ra": f"{live_server}/admin/role-assignments/{seeded_ids['assignment_id']}/",
-    }[kind]
+    url = f"{live_server}{detail}{seeded_ids[seed_key]}/"
     page = await _open_inline_edit(page, url, edit_path, notes)
     form = page.locator(f"{field} form")
     for selector in inputs:
