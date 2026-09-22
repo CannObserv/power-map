@@ -20,12 +20,20 @@ TEMPLATES = Path(__file__).resolve().parents[3] / "src" / "templates"
 
 _JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.DOTALL)
 _OPEN_TAG = re.compile(r"<[a-zA-Z][\w-]*\s[^>]*>")
-_TRIGGER = re.compile(r'\shx-trigger="([^"]*)"')
+_TRIGGER = re.compile(r"""\shx-trigger=(["'])(.*?)\1""", re.DOTALL)
+# The event name ends at whitespace or a ``[filter]``; ``loadMore`` is another event.
+_LOAD_EVENT = re.compile(r"load(?![\w-])")
 
 
 def _fires_on_load(trigger: str) -> bool:
     """Whether any comma-separated trigger spec is a ``load`` event (``load delay:0ms`` too)."""
-    return any(spec.split()[0] == "load" for spec in trigger.split(",") if spec.strip())
+    return any(_LOAD_EVENT.match(spec.strip()) for spec in trigger.split(","))
+
+
+def _trigger_value(tag: str) -> str | None:
+    """The opening tag's ``hx-trigger`` value, single- or double-quoted; None when absent."""
+    match = _TRIGGER.search(tag)
+    return match.group(2) if match else None
 
 
 def _self_loading_hosts() -> list[tuple[str, str]]:
@@ -38,8 +46,8 @@ def _self_loading_hosts() -> list[tuple[str, str]]:
     for path in sorted(TEMPLATES.rglob("*.html")):
         source = _JINJA_COMMENT.sub(lambda m: "\n" * m.group().count("\n"), path.read_text())
         for tag in _OPEN_TAG.finditer(source):
-            trigger = _TRIGGER.search(tag.group())
-            if trigger and _fires_on_load(trigger.group(1)):
+            trigger = _trigger_value(tag.group())
+            if trigger is not None and _fires_on_load(trigger):
                 line = source.count("\n", 0, tag.start()) + 1
                 hosts.append((f"{path.relative_to(TEMPLATES)}:{line}", tag.group()))
     return hosts
@@ -54,6 +62,18 @@ def test_fires_on_load_reads_each_trigger_spec():
     assert not _fires_on_load("input changed delay:200ms")
     assert not _fires_on_load("refreshOverlay from:body")
     assert not _fires_on_load("")
+    assert _fires_on_load("load[window.ready]")
+    assert not _fires_on_load("loadMore")
+    assert not _fires_on_load("load-more from:body")
+
+
+def test_trigger_value_reads_either_quote_style():
+    """A single-quoted ``hx-trigger`` is read like a double-quoted one; none is ``None``."""
+    assert _trigger_value('<div hx-trigger="load" hx-get="/x">') == "load"
+    assert _trigger_value("<div hx-trigger='load, refreshOverlay from:body'>") == (
+        "load, refreshOverlay from:body"
+    )
+    assert _trigger_value('<div hx-get="/x">') is None
 
 
 def test_self_loading_hosts_are_discovered():
