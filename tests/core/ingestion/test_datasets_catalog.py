@@ -263,3 +263,11 @@ def test_a_null_contract_hash_parses_as_absent():
     (entry,) = parse_catalog({"datasets": [dict(CATALOG["datasets"][0], contract_hash=None)]})
 
     assert entry.contract_hash is None
+
+
+def test_an_unsupported_algorithm_names_the_field_it_came_from():
+    """Two fields share one digest parser now; "sha512" alone does not say which (CR 6)."""
+    payload = {"datasets": [dict(CATALOG["datasets"][0], contract_hash="sha512:" + "0" * 128)]}
+
+    with pytest.raises(CatalogError, match="contract_hash uses unsupported digest algorithm"):
+        parse_catalog(payload)

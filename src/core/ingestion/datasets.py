@@ -169,7 +169,7 @@ def _digest(raw: object, *, where: str, label: str = "hash") -> str:
         raise CatalogError(f"{where}: {label} {raw!r} is not a sha256 digest")
     algorithm, _, digest = raw.rpartition(":")
     if algorithm and algorithm.lower() != "sha256":
-        raise CatalogError(f"{where}: unsupported digest algorithm {algorithm!r}")
+        raise CatalogError(f"{where}: {label} uses unsupported digest algorithm {algorithm!r}")
     digest = digest.lower()
     # Checked here rather than at comparison time: an empty or malformed digest
     # otherwise surfaces as "digest mismatch — catalog says , downloaded 02a6…",
