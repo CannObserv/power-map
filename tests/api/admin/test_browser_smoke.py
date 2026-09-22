@@ -61,6 +61,8 @@ pytestmark = [pytest.mark.browser]
 _WINNER_NAME = "Smoke Merge Winner"
 _LOSER_NAME = "Smoke Merge Loser"
 _MERGE_QUERY = "Smoke%20Merge"
+# Same-named pair: similarity 1.0, so the People dup badge has a count and a link.
+_DUP_TWIN_NAME = "Smoke Dup Twin"
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="session")
@@ -89,6 +91,31 @@ async def merge_pair(browser_db, seeded_ids):
     finally:
         await conn.close()
     return pair
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="session")
+async def dup_twins(browser_db, seeded_ids):
+    """Two same-named people, so the People dup badge renders its link (#547).
+
+    Module-owned like ``merge_pair``; the name stays clear of its ``?q=`` search.
+    Drops the cached person dup count, which an earlier page load may have
+    stored as 0 for the TTL.
+    """
+    conn = await asyncpg.connect(browser_db)
+    try:
+        for _ in range(2):
+            pid = generate_id()
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+            await conn.execute(
+                "INSERT INTO person_names (id, person_id, name, is_canonical)"
+                " VALUES ($1, $2, $3, TRUE)",
+                generate_id(),
+                pid,
+                _DUP_TWIN_NAME,
+            )
+        await conn.execute("DELETE FROM dup_count_cache WHERE entity_type = 'person'")
+    finally:
+        await conn.close()
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="session")
@@ -274,6 +301,24 @@ async def test_inline_edit_form_survives_its_overlay_note(
     assert await form.locator(".overlay-note-host").count() == notes
     shown = notes if scope == "inside" else 0
     assert await form.locator(".overlay-note-host > .overlay-note").count() == shown
+
+
+@pytest.mark.parametrize("start", ["/admin/people/", "/admin/"])
+async def test_dup_badge_link_navigates_the_page(live_server, dup_twins, page, start):
+    """#547: a boosted link inside a self-loading host navigates the page.
+
+    The host names ``hx-target="this"`` for its own load. Inherited, that
+    ``this`` still means the host, and htmx's boosted-link ``body`` fallback
+    applies only when no ``hx-target`` is found — so the badge's link loaded
+    the duplicates page into the badge. The host disinherits its target and swap.
+    """
+    page, _ = await goto_with_retry(page, f"{live_server}{start}")
+    link = page.locator('[hx-get^="/admin/_dup-badge/people/"] a[href]').first
+    await link.wait_for(state="visible", timeout=5_000)
+    await link.click()
+    await page.wait_for_selector('h1:has-text("Duplicate People")', timeout=5_000)
+    assert await page.locator("main").count() == 1, "the duplicates page nested in the badge"
+    assert await page.locator('[hx-get^="/admin/_dup-badge/people/"] h1').count() == 0
 
 
 async def test_people_list_merge_flow(live_server, merge_pair, page):

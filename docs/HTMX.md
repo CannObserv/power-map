@@ -78,7 +78,7 @@ CSS handles loading automatically — no per-form JS:
        ...>
 ```
 
-**Rule:** a self-loading host (`hx-trigger="load…"`) names its own `hx-target="this"` and `hx-swap`, wherever it sits — a partial can't see the ancestors it will inherit from (#547). Guard: `test_self_loading_hosts.py`.
+**Rule:** a self-loading host (`hx-trigger="load…"`) names its own `hx-target="this"` and `hx-swap`, wherever it sits — a partial can't see the ancestors it will inherit from — and `hx-disinherit="hx-target hx-swap"`, or its fragment's boosted links swap into the host (#547). Never `hx-disinherit="*"`: it cuts `hx-boost` too. Guard: `test_self_loading_hosts.py`.
 
 ### Do not mix table elements and non-table elements in one HTMX response
 

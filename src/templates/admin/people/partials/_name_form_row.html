@@ -77,6 +77,6 @@
       </div>
       {% endif %}
     </form>
-    <div class="overlay-note-host" hx-get="/admin/_overlay/person/{{ person_id }}/name/?variant=note" hx-trigger="load" hx-target="this" hx-swap="innerHTML"></div>
+    <div class="overlay-note-host" hx-get="/admin/_overlay/person/{{ person_id }}/name/?variant=note" hx-trigger="load" hx-target="this" hx-swap="innerHTML" hx-disinherit="hx-target hx-swap"></div>
   </td>
 </tr>

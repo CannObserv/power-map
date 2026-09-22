@@ -42,7 +42,8 @@
            id="provenance-table"
            hx-get="/admin/imports/{{ batch.id }}/?page={{ page }}"
            hx-trigger="load delay:0ms"
-           hx-swap="none">
+           hx-swap="none"
+           hx-disinherit="hx-swap">
       <thead>
         <tr>
           <th scope="col">Row</th>

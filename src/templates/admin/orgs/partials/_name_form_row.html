@@ -57,6 +57,6 @@
                 {% endif %}>Cancel</button>
       </div>
     </form>
-    <div class="overlay-note-host" hx-get="/admin/_overlay/organization/{{ org_id }}/legal_name/?variant=note" hx-trigger="load" hx-target="this" hx-swap="innerHTML"></div>
+    <div class="overlay-note-host" hx-get="/admin/_overlay/organization/{{ org_id }}/legal_name/?variant=note" hx-trigger="load" hx-target="this" hx-swap="innerHTML" hx-disinherit="hx-target hx-swap"></div>
   </td>
 </tr>

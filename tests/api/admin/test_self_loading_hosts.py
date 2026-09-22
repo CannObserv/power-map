@@ -11,6 +11,12 @@ producer's scope) left nothing at all.
 A partial cannot see the ancestors of the page that includes it, so the rule is
 unconditional: a host that is safe where it sits today names its target anyway.
 ``hx-swap="none"`` swaps nothing, so such a host needs no target.
+
+Inheritance also runs the other way. Whatever the host names, the fragment it
+loads inherits — and an inherited ``hx-target="this"`` still means the host, so
+a boosted ``<a>`` in a dup badge loaded the whole page into the badge. So the
+host also disinherits what it names (``hx-disinherit="hx-target hx-swap"``).
+Never ``*``: htmx then cuts every attribute at the host, ``hx-boost`` included.
 """
 
 import re
@@ -96,4 +102,20 @@ def test_self_loading_hosts_name_their_own_target_and_swap():
     assert not offenders, (
         'a load-triggered host must name its own hx-target (usually "this") and hx-swap, '
         "or it swaps into whatever an ancestor names (#547):\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_self_loading_hosts_disinherit_what_they_name():
+    """What a host names for its own load stops at the host, not its fragment (#547)."""
+    offenders = []
+    for where, tag in _self_loading_hosts():
+        match = re.search(r"""\shx-disinherit=(["'])(.*?)\1""", tag)
+        disinherited = match.group(2).split() if match else []
+        named = [attr for attr in ("hx-target", "hx-swap") if re.search(rf"\s{attr}=", tag)]
+        leaked = [attr for attr in named if attr not in disinherited]
+        if "*" in disinherited or leaked:
+            offenders.append(f"{where} (disinherits {disinherited or 'nothing'}, names {named})")
+    assert not offenders, (
+        "a load-triggered host must list exactly what it names in hx-disinherit, never *, or its "
+        "fragment's links inherit the host's target (#547):\n  " + "\n  ".join(offenders)
     )
