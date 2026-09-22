@@ -252,3 +252,14 @@ def test_refuses_a_contract_hash_that_is_not_a_digest():
 
     with pytest.raises(CatalogError, match="contract_hash"):
         parse_catalog(payload)
+
+
+def test_a_null_contract_hash_parses_as_absent():
+    """JSON's spelling of "none" must not refuse the whole catalog (CR 1).
+
+    An unsubscribed staging entry publishing `null` would otherwise stop every
+    pull under a "catalog unreadable" message that points at the token.
+    """
+    (entry,) = parse_catalog({"datasets": [dict(CATALOG["datasets"][0], contract_hash=None)]})
+
+    assert entry.contract_hash is None

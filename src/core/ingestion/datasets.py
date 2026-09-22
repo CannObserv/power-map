@@ -218,7 +218,9 @@ def parse_catalog(payload: dict) -> list[CatalogEntry]:
                         where=f"catalog entry {name}",
                         label="contract_hash",
                     )
-                    if "contract_hash" in raw
+                    # `null` is JSON's spelling of "none": absent, not malformed,
+                    # or one entry nobody subscribes to refuses the whole catalog.
+                    if raw.get("contract_hash") is not None
                     else None
                 ),
             )
