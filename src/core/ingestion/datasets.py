@@ -234,10 +234,16 @@ class Catalog:
         return self.stale_after is not None and now > self.stale_after
 
     def lateness(self, now: datetime) -> str:
-        """The finding a stale heartbeat reads as, for the log and the record."""
+        """The finding a stale heartbeat reads as, for the log and the record.
+
+        A catalog may state a deadline without a `checked_at`; the sentence says
+        so rather than printing `None`, which reads as a bug in this module
+        rather than as a gap in the document (CR 5).
+        """
+        last = fmt_moment(self.checked_at) or "no time it states"
         return (
             f"usa-wa is behind the clock: it last completed a run at "
-            f"{fmt_moment(self.checked_at)} and undertook to publish the next by "
+            f"{last} and undertook to publish the next by "
             f"{fmt_moment(self.stale_after)} — {now - self.stale_after} late"
         )
 

@@ -336,3 +336,13 @@ def test_a_heartbeat_without_a_zone_is_read_as_utc():
     catalog = parse_catalog(_beating(stale_after="2026-09-24T08:45:00.000000"))
 
     assert catalog.stale_after == DEADLINE
+
+
+def test_the_lateness_sentence_names_a_missing_checked_at_rather_than_printing_none():
+    """CR 5: it is the line an operator reads at 09:00; `None` reads as our bug."""
+    catalog = parse_catalog(_beating(checked_at=None))
+
+    sentence = catalog.lateness(DEADLINE + timedelta(days=1))
+
+    assert "None" not in sentence
+    assert STALE_AFTER in sentence
