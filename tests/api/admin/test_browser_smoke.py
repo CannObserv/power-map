@@ -189,14 +189,20 @@ async def _open_inline_edit(page, url: str, edit_path: str, notes: int):
 
 
 @pytest.mark.parametrize(
-    ("kind", "edit_path", "notes", "inputs"),
+    ("kind", "field", "edit_path", "notes", "inputs"),
     [
-        ("role", "/inline/title/edit/", 1, ("#title-input",)),
-        ("ra", "/inline/dates/edit/", 2, ("#start-date-input", "#end-date-input")),
+        ("role", "#title-field", "/inline/title/edit/", 1, ("#title-input",)),
+        (
+            "ra",
+            "#dates-field",
+            "/inline/dates/edit/",
+            2,
+            ("#start-date-input", "#end-date-input"),
+        ),
     ],
 )
 async def test_inline_edit_form_survives_its_overlay_note(
-    live_server, seeded_ids, page, kind, edit_path, notes, inputs
+    live_server, seeded_ids, page, kind, field, edit_path, notes, inputs
 ):
     """#547: an edit form's overlay-note host loads into itself, not the form.
 
@@ -210,9 +216,11 @@ async def test_inline_edit_form_survives_its_overlay_note(
         "ra": f"{live_server}/admin/role-assignments/{seeded_ids['assignment_id']}/",
     }[kind]
     page = await _open_inline_edit(page, url, edit_path, notes)
+    form = page.locator(f"{field} form")
     for selector in inputs:
-        assert await page.locator(selector).is_visible(), f"{selector} gone once the note loaded"
-    assert await page.locator('button[type="submit"]:has-text("Save")').is_visible()
+        assert await form.locator(selector).is_visible(), f"{selector} gone once the note loaded"
+    assert await form.locator('button[type="submit"]:has-text("Save")').is_visible()
+    assert await form.locator(".overlay-note-host").count() == notes
 
 
 async def test_people_list_merge_flow(live_server, merge_pair, page):
