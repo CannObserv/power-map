@@ -24,7 +24,9 @@ from pathlib import Path
 
 TEMPLATES = Path(__file__).resolve().parents[3] / "src" / "templates"
 
-_JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.DOTALL)
+# Comments, statements and expressions: blanked before the scan, since prose in a
+# comment is not a host and a ``>`` in ``{% if n > 0 %}`` would end the tag early.
+_JINJA = re.compile(r"\{#.*?#\}|\{%.*?%\}|\{\{.*?\}\}", re.DOTALL)
 _OPEN_TAG = re.compile(r"<[a-zA-Z][\w-]*\s[^>]*>")
 # The event name ends at whitespace or a ``[filter]``; ``loadMore`` is another event.
 _LOAD_EVENT = re.compile(r"load(?![\w-])")
@@ -53,21 +55,30 @@ def _undeclared(tag: str) -> list[str]:
     return [attr for attr in needed if _attr(tag, attr) is None]
 
 
-def _self_loading_hosts() -> list[tuple[str, str]]:
-    """``(template:line, opening tag)`` for every element whose ``hx-trigger`` fires on load.
+def _hosts_in(template: str) -> list[tuple[int, str]]:
+    """``(line, opening tag)`` for every element in ``template`` whose trigger fires on load.
 
-    Jinja comments are blanked line-for-line first, so prose quoting a trigger
-    is not a host and line numbers still match the file.
+    Jinja is blanked line-for-line first (``_JINJA``), so line numbers still
+    match the file. Attribute names and quotes survive, so
+    ``hx-target="#row-{{ id }}"`` still reads as declared; a trigger has to be
+    literal markup to be seen.
     """
+    source = _JINJA.sub(lambda m: "\n" * m.group().count("\n"), template)
     hosts = []
-    for path in sorted(TEMPLATES.rglob("*.html")):
-        source = _JINJA_COMMENT.sub(lambda m: "\n" * m.group().count("\n"), path.read_text())
-        for tag in _OPEN_TAG.finditer(source):
-            trigger = _attr(tag.group(), "hx-trigger")
-            if trigger is not None and _fires_on_load(trigger):
-                line = source.count("\n", 0, tag.start()) + 1
-                hosts.append((f"{path.relative_to(TEMPLATES)}:{line}", tag.group()))
+    for tag in _OPEN_TAG.finditer(source):
+        trigger = _attr(tag.group(), "hx-trigger")
+        if trigger is not None and _fires_on_load(trigger):
+            hosts.append((source.count("\n", 0, tag.start()) + 1, tag.group()))
     return hosts
+
+
+def _self_loading_hosts() -> list[tuple[str, str]]:
+    """``(template:line, opening tag)`` for every self-loading host under ``src/templates``."""
+    return [
+        (f"{path.relative_to(TEMPLATES)}:{line}", tag)
+        for path in sorted(TEMPLATES.rglob("*.html"))
+        for line, tag in _hosts_in(path.read_text())
+    ]
 
 
 def test_fires_on_load_reads_each_trigger_spec():
@@ -100,6 +111,18 @@ def test_undeclared_exempts_only_a_swapless_host_from_a_target():
     assert _undeclared('<div hx-trigger="load" hx-swap="none">') == []
     assert _undeclared("<div hx-trigger='load' hx-swap='none'>") == []
     assert _undeclared('<div hx-trigger="load" hx-swap="innerHTML">') == ["hx-target"]
+
+
+def test_hosts_in_reads_past_a_jinja_comparison_in_the_tag():
+    """A ``>`` inside ``{% … %}`` or ``{{ … }}`` must not end the tag before its trigger."""
+    template = (
+        "<p>intro</p>\n"
+        '<div {% if n > 0 %}class="wide"{% endif %}\n'
+        '     data-n="{{ n > 1 }}" hx-trigger="load" hx-target="this">'
+    )
+    [(line, tag)] = _hosts_in(template)
+    assert line == 2
+    assert _attr(tag, "hx-target") == "this"
 
 
 def test_self_loading_hosts_are_discovered():
