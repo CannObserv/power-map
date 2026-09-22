@@ -345,13 +345,15 @@ def write_build_info(
     row counts, and when. The applier copies it into every run summary and
     ledger line, so a diff can always be traced to the inputs that produced it.
 
-    ``now`` judges the producer's deadline; it defaults to the current moment,
-    and exists so the one field deciding whether a run counts towards the
-    `--execute` streak can be pinned to a moment in a test (CR 6).
+    ``now`` is the moment of this build: it stamps `built_at` and judges the
+    producer's deadline, and defaults to the current moment. One parameter, one
+    clock (CR 11) — it exists so the field deciding whether a run counts towards
+    the `--execute` streak can be pinned to a moment in a test (CR 6).
     """
     root = Path(snapshot_root)
+    at = now or datetime.now(UTC)
     info = {
-        "built_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "built_at": at.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
         "snapshot_root": str(root.resolve()),
         "datasets": resolved_versions(root, versions=versions),
         # Beside the versions: a diff traced to a version alone cannot say which
@@ -360,7 +362,7 @@ def write_build_info(
         # Whether the publisher was behind its own clock when this was built
         # (#551). The applier's ledger reads it; the gate refuses a streak built
         # on it.
-        "producer": producer_state(root, now=now),
+        "producer": producer_state(root, now=at),
         "pm_exports": {
             table: _sha256(root / PM_EXPORT_DIR / f"{table}.parquet") for table in PM_SOURCES
         },

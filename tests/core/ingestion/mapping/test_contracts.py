@@ -238,3 +238,19 @@ def test_build_info_judges_the_producer_at_the_moment_it_is_given(tmp_path):
     )
 
     assert info["producer"]["stale"] is True
+
+
+def test_the_moment_given_stamps_built_at_as_well_as_the_verdict(tmp_path):
+    """CR 11: `now` is the moment of the build, so one parameter must not leave
+    `built_at` reading a second clock."""
+    store = tmp_path / "store"
+    held(store, snapshot=PINNED)
+
+    info = write_build_info(
+        tmp_path / "out",
+        snapshot_root=store,
+        counts={},
+        now=datetime(2026, 9, 26, 9, 30, tzinfo=UTC),
+    )
+
+    assert info["built_at"] == "2026-09-26T09:30:00.000000Z"
