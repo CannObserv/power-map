@@ -218,3 +218,37 @@ def test_refuses_a_hash_that_is_not_a_digest(published):
 
     with pytest.raises(CatalogError, match="not a sha256 digest"):
         parse_catalog(payload)
+
+
+# --------------------------------------------------------------------------
+# contract_hash (#536, usa-wa#385)
+# --------------------------------------------------------------------------
+
+CONTRACT = "dddb4e9f24859f3522f22c1f0e9ba4f31f6cc6faba05b7ef601a568be97c3a7f"
+
+
+def test_parses_the_contract_hash_bare():
+    """The pin compares bare digests, as the data hash does."""
+    payload = {"datasets": [dict(CATALOG["datasets"][0], contract_hash=f"sha256:{CONTRACT}")]}
+
+    (entry,) = parse_catalog(payload)
+
+    assert entry.contract_hash == CONTRACT
+
+
+def test_an_entry_without_a_contract_hash_still_parses():
+    """Required, it would fail the whole catalog over one entry nobody subscribes to.
+
+    Whether a missing hash matters is the pin's question, per dataset.
+    """
+    (entry,) = parse_catalog({"datasets": [CATALOG["datasets"][0]]})
+
+    assert entry.contract_hash is None
+
+
+def test_refuses_a_contract_hash_that_is_not_a_digest():
+    """A malformed hash would otherwise read as a contract change at the pin."""
+    payload = {"datasets": [dict(CATALOG["datasets"][0], contract_hash="sha256:abc")]}
+
+    with pytest.raises(CatalogError, match="contract_hash"):
+        parse_catalog(payload)

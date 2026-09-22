@@ -11,6 +11,7 @@ pytest.importorskip("dbt.adapters.duckdb")
 
 import duckdb  # noqa: E402
 
+from src.core.ingestion.datasets import load_subscription  # noqa: E402
 from src.core.ingestion.mapping import (  # noqa: E402
     PM_SOURCES,
     PROJECT_DIR,
@@ -41,6 +42,16 @@ def test_every_registered_source_is_declared_and_vice_versa(tmp_path):
     registered = {("usa_wa", n) for n in USA_WA_SOURCES} | {("pm", n) for n in PM_SOURCES}
 
     assert declared == registered
+
+
+def test_the_puller_subscribes_to_exactly_the_datasets_the_models_read():
+    """The pins in sources.yml are the nightly's whole subscription (#536).
+
+    A source the models read but the puller does not fetch builds, night after
+    night, from whatever the store last held; a pin nothing reads fails the
+    nightly over a dataset PM cannot consume.
+    """
+    assert set(load_subscription().pins) == set(USA_WA_SOURCES)
 
 
 def test_a_built_file_is_openable_read_only_the_moment_run_dbt_returns(tmp_path):

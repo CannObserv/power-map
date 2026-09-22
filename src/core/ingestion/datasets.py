@@ -34,23 +34,28 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
+import yaml
 
 from src.core.logging import get_logger
 
 __all__ = [
     "CATALOG_PATH",
-    "CONFORMED_TIER",
     "CatalogEntry",
     "CatalogError",
     "DatasetNotFound",
+    "PINS_PATH",
+    "PINS_SOURCE",
+    "Pin",
     "PullReport",
     "SnapshotStore",
     "Subscription",
     "fetch_catalog",
+    "load_subscription",
     "parse_catalog",
     "pull",
 ]
@@ -75,10 +80,13 @@ _SAFE_PATH_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}\Z")
 
-# The default subscription. Staging datasets are the triage and lineage surface
-# and the escape hatch for source-granular consumption — never something PM
-# applies, so they are opt-in by name rather than by tier.
-CONFORMED_TIER = "conformed"
+# Where each subscribed dataset is pinned (#536): `meta` on its source in the
+# mapping project, beside the `read_csv` that depends on its shape, so a model
+# change and its pin change land in one diff. Located by path rather than by
+# import, because `src.core.ingestion.mapping` imports dbt and the puller's
+# environment does not carry it.
+PINS_PATH = Path(__file__).resolve().parent / "mapping" / "models" / "sources.yml"
+PINS_SOURCE = "usa_wa"
 
 # Every version directory holds these two, verbatim. `data.csv` is the one the
 # catalog states a digest for; `datapackage.json` is its schema.
@@ -117,10 +125,13 @@ class CatalogEntry:
     bytes: int
     generated_at: str
     derived_from: tuple[str, ...] = ()
+    # The published contract's fingerprint (usa-wa#385), bare like `sha256`.
+    # None when an entry carries none; whether that matters is the pin's call.
+    contract_hash: str | None = None
 
     @property
     def schema_major(self) -> int:
-        """The pinned half of the schema version — a bump here is a contract break."""
+        """The major its pin compares; meaningful only within one dataset (usa-wa#385)."""
         return int(self.schema_version.split(".", 1)[0])
 
 
@@ -152,10 +163,10 @@ def _count(raw: object, *, label: str, where: str) -> int:
         raise CatalogError(f"{where}: {label} {raw!r} is not a number") from exc
 
 
-def _digest(raw: object, *, where: str) -> str:
+def _digest(raw: object, *, where: str, label: str = "hash") -> str:
     """Return the bare hex digest from a published `sha256:…` (or bare) hash."""
     if not isinstance(raw, str):
-        raise CatalogError(f"{where}: hash {raw!r} is not a sha256 digest")
+        raise CatalogError(f"{where}: {label} {raw!r} is not a sha256 digest")
     algorithm, _, digest = raw.rpartition(":")
     if algorithm and algorithm.lower() != "sha256":
         raise CatalogError(f"{where}: unsupported digest algorithm {algorithm!r}")
@@ -164,7 +175,7 @@ def _digest(raw: object, *, where: str) -> str:
     # otherwise surfaces as "digest mismatch — catalog says , downloaded 02a6…",
     # which sends the reader looking for a bug in this module.
     if not _SHA256_HEX.match(digest):
-        raise CatalogError(f"{where}: hash {raw!r} is not a sha256 digest")
+        raise CatalogError(f"{where}: {label} {raw!r} is not a sha256 digest")
     return digest
 
 
@@ -201,6 +212,15 @@ def parse_catalog(payload: dict) -> list[CatalogEntry]:
                 bytes=_count(raw["bytes"], label="bytes", where=f"catalog entry {name}"),
                 generated_at=raw.get("generated_at", ""),
                 derived_from=tuple(raw.get("derived_from", ())),
+                contract_hash=(
+                    _digest(
+                        raw["contract_hash"],
+                        where=f"catalog entry {name}",
+                        label="contract_hash",
+                    )
+                    if "contract_hash" in raw
+                    else None
+                ),
             )
         )
     return entries
@@ -259,21 +279,79 @@ async def fetch_catalog(
 
 
 @dataclass(frozen=True)
-class Subscription:
-    """What PM pulls, and the schema major it is pinned to.
+class Pin:
+    """The contract PM's mapping models were written against, for one dataset."""
 
-    ``names=None`` means "every conformed product", which is the default the
-    #490 design settles on. A named set is how a staging dataset gets pulled at
-    all — deliberately, since staging mirrors the wire, contradictions included.
-    """
-
-    names: frozenset[str] | None
     schema_major: int
+    contract_hash: str
+
+
+@dataclass(frozen=True)
+class Subscription:
+    """What PM pulls: exactly the pinned datasets, each held to its own contract."""
+
+    pins: Mapping[str, Pin]
 
     def wants(self, entry: CatalogEntry) -> bool:
-        if self.names is None:
-            return entry.tier == CONFORMED_TIER
-        return entry.name in self.names
+        return entry.name in self.pins
+
+    def refusal(self, entry: CatalogEntry) -> str | None:
+        """Why ``entry`` must not land under its pin, or None when it may.
+
+        The hash is the gate and the major only words the refusal: usa-wa's own
+        gate demands *a* bump for a contract change, not the right one, so a
+        major that did not move proves nothing about the shape.
+        """
+        pin = self.pins[entry.name]
+        if entry.schema_major != pin.schema_major:
+            return (
+                f"publishes schema {entry.schema_version}, pinned to major {pin.schema_major}:"
+                " the mapping models need a change before it lands"
+            )
+        if entry.contract_hash is None:
+            return (
+                f"publishes no contract_hash, pinned to sha256:{pin.contract_hash}:"
+                " the publisher stopped stating its contract"
+            )
+        if entry.contract_hash != pin.contract_hash:
+            return (
+                f"contract changed within major {pin.schema_major} (schema "
+                f"{entry.schema_version}, contract sha256:{entry.contract_hash}):"
+                " review it, then re-pin"
+            )
+        return None
+
+
+def load_subscription(path: Path | str = PINS_PATH, *, source: str = PINS_SOURCE) -> Subscription:
+    """Pin every table of ``source`` in a dbt sources file by its ``meta``.
+
+    A table with no pin is an error rather than an omission: the puller would
+    never fetch it, and the model reading it would build from whatever the store
+    last held — the silent staleness the pin exists to prevent.
+    """
+    document = yaml.safe_load(Path(path).read_text()) or {}
+    tables = next(
+        (s.get("tables") or [] for s in document.get("sources") or [] if s.get("name") == source),
+        None,
+    )
+    if not tables:
+        raise ValueError(f"{path}: no tables under a source named {source!r} to subscribe to")
+
+    pins: dict[str, Pin] = {}
+    for table in tables:
+        where = f"{path}: {source}.{table['name']}"
+        meta = table.get("meta") or {}
+        major = meta.get("schema_major")
+        if type(major) is not int:  # `bool` is an int; `True` is not a major
+            raise ValueError(f"{where}: meta.schema_major {major!r} is not an integer")
+        try:
+            contract = _digest(meta.get("contract_hash"), where=where, label="meta.contract_hash")
+        except CatalogError as exc:
+            # Raised as a pin error, not a catalog one: `main` reads a
+            # `CatalogError` as "the publisher's document is unreadable".
+            raise ValueError(str(exc)) from None
+        pins[table["name"]] = Pin(major, contract)
+    return Subscription(pins)
 
 
 @dataclass
@@ -283,6 +361,7 @@ class PullReport:
     landed: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     failed: list[tuple[str, str]] = field(default_factory=list)
+    # (name, why its pin refused it) — `Subscription.refusal`'s sentence.
     incompatible: list[tuple[str, str]] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
     # Landed, verified, but with no schema file — not a failure (the exit code
@@ -389,6 +468,7 @@ class SnapshotStore:
                         "tier": entry.tier,
                         "schema_version": entry.schema_version,
                         "sha256": entry.sha256,
+                        "contract_hash": entry.contract_hash,
                         "rows": entry.rows,
                         "generated_at": entry.generated_at,
                     },
@@ -456,15 +536,15 @@ async def pull(
             continue
         seen.add(entry.name)
 
-        # Everything per-entry lives inside the guard, `schema_major` included:
-        # it parses the version string, and a failure there once aborted the whole
-        # run after earlier datasets had already landed.
+        # Everything per-entry lives inside the guard, the pin check included:
+        # `schema_major` parses the version string, and a failure there once
+        # aborted the whole run after earlier datasets had already landed.
         try:
-            if entry.schema_major != subscription.schema_major:
-                # Not landed, and not silently skipped either: a major bump means
-                # the mapping models were written against a shape that no longer
-                # holds.
-                report.incompatible.append((entry.name, entry.schema_version))
+            reason = subscription.refusal(entry)
+            if reason is not None:
+                # Not landed, and not silently skipped either: the mapping models
+                # were written against a contract this version no longer states.
+                report.incompatible.append((entry.name, reason))
                 continue
 
             if store.has(entry.name, entry.latest_version):
@@ -499,6 +579,5 @@ async def pull(
             continue
         report.landed.append(entry.name)
 
-    if subscription.names is not None:
-        report.missing = sorted(subscription.names - seen)
+    report.missing = sorted(set(subscription.pins) - seen)
     return report
