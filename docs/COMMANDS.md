@@ -239,7 +239,7 @@ bash scripts/worktree-setup.sh <worktree-path>   # default: current directory
 ```
 
 Gives the worktree **its own** `.venv` (`uv sync --group browser --group seed --group mapping`)
-and **its own** `node_modules` (`npm ci`, skipped when one is already there), initialises
+and **its own** `node_modules` (`npm ci`, skipped when `node_modules/.bin` is already there), initialises
 the `skills-vendor/` submodules, and symlinks the gitignored `.env` and
 `data/cannabis_observer` from the main checkout. Refuses (exit 2) against the main checkout.
 
