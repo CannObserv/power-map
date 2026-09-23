@@ -427,7 +427,7 @@ sudo bash scripts/claude-system.sh --execute              # install latest, reli
 sudo bash scripts/claude-system.sh --execute --version stable   # or a pinned X.Y.Z
 ```
 
-The SessionStart hook `.claude/hooks/claude-canonical-check.sh` warns when any link drifts (an extension update unpacks a fresh bundled binary) or when the system version is over 14 days old. It never repairs. `--execute` refuses a downgrade (exit 1) and keeps the current and previous version: to roll back, `sudo ln -sfn /usr/local/lib/claude/versions/<prev> /usr/local/bin/claude`.
+The SessionStart hook `.claude/hooks/claude-canonical-check.sh` warns when any link drifts (an extension update unpacks a fresh bundled binary) or when the last successful `--execute` is over 14 days old. It never repairs, and it stays silent on hosts without `/usr/local/lib/claude/versions`. `--execute` refuses a downgrade (exit 1) and keeps the current and previous version: to roll back, `sudo ln -sfn /usr/local/lib/claude/versions/<prev> /usr/local/bin/claude`.
 
 ---
 
