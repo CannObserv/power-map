@@ -249,7 +249,13 @@ EOF
     run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
     [ "$status" -eq 0 ]
     [ "$(call_count "$STUB_NPM_CALL_LOG" '^npm ci')" -eq 0 ]
-    [[ "$output" != *"npm"* ]]
+    # Each line the step could have emitted, not a bare `*"npm"*` over the whole
+    # output: that also matches $BATS_TEST_TMPDIR, whose mktemp suffix is drawn
+    # from [A-Za-z0-9] and can spell npm — a flake nobody could reproduce, and
+    # one that would be blamed on the step under test.
+    [[ "$output" != *"npm ci"* ]]
+    [[ "$output" != *"WARN: npm"* ]]
+    [[ "$output" != *"node_modules"* ]]
 }
 
 @test "a host without npm warns and finishes the rest of the setup" {
