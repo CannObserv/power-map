@@ -107,6 +107,9 @@ EOF
     # The shared symlink is already gone by then — say so, or the operator
     # cannot tell whether the old environment survived.
     [[ "$output" == *"re-run"* ]]
+    # And nothing downstream of the sync ran: a worktree with no venv should not
+    # first spend a full npm install. Ordering, not a side effect of it.
+    [ "$(call_count "$STUB_NPM_CALL_LOG" '^npm ci')" -eq 0 ]
 }
 
 # --- the .env symlink -------------------------------------------------------
