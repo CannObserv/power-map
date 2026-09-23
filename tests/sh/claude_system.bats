@@ -237,9 +237,10 @@ converge() {
     [[ "$output" == *".local/bin/claude"* ]]
 }
 
-@test "--check flags a stale system version, and names its age" {
+@test "--check falls back to the version file's age when no run was stamped" {
     legacy_layout
     converge
+    rm "$CLAUDE_SYSTEM_LIB/claude/last-update"
     touch -d '20 days ago' "$VERSIONS/2.1.300"
     run bash "$SCRIPT" --check
     [ "$status" -eq 0 ]
@@ -251,6 +252,24 @@ converge() {
     run bash "$SCRIPT" --check
     [ "$status" -eq 0 ]
     [ -z "$output" ]
+}
+
+@test "CR 1: --check ages the last successful run, not the version file" {
+    legacy_layout
+    converge
+    touch -d '20 days ago' "$VERSIONS/2.1.300"
+    converge
+    run bash "$SCRIPT" --check
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
+@test "CR 1: --check flags a stale last run, and names its age" {
+    legacy_layout
+    converge
+    touch -d '20 days ago' "$CLAUDE_SYSTEM_LIB/claude/last-update"
+    run bash "$SCRIPT" --check
+    [[ "$output" == *"2.1.300"*"20 days"* ]]
 }
 
 # --- arguments -----------------------------------------------------------------

@@ -37,6 +37,9 @@ set -uo pipefail
 SYSTEM_BIN="${CLAUDE_SYSTEM_BIN:-/usr/local/bin/claude}"
 SYSTEM_LIB="${CLAUDE_SYSTEM_LIB:-/usr/local/lib}"
 VERSIONS="$SYSTEM_LIB/claude/versions"
+# Touched by every successful --execute. The installer leaves an existing
+# version's file untouched, so its mtime cannot say when anyone last checked.
+STAMP="$SYSTEM_LIB/claude/last-update"
 STALE_DAYS="${CLAUDE_STALE_DAYS:-14}"
 FIX="sudo bash scripts/claude-system.sh --execute"
 
@@ -141,9 +144,11 @@ if [ "$mode" = check ]; then
     if [ -z "$current" ]; then
         issues+=("$SYSTEM_BIN is not the system runtime (it should link into $VERSIONS)")
     else
-        age=$((($(date +%s) - $(stat -c %Y "$VERSIONS/$current")) / 86400))
+        since="$STAMP"
+        [ -e "$since" ] || since="$VERSIONS/$current"
+        age=$((($(date +%s) - $(stat -c %Y "$since")) / 86400))
         [ "$age" -le "$STALE_DAYS" ] ||
-            issues+=("system Claude Code $current was installed $age days ago")
+            issues+=("system Claude Code $current was last updated $age days ago")
     fi
     if { [ -e "$USER_LAUNCHER" ] || [ -L "$USER_LAUNCHER" ]; } && ! links_to_system "$USER_LAUNCHER"; then
         issues+=("$USER_LAUNCHER does not link to $SYSTEM_BIN")
@@ -287,4 +292,5 @@ for ((i = 0; i < ${#all[@]} - 2; i++)); do
     echo "pruned       $VERSIONS/${all[$i]}"
 done
 
+touch "$STAMP"
 exit "$rc"
