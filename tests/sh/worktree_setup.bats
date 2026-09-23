@@ -210,6 +210,27 @@ EOF
     [[ "$output" == *"node_modules already present"* ]]
 }
 
+@test "replaces a node_modules symlinked into the main checkout" {
+    # `-d` dereferences, so a link at the main checkout's node_modules looks
+    # provisioned — and it is the same shared-mutable-environment trap as the
+    # .venv symlink this script exists to undo (#450), in its most direct form:
+    # the worktree runs production's installed versions, and its own npm writes
+    # back into production's working directory. It is also the obvious
+    # pre-#554 workaround, so the state is one an operator arrives with.
+    mkdir -p "$FAKE_MAIN/node_modules/.bin"
+    : > "$FAKE_MAIN/node_modules/.bin/vitest"
+    ln -s "$FAKE_MAIN/node_modules" "$FAKE_WORKTREE/node_modules"
+
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ ! -L "$FAKE_WORKTREE/node_modules" ]
+    [ -d "$FAKE_WORKTREE/node_modules/.bin" ]
+    [ "$(call_count "$STUB_NPM_CALL_LOG" '^npm ci')" -ge 1 ]
+    [[ "$output" == *"shared node_modules symlink"* ]]
+    # The main checkout's own install is not what gets replaced.
+    [ -f "$FAKE_MAIN/node_modules/.bin/vitest" ]
+}
+
 @test "a half-installed node_modules is finished, not declared present" {
     # An interrupted `npm ci` leaves the directory behind without the .bin/ the
     # hooks resolve through. Gating on the directory alone would report that

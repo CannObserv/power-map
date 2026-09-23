@@ -175,7 +175,18 @@ fi
 # hooks resolve through, and an interrupted install leaves the directory without
 # it. Gating on the directory would report such a worktree provisioned while its
 # first commit is still refused.
+#
+# A *symlink* is removed first, for the reason the .venv symlink above is: `-d`
+# dereferences, so a link at the main checkout's node_modules reads as
+# provisioned while handing the worktree production's installed versions — and
+# its own npm writes back through the link into production's working directory.
+# That link is the obvious pre-#554 workaround, so it is a state an operator
+# arrives with rather than a hypothetical.
 if [ -f "$TARGET/package-lock.json" ]; then
+    if [ -L "$TARGET/node_modules" ]; then
+        echo "removing the shared node_modules symlink -> $(readlink "$TARGET/node_modules") (#554)" >&2
+        rm "$TARGET/node_modules"
+    fi
     if [ -d "$TARGET/node_modules/.bin" ]; then
         echo "node_modules already present — left alone (npm ci would reinstall it)" >&2
     elif ! command -v npm >/dev/null 2>&1; then
