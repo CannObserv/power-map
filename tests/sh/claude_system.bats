@@ -302,6 +302,27 @@ converge() {
     [ -z "$output" ]
 }
 
+# Pretend to be root: `id -u` says 0 and `chown` records instead of acting.
+as_fake_root() {
+    local shims="$BATS_TEST_TMPDIR/shims"
+    mkdir -p "$shims"
+    printf '#!/usr/bin/env bash\n[ "$1" = -u ] && { echo 0; exit 0; }\nexec /usr/bin/id "$@"\n' >"$shims/id"
+    printf '#!/usr/bin/env bash\necho "$@" >>"%s"\n' "$BATS_TEST_TMPDIR/chown.log" >"$shims/chown"
+    chmod +x "$shims/id" "$shims/chown"
+    PATH="$shims:$PATH"
+}
+
+@test "CR 4: directories --execute creates in the user's home are handed to the user" {
+    write_stub "$CLAUDE_USER_HOME/.local/share/claude/versions/2.1.280" 2.1.280
+    ln -s "$CLAUDE_USER_HOME/.local/share/claude/versions/2.1.280" "$CLAUDE_SYSTEM_BIN"
+    rmdir "$CLAUDE_USER_HOME/.local/bin"
+    as_fake_root
+    run bash "$SCRIPT" --execute
+    [ "$status" -eq 0 ]
+    grep -q -- " $CLAUDE_USER_HOME/.local/bin\$" "$BATS_TEST_TMPDIR/chown.log"
+    grep -q -- " $CLAUDE_USER_HOME/.claude\$" "$BATS_TEST_TMPDIR/chown.log"
+}
+
 # --- arguments -----------------------------------------------------------------
 
 @test "an unknown flag is an error" {

@@ -137,6 +137,17 @@ relink() {
         chown -h "$OWNER" "$link"
 }
 
+# mkdir -p under the user's home, handing whatever it creates to the user: as
+# root it would otherwise leave a root-owned ~/.claude, which breaks every
+# session that user starts.
+ensure_user_dir() {
+    local dir="$1" top="$1"
+    [ -d "$dir" ] && return 0
+    while [ ! -d "$(dirname "$top")" ]; do top="$(dirname "$top")"; done
+    mkdir -p "$dir" || return 1
+    [ -z "$OWNER" ] || [ "$(id -u)" -ne 0 ] || chown -R "$OWNER" "$top"
+}
+
 mapfile -t BINARIES < <(bundled_binaries)
 
 # --- --check: the SessionStart hook. Reads links and mtimes; runs nothing. ------
@@ -251,7 +262,7 @@ fi
 if links_to_system "$USER_LAUNCHER"; then
     echo "already      $USER_LAUNCHER"
 else
-    mkdir -p "$(dirname "$USER_LAUNCHER")"
+    ensure_user_dir "$(dirname "$USER_LAUNCHER")" || exit 2
     relink "$USER_LAUNCHER" "$SYSTEM_BIN" || exit 2
     echo "linked       $USER_LAUNCHER -> $SYSTEM_BIN"
 fi
@@ -272,7 +283,7 @@ done
 
 # The user-level auto-updater can no longer move anything; stop its downloads.
 settings="$USER_HOME/.claude/settings.json"
-mkdir -p "$(dirname "$settings")"
+ensure_user_dir "$(dirname "$settings")" || exit 2
 python3 - "$settings" <<'PY' || exit 2
 import json, sys
 path = sys.argv[1]
