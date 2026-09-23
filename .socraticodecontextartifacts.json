@@ -13,7 +13,12 @@
     {
       "name": "reference-docs",
       "path": "./docs",
-      "description": "The whole reference-doc tree, indexed recursively. Domain and data: schema tables and indexes, validity windows, observation semantics, person/org names. Public API: auth, scopes, pagination, conditional requests, the change feed, and per-resource endpoint contracts. Admin dashboard: auth and archive model, HTMX partial patterns, UI components, forms, merge flows, visual style, accessibility. Operating it: everyday commands, test tiers, runbooks, recurring integrity audits, DB triage and migration. Also holds docs/plans \u2014 historical feature design docs and implementation plans."
+      "description": "The whole reference-doc tree, indexed recursively. Domain and data: schema tables and indexes, validity windows, observation semantics, person/org names. Public API: auth, scopes, pagination, conditional requests, the change feed, and per-resource endpoint contracts. Admin dashboard: auth and archive model, HTMX partial patterns, UI components, forms, merge flows, visual style, accessibility. Operating it: everyday commands, test tiers, runbooks, recurring integrity audits, DB triage and migration. Excludes docs/plans (see design-history)."
+    },
+    {
+      "name": "design-history",
+      "path": "./docs/plans",
+      "description": "Dated feature design docs and implementation plans (docs/plans, YYYY-MM-DD-*.md). Historical: each records what was decided and the values in force when it was written, which may since have changed. Search it for why something was built this way; take current behaviour from reference-docs, database-schema, or the code."
     },
     {
       "name": "deployment-topology",

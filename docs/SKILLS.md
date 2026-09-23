@@ -135,7 +135,8 @@ What it catches that three green lights do not:
   `docs/` tree unreachable. The check measures the manifest's declared count
   against per-artifact status and names the shortfall
   (`context artifacts 2/3 indexed — reference-docs: ○ not yet indexed`); recovery
-  is `codebase_context_index`. Pinned by `tests/test_socraticode_health_parity.py`,
+  is `codebase_update`, which re-embeds only the artifacts whose content moved
+  (skills#317). Pinned by `tests/test_socraticode_health_parity.py`,
   which fails if the submodule rolls back past the fix
 - **graph yield.** `READY` is a status, not a result: the graph can be READY with almost no edges, and `codebase_graph_query` then answers "no dependents" rather than failing. Yield is measured in edges/file against a `0.1` floor — that ratio, not `unresolvedPct`, is the verdict.
 
@@ -190,7 +191,7 @@ Name directories, not files. The manifest previously listed four individual docs
 #454 is the field case: one entry hit `fetch failed` while an incremental update ran concurrently, the operation then read *completed*, `codebase_status` settled at `2/3 indexed`, and every health light stayed green — with the whole 2.5 MB `docs/` tree unreachable.
 
 - **Where to look.** `codebase_context` reports per-artifact `✓ indexed` status and is the only place that status exists; `codebase_status` gives a count and never a name.
-- **Recovery** is a plain retry of `codebase_context_index` — but **not concurrently with an incremental update.** The CPU-only embedding backend serializes badly: a 5-file incremental took 31 min beside a context embed, and 0.7s solo. The clean retry indexed everything.
+- **Recovery** is `codebase_update`, which re-embeds only the artifacts that are missing or whose content moved (skills#317). Avoid a bare retry of `codebase_context_index`: it re-embeds every artifact with no progress, and on this CPU backend it can outlast the 1800 s tool idle timeout. When it does, it reports failure while the server finishes. Keep it for a first index or a manifest whose artifacts all changed, and **never run it concurrently with an incremental update.** The CPU-only embedding backend serializes badly: a 5-file incremental took 31 min beside a context embed, and 0.7s solo. The clean retry in #454 indexed everything.
 - **Who catches it now.** The daily health hook, since #461 (see § Health hook above). `tests/test_socraticode_health_parity.py` pins the vendored driver that carries the check, so a submodule rollback reds a test instead of silently reopening the gap.
 
 This section is where those pointers live **on purpose.** They were previously a `local-divergence` block in `docs/SOCRATICODE.md`, which is generated: back then the whole file was overwritten on a re-run, so repo-specific content there survived only while a guard test protected it. All three blocks are now retired (#461, #463): the template carries each explanation itself, so that file holds the template's wording plus the adaptation it asks for, and a re-run has no correction to re-apply. Every retirement left an ancestry ratchet behind in `tests/test_socraticode_doc_parity.py` or `tests/test_socraticode_health_parity.py`, so rolling the submodule back past any of them reds a test instead of quietly reopening the gap. That file now also carries the skills#210 marker pair, so its `## Repo-specific notes` section is a second safe home for repo-authored SocratiCode prose — this one stays here because it is about the *artifacts*, not about exploration.

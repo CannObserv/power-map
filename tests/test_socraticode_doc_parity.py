@@ -46,6 +46,7 @@ no behavioural change; only `git merge-base --is-ancestor` is immune to that.
 """
 
 import difflib
+import json
 import re
 from pathlib import Path
 
@@ -79,6 +80,13 @@ UNRESOLVED_DOC_COMMIT = "1e76baf"
 # `#216 fix: word the unresolvedPct finding from the verdict` — the daily hook
 # line the divergence block existed to translate.
 UNRESOLVED_WORDING_COMMIT = "e216fc2"
+
+# `#317 fix: the stale-artifact remedy is codebase_update, not a full re-embed`.
+UPDATE_REMEDY_COMMIT = "f8b5599"
+
+MANIFEST_PATH = REPO_ROOT / ".socraticodecontextartifacts.json"
+SKILLS_DOC_PATH = REPO_ROOT / "docs" / "SKILLS.md"
+ARTIFACT_NAME_RE = re.compile(r'artifactName: "([a-z0-9-]+)"')
 
 DRIVER_PATH = vendor_skills.DRIVER_PATH
 
@@ -498,3 +506,58 @@ def test_the_retired_sections_still_match_the_pinned_template(doc: str) -> None:
             f"edit means the content belongs below the {END_MARKER} line "
             f"instead. Do not resolve it by editing skills-vendor/.\n\n{diff}"
         )
+
+
+# ── The adapted rows, and the repo-authored remedy (#542) ────────────────────
+
+
+def test_the_schema_row_names_a_declared_schema_artifact(doc: str) -> None:
+    """The schema row scopes context search to an artifact the manifest declares.
+
+    Unscoped, a context search answers schema questions from whichever chunk
+    ranks highest, and 127 dated plans outrank one DDL file. The template's row
+    says "only with `artifactName` set to a declared schema artifact"; this
+    repo's adaptation names it, and the name must survive a manifest rename.
+    """
+    rows = [row for row in _tool_table(_span(doc)).splitlines() if "schema" in row.lower()]
+    assert len(rows) == 1, f"expected one schema row in the tool table, found {rows}"
+    named = ARTIFACT_NAME_RE.findall(rows[0])
+    assert named, f"the schema row names no artifactName: {rows[0]}"
+    declared = {a["name"]: a["path"] for a in json.loads(MANIFEST_PATH.read_text())["artifacts"]}
+    for name in named:
+        assert name in declared, f"artifactName {name!r} is not declared in the manifest"
+        assert declared[name].endswith(".sql"), (
+            f"artifactName {name!r} points at {declared[name]}, not a schema file"
+        )
+
+
+@vendor_only
+def test_the_pin_carries_the_update_remedy() -> None:
+    """The ratchet under the next test: the pin says `codebase_update` repairs."""
+    _assert_pin_contains(
+        UPDATE_REMEDY_COMMIT,
+        317,
+        "the vendored health check still names codebase_context_index as the stale-artifact remedy",
+        recovery=(
+            "revert docs/SKILLS.md's recovery lines to codebase_context_index, "
+            "which is what that pin's health finding tells the reader to run"
+        ),
+    )
+
+
+def test_skills_md_repairs_artifacts_with_codebase_update() -> None:
+    """The repo-authored recovery advice matches the template's (skills#317).
+
+    `codebase_context_index` re-embeds every artifact with no progress and no
+    content-hash skip; on a CPU embedder it outlasts the 1800 s tool timeout
+    and reports failure while the server finishes. `docs/SKILLS.md` is never
+    regenerated, so a re-run cannot correct it — this does.
+    """
+    text = SKILLS_DOC_PATH.read_text()
+    recovery = [line for line in text.splitlines() if "ecovery" in line]
+    assert recovery, "no recovery lines in docs/SKILLS.md"
+    for line in recovery:
+        if "codebase_context_index" in line or "codebase_update" in line:
+            assert "codebase_update" in line, (
+                f"docs/SKILLS.md prescribes a full re-embed as recovery: {line.strip()[:160]}"
+            )

@@ -15,20 +15,20 @@ heading down there, not in `AGENTS.md`.
 
 | Goal | Tool |
 |------|------|
-| Where is X defined / how does Y work / what touches Z | `codebase_search` (broad query) |
+| Where is X defined / how does Y work / what files touch Z | `codebase_search` (broad query) |
 | Find a specific function or type by name | `codebase_search` (exact name) |
 | Exact string/regex match (errors, log lines, known symbols) | `grep` / `rg` |
-| Blast radius of changing or deleting a file or function | `codebase_impact` |
+| Blast radius of changing/deleting a file or function | `codebase_impact` |
 | What does an entry point actually do? | `codebase_flow` |
 | Callers and callees of a function | `codebase_symbol` |
 | Every symbol declared in a file | `codebase_symbols` |
-| Imports and dependents of a file | `codebase_graph_query` |
+| Imports/dependents of a file | `codebase_graph_query` |
 | Import cycles | `codebase_graph_circular` |
 | Quantify coupling / structural issues | `codebase_graph_stats` |
 | Visualize structure | `codebase_graph_visualize` |
 | Verify index status | `codebase_status` |
-| Surface available knowledge artifacts | `codebase_context` |
-| Schema DDL, endpoint contracts, runbooks, infra config | `codebase_context_search` |
+| Deployment topology, runbooks, design history — the declared artifacts | `codebase_context` / `codebase_context_search`; `artifactName: "design-history"` for dated plans |
+| Current DB schema, allowed values, seeded vocabularies | `codebase_search` (or `src/core/schema.sql` itself); `codebase_context_search` only with `artifactName: "database-schema"` |
 | Path-pattern walks ("all `*.py` under `src/api/`") | the Explore subagent |
 
 ## Prefetch
@@ -67,18 +67,40 @@ silently — the hook's output cannot drift from itself.
   a correct manifest cannot rule out: the path resolved, the run *completed*,
   and the artifact still is not indexed. Ask `codebase_context`, which is the
   only per-artifact index status there is — `codebase_status` gives a count
-  and never a name — then re-run `codebase_context_index`. The once-per-day
-  health check reports this gap too, and names the artifact.
+  and never a name — then run `codebase_update`. The once-per-day health
+  check reports this gap too, and names the artifact.
   A third diagnosis has no empty result to warn you at all: the artifact is
-  indexed, the answer arrives, and it is **stale**. Nothing guarantees a
-  re-index when the source changes, so an edited file — or a new file under a
-  directory artifact like `docs/plans/` — leaves the count at N/N while search
-  answers from the old chunks. Measured: three of one repo's fourteen artifacts
-  were behind their sources at a moment this check reported `14/14`.
-  `codebase_context` prints each artifact's index time beside its status;
-  compare it against the source, and for a directory against its **newest
-  file**, not the directory's own timestamp. The daily check does exactly that
-  and names the stale artifacts.
+  indexed, the answer arrives, and it is **stale** — behind its source. An
+  edited file, or a new file under a directory artifact like `docs/plans/`,
+  leaves the count at N/N with the superseded chunks still embedded. Measured:
+  three of one repo's fourteen artifacts were behind their sources at a moment
+  this check reported `14/14`.
+  What that costs is usually a **wait, not a wrong answer**:
+  `codebase_context_search` re-indexes changed artifacts before it searches, so
+  the first search after an edit pays that re-embed inline and then answers
+  from current chunks. Old chunks reach an answer only when that staleness
+  check itself errors — it is logged and the search proceeds anyway.
+  `codebase_context` does **not** re-index, which is why a listing can sit at
+  N/N while artifacts are behind. It prints each artifact's index time beside
+  its status; compare it against the source, and for a directory against its
+  **newest file**, not the directory's own timestamp. The daily check does
+  exactly that and names the stale artifacts. `codebase_update` repairs them
+  out of band, so the next search is not the one that pays.
+  And every artifact competes in **one ranking**: a large directory of dated
+  prose outranks a small current file, and a plan answers with the value it
+  was written against. Set `artifactName` to search one artifact.
+- **`codebase_update` is the incremental catch-up**, and the repair for a
+  `stale` artifact. It re-indexes changed files and re-embeds only the
+  artifacts whose content hash moved, synchronously — seconds, on a repo the
+  watcher has been following.
+- **`codebase_context_index` is not.** It re-embeds **every** artifact
+  unconditionally — no content-hash skip, no progress notifications — so on a
+  large manifest against a shared CPU embedder it can outlast Claude Code's
+  1800 s tool idle timeout. Measured: one repo's ~1,500 chunks took 77 minutes
+  and the session gave up at 30. **That timeout is not evidence the index
+  failed** — the server runs on after the client aborts, so check the project's
+  `lastIndexedAt` in the `socraticode_metadata` collection before re-running.
+  Keep it for a first index, or a manifest whose artifacts all changed.
 - **The file watcher is ephemeral.** It lives only while an MCP server process
   is running. After a long gap, or after a reboot, re-run `codebase_index`
   rather than trusting the index to be current.
@@ -226,18 +248,29 @@ reports it, names both versions and names `codebase_graph_build`.
 
 ## Index scope
 
-`.socraticodeignore` (repo root, gitignore syntax, layered on the built-in
-defaults and `.gitignore`) controls what gets embedded **by the code index**.
-Since socraticode 1.13 directory context artifacts run that same chain, but
-**rooted at the artifact directory, not the repo** — so a repo-root
-`.socraticodeignore` never reaches a subtree artifact, and only ignore files
-inside the artifact path do. The built-in defaults (`build`, `dist`, `vendor`,
-`coverage`, `*.lock`, `__pycache__`…) **do** apply inside one, and drop those
-names silently: scope each artifact to the subtree you want embedded, then
-check it for default-ignored names you meant to keep. Editing
-`.socraticodeignore` affects **subsequent** scans only — re-index to apply it.
-Vendored trees dominate the index if left in, and vendored prose outranks
-first-party code in `codebase_search` results.
+**Two stores, two controls.** The repo-root `.socraticodeignore` (gitignore
+syntax, layered on the built-in defaults and `.gitignore`) governs the **code
+index and the graph**. The **context store** is governed by the manifest,
+`.socraticodecontextartifacts.json`. A path excluded from one stays searchable
+in the other: leaving `docs/plans/` out of the code index does not take it out
+of `codebase_context_search`.
+
+A directory artifact (socraticode 1.13+) honours the built-in defaults, the
+`.gitignore` files inside it, nested ones included, and a `.socraticodeignore`
+placed **at the top of the artifact directory**. The repo-root
+`.socraticodeignore` does not reach it. The defaults (`build`, `dist`,
+`vendor`, `coverage`, `*.lock`, `__pycache__`…) drop those names inside an
+artifact silently, so check each artifact's subtree for any you meant to keep.
+
+| To… | Change |
+|-----|--------|
+| Trim what code search and the graph see | the repo-root `.socraticodeignore` |
+| Trim a directory artifact | a `.gitignore` anywhere inside that artifact's directory, or a `.socraticodeignore` at its top |
+| Drop an artifact | its entry in the manifest |
+
+Editing `.socraticodeignore` affects **subsequent** scans only — re-index to
+apply it. Vendored trees dominate the index if left in, and vendored prose
+outranks first-party code in `codebase_search` results.
 <!-- END socraticode-doc -->
 
 ## Repo-specific notes
@@ -260,11 +293,13 @@ verdict.)
 One region above the marker is **not** the template's and does not survive
 either: the *When to use each tool* table, which names the tools this server
 build exposes and this project's tree. The skill's own adaptation checklist asks
-for that, and upstream's table is four rows shorter — so **re-adapt it after any
-re-run**, or the doc silently stops recommending `codebase_graph_stats`,
-`codebase_graph_visualize`, `codebase_status` and `codebase_context`.
-`tests/test_socraticode_doc_parity.py` holds the table and the prefetch string
-to the same tool set, which is what catches the reversion.
+for that. Upstream's table lacks `codebase_graph_stats`,
+`codebase_graph_visualize` and `codebase_status`, and its two artifact rows
+name no artifact. So **re-adapt it after any re-run**: restore those three
+rows and the exact-name row, and name `design-history` and `database-schema`
+in the artifact and schema rows. `tests/test_socraticode_doc_parity.py` holds
+the table and the prefetch string to the same tool set, and holds the schema
+row to an artifact the manifest declares. Those two checks catch the reversion.
 
 **No local divergences remain.** Three `local-divergence` blocks once sat inside
 the span above, each a correction the template had not yet made. All three are
@@ -284,3 +319,10 @@ regenerated rather than below this marker.
 but deliberately keeps `skills/`, which holds the first-party `brainstorming`
 override; `skills/`'s other entries are symlinks resolving into the excluded
 vendor tree, so nothing is double-indexed (#360).
+
+**`docs/plans/` is design history, not reference (#542).** It is out of the code
+index (the repo-root `.socraticodeignore`) and out of the `reference-docs`
+artifact (`docs/.socraticodeignore`, which holds exactly `plans/`), and it is
+declared on its own as `design-history`. Dated plans stop outranking source
+and current docs, and remain one `artifactName` away.
+`tests/test_context_artifacts.py` pins all three.
