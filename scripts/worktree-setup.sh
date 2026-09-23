@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Finish setting up a linked git worktree: give it its own venv and an .env.
+# Finish setting up a linked git worktree: give it its own venv, its own
+# node_modules, and an .env.
 #
 # Usage:
 #   bash scripts/worktree-setup.sh                 # the current directory
@@ -23,6 +24,22 @@
 # dbt-duckdb models) tiers quietly do not exist. `tests/conftest.py` announces
 # them when they are absent.
 #
+# Why node_modules (#554). `vitest`, `bats`, `eslint` and `prettier` are all
+# devDependencies, so every JS pre-commit hook resolves its binary through
+# node_modules/.bin — and node_modules/ is gitignored, so a worktree never gets
+# one. The first `git commit` in it aborts with `vitest: not found`, exit 127, at
+# the moment it is least expected: after the work is done and the suite is green.
+# Nothing in that message says the worktree was never provisioned, so the obvious
+# next stop is .pre-commit-config.yaml. (eslint and prettier are gated on
+# `\.js$`, so a JS-touching commit is refused before vitest is reached at all.)
+#
+# A worktree under <main>/.worktrees/ can look exempt — `npm run` prepends
+# node_modules/.bin for every *ancestor* directory, so it borrows the main
+# checkout's — but that is the same shared-mutable-environment trap as the .venv
+# link above, and it evaporates the moment WORKTREE_ROOT points outside the repo.
+# Which is why the warnings below say what is certain (the worktree has no
+# binaries of its own) rather than promising a 127 that an ancestor can absorb.
+#
 # Why the rest (#482). A worktree arrives carrying neither its submodules nor
 # anything gitignored, so an agent's first act — establish a baseline — is red
 # or off-by-one for reasons that have nothing to do with its work: the
@@ -45,7 +62,8 @@ usage: bash scripts/worktree-setup.sh [<worktree-path>]
   <worktree-path>  the linked worktree to set up (default: current directory)
 
 Replaces a shared .venv symlink with a real per-worktree environment
-(`uv sync --group browser --group seed --group mapping`), initialises the skills-vendor
+(`uv sync --group browser --group seed --group mapping`), installs the worktree's own
+node_modules from the lockfile (`npm ci`), initialises the skills-vendor
 submodules, and symlinks the gitignored .env and data/cannabis_observer from
 the main checkout. Refuses to run against the main checkout.
 EOF
@@ -144,6 +162,58 @@ if ! (cd "$TARGET" && uv sync --group browser --group seed --group mapping); the
     exit 1
 fi
 
+# ── The JS environment (#554) ────────────────────────────────────────────────
+# `ci`, not `install`: the lockfile-exact one, standing to `npm install` as
+# `uv sync` stands to `uv run` (#450) — a resolving install would run the hooks
+# against versions neither the main checkout nor CI has.
+#
+# Non-fatal on failure, like the submodules: the venv and the links are already
+# in place by here, and an unreachable registry is not a reason to withhold
+# them — but never silent, because exit 127 does not name its own cause.
+#
+# Provision only what is unprovisioned, as the submodule step does. `npm ci`
+# deletes node_modules/ before installing, so running it unconditionally would
+# turn a re-run of a script documented idempotent into a full reinstall.
+#
+# The presence test is node_modules/.bin, not node_modules: that is what the
+# hooks resolve through, and an interrupted install leaves the directory without
+# it. Gating on the directory would report such a worktree provisioned while its
+# first commit is still refused.
+#
+# A *symlink* is removed first, for the reason the .venv symlink above is: `-d`
+# dereferences, so a link at the main checkout's node_modules reads as
+# provisioned while handing the worktree production's installed versions — and
+# its own npm writes back through the link into production's working directory.
+# That link is the obvious pre-#554 workaround, so it is a state an operator
+# arrives with rather than a hypothetical.
+if [ -f "$TARGET/package-lock.json" ]; then
+    if [ -L "$TARGET/node_modules" ]; then
+        echo "removing the shared node_modules symlink -> $(readlink "$TARGET/node_modules") (#554)" >&2
+        rm "$TARGET/node_modules"
+    fi
+    if [ -d "$TARGET/node_modules/.bin" ]; then
+        echo "node_modules already present — left alone (npm ci would reinstall it)" >&2
+    elif ! command -v npm >/dev/null 2>&1; then
+        echo "WARN: npm is not on PATH — $TARGET gets no node_modules, so its" >&2
+        echo "      vitest, bats, eslint and prettier hooks have no binaries of" >&2
+        echo "      their own (exit 127 unless a parent directory carries them);" >&2
+        echo "      install Node >= 22, then re-run this script" >&2
+    else
+        echo "installing $TARGET/node_modules (npm ci)" >&2
+        # `npm ci` reports on stdout; uv writes to stderr and every message here
+        # is `>&2`, so this script's stdout is a wrapper's to capture —
+        # `worktree-create.sh` beside it prints the worktree path there. The
+        # submodule step below is redirected for the same reason. Redirected
+        # rather than silenced: a failure has to stay readable.
+        if ! (cd "$TARGET" && npm ci >&2); then
+            echo "WARN: npm ci failed in $TARGET — its vitest, bats, eslint and" >&2
+            echo "      prettier hooks have no binaries of their own (exit 127" >&2
+            echo "      unless a parent directory carries them); re-run from" >&2
+            echo "      $TARGET when reachable: npm ci" >&2
+        fi
+    fi
+fi
+
 # ── The vendored skill submodules ────────────────────────────────────────────
 # `git worktree add` populates tracked files only: .gitmodules arrives, the
 # submodule directories arrive empty. Non-fatal on failure — the source may be
@@ -160,7 +230,10 @@ if [ -f "$TARGET/.gitmodules" ] && grep -q 'skills-vendor/' "$TARGET/.gitmodules
     uninitialised="$(cd "$TARGET" && git submodule status skills-vendor/ 2>/dev/null | grep -c '^-' || true)"
     if [ "${uninitialised:-0}" -gt 0 ]; then
         echo "initialising the skills-vendor submodules" >&2
-        if ! (cd "$TARGET" && git submodule update --init skills-vendor/); then
+        # `>&2` for the same reason `npm ci` gets it: git prints
+        # `Submodule path … checked out …` on stdout, and this script's stdout is
+        # a wrapper's to capture.
+        if ! (cd "$TARGET" && git submodule update --init skills-vendor/ >&2); then
             echo "WARN: could not initialise skills-vendor/ — the vendored-driver" >&2
             echo "      guards will fail; re-run from $TARGET when reachable:" >&2
             echo "      git submodule update --init skills-vendor/" >&2

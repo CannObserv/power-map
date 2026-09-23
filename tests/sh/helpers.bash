@@ -91,6 +91,8 @@ setup_worktree_fixture() {
     export PATH
     export STUB_UV_CALL_LOG="$BATS_TEST_TMPDIR/uv-calls.log"
     export STUB_UV_SYNC_RC=0
+    export STUB_NPM_CALL_LOG="$BATS_TEST_TMPDIR/npm-calls.log"
+    export STUB_NPM_CI_RC=0
 
     unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
     unset GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
@@ -125,8 +127,13 @@ setup_worktree_fixture() {
         *) echo "fixture escaped its tmpdir: git dir is $resolved" >&2; return 1 ;;
     esac
 
+    # package.json + package-lock.json are tracked in the real repo, so every
+    # worktree arrives with them and without the node_modules/ they describe
+    # (#554). Fixtures that need the gate to be shut delete the lockfile.
     : > "$FAKE_MAIN/README.md"
-    git -C "$FAKE_MAIN" add README.md
+    printf '{"name":"fixture","private":true}\n' > "$FAKE_MAIN/package.json"
+    printf '{"name":"fixture","lockfileVersion":3}\n' > "$FAKE_MAIN/package-lock.json"
+    git -C "$FAKE_MAIN" add README.md package.json package-lock.json
     git -C "$FAKE_MAIN" commit --quiet --no-verify -m "init"
     git -C "$FAKE_MAIN" worktree add --quiet -b feature "$FAKE_WORKTREE" >/dev/null
 }
@@ -172,4 +179,25 @@ break_fixture_submodule() {
     git -C "$FAKE_MAIN" update-index --add --cacheinfo "160000,$bogus,skills-vendor/$name"
     git -C "$FAKE_MAIN" commit --quiet --no-verify -m "break $name gitlink"
     git -C "$FAKE_WORKTREE" reset --hard --quiet main
+}
+
+# Print a bin directory holding everything worktree-setup.sh reaches for
+# EXCEPT npm, so the "no npm on this host" degradation can be exercised on a
+# host that does have npm. Absence cannot be stubbed — the check is
+# `command -v npm` — so the PATH has to be built rather than prepended to.
+#
+# uv stays a stub: this is still a hermetic test, and the only thing being
+# removed is npm.
+path_without_npm() {
+    local bin="$BATS_TEST_TMPDIR/no-npm-bin" tool resolved
+    mkdir -p "$bin"
+    for tool in bash env git grep awk cat rm ln mkdir readlink dirname; do
+        # Named rather than left to `ln -sf ""`: the helper's whole job is to
+        # make ONE thing absent, and a second, unnamed absence would surface as
+        # a failure in whatever assertion happened to come first.
+        resolved="$(command -v "$tool")" || { echo "path_without_npm: no $tool on PATH" >&2; return 1; }
+        ln -sf "$resolved" "$bin/$tool"
+    done
+    ln -sf "$BATS_TEST_DIRNAME/stubs/uv" "$bin/uv"
+    echo "$bin"
 }

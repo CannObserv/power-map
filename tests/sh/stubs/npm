@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# PATH-shim stub for `npm` (bats suite, #554). Hermetic: no registry, no install.
+#
+# worktree-setup.sh invokes npm in exactly one shape:
+#   `npm ci`  → create node_modules/.bin and exit ${STUB_NPM_CI_RC:-0}
+#
+# The install lands in the *current directory*, like the real thing — which is
+# what makes the "run from a subdirectory" test able to catch a missing cd.
+#
+# It also reports on STDOUT, like the real thing: npm sends `added N packages`
+# and its audit summary there, while every message worktree-setup.sh writes goes
+# to stderr. A silent stub would let an unredirected `npm ci` pass the test that
+# exists to keep that script's stdout empty.
+#
+# Every invocation is appended to $STUB_NPM_CALL_LOG for "was npm called" asserts.
+set -u
+
+if [ -n "${STUB_NPM_CALL_LOG:-}" ]; then
+    echo "npm $*" >> "$STUB_NPM_CALL_LOG"
+fi
+
+case "$*" in
+    ci*)
+        rc="${STUB_NPM_CI_RC:-0}"
+        if [ "$rc" -eq 0 ]; then
+            mkdir -p node_modules/.bin
+            : > node_modules/.bin/vitest
+            chmod +x node_modules/.bin/vitest
+            echo "added 2 packages, and audited 3 packages in 1s"
+        fi
+        exit "$rc"
+        ;;
+esac
+
+echo "npm stub: unexpected invocation: $*" >&2
+exit 97

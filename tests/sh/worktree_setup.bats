@@ -107,6 +107,9 @@ EOF
     # The shared symlink is already gone by then — say so, or the operator
     # cannot tell whether the old environment survived.
     [[ "$output" == *"re-run"* ]]
+    # And nothing downstream of the sync ran: a worktree with no venv should not
+    # first spend a full npm install. Ordering, not a side effect of it.
+    [ "$(call_count "$STUB_NPM_CALL_LOG" '^npm ci')" -eq 0 ]
 }
 
 # --- the .env symlink -------------------------------------------------------
@@ -149,6 +152,163 @@ EOF
     run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
     [ "$status" -eq 0 ]
     [[ "$output" == *"WARN"* ]]
+}
+
+# --- the JS environment (#554) ----------------------------------------------
+
+@test "provisioning leaves stdout empty" {
+    # Every message this script emits goes to stderr and `uv sync` writes there
+    # natively, so a wrapper may capture stdout — `worktree-create.sh`, next to
+    # it, prints the worktree path there. The two delegated commands do not
+    # follow suit on their own: `npm ci` reports `added N packages` on stdout and
+    # `git submodule update` prints `Submodule path … checked out …`. Both are
+    # covered here, so the fixture needs the submodule step to actually run.
+    add_fixture_submodule
+
+    run --separate-stderr bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    [[ "$stderr" == *"npm ci"* ]]
+    [ -f "$FAKE_WORKTREE/skills-vendor/thing/SKILL.md" ]
+}
+
+@test "installs node_modules from the lockfile" {
+    # `bats` and `vitest` are devDependencies resolved through
+    # node_modules/.bin, and node_modules/ is gitignored — so without this the
+    # first `git commit` in a worktree aborts with `vitest: not found`,
+    # exit 127, after the work is done and the suite is green.
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ "$(call_count "$STUB_NPM_CALL_LOG" '^npm ci')" -ge 1 ]
+    [ -d "$FAKE_WORKTREE/node_modules" ]
+}
+
+@test "installs from the lockfile, never a resolving install" {
+    # `npm install` is npm's `uv run` (#450): it may resolve something other
+    # than what the lockfile pins, so the worktree's hooks would run versions
+    # the main checkout and CI do not. `npm ci` is the exact one.
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ "$(call_count "$STUB_NPM_CALL_LOG" '^npm install')" -eq 0 ]
+}
+
+@test "installs into the worktree root when run from a subdirectory" {
+    # npm resolves its install root from the cwd, so an uncanonicalised run
+    # would leave a node_modules/ in the subdirectory and the worktree root
+    # still bare — the hooks would stay at exit 127 with provisioning "done".
+    mkdir -p "$FAKE_WORKTREE/scripts"
+    cd "$FAKE_WORKTREE/scripts"
+    run bash "$(repo_root)/scripts/worktree-setup.sh"
+    [ "$status" -eq 0 ]
+    [ -d "$FAKE_WORKTREE/node_modules" ]
+    [ ! -e "$FAKE_WORKTREE/scripts/node_modules" ]
+}
+
+@test "an existing node_modules survives a re-run" {
+    # `npm ci` deletes node_modules/ before installing, so an unconditional one
+    # turns a re-run of a script documented idempotent into a full reinstall.
+    # Provision only what is unprovisioned, as the submodule step does.
+    mkdir -p "$FAKE_WORKTREE/node_modules/.bin"
+    : > "$FAKE_WORKTREE/node_modules/.bin/mine"
+
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ -f "$FAKE_WORKTREE/node_modules/.bin/mine" ]
+    [ "$(call_count "$STUB_NPM_CALL_LOG" '^npm ci')" -eq 0 ]
+    [[ "$output" == *"node_modules already present"* ]]
+}
+
+@test "replaces a node_modules symlinked into the main checkout" {
+    # `-d` dereferences, so a link at the main checkout's node_modules looks
+    # provisioned — and it is the same shared-mutable-environment trap as the
+    # .venv symlink this script exists to undo (#450), in its most direct form:
+    # the worktree runs production's installed versions, and its own npm writes
+    # back into production's working directory. It is also the obvious
+    # pre-#554 workaround, so the state is one an operator arrives with.
+    mkdir -p "$FAKE_MAIN/node_modules/.bin"
+    : > "$FAKE_MAIN/node_modules/.bin/vitest"
+    ln -s "$FAKE_MAIN/node_modules" "$FAKE_WORKTREE/node_modules"
+
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ ! -L "$FAKE_WORKTREE/node_modules" ]
+    [ -d "$FAKE_WORKTREE/node_modules/.bin" ]
+    [ "$(call_count "$STUB_NPM_CALL_LOG" '^npm ci')" -ge 1 ]
+    [[ "$output" == *"shared node_modules symlink"* ]]
+    # The main checkout's own install is not what gets replaced.
+    [ -f "$FAKE_MAIN/node_modules/.bin/vitest" ]
+}
+
+@test "a half-installed node_modules is finished, not declared present" {
+    # An interrupted `npm ci` leaves the directory behind without the .bin/ the
+    # hooks resolve through. Gating on the directory alone would report that
+    # worktree provisioned and leave its first commit refused; gating on .bin/
+    # makes a re-run the recovery it reads as.
+    mkdir -p "$FAKE_WORKTREE/node_modules/some-package"
+
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ "$(call_count "$STUB_NPM_CALL_LOG" '^npm ci')" -ge 1 ]
+    [ -d "$FAKE_WORKTREE/node_modules/.bin" ]
+}
+
+@test "no lockfile means nothing to install, not a failure" {
+    rm "$FAKE_WORKTREE/package-lock.json"
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ "$(call_count "$STUB_NPM_CALL_LOG" '^npm ci')" -eq 0 ]
+    # Each line the step could have emitted, not a bare `*"npm"*` over the whole
+    # output: that also matches $BATS_TEST_TMPDIR, whose mktemp suffix is drawn
+    # from [A-Za-z0-9] and can spell npm — a flake nobody could reproduce, and
+    # one that would be blamed on the step under test.
+    [[ "$output" != *"npm ci"* ]]
+    [[ "$output" != *"WARN: npm"* ]]
+    [[ "$output" != *"node_modules"* ]]
+}
+
+@test "a host without npm warns and finishes the rest of the setup" {
+    # The venv, the submodules and the links are the parts that do not need
+    # npm; a missing interpreter is not a reason to withhold them.
+    PATH="$(path_without_npm)" run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"WARN: npm"* ]]
+    # All four JS hooks resolve through node_modules/.bin, not just the two that
+    # happened to fire first in #554 — eslint and prettier are gated on `\.js$`,
+    # so they refuse a JS-touching commit before vitest is ever reached.
+    [[ "$output" == *"eslint"* ]]
+    # Its two neighbours both print the command to re-run; this is the one whose
+    # reader may not know what to install.
+    [[ "$output" == *"Node"* ]]
+    [[ "$output" == *"worktree ready"* ]]
+}
+
+@test "a failed npm ci warns and names the command rather than failing the setup" {
+    # Offline, or a registry that refuses: same call as the submodule step, and
+    # the warning has to name both the symptom (exit 127) and the remedy, or
+    # the next stop is .pre-commit-config.yaml.
+    export STUB_NPM_CI_RC=1
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"WARN"* ]]
+    [[ "$output" == *"npm ci"* ]]
+    [[ "$output" == *"127"* ]]
+    [[ "$output" == *"eslint"* ]]
+    [[ "$output" == *"worktree ready"* ]]
+}
+
+@test "the installed node_modules is gitignored, so the worktree stays clean" {
+    # Asserted against the real repo's rules: an unignored install would leave
+    # every provisioned worktree permanently dirty.
+    run git -C "$(repo_root)" check-ignore -q node_modules
+    [ "$status" -eq 0 ]
+}
+
+@test "usage names the JS half of what it provisions" {
+    # The acceptance the operator actually reads: --help and the header
+    # enumerate what a worktree gets, and node_modules was missing from both.
+    run bash "$(repo_root)/scripts/worktree-setup.sh" --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"npm ci"* ]]
 }
 
 # --- the vendored submodules (#482) -----------------------------------------
@@ -289,6 +449,7 @@ EOF
     run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
     [ "$status" -eq 0 ]
     [ ! -L "$FAKE_WORKTREE/.venv" ]
+    [ -d "$FAKE_WORKTREE/node_modules" ]
     [ -L "$FAKE_WORKTREE/.env" ]
     [ -L "$FAKE_WORKTREE/data/cannabis_observer" ]
 }
