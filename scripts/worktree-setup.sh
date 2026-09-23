@@ -183,7 +183,12 @@ if [ -f "$TARGET/package-lock.json" ]; then
         echo "      vitest and bats pre-commit hooks will exit 127" >&2
     else
         echo "installing $TARGET/node_modules (npm ci)" >&2
-        if ! (cd "$TARGET" && npm ci); then
+        # `npm ci` reports on stdout; uv writes to stderr and every message here
+        # is `>&2`, so this script's stdout is empty by construction and a
+        # wrapper may capture it — `worktree-create.sh` beside it prints the
+        # worktree path there. Redirected rather than silenced: a failure has to
+        # stay readable.
+        if ! (cd "$TARGET" && npm ci >&2); then
             echo "WARN: npm ci failed in $TARGET — the vitest and bats pre-commit" >&2
             echo "      hooks will exit 127; re-run from $TARGET when reachable:" >&2
             echo "      npm ci" >&2

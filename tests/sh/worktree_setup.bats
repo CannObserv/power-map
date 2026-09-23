@@ -153,6 +153,17 @@ EOF
 
 # --- the JS environment (#554) ----------------------------------------------
 
+@test "the install leaves stdout empty" {
+    # Every message this script emits goes to stderr, and `uv sync` writes to
+    # stderr natively — so stdout is empty by construction and a wrapper may
+    # capture it (`worktree-create.sh`, next to it, prints the worktree path
+    # there). `npm ci` reports on stdout, so it has to be redirected.
+    run --separate-stderr bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    [[ "$stderr" == *"npm ci"* ]]
+}
+
 @test "installs node_modules from the lockfile" {
     # `bats` and `vitest` are devDependencies resolved through
     # node_modules/.bin, and node_modules/ is gitignored — so without this the
