@@ -156,15 +156,20 @@ EOF
 
 # --- the JS environment (#554) ----------------------------------------------
 
-@test "the install leaves stdout empty" {
-    # Every message this script emits goes to stderr, and `uv sync` writes to
-    # stderr natively — so stdout is empty by construction and a wrapper may
-    # capture it (`worktree-create.sh`, next to it, prints the worktree path
-    # there). `npm ci` reports on stdout, so it has to be redirected.
+@test "provisioning leaves stdout empty" {
+    # Every message this script emits goes to stderr and `uv sync` writes there
+    # natively, so a wrapper may capture stdout — `worktree-create.sh`, next to
+    # it, prints the worktree path there. The two delegated commands do not
+    # follow suit on their own: `npm ci` reports `added N packages` on stdout and
+    # `git submodule update` prints `Submodule path … checked out …`. Both are
+    # covered here, so the fixture needs the submodule step to actually run.
+    add_fixture_submodule
+
     run --separate-stderr bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
     [ "$status" -eq 0 ]
     [ -z "$output" ]
     [[ "$stderr" == *"npm ci"* ]]
+    [ -f "$FAKE_WORKTREE/skills-vendor/thing/SKILL.md" ]
 }
 
 @test "installs node_modules from the lockfile" {

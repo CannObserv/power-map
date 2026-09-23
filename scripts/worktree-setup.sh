@@ -201,10 +201,10 @@ if [ -f "$TARGET/package-lock.json" ]; then
     else
         echo "installing $TARGET/node_modules (npm ci)" >&2
         # `npm ci` reports on stdout; uv writes to stderr and every message here
-        # is `>&2`, so this script's stdout is empty by construction and a
-        # wrapper may capture it — `worktree-create.sh` beside it prints the
-        # worktree path there. Redirected rather than silenced: a failure has to
-        # stay readable.
+        # is `>&2`, so this script's stdout is a wrapper's to capture —
+        # `worktree-create.sh` beside it prints the worktree path there. The
+        # submodule step below is redirected for the same reason. Redirected
+        # rather than silenced: a failure has to stay readable.
         if ! (cd "$TARGET" && npm ci >&2); then
             echo "WARN: npm ci failed in $TARGET — its vitest, bats, eslint and" >&2
             echo "      prettier hooks have no binaries of their own (exit 127" >&2
@@ -230,7 +230,10 @@ if [ -f "$TARGET/.gitmodules" ] && grep -q 'skills-vendor/' "$TARGET/.gitmodules
     uninitialised="$(cd "$TARGET" && git submodule status skills-vendor/ 2>/dev/null | grep -c '^-' || true)"
     if [ "${uninitialised:-0}" -gt 0 ]; then
         echo "initialising the skills-vendor submodules" >&2
-        if ! (cd "$TARGET" && git submodule update --init skills-vendor/); then
+        # `>&2` for the same reason `npm ci` gets it: git prints
+        # `Submodule path … checked out …` on stdout, and this script's stdout is
+        # a wrapper's to capture.
+        if ! (cd "$TARGET" && git submodule update --init skills-vendor/ >&2); then
             echo "WARN: could not initialise skills-vendor/ — the vendored-driver" >&2
             echo "      guards will fail; re-run from $TARGET when reachable:" >&2
             echo "      git submodule update --init skills-vendor/" >&2
