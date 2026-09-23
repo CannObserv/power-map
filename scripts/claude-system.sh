@@ -294,19 +294,24 @@ done
 settings="$USER_HOME/.claude/settings.json"
 ensure_user_dir "$(dirname "$settings")" || exit 2
 python3 - "$settings" <<'PY' || exit 2
-import json, sys
+import json, os, sys, tempfile
 path = sys.argv[1]
 try:
     with open(path) as fh:
         data = json.load(fh)
+    mode = os.stat(path).st_mode & 0o777
 except FileNotFoundError:
-    data = {}
+    data, mode = {}, 0o644
 env = data.setdefault("env", {})
 if env.get("DISABLE_AUTOUPDATER") != "1":
     env["DISABLE_AUTOUPDATER"] = "1"
-    with open(path, "w") as fh:
+    # Atomic: a running session reading its settings sees old or new, never half.
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".settings.")
+    with os.fdopen(fd, "w") as fh:
         json.dump(data, fh, indent=2)
         fh.write("\n")
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
     print(f"set          DISABLE_AUTOUPDATER=1 in {path}")
 else:
     print(f"already      DISABLE_AUTOUPDATER=1 in {path}")

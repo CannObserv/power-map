@@ -346,6 +346,19 @@ as_fake_root() {
     [ -x "$VERSIONS/2.1.300" ]
 }
 
+@test "CR 9: settings.json is replaced atomically, keeping its mode" {
+    legacy_layout
+    mkdir -p "$CLAUDE_USER_HOME/.claude"
+    settings="$CLAUDE_USER_HOME/.claude/settings.json"
+    echo '{"theme": "dark"}' >"$settings"
+    chmod 600 "$settings"
+    inode_before="$(stat -c %i "$settings")"
+    converge
+    [ "$(stat -c %i "$settings")" != "$inode_before" ]
+    [ "$(stat -c %a "$settings")" = 600 ]
+    [ "$(find "$CLAUDE_USER_HOME/.claude" -mindepth 1 | wc -l)" -eq 1 ]
+}
+
 # --- arguments -----------------------------------------------------------------
 
 @test "an unknown flag is an error" {
