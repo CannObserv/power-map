@@ -238,17 +238,28 @@ Accessible via exe.dev proxy at `https://power-map.exe.xyz:8001/`.
 bash scripts/worktree-setup.sh <worktree-path>   # default: current directory
 ```
 
-Gives the worktree **its own** `.venv` (`uv sync --group browser --group seed --group mapping`), initialises
+Gives the worktree **its own** `.venv` (`uv sync --group browser --group seed --group mapping`)
+and **its own** `node_modules` (`npm ci`, skipped when one is already there), initialises
 the `skills-vendor/` submodules, and symlinks the gitignored `.env` and
 `data/cannabis_observer` from the main checkout. Refuses (exit 2) against the main checkout.
 
-The last two exist so a worktree's first test run matches the main checkout's (#482).
+The rest exist so a worktree's first test run matches the main checkout's (#482).
 `git worktree add` populates tracked files only: the submodule directories arrive empty, so
 `tests/test_vendor_skills.py`'s vendored-driver guards fail, and `data/cannabis_observer`
 is absent, so `test_seed_jurisdictions.py::test_load_seed_file_actual_wa_file` skips — a
-pass fewer than main on an identical tree. Both are non-fatal warnings when the source is
-missing, because a briefed baseline count is only useful if the provisioning is not the
-variable.
+pass fewer than main on an identical tree. All three are non-fatal warnings when the source
+is unreachable, because a briefed baseline count is only useful if the provisioning is not
+the variable.
+
+`node_modules` is the JS half of the same argument, and it fails harder (#554): `bats` and
+`vitest` are devDependencies resolved through `node_modules/.bin`, so an unprovisioned
+worktree does not report a skip — its first `git commit` is **refused**, `vitest: not found`,
+exit 127, after the work is done and the suite is green. A worktree under
+`<main>/.worktrees/` can look exempt because `npm run` prepends `node_modules/.bin` for
+every *ancestor* directory and borrows the main checkout's; that is the shared-mutable-
+environment trap below in another costume, and it disappears the moment `WORKTREE_ROOT`
+points outside the repo. `npm ci` rather than `npm install` for the reason `uv sync` beats
+`uv run`: lockfile-exact, not re-resolved.
 
 `worktree-create.sh` (vendored skill) links a new worktree's `.venv` at the main checkout's —
 and the main checkout is production's working directory. Nine `power-map*` units run `uv run`
