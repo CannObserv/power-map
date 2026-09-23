@@ -140,8 +140,11 @@ relink() {
 mapfile -t BINARIES < <(bundled_binaries)
 
 # --- --check: the SessionStart hook. Reads links and mtimes; runs nothing. ------
+# Silent on any host that never adopted this layout: the hook ships to every
+# clone, and a Homebrew or npm /usr/local/bin/claude is not drift. (It also
+# keeps the GNU-only stat below off macOS.)
 if [ "$mode" = check ]; then
-    [ -e "$SYSTEM_BIN" ] || [ -L "$SYSTEM_BIN" ] || exit 0
+    [ -d "$VERSIONS" ] || exit 0
     issues=()
     current="$(system_version)"
     dest="$(readlink "$SYSTEM_BIN" 2>/dev/null || true)"

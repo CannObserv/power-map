@@ -213,6 +213,7 @@ converge() {
 
 @test "--check flags a system bin that is not the system runtime" {
     legacy_layout
+    mkdir -p "$VERSIONS" # the host adopted the layout; the system bin drifted
     run bash "$SCRIPT" --check
     [ "$status" -eq 0 ]
     [[ "$output" == *"not the system runtime"* ]]
@@ -292,6 +293,15 @@ converge() {
     [ "$(readlink "$CLAUDE_SYSTEM_BIN")" = "$VERSIONS/2.1.300" ]
 }
 
+@test "CR 3: --check is silent where the host never adopted this layout" {
+    # e.g. Homebrew's or a global npm install's /usr/local/bin/claude.
+    write_stub "$CLAUDE_SYSTEM_BIN" 2.1.250
+    make_extension 2.1.280 >/dev/null
+    run bash "$SCRIPT" --check
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
 # --- arguments -----------------------------------------------------------------
 
 @test "an unknown flag is an error" {
@@ -309,6 +319,7 @@ converge() {
 
 @test "the hook runs --check against the invoking user's home" {
     legacy_layout
+    mkdir -p "$VERSIONS"
     run env HOME="$CLAUDE_USER_HOME" CLAUDE_USER_HOME= bash "$HOOK"
     [ "$status" -eq 0 ]
     [[ "$output" == *"not the system runtime"* ]]
