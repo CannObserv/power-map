@@ -417,6 +417,20 @@ git submodule update --remote --merge skills-vendor/gregoryfoster-skills skills-
 
 ---
 
+## Claude Code on this host (#542)
+
+One install is canonical: the native launcher `~/.local/bin/claude`, which links into `~/.local/share/claude/versions/<v>`. `claude update` and the auto-updater repoint it, and `/usr/local/bin/claude` (root-owned) resolves to it. The VS Code extension's bundled binary is symlinked to the launcher, so every client runs the same version and follows each update. Before this, PATH sat at 2.1.58 while the extension ran 2.1.280.
+
+```bash
+claude --version && claude doctor                         # canonical version; "Running: native"
+bash scripts/claude-link-canonical.sh                     # dry run: what would be relinked
+bash scripts/claude-link-canonical.sh --execute           # relink every extension's binary
+```
+
+An extension update unpacks a new bundled binary. The SessionStart hook `.claude/hooks/claude-canonical-check.sh` then prints the `--execute` line; it never relinks by itself. `--execute` skips an extension newer than the canonical install (exit 1): run `claude update` first. Rollback for one extension: reinstall it from VS Code. The pre-#542 image binary is kept at `~/.cache/claude-rollback/`.
+
+---
+
 ## Scheduled timers
 
 Every unit below reports failure through `systemctl --failed`, and each one that
