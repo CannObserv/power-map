@@ -103,7 +103,7 @@ Single VM; port split:
 ```bash
 bash scripts/worktree-setup.sh <worktree-path>
 ```
-Gives the worktree its own `.venv` **and its own `node_modules`** (#554 — `bats`/`vitest` are devDependencies, so an unprovisioned worktree's first commit is refused with exit 127), initialises the `skills-vendor/` submodules, and symlinks the gitignored `.env` and `data/cannabis_observer`; refuses (exit 2) against the main checkout. **Never share a venv with the main checkout** — that is production's working directory, and its units' `uv run` / `ExecStartPre=uv sync` rewrite a shared venv mid-suite, taking the browser tier with it. Full rules → `docs/COMMANDS.md` § Worktree setup.
+Gives the worktree its own `.venv` **and its own `node_modules`** (#554 — every JS pre-commit hook resolves its binary through `node_modules/.bin`, so an unprovisioned worktree's first commit is refused, `exit 127`), initialises the `skills-vendor/` submodules, and symlinks the gitignored `.env` and `data/cannabis_observer`; refuses (exit 2) against the main checkout. **Never share a venv with the main checkout** — that is production's working directory, and its units' `uv run` / `ExecStartPre=uv sync` rewrite a shared venv mid-suite, taking the browser tier with it. Full rules → `docs/COMMANDS.md` § Worktree setup.
 
 exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 

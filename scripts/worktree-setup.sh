@@ -24,17 +24,21 @@
 # dbt-duckdb models) tiers quietly do not exist. `tests/conftest.py` announces
 # them when they are absent.
 #
-# Why node_modules (#554). `bats` and `vitest` are devDependencies, so both
-# pre-commit hooks resolve their binary through node_modules/.bin — and
-# node_modules/ is gitignored, so a worktree never gets one. The first
-# `git commit` in it aborts with `vitest: not found`, exit 127, at the moment it
-# is least expected: after the work is done and the suite is green. Nothing in
-# that message says the worktree was never provisioned, so the obvious next stop
-# is .pre-commit-config.yaml. A worktree under <main>/.worktrees/ can look
-# exempt — `npm run` prepends node_modules/.bin for every *ancestor* directory,
-# so it borrows the main checkout's — but that is the same shared-mutable-
-# environment trap as the .venv link above, and it evaporates the moment
-# WORKTREE_ROOT points outside the repo.
+# Why node_modules (#554). `vitest`, `bats`, `eslint` and `prettier` are all
+# devDependencies, so every JS pre-commit hook resolves its binary through
+# node_modules/.bin — and node_modules/ is gitignored, so a worktree never gets
+# one. The first `git commit` in it aborts with `vitest: not found`, exit 127, at
+# the moment it is least expected: after the work is done and the suite is green.
+# Nothing in that message says the worktree was never provisioned, so the obvious
+# next stop is .pre-commit-config.yaml. (eslint and prettier are gated on
+# `\.js$`, so a JS-touching commit is refused before vitest is reached at all.)
+#
+# A worktree under <main>/.worktrees/ can look exempt — `npm run` prepends
+# node_modules/.bin for every *ancestor* directory, so it borrows the main
+# checkout's — but that is the same shared-mutable-environment trap as the .venv
+# link above, and it evaporates the moment WORKTREE_ROOT points outside the repo.
+# Which is why the warnings below say what is certain (the worktree has no
+# binaries of its own) rather than promising a 127 that an ancestor can absorb.
 #
 # Why the rest (#482). A worktree arrives carrying neither its submodules nor
 # anything gitignored, so an agent's first act — establish a baseline — is red
@@ -190,8 +194,9 @@ if [ -f "$TARGET/package-lock.json" ]; then
     if [ -d "$TARGET/node_modules/.bin" ]; then
         echo "node_modules already present — left alone (npm ci would reinstall it)" >&2
     elif ! command -v npm >/dev/null 2>&1; then
-        echo "WARN: npm is not on PATH — $TARGET gets no node_modules, so the" >&2
-        echo "      vitest and bats pre-commit hooks will exit 127" >&2
+        echo "WARN: npm is not on PATH — $TARGET gets no node_modules, so its" >&2
+        echo "      vitest, bats, eslint and prettier hooks have no binaries of" >&2
+        echo "      their own (exit 127 unless a parent directory carries them)" >&2
     else
         echo "installing $TARGET/node_modules (npm ci)" >&2
         # `npm ci` reports on stdout; uv writes to stderr and every message here
@@ -200,9 +205,10 @@ if [ -f "$TARGET/package-lock.json" ]; then
         # worktree path there. Redirected rather than silenced: a failure has to
         # stay readable.
         if ! (cd "$TARGET" && npm ci >&2); then
-            echo "WARN: npm ci failed in $TARGET — the vitest and bats pre-commit" >&2
-            echo "      hooks will exit 127; re-run from $TARGET when reachable:" >&2
-            echo "      npm ci" >&2
+            echo "WARN: npm ci failed in $TARGET — its vitest, bats, eslint and" >&2
+            echo "      prettier hooks have no binaries of their own (exit 127" >&2
+            echo "      unless a parent directory carries them); re-run from" >&2
+            echo "      $TARGET when reachable: npm ci" >&2
         fi
     fi
 fi

@@ -258,6 +258,10 @@ EOF
     PATH="$(path_without_npm)" run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
     [ "$status" -eq 0 ]
     [[ "$output" == *"WARN: npm"* ]]
+    # All four JS hooks resolve through node_modules/.bin, not just the two that
+    # happened to fire first in #554 — eslint and prettier are gated on `\.js$`,
+    # so they refuse a JS-touching commit before vitest is ever reached.
+    [[ "$output" == *"eslint"* ]]
     [[ "$output" == *"worktree ready"* ]]
 }
 
@@ -271,6 +275,7 @@ EOF
     [[ "$output" == *"WARN"* ]]
     [[ "$output" == *"npm ci"* ]]
     [[ "$output" == *"127"* ]]
+    [[ "$output" == *"eslint"* ]]
     [[ "$output" == *"worktree ready"* ]]
 }
 

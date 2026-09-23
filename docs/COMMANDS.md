@@ -251,10 +251,12 @@ pass fewer than main on an identical tree. All three are non-fatal warnings when
 is unreachable, because a briefed baseline count is only useful if the provisioning is not
 the variable.
 
-`node_modules` is the JS half of the same argument, and it fails harder (#554): `bats` and
-`vitest` are devDependencies resolved through `node_modules/.bin`, so an unprovisioned
-worktree does not report a skip — its first `git commit` is **refused**, `vitest: not found`,
-exit 127, after the work is done and the suite is green. A worktree under
+`node_modules` is the JS half of the same argument, and it fails harder (#554): `vitest`,
+`bats`, `eslint` and `prettier` are all devDependencies resolved through
+`node_modules/.bin`, so an unprovisioned worktree does not report a skip — its first
+`git commit` is **refused**, `vitest: not found`, exit 127, after the work is done and the
+suite is green. (`eslint` and `prettier` are gated on `\.js$`, so a JS-touching commit is
+refused before `vitest` is reached at all.) A worktree under
 `<main>/.worktrees/` can look exempt because `npm run` prepends `node_modules/.bin` for
 every *ancestor* directory and borrows the main checkout's; that is the shared-mutable-
 environment trap below in another costume, and it disappears the moment `WORKTREE_ROOT`
