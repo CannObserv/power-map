@@ -189,10 +189,14 @@ break_fixture_submodule() {
 # uv stays a stub: this is still a hermetic test, and the only thing being
 # removed is npm.
 path_without_npm() {
-    local bin="$BATS_TEST_TMPDIR/no-npm-bin" tool
+    local bin="$BATS_TEST_TMPDIR/no-npm-bin" tool resolved
     mkdir -p "$bin"
-    for tool in bash env git grep awk sed cat rm ln mkdir readlink dirname; do
-        ln -sf "$(command -v "$tool")" "$bin/$tool"
+    for tool in bash env git grep awk cat rm ln mkdir readlink dirname; do
+        # Named rather than left to `ln -sf ""`: the helper's whole job is to
+        # make ONE thing absent, and a second, unnamed absence would surface as
+        # a failure in whatever assertion happened to come first.
+        resolved="$(command -v "$tool")" || { echo "path_without_npm: no $tool on PATH" >&2; return 1; }
+        ln -sf "$resolved" "$bin/$tool"
     done
     ln -sf "$BATS_TEST_DIRNAME/stubs/uv" "$bin/uv"
     echo "$bin"
