@@ -268,6 +268,9 @@ EOF
     # happened to fire first in #554 — eslint and prettier are gated on `\.js$`,
     # so they refuse a JS-touching commit before vitest is ever reached.
     [[ "$output" == *"eslint"* ]]
+    # Its two neighbours both print the command to re-run; this is the one whose
+    # reader may not know what to install.
+    [[ "$output" == *"Node"* ]]
     [[ "$output" == *"worktree ready"* ]]
 }
 

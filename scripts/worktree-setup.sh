@@ -196,7 +196,8 @@ if [ -f "$TARGET/package-lock.json" ]; then
     elif ! command -v npm >/dev/null 2>&1; then
         echo "WARN: npm is not on PATH — $TARGET gets no node_modules, so its" >&2
         echo "      vitest, bats, eslint and prettier hooks have no binaries of" >&2
-        echo "      their own (exit 127 unless a parent directory carries them)" >&2
+        echo "      their own (exit 127 unless a parent directory carries them);" >&2
+        echo "      install Node >= 22, then re-run this script" >&2
     else
         echo "installing $TARGET/node_modules (npm ci)" >&2
         # `npm ci` reports on stdout; uv writes to stderr and every message here
