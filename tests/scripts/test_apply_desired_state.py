@@ -370,3 +370,77 @@ def test_a_bad_count_flag_says_what_it_wanted(monkeypatch, capsys):
         cli.main(["--streak", "abc"])
 
     assert "invalid count value: 'abc'" in capsys.readouterr().err
+
+
+# --- a chain built on a producer behind its clock (#551) -------------------------
+
+
+async def test_an_execute_is_refused_after_a_streak_built_while_the_producer_was_stale(world):
+    """#551's third acceptance, through the entry point: three clean dry runs with
+    one digest, and the gate still says no because the inputs were of unknown
+    currency. Nothing else in the run distinguishes them."""
+    (world["desired"] / "BUILD.json").write_text(
+        json.dumps({"datasets": {"persons": "v1"}, "producer": {"stale": True}})
+    )
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+    for _ in range(3):
+        assert await _run(world, store) == 0
+    conn = FakeConn()
+
+    code = await _run(world, store, execute=True, conn=conn)
+
+    assert code == 1
+    assert conn.events == []
+
+
+async def test_the_same_streak_on_a_fresh_producer_opens_the_gate(world):
+    """The control: only the heartbeat differs between this and the run above."""
+    (world["desired"] / "BUILD.json").write_text(
+        json.dumps({"datasets": {"persons": "v1"}, "producer": {"stale": False}})
+    )
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+    for _ in range(3):
+        assert await _run(world, store) == 0
+
+    assert await _run(world, store, execute=True, conn=FakeConn()) == 0
+
+
+async def test_a_run_on_a_stale_producer_says_so_in_the_journal(world, caplog):
+    """The dry run itself is where an operator meets it, a night before the gate."""
+    (world["desired"] / "BUILD.json").write_text(
+        json.dumps({"datasets": {"persons": "v1"}, "producer": {"stale": True}})
+    )
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+
+    with caplog.at_level("WARNING", logger="scripts.apply_desired_state"):
+        await _run(world, store)
+
+    assert any("heartbeat" in r.getMessage() for r in caplog.records)
+
+
+async def test_a_fresh_streak_does_not_open_an_execute_built_on_a_stale_producer(world):
+    """CR 9: the ledger holds the runs *before* this one, so the gate never asked
+    this of the run it was authorising. A frozen input leaves the digest
+    unchanged — which is the evidence the streak is made of — so three fresh dry
+    runs opened an execute against inputs nobody had been able to refresh, while
+    that run logged that it did not count towards the streak."""
+    build_info = {"datasets": {"persons": "v1"}, "producer": {"stale": False}}
+    (world["desired"] / "BUILD.json").write_text(json.dumps(build_info))
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+    for _ in range(3):
+        assert await _run(world, store) == 0
+    # The producer falls behind; the desired state is byte-for-byte the same.
+    (world["desired"] / "BUILD.json").write_text(
+        json.dumps({**build_info, "producer": {"stale": True}})
+    )
+    conn = FakeConn()
+
+    code = await _run(world, store, execute=True, conn=conn)
+
+    assert code == 1
+    assert conn.events == []
+    assert read_ledger(world["out"] / LEDGER)[-1]["mode"] == "refused"

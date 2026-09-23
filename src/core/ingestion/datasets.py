@@ -34,8 +34,9 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -45,18 +46,22 @@ from src.core.logging import get_logger
 
 __all__ = [
     "CATALOG_PATH",
+    "Catalog",
     "CatalogEntry",
     "CatalogError",
     "DatasetNotFound",
     "PINS_PATH",
     "PINS_SOURCE",
+    "PULL_FILE",
     "Pin",
     "PullReport",
     "SnapshotStore",
     "Subscription",
     "fetch_catalog",
+    "fmt_moment",
     "load_subscription",
     "parse_catalog",
+    "parse_moment",
     "pull",
 ]
 
@@ -98,6 +103,14 @@ PACKAGE_FILE = "datapackage.json"
 # it; carrying them here means verification never depends on a second network
 # round trip, which by then may answer with a different version.
 SNAPSHOT_FILE = "snapshot.json"
+
+# The pull's own run record, at the store root rather than inside a version:
+# it describes the run, not a snapshot. `versions()` lists directories only, so
+# a file here is invisible to every reader of the store's datasets.
+PULL_FILE = "pull.json"
+
+# What the wire and every record here spell a moment as (#440).
+TS_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 
 
 class CatalogError(RuntimeError):
@@ -179,8 +192,69 @@ def _digest(raw: object, *, where: str, label: str = "hash") -> str:
     return digest
 
 
-def parse_catalog(payload: dict) -> list[CatalogEntry]:
-    """Validate a catalog document and return its entries."""
+def parse_moment(raw: object, *, label: str) -> datetime | None:
+    """Parse a published timestamp, or None when the document states none.
+
+    Raises `CatalogError` on anything else: unparseable, it would surface as a
+    TypeError at the comparison instead.
+    """
+    if raw is None:
+        return None
+    try:
+        moment = datetime.fromisoformat(str(raw))
+    except ValueError as exc:
+        raise CatalogError(f"{label} {raw!r} is not a timestamp ({exc})") from exc
+    # Everything on this wire is UTC (#440). A published value with no zone is
+    # read as one rather than refused, because naive-vs-aware is a TypeError at
+    # the comparison — a crash a long way from the document that caused it.
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class Catalog:
+    """A catalog document: its entries, and the publisher's heartbeat (#551).
+
+    `checked_at` says the publisher completed a run, and advances every night
+    whether or not anything minted. `stale_after` is the deadline for the next
+    one — the next scheduled run plus its grace. Both are absent from every
+    catalog published before usa-wa#386, which is why they are optional and why
+    an absent deadline is never late.
+
+    A fresh `checked_at` covers the publisher, not the whole chain upstream of
+    it: a failed source harvest and a registrar conflict both leave it fresh
+    (usa-wa `docs/PIPELINE-PUBLICATION.md` § The catalog's heartbeat).
+    """
+
+    entries: tuple[CatalogEntry, ...]
+    checked_at: datetime | None = None
+    stale_after: datetime | None = None
+
+    def stale(self, now: datetime) -> bool:
+        """True when the publisher has missed its own deadline for the next run."""
+        return self.stale_after is not None and now > self.stale_after
+
+    def lateness(self, now: datetime) -> str:
+        """The finding a stale heartbeat reads as, for the log and the record.
+
+        A catalog may state a deadline without a `checked_at`; the sentence says
+        so rather than printing `None`, which reads as a bug in this module
+        rather than as a gap in the document (CR 5).
+        """
+        last = fmt_moment(self.checked_at) or "no time it states"
+        return (
+            f"usa-wa is behind the clock: it last completed a run at "
+            f"{last} and undertook to publish the next by "
+            f"{fmt_moment(self.stale_after)} — {now - self.stale_after} late"
+        )
+
+
+def fmt_moment(moment: datetime | None) -> str | None:
+    """A parsed moment back in the spelling every record here uses (#440)."""
+    return None if moment is None else moment.astimezone(UTC).strftime(TS_FORMAT)
+
+
+def parse_catalog(payload: dict) -> Catalog:
+    """Validate a catalog document and return its entries and heartbeat."""
     if not isinstance(payload, dict) or "datasets" not in payload:
         raise CatalogError("not a catalog: no 'datasets' key")
     datasets = payload["datasets"]
@@ -225,7 +299,11 @@ def parse_catalog(payload: dict) -> list[CatalogEntry]:
                 ),
             )
         )
-    return entries
+    return Catalog(
+        entries=tuple(entries),
+        checked_at=parse_moment(payload.get("checked_at"), label="catalog checked_at"),
+        stale_after=parse_moment(payload.get("stale_after"), label="catalog stale_after"),
+    )
 
 
 def _looks_like_a_login_page(response: httpx.Response) -> bool:
@@ -263,9 +341,7 @@ async def _get(url: str, token: str, client: httpx.AsyncClient) -> httpx.Respons
     return response
 
 
-async def fetch_catalog(
-    base_url: str, *, token: str, client: httpx.AsyncClient
-) -> list[CatalogEntry]:
+async def fetch_catalog(base_url: str, *, token: str, client: httpx.AsyncClient) -> Catalog:
     """Fetch and validate the dataset catalog from ``base_url``."""
     url = base_url.rstrip("/") + CATALOG_PATH
     response = await _get(url, token, client)
@@ -384,15 +460,20 @@ class PullReport:
     # stays 0), yet the thing #497 will trip over, so the report carries it
     # rather than leaving it to a WARNING among httpx's INFO lines.
     landed_without_package: list[str] = field(default_factory=list)
+    # `Catalog.lateness`'s sentence when the publisher missed its own deadline
+    # (#551), else None. Not per-dataset: it is one statement about the producer.
+    producer_stale: str | None = None
 
     @property
     def failed_run(self) -> bool:
         """True when the run must exit non-zero so `systemctl --failed` shows it.
 
         A subscribed dataset the catalog does not carry counts: a rename that
-        pulls nothing looks exactly like a quiet night otherwise.
+        pulls nothing looks exactly like a quiet night otherwise. So does a
+        producer past its heartbeat deadline (#551) — every dataset then reads
+        `unchanged`, which is the same green a settled night gives.
         """
-        return bool(self.failed or self.incompatible or self.missing)
+        return bool(self.failed or self.incompatible or self.missing or self.producer_stale)
 
 
 class SnapshotStore:
@@ -423,6 +504,38 @@ class SnapshotStore:
         # never verified, so never a version. A published version cannot begin
         # with a dot (`_SAFE_PATH_SEGMENT`), so the prefix is unambiguous.
         return sorted(p.name for p in d.iterdir() if p.is_dir() and not p.name.startswith("."))
+
+    def record_pull(self, catalog: Catalog, *, at: datetime) -> dict:
+        """Write the run record: what the publisher's heartbeat said at ``at`` (#551).
+
+        Staleness itself is not recorded, only derived: `stale_after` is a fixed
+        deadline, so a reader at any later moment reaches the same verdict the
+        pull did — and a build hours or days later reaches a truer one.
+        """
+        record = {
+            "pulled_at": fmt_moment(at),
+            "checked_at": fmt_moment(catalog.checked_at),
+            "stale_after": fmt_moment(catalog.stale_after),
+        }
+        self.root.mkdir(parents=True, exist_ok=True)
+        (self.root / PULL_FILE).write_text(json.dumps(record, indent=2) + "\n")
+        return record
+
+    def pull_record(self) -> dict | None:
+        """The last pull's record, or None when no readable one exists.
+
+        Unreadable reads as absent: this is provenance for a build, and a
+        truncated write must not be the thing that stops one.
+        """
+        path = self.root / PULL_FILE
+        try:
+            return json.loads(path.read_text())
+        except (OSError, ValueError):
+            # ValueError, not `json.JSONDecodeError`: a write truncated mid
+            # multi-byte character raises `UnicodeDecodeError` from `read_text`,
+            # which is a ValueError and not a JSON error — the one shape of
+            # truncation the narrower catch let through (CR 1).
+            return None
 
     def land(self, entry: CatalogEntry, files: dict[str, bytes]) -> Path:
         """Verify ``files`` against ``entry`` and store them as a complete version.
@@ -536,7 +649,7 @@ async def _fetch_file(
 
 async def pull(
     base_url: str,
-    catalog: list[CatalogEntry],
+    catalog: Sequence[CatalogEntry],
     store: SnapshotStore,
     *,
     token: str,

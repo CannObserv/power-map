@@ -6,6 +6,7 @@ which outcomes are allowed to look like success.
 
 import hashlib
 import logging
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -292,3 +293,95 @@ async def test_a_snapshot_landed_without_its_package_is_named_in_the_report(tmp_
 
     assert not report.failed_run
     assert any("no datapackage.json" in line for line in summary)
+
+
+# --------------------------------------------------------------------------
+# The producer's heartbeat (#551)
+# --------------------------------------------------------------------------
+
+CHECKED_AT = "2026-09-23T08:05:12.345678Z"
+STALE_AFTER = "2026-09-24T08:45:00.000000Z"
+BEATING = {**CATALOG, "checked_at": CHECKED_AT, "stale_after": STALE_AFTER}
+IN_TIME = datetime(2026, 9, 23, 9, 0, tzinfo=UTC)
+TOO_LATE = datetime(2026, 9, 25, 9, 0, tzinfo=UTC)
+
+
+async def _pull(tmp_path, *, catalog=BEATING, now=IN_TIME):
+    async with _client(catalog=catalog) as client:
+        return await run(
+            "https://usa-wa.exe.xyz:8000",
+            token="tok",
+            store=SnapshotStore(tmp_path),
+            subscription=PINNED,
+            keep=3,
+            client=client,
+            now=lambda: now,
+        )
+
+
+async def test_the_pull_records_the_heartbeat_of_the_catalog_it_read(tmp_path):
+    """#551's first acceptance: the build downstream has something to read."""
+    await _pull(tmp_path)
+
+    record = SnapshotStore(tmp_path).pull_record()
+
+    assert record["checked_at"] == CHECKED_AT
+    assert record["stale_after"] == STALE_AFTER
+    assert record["pulled_at"] == "2026-09-23T09:00:00.000000Z"
+
+
+async def test_a_pull_after_the_deadline_fails_the_run_rather_than_reading_as_a_quiet_night(
+    tmp_path, caplog
+):
+    """`systemctl --failed` is how every other scheduled unit surfaces a finding."""
+    with caplog.at_level(logging.ERROR, logger="scripts.pull_datasets"):
+        report = await _pull(tmp_path, now=TOO_LATE)
+
+    assert report.failed_run
+    line = next(r.getMessage() for r in caplog.records if "behind the clock" in r.getMessage())
+    assert STALE_AFTER in line
+
+
+async def test_a_fresh_heartbeat_leaves_the_run_green(tmp_path):
+    report = await _pull(tmp_path)
+
+    assert not report.failed_run
+    assert report.producer_stale is None
+
+
+async def test_a_catalog_with_no_heartbeat_neither_fails_nor_invents_one(tmp_path):
+    """Nothing breaks before usa-wa#386's first nightly publish."""
+    report = await _pull(tmp_path, catalog=CATALOG, now=TOO_LATE)
+
+    assert not report.failed_run
+    assert SnapshotStore(tmp_path).pull_record()["stale_after"] is None
+
+
+async def test_a_stale_producer_is_named_in_the_headline_the_operator_greps(tmp_path, caplog):
+    with caplog.at_level(logging.INFO, logger="scripts.pull_datasets"):
+        await _pull(tmp_path, now=TOO_LATE)
+
+    headline = next(r.getMessage() for r in caplog.records if "pull complete" in r.getMessage())
+
+    assert "producer stale" in headline
+
+
+def test_an_unwritable_store_is_a_sentence_not_a_traceback(monkeypatch, tmp_path, capsys):
+    """CR 3: `record_pull` and `prune` sit outside `pull`'s per-dataset OSError
+    guard, so a full disk ended a run that had landed everything in a traceback."""
+    monkeypatch.setenv("USA_WA_TOKEN", "tok")
+    stub = _client()
+    monkeypatch.setattr("scripts.pull_datasets.httpx.AsyncClient", lambda **kw: stub)
+    monkeypatch.setattr("scripts.pull_datasets.load_subscription", lambda: PINNED)
+
+    def full_disk(*a, **kw):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(SnapshotStore, "record_pull", full_disk)
+
+    code = main(["--root", str(tmp_path)])
+
+    logged = capsys.readouterr().out
+    assert code == 1
+    assert "snapshot store" in logged and "No space left on device" in logged
+    assert "Traceback" not in logged

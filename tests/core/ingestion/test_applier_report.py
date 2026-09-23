@@ -18,6 +18,7 @@ pytest.importorskip("duckdb")
 from src.core.ingestion.applier import Diff, Entry  # noqa: E402
 from src.core.ingestion.applier_report import (  # noqa: E402
     LEDGER,
+    SUMMARY_MD,
     append_ledger,
     diff_digest,
     ledger_line,
@@ -162,7 +163,7 @@ def test_the_digest_changes_when_an_entry_changes():
 # --- the artifact ---------------------------------------------------------------
 
 
-def _report(tmp_path, diff, *, mode="dry", verdict=None):
+def _report(tmp_path, diff, *, mode="dry", verdict=None, build_info=None):
     verdict = verdict or verdict_for(diff, Thresholds())
     return write_report(
         tmp_path / "run",
@@ -171,7 +172,7 @@ def _report(tmp_path, diff, *, mode="dry", verdict=None):
         diff=diff,
         verdict=verdict,
         thresholds=Thresholds(),
-        build_info={"datasets": {"persons": "v1"}},
+        build_info=build_info or {"datasets": {"persons": "v1"}},
         source="usa-wa",
         started_at=NOW,
         finished_at=NOW,
@@ -273,8 +274,10 @@ def test_the_ledger_line_records_the_phase(tmp_path):
 # --- the ledger and the gate -----------------------------------------------------
 
 
-def _line(run_id, *, verdict="clean", digest="d1", mode="dry"):
-    return {"run_id": run_id, "mode": mode, "verdict": verdict, "digest": digest}
+def _line(run_id, *, verdict="clean", digest="d1", mode="dry", producer_stale=None):
+    line = {"run_id": run_id, "mode": mode, "verdict": verdict, "digest": digest}
+    # Absent by default: that is every line already in the ledger (#551).
+    return line if producer_stale is None else {**line, "producer_stale": producer_stale}
 
 
 def test_the_ledger_appends_one_line_per_run(tmp_path):
@@ -423,3 +426,61 @@ def test_the_markdown_summary_pairs_each_archive_with_the_spans_that_cover_it(tm
     assert "Supersession" in md
     assert "`01RA2` (S2) → superseded by S1" in md
     assert "01RA3" not in md.split("Supersession", 1)[1].split("|", 1)[0]
+
+
+# --- a run built while the producer was behind its clock (#551) -------------------
+
+
+def _stale_build(stale: bool) -> dict:
+    return {
+        "datasets": {"persons": "v1"},
+        "producer": {"checked_at": "2026-09-19T08:05:12.345678Z", "stale": stale},
+    }
+
+
+def test_the_ledger_line_records_whether_the_producer_was_stale(tmp_path):
+    """The gate reads the ledger, not `BUILD.json`; the fact has to travel."""
+    summary = _report(tmp_path, Diff([E("noop")]), build_info=_stale_build(True))
+
+    assert ledger_line(summary)["producer_stale"] is True
+
+
+def test_a_run_built_on_a_fresh_producer_says_so_rather_than_saying_nothing(tmp_path):
+    summary = _report(tmp_path, Diff([E("noop")]), build_info=_stale_build(False))
+
+    assert ledger_line(summary)["producer_stale"] is False
+
+
+def test_a_run_with_no_producer_record_is_not_claimed_stale(tmp_path):
+    """A hand-made store, or a build from before #551 — unknown, not late."""
+    summary = _report(tmp_path, Diff([E("noop")]))
+
+    assert ledger_line(summary)["producer_stale"] is False
+
+
+def test_the_streak_refuses_a_run_built_while_the_producer_was_stale():
+    """#551's third acceptance. A frozen input and a settled diff are
+    indistinguishable from inside the run, and the digest is the gate's evidence."""
+    ledger = [_line("r1"), _line("r2", producer_stale=True), _line("r3")]
+
+    ok, reason = may_execute(ledger, digest="d1", streak=3)
+
+    assert not ok
+    assert "r2" in reason and "heartbeat deadline" in reason
+
+
+def test_a_ledger_line_written_before_this_deploy_still_counts():
+    """The key is absent on every line already in the ledger; a deploy must not
+    restart a streak the nightly has been building."""
+    ok, _ = may_execute([_line("r1"), _line("r2"), _line("r3")], digest="d1", streak=3)
+
+    assert ok
+
+
+def test_the_markdown_says_the_producer_was_behind_its_clock(tmp_path):
+    """`summary.md` is what a person reads before approving an execute."""
+    _report(tmp_path, Diff([E("create")]), build_info=_stale_build(True))
+
+    body = (tmp_path / "run" / SUMMARY_MD).read_text()
+
+    assert "behind" in body and "2026-09-19T08:05:12" in body

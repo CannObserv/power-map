@@ -9,6 +9,7 @@ rather than reporting the same green as a run that did.
 import hashlib
 import json
 import logging
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -19,6 +20,7 @@ from src.core.ingestion.datasets import (
     PullReport,
     SnapshotStore,
     Subscription,
+    parse_catalog,
     pull,
 )
 
@@ -625,3 +627,67 @@ async def test_the_report_says_which_snapshots_landed_without_a_package(tmp_path
     assert report.landed == ["pm_anchors"]
     assert report.landed_without_package == ["pm_anchors"]
     assert not report.failed_run
+
+
+# --------------------------------------------------------------------------
+# The pull's run record (#551)
+# --------------------------------------------------------------------------
+
+
+def test_the_run_record_carries_the_heartbeat_verbatim(tmp_path):
+    """What the build reads later to tell whether it is building on a late producer."""
+    store = SnapshotStore(tmp_path)
+    catalog = parse_catalog(
+        {
+            "checked_at": "2026-09-23T08:05:12.345678Z",
+            "stale_after": "2026-09-24T08:45:00.000000Z",
+            "datasets": [],
+        }
+    )
+
+    store.record_pull(catalog, at=datetime(2026, 9, 23, 9, 0, tzinfo=UTC))
+
+    assert store.pull_record() == {
+        "pulled_at": "2026-09-23T09:00:00.000000Z",
+        "checked_at": "2026-09-23T08:05:12.345678Z",
+        "stale_after": "2026-09-24T08:45:00.000000Z",
+    }
+
+
+def test_a_record_of_a_catalog_with_no_heartbeat_says_so_rather_than_omitting_it(tmp_path):
+    """A null is "the publisher stated none"; a missing key is "nobody looked"."""
+    store = SnapshotStore(tmp_path)
+
+    store.record_pull(parse_catalog({"datasets": []}), at=datetime(2026, 9, 23, tzinfo=UTC))
+
+    assert store.pull_record()["stale_after"] is None
+
+
+def test_an_unpulled_store_has_no_run_record(tmp_path):
+    """Absent is not stale: a build against a hand-made store reads None, not a finding."""
+    assert SnapshotStore(tmp_path).pull_record() is None
+
+
+def test_an_unreadable_run_record_reads_as_none(tmp_path):
+    """A truncated write must not take down the build that reads it."""
+    (tmp_path / "pull.json").write_text("{")
+
+    assert SnapshotStore(tmp_path).pull_record() is None
+
+
+def test_a_stale_producer_fails_the_run(tmp_path):
+    """The one outcome that otherwise looks exactly like a quiet night: everything
+    unchanged, exit 0, and inputs nobody has been able to refresh."""
+    report = PullReport(skipped=["pm_anchors"])
+
+    report.producer_stale = "usa-wa is behind the clock: …"
+
+    assert report.failed_run
+
+
+def test_a_run_record_truncated_mid_character_reads_as_none(tmp_path):
+    """CR 1: the docstring promises a truncated write cannot stop a build, and
+    `UnicodeDecodeError` is a ValueError rather than a `json.JSONDecodeError`."""
+    (tmp_path / "pull.json").write_bytes(b'{"checked_at": "\xff\xfe')
+
+    assert SnapshotStore(tmp_path).pull_record() is None

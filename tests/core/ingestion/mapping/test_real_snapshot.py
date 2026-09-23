@@ -19,7 +19,12 @@ pytest.importorskip("dbt.adapters.duckdb")
 import duckdb  # noqa: E402
 
 from scripts.export_pm_tables import TABLES  # noqa: E402
-from src.core.ingestion.mapping import USA_WA_SOURCES, run_dbt  # noqa: E402
+from src.core.ingestion.mapping import (  # noqa: E402
+    USA_WA_SOURCES,
+    check_contracts,
+    held_contracts,
+    run_dbt,
+)
 from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, write_parquet  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -125,3 +130,20 @@ def test_dissolved_events_match_pm_and_the_current_biennium_is_live(real):
     assert events == 152, f"dissolved events: {events}"
     assert types == {"dissolved"}
     assert still_live == 34, f"orgs at the current biennium: {still_live}"
+
+
+def test_the_landed_store_matches_the_pins_it_was_landed_under():
+    """#553's acceptance: the store as it stands builds, with nothing re-minted.
+
+    Four of the six sources landed before #536 and record no `contract_hash` in
+    `snapshot.json`; usa-wa#385's baseline re-mint published it in their
+    `datapackage.json`, which is the fallback this exercises. A failure here is
+    a re-pin awaiting a pull, not something to fix in the check.
+    """
+    if missing := _missing():
+        pytest.skip(f"real snapshot store incomplete — absent: {', '.join(missing)}")
+
+    assert check_contracts(STORE) == []
+    held = held_contracts(STORE)
+    assert set(held) == set(USA_WA_SOURCES)
+    assert all(held.values()), f"no contract stated anywhere: {held}"

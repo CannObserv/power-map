@@ -8,6 +8,8 @@ nothing. Most of these tests exist for that class of lie rather than for the
 happy path.
 """
 
+from datetime import UTC, datetime, timedelta
+
 import httpx
 import pytest
 
@@ -56,7 +58,7 @@ def _transport(handler):
 
 
 def test_parses_each_entry():
-    entries = {e.name: e for e in parse_catalog(CATALOG)}
+    entries = {e.name: e for e in parse_catalog(CATALOG).entries}
 
     assert entries["pm_anchors"].rows == 12427
     assert entries["pm_anchors"].tier == "cutover"
@@ -65,7 +67,7 @@ def test_parses_each_entry():
 
 def test_strips_the_algorithm_prefix_from_the_hash():
     """The catalog states `sha256:02a6…`; a bare digest is what verification needs."""
-    entry = next(e for e in parse_catalog(CATALOG) if e.name == "pm_anchors")
+    entry = next(e for e in parse_catalog(CATALOG).entries if e.name == "pm_anchors")
 
     assert entry.sha256 == "02a619905bd6df29b34169179258f05032aa11f3f91e7bceba5d2a1ad0a612d3"
 
@@ -92,7 +94,7 @@ def test_refuses_a_payload_with_no_datasets_key():
 
 
 def test_parses_the_schema_major_from_schema_version():
-    entry = next(e for e in parse_catalog(CATALOG) if e.name == "pm_anchors")
+    entry = next(e for e in parse_catalog(CATALOG).entries if e.name == "pm_anchors")
 
     assert entry.schema_major == 1
 
@@ -231,7 +233,7 @@ def test_parses_the_contract_hash_bare():
     """The pin compares bare digests, as the data hash does."""
     payload = {"datasets": [dict(CATALOG["datasets"][0], contract_hash=f"sha256:{CONTRACT}")]}
 
-    (entry,) = parse_catalog(payload)
+    (entry,) = parse_catalog(payload).entries
 
     assert entry.contract_hash == CONTRACT
 
@@ -241,7 +243,7 @@ def test_an_entry_without_a_contract_hash_still_parses():
 
     Whether a missing hash matters is the pin's question, per dataset.
     """
-    (entry,) = parse_catalog({"datasets": [CATALOG["datasets"][0]]})
+    (entry,) = parse_catalog({"datasets": [CATALOG["datasets"][0]]}).entries
 
     assert entry.contract_hash is None
 
@@ -260,7 +262,9 @@ def test_a_null_contract_hash_parses_as_absent():
     An unsubscribed staging entry publishing `null` would otherwise stop every
     pull under a "catalog unreadable" message that points at the token.
     """
-    (entry,) = parse_catalog({"datasets": [dict(CATALOG["datasets"][0], contract_hash=None)]})
+    (entry,) = parse_catalog(
+        {"datasets": [dict(CATALOG["datasets"][0], contract_hash=None)]}
+    ).entries
 
     assert entry.contract_hash is None
 
@@ -271,3 +275,74 @@ def test_an_unsupported_algorithm_names_the_field_it_came_from():
 
     with pytest.raises(CatalogError, match="contract_hash uses unsupported digest algorithm"):
         parse_catalog(payload)
+
+
+# --------------------------------------------------------------------------
+# The producer's heartbeat (#551, usa-wa#386)
+# --------------------------------------------------------------------------
+
+CHECKED_AT = "2026-09-23T08:05:12.345678Z"
+STALE_AFTER = "2026-09-24T08:45:00.000000Z"
+DEADLINE = datetime(2026, 9, 24, 8, 45, tzinfo=UTC)
+
+
+def _beating(**over) -> dict:
+    return {**CATALOG, "checked_at": CHECKED_AT, "stale_after": STALE_AFTER, **over}
+
+
+def test_parses_the_heartbeat_beside_the_entries():
+    """The top level says when the publisher last ran and when it is late."""
+    catalog = parse_catalog(_beating())
+
+    assert catalog.checked_at == datetime(2026, 9, 23, 8, 5, 12, 345678, tzinfo=UTC)
+    assert catalog.stale_after == DEADLINE
+    assert len(catalog.entries) == 2
+
+
+def test_a_catalog_with_no_heartbeat_parses_and_is_never_stale():
+    """usa-wa#386's first nightly is 2026-09-23; every catalog before it has none.
+
+    Absent is not late: the check the heartbeat enables simply has nothing to
+    say until the field arrives.
+    """
+    catalog = parse_catalog(CATALOG)
+
+    assert (catalog.checked_at, catalog.stale_after) == (None, None)
+    assert not catalog.stale(datetime(2030, 1, 1, tzinfo=UTC))
+
+
+def test_the_producer_is_stale_once_its_own_deadline_has_passed():
+    catalog = parse_catalog(_beating())
+
+    assert catalog.stale(DEADLINE + timedelta(seconds=1))
+
+
+def test_the_deadline_itself_is_not_yet_late():
+    """`now > stale_after`: the grace runs to the deadline, not up to it."""
+    catalog = parse_catalog(_beating())
+
+    assert not catalog.stale(DEADLINE)
+
+
+@pytest.mark.parametrize("field", ["checked_at", "stale_after"])
+def test_refuses_a_heartbeat_that_is_not_a_timestamp(field):
+    """Unparseable, it would raise a TypeError at the comparison instead."""
+    with pytest.raises(CatalogError, match=field):
+        parse_catalog(_beating(**{field: "tomorrow morning"}))
+
+
+def test_a_heartbeat_without_a_zone_is_read_as_utc():
+    """Everything here is UTC (#440); a missing `Z` must not crash the comparison."""
+    catalog = parse_catalog(_beating(stale_after="2026-09-24T08:45:00.000000"))
+
+    assert catalog.stale_after == DEADLINE
+
+
+def test_the_lateness_sentence_names_a_missing_checked_at_rather_than_printing_none():
+    """CR 5: it is the line an operator reads at 09:00; `None` reads as our bug."""
+    catalog = parse_catalog(_beating(checked_at=None))
+
+    sentence = catalog.lateness(DEADLINE + timedelta(days=1))
+
+    assert "None" not in sentence
+    assert STALE_AFTER in sentence

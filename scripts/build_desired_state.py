@@ -9,10 +9,19 @@ copy every table the ownership manifest declares out to Parquet under
 files and writes files. The PM tables it joins arrive through the export step,
 which is where the DSN lives and is echoed.
 
-Exit codes: 0 built and written; 1 the build failed or a dbt test *errored*
-(a dbt *warning* — the fixture-known blank names — does not fail the run, but
-is printed); 2 usage. A successful run also writes `BUILD.json` beside the
-tables: the dataset versions and PM-export digests the artifact came from.
+**The held snapshots are checked against their pins first (#553).** The puller's
+pin gate covers landing; the build resolves each source to the newest version
+the store holds and would otherwise read it under whatever the models now say.
+A held contract that is not its pin refuses the build by name. A version that
+states no contract anywhere is pre-usa-wa#385 and only warns — it cannot be
+compared, and no re-mint is worth blocking every build on.
+
+Exit codes: 0 built and written; 1 a held snapshot is not its pin, the build
+failed, or a dbt test *errored* (a dbt *warning* — the fixture-known blank
+names — does not fail the run, but is printed); 2 usage, which includes a pin
+file that will not load, as it does for the puller. A successful run also
+writes `BUILD.json` beside the tables: the dataset versions and contracts, the
+producer heartbeat the last pull recorded (#551), and the PM-export digests.
 
 Usage:
     uv run --group mapping python -m scripts.build_desired_state
@@ -23,7 +32,13 @@ import sys
 from pathlib import Path
 
 from scripts._dsn import build_parser
-from src.core.ingestion.mapping import run_dbt, write_build_info, write_desired_state
+from src.core.ingestion.datasets import Subscription, load_subscription
+from src.core.ingestion.mapping import (
+    check_contracts,
+    run_dbt,
+    write_build_info,
+    write_desired_state,
+)
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -33,8 +48,20 @@ DEFAULT_OUT = "data/desired_state"
 DEFAULT_DUCKDB = "data/mapping.duckdb"
 
 
-def build(root: Path, out: Path, duckdb_path: Path) -> int:
-    """Run `dbt build`, report, and export; return the exit code."""
+def build(
+    root: Path, out: Path, duckdb_path: Path, *, subscription: Subscription | None = None
+) -> int:
+    """Check the held contracts, run `dbt build`, report, and export; return the exit code."""
+    # Before dbt, not after: a build from the wrong shape is not a build to
+    # inspect. The chain stops here, so the applier never sees its output.
+    if findings := check_contracts(root, subscription=subscription):
+        for finding in findings:
+            logger.error("  CONTRACT  %s", finding)
+        logger.error(
+            "the held snapshots do not match the pins in models/sources.yml — "
+            "run scripts/pull_datasets.py, or revert the re-pin"
+        )
+        return 1
     result = run_dbt(["build"], snapshot_root=root, duckdb_path=str(duckdb_path))
     nodes = list(result.result.results) if result.success or result.result else []
     for r in nodes:
@@ -69,7 +96,16 @@ def main(argv: list[str] | None = None) -> int:
         "--duckdb", default=DEFAULT_DUCKDB, help=f"duckdb working file (default {DEFAULT_DUCKDB})"
     )
     args = parser.parse_args(argv)
-    return build(Path(args.root), Path(args.out), Path(args.duckdb))
+    try:
+        # Loaded here rather than inside `check_contracts` so the `ValueError`
+        # a malformed pin raises is the *only* thing this catches (CR 10): round
+        # one wrapped the whole build, which turned a failed parquet export into
+        # an argparse usage banner. A bad pin is configuration, like a bad flag,
+        # and the puller already answers it with a sentence and exit 2 (#536 CR 4).
+        subscription = load_subscription()
+    except ValueError as exc:
+        parser.error(str(exc))
+    return build(Path(args.root), Path(args.out), Path(args.duckdb), subscription=subscription)
 
 
 if __name__ == "__main__":

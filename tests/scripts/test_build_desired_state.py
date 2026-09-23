@@ -16,6 +16,7 @@ pytest.importorskip("dbt.adapters.duckdb")
 
 from scripts.build_desired_state import main  # noqa: E402
 from scripts.export_pm_tables import TABLES  # noqa: E402
+from src.core.ingestion.datasets import load_subscription  # noqa: E402
 from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, read_rows, write_parquet  # noqa: E402
 from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     DEFAULT_CROSSWALK,
@@ -100,3 +101,86 @@ def test_a_build_records_its_provenance(store, tmp_path):
     assert "curation_overlay" in info["pm_exports"]
     assert info["tables"]["desired_people"] == 4
     assert info["built_at"].endswith("Z") and "T" in info["built_at"]
+
+
+# --------------------------------------------------------------------------
+# The contract gate (#553)
+# --------------------------------------------------------------------------
+
+
+def _args(store, tmp_path):
+    return [
+        "--root",
+        str(store),
+        "--out",
+        str(tmp_path / "out"),
+        "--duckdb",
+        str(tmp_path / "m.duckdb"),
+    ]
+
+
+def test_a_held_snapshot_that_is_not_its_pin_fails_the_build(store, tmp_path, capsys):
+    """The window a re-pin opens: new models, old-contract data still newest held.
+    `power-map-desired-state.service` stops the chain, so the applier never sees it."""
+    (store / "persons" / "v1" / "snapshot.json").write_text('{"contract_hash": "%s"}' % ("f0" * 32))
+
+    code = main(_args(store, tmp_path))
+
+    # Read from stdout, not caplog: `main` calls `configure_logging()`, which
+    # replaces the handlers caplog installed. Stdout is what the journal keeps.
+    logged = capsys.readouterr().out
+    assert code == 1
+    assert not (tmp_path / "out" / "desired_people.parquet").exists()
+    assert "f0" * 32 in logged and "pinned to" in logged
+    assert "dddb4e9f" in logged
+
+
+def test_a_store_stating_no_contracts_still_builds(store, tmp_path):
+    """The fixture store is every pre-usa-wa#385 version: uncheckable warns, never refuses."""
+    assert main(_args(store, tmp_path)) == 0
+
+
+def test_a_build_records_the_contract_each_source_held(store, tmp_path):
+    """Null where a version states none — the honest record of what could be checked."""
+    (store / "persons" / "v1" / "datapackage.json").write_text(
+        json.dumps({"contract_hash": load_subscription().pins["persons"].contract_hash})
+    )
+
+    assert main(_args(store, tmp_path)) == 0
+
+    contracts = json.loads((tmp_path / "out" / "BUILD.json").read_text())["contracts"]
+    assert contracts["persons"] == load_subscription().pins["persons"].contract_hash
+    assert contracts["roles"] is None
+
+
+def test_an_unreadable_pin_file_is_a_usage_error_not_a_traceback(tmp_path, capsys, monkeypatch):
+    """CR 2: the puller answers the same bad file with a sentence and exit 2, so
+    one malformed pin must not read as configuration in step 1 and a crash in step 3.
+
+    No `store` fixture (CR 14): the load is the first thing `main` does, before
+    anything reads a snapshot.
+    """
+
+    def unreadable():
+        raise ValueError("sources.yml: usa_wa.persons: meta.schema_major None is not an integer")
+
+    monkeypatch.setattr("scripts.build_desired_state.load_subscription", unreadable)
+
+    with pytest.raises(SystemExit) as exc:
+        main(_args(tmp_path / "store", tmp_path))
+
+    assert exc.value.code == 2
+    assert "usa_wa.persons" in capsys.readouterr().err
+
+
+def test_a_failure_inside_the_build_is_not_reported_as_a_usage_error(store, tmp_path, monkeypatch):
+    """CR 10: round one caught ValueError around the whole build, so an export
+    that failed exited 2 under an argparse usage banner."""
+
+    def boom(*a, **kw):
+        raise ValueError("parquet export failed")
+
+    monkeypatch.setattr("scripts.build_desired_state.write_desired_state", boom)
+
+    with pytest.raises(ValueError, match="parquet export failed"):
+        main(_args(store, tmp_path))
