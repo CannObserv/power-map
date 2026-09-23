@@ -272,6 +272,26 @@ converge() {
     [[ "$output" == *"2.1.300"*"20 days"* ]]
 }
 
+@test "CR 2: --check names a system bin that links to a missing version" {
+    legacy_layout
+    converge
+    ln -sfn "$VERSIONS/9.9.9" "$CLAUDE_SYSTEM_BIN"
+    run bash "$SCRIPT" --check
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"9.9.9"*"missing"* ]]
+    [[ "$output" != *"syntax error"* ]]
+}
+
+@test "CR 2: --execute repairs a dangling system bin instead of refusing" {
+    legacy_layout
+    converge
+    ln -sfn "$VERSIONS/9.9.9" "$CLAUDE_SYSTEM_BIN"
+    ln -sfn "$CLAUDE_USER_HOME/.local/share/claude/versions/2.1.280" "$CLAUDE_USER_HOME/.local/bin/claude"
+    run bash "$SCRIPT" --execute
+    [ "$status" -eq 0 ]
+    [ "$(readlink "$CLAUDE_SYSTEM_BIN")" = "$VERSIONS/2.1.300" ]
+}
+
 # --- arguments -----------------------------------------------------------------
 
 @test "an unknown flag is an error" {

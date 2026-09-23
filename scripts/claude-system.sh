@@ -106,11 +106,14 @@ extension_version() {
     basename "$ext" | grep -oE '[0-9]+(\.[0-9]+)+' | head -n1
 }
 
-# The version the system bin runs, when it is a link into VERSIONS; else empty.
+# The version the system bin runs, when it is a link to an executable in
+# VERSIONS; else empty. A dangling link is not a version: it neither blocks an
+# install as a "downgrade" nor has an age to measure.
 system_version() {
     local dest
     dest="$(readlink "$SYSTEM_BIN" 2>/dev/null)" || return 0
-    case "$dest" in "$VERSIONS"/*) basename "$dest" ;; esac
+    case "$dest" in "$VERSIONS"/*) [ -x "$dest" ] && basename "$dest" ;; esac
+    return 0
 }
 
 links_to_system() {
@@ -141,7 +144,10 @@ if [ "$mode" = check ]; then
     [ -e "$SYSTEM_BIN" ] || [ -L "$SYSTEM_BIN" ] || exit 0
     issues=()
     current="$(system_version)"
-    if [ -z "$current" ]; then
+    dest="$(readlink "$SYSTEM_BIN" 2>/dev/null || true)"
+    if [ -z "$current" ] && [[ "$dest" == "$VERSIONS"/* ]]; then
+        issues+=("$SYSTEM_BIN links to $dest, which is missing — every client is broken")
+    elif [ -z "$current" ]; then
         issues+=("$SYSTEM_BIN is not the system runtime (it should link into $VERSIONS)")
     else
         since="$STAMP"
