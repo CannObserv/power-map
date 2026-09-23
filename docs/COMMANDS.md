@@ -417,6 +417,20 @@ git submodule update --remote --merge skills-vendor/gregoryfoster-skills skills-
 
 ---
 
+## Claude Code on this host (#542)
+
+One runtime for every client: `/usr/local/bin/claude`, a root-owned link into `/usr/local/lib/claude/versions/<v>`. `~/.local/bin/claude` and each VS Code extension's bundled `native-binary/claude` link to it. Updates are manual and need root. The native installer never moves a `~/.local/bin/claude` that doesn't already point into its own `versions/`, so the user auto-updater is switched off (`DISABLE_AUTOUPDATER`).
+
+```bash
+bash scripts/claude-system.sh                             # dry run: layout + plan
+sudo bash scripts/claude-system.sh --execute              # install latest, relink everything
+sudo bash scripts/claude-system.sh --execute --version stable   # or a pinned X.Y.Z
+```
+
+The SessionStart hook `.claude/hooks/claude-canonical-check.sh` warns when any link drifts (an extension update unpacks a fresh bundled binary) or when the last successful `--execute` is over 14 days old. It never repairs, and it stays silent on hosts without `/usr/local/lib/claude/versions`. `--execute` refuses a downgrade (exit 1) and keeps the current and previous version: to roll back, `sudo ln -sfn /usr/local/lib/claude/versions/<prev> /usr/local/bin/claude`.
+
+---
+
 ## Scheduled timers
 
 Every unit below reports failure through `systemctl --failed`, and each one that

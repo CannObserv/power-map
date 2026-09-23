@@ -95,9 +95,8 @@ def test_every_reference_doc_is_covered(artifacts: list[dict]) -> None:
         return any(doc == candidate or candidate in doc.parents for candidate in covered_paths)
 
     # Recursive: a doc added under a new subdirectory must be caught too, not
-    # only top-level ones. docs/plans/ is excluded — 111 historical design docs
-    # that would drown any real failure message, and they are covered by the
-    # same directory entry regardless.
+    # only top-level ones. docs/plans/ is excluded — its own artifact covers it,
+    # and the tests below hold that split in place.
     uncovered = sorted(
         doc.relative_to(REPO_ROOT).as_posix()
         for doc in (REPO_ROOT / "docs").rglob("*.md")
@@ -108,4 +107,57 @@ def test_every_reference_doc_is_covered(artifacts: list[dict]) -> None:
         "reference docs not reachable by codebase_context_search: "
         f"{uncovered}. Point an artifact entry at the `docs` directory (it "
         "indexes recursively) rather than naming files one by one."
+    )
+
+
+# ── Dated prose: its own artifact, out of the code index (#542) ───────────────
+
+PLANS_DIR = REPO_ROOT / "docs" / "plans"
+DOCS_IGNORE = REPO_ROOT / "docs" / ".socraticodeignore"
+ROOT_IGNORE = REPO_ROOT / ".socraticodeignore"
+
+
+def _ignore_rules(path: Path) -> list[str]:
+    """The rule lines of a gitignore-syntax file: no blanks, no comments."""
+    lines = (line.strip() for line in path.read_text().splitlines())
+    return [line for line in lines if line and not line.startswith("#")]
+
+
+def test_design_history_is_its_own_artifact(artifacts: list[dict]) -> None:
+    """`docs/plans/` is declared once, by name, so a search can scope to it.
+
+    Every artifact competes in one ranking, and a dated plan answers with the
+    value it was written against. `artifactName` is the only lever that
+    separates current reference from history — and it cannot separate two
+    halves of one artifact.
+    """
+    names = [e["name"] for e in artifacts if (REPO_ROOT / e["path"]).resolve() == PLANS_DIR]
+    assert names == ["design-history"], (
+        f"expected one `design-history` artifact at ./docs/plans, found {names}"
+    )
+
+
+def test_the_reference_docs_walk_skips_only_plans() -> None:
+    """`docs/.socraticodeignore` drops `plans/` from `reference-docs` and nothing else.
+
+    A directory artifact reads the ignore file at its own top, and only there;
+    the code index and the graph never read it. Pinned to exactly one rule
+    because the coverage test above models paths, not ignore files: any wider
+    rule here would drop a reference doc from context search while that test
+    stayed green.
+    """
+    assert _ignore_rules(DOCS_IGNORE) == ["plans/"], (
+        f"{DOCS_IGNORE.relative_to(REPO_ROOT)} must hold exactly `plans/`. A wider "
+        "rule silently hides reference docs from codebase_context_search."
+    )
+
+
+def test_plans_leave_the_code_index() -> None:
+    """Dated prose stays out of `codebase_search`, where it outranks source.
+
+    Safe only because `design-history` keeps it reachable: the repo-root file
+    governs the code index and the graph, the manifest the context store.
+    """
+    assert "docs/plans/" in _ignore_rules(ROOT_IGNORE), (
+        "`docs/plans/` is missing from the repo-root .socraticodeignore"
     )

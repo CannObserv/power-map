@@ -1,0 +1,5 @@
+# Read only by the `reference-docs` context artifact (#542) — a directory
+# artifact reads the ignore file at its own top; the code index never does.
+# docs/plans/ is declared separately as `design-history`. Exactly one rule:
+# tests/test_context_artifacts.py fails on any other.
+plans/

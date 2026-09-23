@@ -4,3 +4,6 @@
 # Its other entries are symlinks that resolve into the excluded skills-vendor/ tree.
 skills-vendor/
 .claude/skills/
+# Dated design history (#542): out of codebase_search, where it outranks source.
+# Still searchable through the `design-history` context artifact.
+docs/plans/
