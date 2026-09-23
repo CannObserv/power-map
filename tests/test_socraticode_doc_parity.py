@@ -551,7 +551,7 @@ def test_skills_md_repairs_artifacts_with_codebase_update() -> None:
     `codebase_context_index` re-embeds every artifact with no progress and no
     content-hash skip; on a CPU embedder it outlasts the 1800 s tool timeout
     and reports failure while the server finishes. `docs/SKILLS.md` is never
-    regenerated, so a re-run cannot correct it — this does.
+    regenerated, so a re-run cannot correct it — this catches it.
     """
     text = SKILLS_DOC_PATH.read_text()
     recovery = [line for line in text.splitlines() if "ecovery" in line]
