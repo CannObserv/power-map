@@ -232,6 +232,7 @@ installer_owner="$(stat -c %U "$installer" 2>/dev/null || echo unknown)"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$VERSIONS"
+before="$(find "$VERSIONS" -mindepth 1 -maxdepth 1 -printf '%f\n')"
 echo "install $target with $installer"
 # sudo has already reset the environment; only HOME and XDG_DATA_HOME are ours.
 if ! HOME="$scratch" XDG_DATA_HOME="$SYSTEM_LIB" \
@@ -257,6 +258,8 @@ rc=0
 if [ -n "$current" ] && older_than "$new" "$current"; then
     echo "refused      $new is older than the current system version $current;" \
         "the system bin stays at $current"
+    # Only what this run added: an older version already here is the rollback.
+    grep -qxF -- "$new" <<<"$before" || rm -f "$installed"
     exit 1
 elif [ "$new" = "$current" ]; then
     echo "already      $SYSTEM_BIN -> $installed"

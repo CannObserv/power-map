@@ -329,6 +329,23 @@ as_fake_root() {
     [[ "$output" == *"note: running the installer from"*"not root"* ]]
 }
 
+@test "CR 8: a refused downgrade removes the version this run installed" {
+    legacy_layout
+    CLAUDE_STUB_VERSION=2.1.310 converge
+    CLAUDE_STUB_VERSION=2.1.290 run bash "$SCRIPT" --execute --version 2.1.290
+    [ "$status" -eq 1 ]
+    [ ! -e "$VERSIONS/2.1.290" ]
+}
+
+@test "CR 8: a refused downgrade keeps a version that was already there" {
+    legacy_layout
+    CLAUDE_STUB_VERSION=2.1.300 converge
+    CLAUDE_STUB_VERSION=2.1.310 converge
+    CLAUDE_STUB_VERSION=2.1.300 run bash "$SCRIPT" --execute --version 2.1.300
+    [ "$status" -eq 1 ]
+    [ -x "$VERSIONS/2.1.300" ]
+}
+
 # --- arguments -----------------------------------------------------------------
 
 @test "an unknown flag is an error" {
