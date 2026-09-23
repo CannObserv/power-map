@@ -419,15 +419,15 @@ git submodule update --remote --merge skills-vendor/gregoryfoster-skills skills-
 
 ## Claude Code on this host (#542)
 
-One install is canonical: the native launcher `~/.local/bin/claude`, which links into `~/.local/share/claude/versions/<v>`. `claude update` and the auto-updater repoint it, and `/usr/local/bin/claude` (root-owned) resolves to it. The VS Code extension's bundled binary is symlinked to the launcher, so every client runs the same version and follows each update. Before this, PATH sat at 2.1.58 while the extension ran 2.1.280.
+One runtime for every client: `/usr/local/bin/claude`, a root-owned link into `/usr/local/lib/claude/versions/<v>`. `~/.local/bin/claude` and each VS Code extension's bundled `native-binary/claude` link to it. Updates are manual and need root. The native installer never moves a `~/.local/bin/claude` that doesn't already point into its own `versions/`, so the user auto-updater is switched off (`DISABLE_AUTOUPDATER`).
 
 ```bash
-claude --version && claude doctor                         # canonical version; "Running: native"
-bash scripts/claude-link-canonical.sh                     # dry run: what would be relinked
-bash scripts/claude-link-canonical.sh --execute           # relink every extension's binary
+bash scripts/claude-system.sh                             # dry run: layout + plan
+sudo bash scripts/claude-system.sh --execute              # install latest, relink everything
+sudo bash scripts/claude-system.sh --execute --version stable   # or a pinned X.Y.Z
 ```
 
-An extension update unpacks a new bundled binary. The SessionStart hook `.claude/hooks/claude-canonical-check.sh` then prints the `--execute` line; it never relinks by itself. `--execute` skips an extension newer than the canonical install (exit 1): run `claude update` first. Rollback for one extension: reinstall it from VS Code. The pre-#542 image binary is kept at `~/.cache/claude-rollback/`.
+The SessionStart hook `.claude/hooks/claude-canonical-check.sh` warns when any link drifts (an extension update unpacks a fresh bundled binary) or when the system version is over 14 days old. It never repairs. `--execute` refuses a downgrade (exit 1) and keeps the current and previous version: to roll back, `sudo ln -sfn /usr/local/lib/claude/versions/<prev> /usr/local/bin/claude`.
 
 ---
 

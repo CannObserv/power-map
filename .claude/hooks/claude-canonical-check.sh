@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# SessionStart note (#542): warn when a VS Code extension runs its own bundled
-# Claude Code binary instead of the host's canonical native install. Silent when
-# linked. Reports, never repairs — the fix is the command it prints.
-exec bash "$(dirname "${BASH_SOURCE[0]}")/../../scripts/claude-link-canonical.sh" --check
+# SessionStart note (#542): warn when this host's Claude Code layout drifts from
+# one system runtime — /usr/local/bin/claude not linking into
+# /usr/local/lib/claude/versions, a user path not linking to it, an extension
+# update's fresh bundled binary, or a system version over 14 days old.
+# Silent when converged. Reports, never repairs: the fix needs sudo.
+exec bash "$(dirname "${BASH_SOURCE[0]}")/../../scripts/claude-system.sh" --check
