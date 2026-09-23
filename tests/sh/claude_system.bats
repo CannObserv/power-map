@@ -323,6 +323,12 @@ as_fake_root() {
     grep -q -- " $CLAUDE_USER_HOME/.claude\$" "$BATS_TEST_TMPDIR/chown.log"
 }
 
+@test "CR 5: --execute names an installer that root does not own" {
+    legacy_layout # every stub here belongs to the test user, not root
+    converge
+    [[ "$output" == *"note: running the installer from"*"not root"* ]]
+}
+
 # --- arguments -----------------------------------------------------------------
 
 @test "an unknown flag is an error" {

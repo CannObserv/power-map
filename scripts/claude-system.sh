@@ -223,6 +223,12 @@ if [ -z "$installer" ]; then
     exit 2
 fi
 
+# Normally the root-owned runtime itself. The bootstrap, or a broken system
+# bin, falls back to a user copy — run as root, so say whose file that is.
+installer_owner="$(stat -c %U "$installer" 2>/dev/null || echo unknown)"
+[ "$installer_owner" = root ] ||
+    echo "note: running the installer from $installer, owned by $installer_owner, not root"
+
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$VERSIONS"
