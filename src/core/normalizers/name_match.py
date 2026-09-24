@@ -29,15 +29,18 @@ pairs of distinct people among PM's 4,893 live ones, 66 of those pairs only on
 an initial (measured 2026-09-24). Anything softer belongs to the duplicate audit, not a per-create
 hint.
 
-Known gaps, each matching at ``exact`` or not at all:
+Known gaps:
 
 - a person who goes by the middle name behind a first initial — ``J. Edgar
-  Hoover`` against ``Edgar Hoover``. Closing it loosens the person tiers, so it
-  waits on a measurement, not a guess.
+  Hoover`` against ``Edgar Hoover`` — matches at no tier. Closing it loosens the
+  person tiers, so it waits on a measurement, not a guess.
 - a given name nameparser reads as a title — ``Prince Fielder``, ``Judge
-  Smith`` parse with no given name, ``King Lear`` with no surname. Reading the
-  title as a given name instead would make ``Rev. Smith`` an ``initial`` twin of
-  ``R. Smith``.
+  Smith`` parse with no given name, ``King Lear`` with no surname — matches only
+  at ``exact``. Reading the title as a given name instead would make ``Rev.
+  Smith`` an ``initial`` twin of ``R. Smith``.
+- run-together initials — ``JB Pritzker`` parses a two-letter given name, so it
+  meets ``J. R. Pritzker`` at ``initial``; ``JR Smith`` loses its given name.
+  Once folded, ``jb`` cannot be told from a two-letter name like ``Jo`` or ``Ed``.
 """
 
 import functools
