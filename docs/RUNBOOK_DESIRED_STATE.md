@@ -240,8 +240,11 @@ versions are the ones it offered (`currency`, #535).
   than `PULL_MAX_AGE` (24h — the catalog fetch itself failed, so the offer is
   yesterday's). The ledger line carries them as `inputs_behind`, refused in the
   streak and in the execute's own build, as above. A record from before #535
-  states no offer: unknown, not behind. The chain unit is `After=` the pull,
-  never `Requires=` it — a nightly diff that names what is behind beats none.
+  states no offer: unknown, not behind. While a pin refuses a version, every
+  night is behind and no execute opens, for any dataset — there is no flag; the
+  way out is the re-pin (#536) or the publisher reverting. The chain unit is
+  `After=` the pull, never `Requires=` it — a nightly diff that names what is
+  behind beats none.
 - **Thresholds** live in `manifest.yml` (`creates 0`, `merges 0`, `conflicts 0`,
   `stale 0`, `archives 0`, `restores 0`, `updates` unlimited). The flip (#501)
   passes `--allow-creates N`, `--allow-merges N`, `--allow-archives N`,
