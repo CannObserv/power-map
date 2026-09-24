@@ -330,6 +330,26 @@ async def test_the_pull_records_the_heartbeat_of_the_catalog_it_read(tmp_path):
     assert record["pulled_at"] == "2026-09-23T09:00:00.000000Z"
 
 
+async def test_the_pull_records_the_offer_of_a_version_its_pin_refused(tmp_path):
+    """#535, the 2026-09-18 night: the heartbeat was fresh and the refused version
+    never landed, so the store's newest is older than the publisher's. The record
+    is what lets the build say so rather than build on it as if it were current."""
+    refused = Subscription({"persons": Pin(2, CONTRACT)})
+    async with _client(catalog=BEATING) as client:
+        report = await run(
+            "https://usa-wa.exe.xyz:8000",
+            token="tok",
+            store=SnapshotStore(tmp_path),
+            subscription=refused,
+            keep=3,
+            client=client,
+            now=lambda: IN_TIME,
+        )
+
+    assert [name for name, _ in report.incompatible] == ["persons"]
+    assert SnapshotStore(tmp_path).pull_record()["offered"]["persons"] == "v1-aaa"
+
+
 async def test_a_pull_after_the_deadline_fails_the_run_rather_than_reading_as_a_quiet_night(
     tmp_path, caplog
 ):

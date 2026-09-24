@@ -15,6 +15,7 @@ import httpx
 import pytest
 
 from src.core.ingestion.datasets import (
+    Catalog,
     CatalogEntry,
     Pin,
     PullReport,
@@ -651,7 +652,20 @@ def test_the_run_record_carries_the_heartbeat_verbatim(tmp_path):
         "pulled_at": "2026-09-23T09:00:00.000000Z",
         "checked_at": "2026-09-23T08:05:12.345678Z",
         "stale_after": "2026-09-24T08:45:00.000000Z",
+        "offered": {},
     }
+
+
+def test_the_run_record_carries_what_the_publisher_offers_of_every_dataset(tmp_path):
+    """#535: what the build compares its resolved versions against. Every entry,
+    not only the subscribed ones: a `--dataset` narrowed pull rewrites this file
+    too, and must not leave the build blind to the datasets it did not name."""
+    store = SnapshotStore(tmp_path)
+    catalog = Catalog(entries=(entry("persons", "v2-bbb"), entry("roles", "v1-aaa")))
+
+    store.record_pull(catalog, at=datetime(2026, 9, 23, tzinfo=UTC))
+
+    assert store.pull_record()["offered"] == {"persons": "v2-bbb", "roles": "v1-aaa"}
 
 
 def test_a_record_of_a_catalog_with_no_heartbeat_says_so_rather_than_omitting_it(tmp_path):

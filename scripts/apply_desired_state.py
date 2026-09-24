@@ -10,7 +10,7 @@ Every run writes `data/applier/<run-id>/{diff.jsonl,summary.json,summary.md}`
 and appends a line to `data/applier/ledger.jsonl`. `--execute` is offered only
 after `streak` consecutive clean dry runs carrying this run's diff digest —
 neither they nor the execute itself built while usa-wa was behind its heartbeat
-deadline (#551). A
+deadline (#551), nor on inputs usa-wa had moved on from (#535). A
 refused `--execute` is recorded as `refused`, not as a dry run: an attempt at
 the gate does not count towards opening it. A diff holding an actionable
 producer merge is a merge phase (#514): its verdict weighs merges, conflicts and
@@ -50,6 +50,7 @@ from src.core.ingestion.applier_report import (
     Verdict,
     append_ledger,
     diff_digest,
+    inputs_behind,
     ledger_line,
     may_execute,
     producer_stale,
@@ -165,6 +166,11 @@ async def run(
                 "this run was built while usa-wa was behind its heartbeat deadline;"
                 " its inputs are of unknown currency"
             )
+        if behind := inputs_behind(state.build_info):
+            # The same question the other way round (#535): usa-wa kept its
+            # clock, and this build did not take what it published.
+            ok = False
+            why = f"this run was built on inputs behind usa-wa: {'; '.join(behind)}"
         if not ok:
             logger.error("execute refused: %s — recorded as a refused attempt", why)
             mode, code = "refused", EXIT_REFUSED
@@ -241,6 +247,13 @@ def _log_summary(summary: dict, run_dir: Path, ledger_path: Path, streak: int) -
             "  usa-wa was behind its heartbeat deadline when this was built — these"
             " inputs are of unknown currency, so this run neither opens nor extends"
             " the --execute streak"
+        )
+    if behind := inputs_behind(summary.get("build_info")):
+        # Likewise (#535): the pull's own exit 1 is in another unit's journal.
+        logger.warning(
+            "  built on inputs behind usa-wa — %s; this run neither opens nor extends"
+            " the --execute streak",
+            "; ".join(behind),
         )
     logger.info("  report: %s", run_dir)
     if summary["mode"] == "dry":

@@ -25,6 +25,7 @@ from dbt.cli.main import dbtRunner, dbtRunnerResult
 from src.core.ingestion.datasets import (
     DATA_FILE,
     PACKAGE_FILE,
+    PULL_MAX_AGE,
     SNAPSHOT_FILE,
     CatalogError,
     SnapshotStore,
@@ -48,6 +49,7 @@ __all__ = [
     "check_contracts",
     "held_contract",
     "held_contracts",
+    "input_currency",
     "load_manifest",
     "producer_state",
     "resolved_versions",
@@ -192,6 +194,11 @@ def check_contracts(
     return findings
 
 
+# What `producer` carries of the pull record: the heartbeat, and when it was read.
+# The record's offer is judged in `currency` instead (#535), not copied here.
+_HEARTBEAT = ("pulled_at", "checked_at", "stale_after")
+
+
 def producer_state(snapshot_root: Path | str, *, now: datetime | None = None) -> dict | None:
     """What the last pull recorded of the publisher's heartbeat, judged at ``now`` (#551).
 
@@ -207,7 +214,53 @@ def producer_state(snapshot_root: Path | str, *, now: datetime | None = None) ->
         # Someone edited the record; that is not evidence about the producer.
         logger.warning("pull.json states an unreadable stale_after — not read as stale")
         deadline = None
-    return {**record, "stale": bool(deadline and (now or datetime.now(UTC)) > deadline)}
+    heartbeat = {key: record.get(key) for key in _HEARTBEAT}
+    return {**heartbeat, "stale": bool(deadline and (now or datetime.now(UTC)) > deadline)}
+
+
+def input_currency(
+    snapshot_root: Path | str, *, datasets: Mapping[str, str], now: datetime | None = None
+) -> dict | None:
+    """Whether ``datasets`` are what usa-wa offered at the last pull, judged at ``now`` (#535).
+
+    #551 asks whether the publisher is behind its own clock; this asks whether
+    the build is behind the publisher. A version its pin refused, or one that
+    failed verification, never lands: the store's newest stays the old one, the
+    heartbeat stays fresh, and the diff settles on inputs the publisher has
+    moved on from — the same stable digest a settled producer gives.
+
+    ``superseded`` maps each dataset whose built version is not the offer to
+    both versions (``offered`` None when the catalog no longer carries it), and
+    is None when the record states no offer — a pull older than #535, which is
+    unknown rather than behind. ``pull_overdue`` says the record is older than
+    `PULL_MAX_AGE`: the catalog fetch failed, so the offer is yesterday's.
+    None when no pull has recorded anything.
+    """
+    record = SnapshotStore(snapshot_root).pull_record()
+    if record is None:
+        return None
+    try:
+        pulled = parse_moment(record.get("pulled_at"), label="pull.json pulled_at")
+    except CatalogError:
+        # As for `stale_after`: an edited record is not evidence the pull failed.
+        logger.warning("pull.json states an unreadable pulled_at — not read as overdue")
+        pulled = None
+    offered = record.get("offered")
+    superseded = (
+        {
+            name: {"built": version, "offered": offered.get(name)}
+            for name, version in datasets.items()
+            if offered.get(name) != version
+        }
+        if isinstance(offered, dict)
+        else None
+    )
+    at = now or datetime.now(UTC)
+    return {
+        "pulled_at": record.get("pulled_at"),
+        "pull_overdue": bool(pulled and at - pulled > PULL_MAX_AGE),
+        "superseded": superseded,
+    }
 
 
 def source_env(
@@ -341,21 +394,24 @@ def write_build_info(
 
     `BUILD.json` beside the tables: the dataset version each source resolved
     to and the contract it holds (#553), the publisher's heartbeat as the last
-    pull recorded it (#551), the digest of each PM export the models joined, the
-    row counts, and when. The applier copies it into every run summary and
+    pull recorded it (#551), whether those versions are what the publisher
+    offered at that pull (#535), the digest of each PM export the models
+    joined, the row counts, and when. The applier copies it into every run summary and
     ledger line, so a diff can always be traced to the inputs that produced it.
 
     ``now`` is the moment of this build: it stamps `built_at` and judges the
-    producer's deadline, and defaults to the current moment. One parameter, one
+    producer's deadline and the pull record's age, and defaults to the current
+    moment. One parameter, one
     clock (CR 11) — it exists so the field deciding whether a run counts towards
     the `--execute` streak can be pinned to a moment in a test (CR 6).
     """
     root = Path(snapshot_root)
     at = now or datetime.now(UTC)
+    datasets = resolved_versions(root, versions=versions)
     info = {
         "built_at": at.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
         "snapshot_root": str(root.resolve()),
-        "datasets": resolved_versions(root, versions=versions),
+        "datasets": datasets,
         # Beside the versions: a diff traced to a version alone cannot say which
         # shape produced it, and a version is re-minted over unchanged data (#553).
         "contracts": held_contracts(root, versions=versions),
@@ -363,6 +419,10 @@ def write_build_info(
         # (#551). The applier's ledger reads it; the gate refuses a streak built
         # on it.
         "producer": producer_state(root, now=at),
+        # Whether those versions are the ones usa-wa offered at the last pull,
+        # and whether that pull is recent enough to say (#535). The gate
+        # refuses a streak built on inputs behind the publisher, as for #551.
+        "currency": input_currency(root, datasets=datasets, now=at),
         "pm_exports": {
             table: _sha256(root / PM_EXPORT_DIR / f"{table}.parquet") for table in PM_SOURCES
         },

@@ -32,6 +32,9 @@ completed a run, `stale_after` the deadline for the next one. Both are recorded
 in `pull.json` at the store root, which the build reads; a pull past the
 deadline fails the run, because every dataset then reads `unchanged` and a
 producer behind the clock is indistinguishable from a settled night otherwise.
+The record also carries the version the catalog **offers** of every dataset,
+landed or not (#535): a version its pin refused never lands, and the build
+compares what it resolved against the offer to say it is behind.
 
 Exit codes: 0 all subscribed datasets are held — including any the publisher
 serves with no `datapackage.json`, which the report names; 1 a dataset failed,

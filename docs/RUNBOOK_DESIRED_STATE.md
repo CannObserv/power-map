@@ -125,7 +125,8 @@ and appends one line to `data/applier/ledger.jsonl`. The run's provenance is
 `BUILD.json` from the build, copied into the summary: per source the version
 **and the contract** it held (#553), so a diff traces to the shape and not only
 to the version — a re-mint moves the version over byte-identical data — plus
-the publisher's heartbeat as the last pull recorded it (#551).
+the publisher's heartbeat as the last pull recorded it (#551) and whether the
+versions are the ones it offered (`currency`, #535).
 
 - **Entry kinds.** `create` (an entity PM lacks; carries a hint naming PM rows
   already holding the asserted name — a probable twin), `insert` (a child row),
@@ -230,6 +231,17 @@ the publisher's heartbeat as the last pull recorded it (#551).
   one. The dry run says so in its journal line and in `summary.md`. A ledger
   line written before this existed carries no such key and still counts, so a
   deploy does not restart a streak the nightly has been building.
+- **Nor does a run built on inputs behind usa-wa (#535)** — the heartbeat's
+  other half: a version its pin refused, or one that failed verification, never
+  lands, so the store's newest stays behind while the heartbeat stays fresh
+  (the 2026-09-18 night). `BUILD.json`'s `currency.superseded` names each
+  source whose built version is not the one `pull.json` records the catalog
+  offering, with both versions; `currency.pull_overdue` says the record is older
+  than `PULL_MAX_AGE` (24h — the catalog fetch itself failed, so the offer is
+  yesterday's). The ledger line carries them as `inputs_behind`, refused in the
+  streak and in the execute's own build, as above. A record from before #535
+  states no offer: unknown, not behind. The chain unit is `After=` the pull,
+  never `Requires=` it — a nightly diff that names what is behind beats none.
 - **Thresholds** live in `manifest.yml` (`creates 0`, `merges 0`, `conflicts 0`,
   `stale 0`, `archives 0`, `restores 0`, `updates` unlimited). The flip (#501)
   passes `--allow-creates N`, `--allow-merges N`, `--allow-archives N`,

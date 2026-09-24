@@ -26,10 +26,11 @@ value changes, never the prose — in a fixed order, so two runs that would do
 the same thing agree whatever order the engine emitted them in.
 ``may_execute`` is the gate: ``streak`` consecutive clean dry runs carrying one
 digest, which the current run must reproduce — none of them built while usa-wa
-was behind its own heartbeat deadline (#551), because a frozen input and a
-settled diff are indistinguishable from inside a run. The ledger holds only the
-runs *before* this one, so the execute's own staleness is the caller's to check
-(`producer_stale`), beside its verdict.
+was behind its own heartbeat deadline (#551), nor on inputs usa-wa had moved on
+from (#535), because a frozen input and a settled diff are indistinguishable
+from inside a run. The ledger holds only the runs *before* this one, so the
+execute's own inputs are the caller's to check (`producer_stale`,
+`inputs_behind`), beside its verdict.
 """
 
 import hashlib
@@ -56,6 +57,7 @@ __all__ = [
     "diff_digest",
     "digest_view",
     "entry_json",
+    "inputs_behind",
     "ledger_line",
     "may_execute",
     "producer_stale",
@@ -201,6 +203,30 @@ def producer_stale(build_info: dict | None) -> bool:
     return bool(((build_info or {}).get("producer") or {}).get("stale"))
 
 
+def inputs_behind(build_info: dict | None) -> list[str]:
+    """Why this build's inputs are not what usa-wa offers, one clause each (#535).
+
+    Takes `BUILD.json`, as `producer_stale` does, so the gate can ask it of the
+    run it is about to authorise. The heartbeat answers "is usa-wa behind its
+    clock"; this answers "is PM behind usa-wa" — a version its pin refused
+    leaves the heartbeat fresh and the store's newest one behind.
+
+    Empty when the inputs are current, and when no pull recorded an offer — a
+    hand-made store, or a build older than #535. Unknown is not behind.
+    """
+    currency = (build_info or {}).get("currency") or {}
+    clauses = []
+    for name, versions in sorted((currency.get("superseded") or {}).items()):
+        built, offered = versions.get("built"), versions.get("offered")
+        if offered:
+            clauses.append(f"{name} built from {built}, usa-wa offers {offered}")
+        else:
+            clauses.append(f"{name} built from {built}, which usa-wa no longer offers")
+    if currency.get("pull_overdue"):
+        clauses.append(f"no pull has read usa-wa's catalog since {currency.get('pulled_at')}")
+    return clauses
+
+
 def _markdown(summary: dict) -> str:
     lines = [
         f"# Applier run {summary['run_id']} — {summary['mode']} — verdict: {summary['verdict']}",
@@ -219,6 +245,13 @@ def _markdown(summary: dict) -> str:
             f" at `{producer.get('checked_at')}` and undertook to publish the next by"
             f" `{producer.get('stale_after')}`. These inputs are of unknown currency, and"
             " this run does not count towards the `--execute` streak.",
+        ]
+    if behind := inputs_behind(summary.get("build_info")):
+        lines += [
+            "",
+            "**Built on inputs behind usa-wa:** "
+            + "; ".join(behind)
+            + ". This run does not count towards the `--execute` streak.",
         ]
     if summary["exceeded"]:
         over = ", ".join(f"{k} {n} > {limit}" for k, (n, limit) in summary["exceeded"].items())
@@ -354,8 +387,9 @@ def ledger_line(summary: dict) -> dict:
         "counts": summary["counts"],
         "exceeded": summary["exceeded"],
         "datasets": (summary.get("build_info") or {}).get("datasets"),
-        # The gate reads the ledger, never `BUILD.json`, so the fact travels here.
+        # The gate reads the ledger, never `BUILD.json`, so the facts travel here.
         "producer_stale": producer_stale(summary.get("build_info")),
+        "inputs_behind": inputs_behind(summary.get("build_info")),
     }
 
 
@@ -405,6 +439,12 @@ def may_execute(ledger: Sequence[dict], *, digest: str, streak: int) -> tuple[bo
             return False, (
                 f"run {ln.get('run_id')} was built while usa-wa was behind its heartbeat "
                 "deadline; its inputs are of unknown currency"
+            )
+        # The same evidence, frozen the other way (#535): usa-wa kept its clock
+        # and PM did not take what it published. Absent on older lines, as above.
+        if behind := ln.get("inputs_behind"):
+            return False, (
+                f"run {ln.get('run_id')} was built on inputs behind usa-wa: {'; '.join(behind)}"
             )
     if len(recent) < streak:
         return False, f"only {len(recent)} of {streak} dry runs recorded"

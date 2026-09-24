@@ -36,7 +36,7 @@ import shutil
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -53,6 +53,7 @@ __all__ = [
     "PINS_PATH",
     "PINS_SOURCE",
     "PULL_FILE",
+    "PULL_MAX_AGE",
     "Pin",
     "PullReport",
     "SnapshotStore",
@@ -108,6 +109,13 @@ SNAPSHOT_FILE = "snapshot.json"
 # it describes the run, not a snapshot. `versions()` lists directories only, so
 # a file here is invisible to every reader of the store's datasets.
 PULL_FILE = "pull.json"
+
+# How old that record may be before a build reads its offer as unknown (#535).
+# The pull runs at 09:00 and the chain at 09:30, each up to five minutes late,
+# so a nightly build reads a record about half an hour old — and one whose
+# catalog fetch failed outright reads yesterday's, at least 24h25m old.
+# `tests/scripts/test_desired_state_units.py` holds the bound between the two.
+PULL_MAX_AGE = timedelta(hours=24)
 
 # What the wire and every record here spell a moment as (#440).
 TS_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
@@ -506,16 +514,23 @@ class SnapshotStore:
         return sorted(p.name for p in d.iterdir() if p.is_dir() and not p.name.startswith("."))
 
     def record_pull(self, catalog: Catalog, *, at: datetime) -> dict:
-        """Write the run record: what the publisher's heartbeat said at ``at`` (#551).
+        """Write the run record: the publisher's heartbeat (#551) and offer (#535) at ``at``.
 
         Staleness itself is not recorded, only derived: `stale_after` is a fixed
         deadline, so a reader at any later moment reaches the same verdict the
         pull did — and a build hours or days later reaches a truer one.
+
+        `offered` is the version the catalog names for **every** dataset, landed
+        or not: a version its pin refused, or one that failed verification, is
+        exactly the one the build must know it did not get. Every entry rather
+        than the subscribed ones, because a `--dataset` narrowed pull rewrites
+        this record too.
         """
         record = {
             "pulled_at": fmt_moment(at),
             "checked_at": fmt_moment(catalog.checked_at),
             "stale_after": fmt_moment(catalog.stale_after),
+            "offered": {e.name: e.latest_version for e in catalog.entries},
         }
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / PULL_FILE).write_text(json.dumps(record, indent=2) + "\n")

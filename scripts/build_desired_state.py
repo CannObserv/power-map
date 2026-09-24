@@ -21,7 +21,10 @@ failed, or a dbt test *errored* (a dbt *warning* — the fixture-known blank
 names — does not fail the run, but is printed); 2 usage, which includes a pin
 file that will not load, as it does for the puller. A successful run also
 writes `BUILD.json` beside the tables: the dataset versions and contracts, the
-producer heartbeat the last pull recorded (#551), and the PM-export digests.
+producer heartbeat the last pull recorded (#551), whether those versions are
+what usa-wa offered at that pull and whether it is recent enough to say
+(`currency`, #535), and the PM-export digests. Inputs behind usa-wa do not fail
+the build — the applier says so, and the gate refuses to count the run.
 
 Usage:
     uv run --group mapping python -m scripts.build_desired_state
