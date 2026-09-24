@@ -1290,7 +1290,7 @@ wheels = [
 
 [[package]]
 name = "power-map"
-version = "0.56.0"
+version = "0.57.0"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
