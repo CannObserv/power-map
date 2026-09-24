@@ -196,7 +196,9 @@ sudo journalctl -u power-map -f      # watch startup; schema errors surface here
 ```
 
 If `infra/power-map.service` changed in the pull, reinstall the unit first (see § Service Management —
-"Install (first time or after updating infra/power-map.service)") before restarting.
+"Install (first time or after updating infra/power-map.service)") before restarting. Likewise the
+host memory files (`infra/system.slice.d/`, `infra/sysctl.d/`, `infra/default/earlyoom`): the host
+runs copies, so a pull changes nothing until the § Service Management "Host memory config" block re-runs.
 
 To apply schema without restarting (e.g. after a manual `git pull` mid-session) — **from the
 main checkout, on `main`**:
