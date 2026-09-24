@@ -115,6 +115,12 @@ def test_distinct_orgs_do_not_match(producer, pm):
     assert org_match(producer, pm) is None
 
 
+@pytest.mark.parametrize(("producer", "pm"), [("LLC", "Inc."), ("Co.", "Company")])
+def test_names_that_are_only_a_legal_form_do_not_match_each_other(producer, pm):
+    """cleanco strips the whole name, so an empty base must not read as agreement."""
+    assert org_match(producer, pm) is None
+
+
 # --- the index the hint looks names up in ----------------------------------------
 
 
@@ -154,3 +160,14 @@ def test_a_value_that_matches_nothing_finds_nothing():
     index.add("Patty Murray", "01MC")
 
     assert index.lookup("Nobody Known") == {}
+
+
+@pytest.mark.parametrize("entity", ["person", "organization", "jurisdiction"])
+def test_an_empty_name_matches_nothing(entity):
+    index = NameIndex(entity)
+    index.add("", "01XA")
+    index.add("   ", "01XB")
+    index.add("Patty Murray", "01XC")
+
+    assert index.lookup("") == {}
+    assert index.lookup("  ") == {}

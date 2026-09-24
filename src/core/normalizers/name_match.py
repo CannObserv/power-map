@@ -129,7 +129,9 @@ def _person_tier(a: str, b: str) -> Tier | None:
 
 
 def _org_key(folded: str) -> str:
-    return basename(_SPACE.sub(" ", folded.replace("&", " and ")).strip())
+    """The name without its legal form — or the whole name when that is all it is,
+    so ``LLC`` and ``Inc.`` do not agree on an empty base."""
+    return basename(_SPACE.sub(" ", folded.replace("&", " and ")).strip()) or folded
 
 
 def _org_tier(a: str, b: str) -> Tier | None:
@@ -172,14 +174,18 @@ class NameIndex:
         self._blocks: dict[str, list[tuple[str, str]]] = {}
 
     def add(self, value: str, parent: str) -> None:
-        """Hold ``value`` as a name of ``parent``."""
+        """Hold ``value`` as a name of ``parent``; an empty name is no name."""
         folded = fold(value)
+        if not folded:
+            return
         self._blocks.setdefault(self._key(folded), []).append((folded, parent))
 
     def lookup(self, value: str) -> dict[str, Tier]:
         """Each parent holding a name that matches ``value``, at its strongest tier."""
         folded = fold(value)
         found: dict[str, Tier] = {}
+        if not folded:
+            return found
         for other, parent in self._blocks.get(self._key(folded), []):
             tier = self._tier(folded, other)
             if tier is not None and (
