@@ -135,6 +135,10 @@ async def run(
     client = client or httpx.AsyncClient(timeout=60.0)
     try:
         catalog = await fetch_catalog(base_url, token=token, client=client)
+        # The moment the offer was read, not the moment the pull ended (#535 CR
+        # 2): a slow landing would otherwise make the record look newer than
+        # what it records, off the margin `PULL_MAX_AGE` is set inside.
+        at = now()
         logger.info("catalog lists %d dataset(s) at %s", len(catalog.entries), base_url)
         report = await pull(
             base_url,
@@ -151,7 +155,6 @@ async def run(
     # The heartbeat (#551), recorded whatever it says: `BUILD.json` reads it to
     # state whether the desired state was built on a producer behind its clock,
     # and the gate at the far end of the chain reads that.
-    at = now()
     store.record_pull(catalog, at=at)
     if catalog.stale(at):
         report.producer_stale = catalog.lateness(at)

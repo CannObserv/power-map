@@ -112,8 +112,9 @@ PULL_FILE = "pull.json"
 
 # How old that record may be before a build reads its offer as unknown (#535).
 # The pull runs at 09:00 and the chain at 09:30, each up to five minutes late,
-# so a nightly build reads a record about half an hour old — and one whose
-# catalog fetch failed outright reads yesterday's, at least 24h25m old.
+# and the record is stamped when the catalog is read, seconds after the pull
+# starts — so a nightly build reads a record about half an hour old, and one
+# whose catalog fetch failed outright reads yesterday's, at least 24h25m old.
 # `tests/scripts/test_desired_state_units.py` holds the bound between the two.
 PULL_MAX_AGE = timedelta(hours=24)
 
