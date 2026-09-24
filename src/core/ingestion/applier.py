@@ -1051,8 +1051,9 @@ async def _create_hints(
 
     Names compare by structure, not literally (#533): each hint says at which tier
     (`src.core.normalizers.name_match`), strongest first, and whether the parent is
-    archived — a restore may be the answer. It carries the producer's value and never
-    the PM-side text, so a name PM holds non-public can match without being shown.
+    archived — a restore may be the answer. It quotes the producer's value, never PM's
+    text, and matches non-public names too (the docs/NAMES.md exception): an `exact`
+    match on one still tells the operator reading the run that the parent holds it.
     """
     if not creates:
         return {}

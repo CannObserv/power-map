@@ -147,8 +147,9 @@ versions are the ones it offered (`currency`, #535).
   for organizations `legal_form` (cleanco strips the legal form). Middle
   initials and suffixes may be absent on one side, never different. `archived:
   true` marks a twin PM holds archived —
-  a restore may be the answer. A hint carries the producer's value, never the
-  PM-side text, so a non-public name matches without being shown. Hints stay out
+  a restore may be the answer. A hint quotes the producer's value, never PM's
+  text, and matches non-public names too (the `docs/NAMES.md` exception): an
+  `exact` hint on one still tells the operator the parent holds it. Hints stay out
   of the digest: changing them never resets the streak.
 - **Archive and restore (#527, assignments).** Under `retraction: archive` an
   in-scope row the snapshot dropped is an `archive`: it sets `archived_at` and
