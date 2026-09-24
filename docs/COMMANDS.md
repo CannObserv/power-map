@@ -158,7 +158,28 @@ curl -fsS localhost:8000/health && curl -fsS localhost:8000/ready
 sudo cp infra/power-map.service /etc/systemd/system/power-map.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now power-map
+
+# Host memory config (#541) — host-wide, affects every co-tenant process
+sudo install -Dm644 -t /etc/systemd/system/system.slice.d infra/system.slice.d/90-power-map-memory.conf
+sudo systemctl daemon-reload
+cat /sys/fs/cgroup/system.slice/memory.low       # expect 536870912
+sudo install -m644 -t /etc/sysctl.d infra/sysctl.d/90-power-map-memory.conf
+sudo sysctl --system
+sudo apt-get install -y earlyoom
+sudo install -m644 infra/default/earlyoom /etc/default/earlyoom   # victim order, not thresholds
+sudo systemctl enable earlyoom && sudo systemctl restart earlyoom
 ```
+
+`power-map.service`'s `MemoryLow=` is only as good as `system.slice`'s: cgroup2 here is
+mounted without `memory_recursiveprot`, so the slice must claim at least the sum of its
+children's `MemoryLow=` — raise the drop-in when a unit adds one
+(`tests/test_infra_host_memory.py` fails until you do). No swap, by decision: earlyoom
+(SIGTERM at ≤10 % available) plus the 64 MiB atomic reserve close the failure mode without it.
+earlyoom ranks by `oom_score`; on its defaults the first pick is the session `dbus-daemon`
+(`oom_score_adj` 200, 5 MiB), then the user manager. `infra/default/earlyoom` avoids those and
+prefers Qdrant, then Ollama; the API (`-900`) comes after, sessions (`-1000`) last — badness 0,
+not exempt: earlyoom 1.7 keeps `-1000` processes as candidates, unlike the kernel. Check the
+order with `sudo earlyoom -m 99,99 -s 100,100 --dryrun -r 0 <same --prefer/--avoid>` (Ctrl-C).
 
 ---
 
@@ -175,7 +196,9 @@ sudo journalctl -u power-map -f      # watch startup; schema errors surface here
 ```
 
 If `infra/power-map.service` changed in the pull, reinstall the unit first (see § Service Management —
-"Install (first time or after updating infra/power-map.service)") before restarting.
+"Install (first time or after updating infra/power-map.service)") before restarting. Likewise the
+host memory files (`infra/system.slice.d/`, `infra/sysctl.d/`, `infra/default/earlyoom`): the host
+runs copies, so a pull changes nothing until the § Service Management "Host memory config" block re-runs.
 
 To apply schema without restarting (e.g. after a manual `git pull` mid-session) — **from the
 main checkout, on `main`**:
