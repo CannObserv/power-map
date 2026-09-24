@@ -513,3 +513,20 @@ async def test_a_current_streak_does_not_open_an_execute_built_on_inputs_behind(
     assert code == 1
     assert conn.events == []
     assert read_ledger(world["out"] / LEDGER)[-1]["mode"] == "refused"
+
+
+async def test_a_refused_execute_names_every_reason_not_only_the_last(world, caplog):
+    """CR 3: each check overwrote the last one's reason, so an operator fixed the
+    one named, re-ran, and only then met the next — a round trip per hidden reason."""
+    _build(world, BEHIND)
+    write_desired(world["desired"], desired_people=[{"pm_id": None, "producer_id": P3}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+
+    with caplog.at_level("ERROR", logger="scripts.apply_desired_state"):
+        code = await _run(world, store, execute=True, conn=FakeConn())
+
+    assert code == 1
+    line = next(r.getMessage() for r in caplog.records if "execute refused" in r.getMessage())
+    assert "dry runs recorded" in line
+    assert "this run is blocked" in line
+    assert "behind usa-wa" in line
