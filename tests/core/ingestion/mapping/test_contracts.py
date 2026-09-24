@@ -1,23 +1,29 @@
-"""The build's own contract gate, and the producer heartbeat it carries (#553, #551).
+"""The build's own contract gate, and what it records of its inputs (#553, #551, #535).
 
 The puller's pin (#536) gates **landing**. `resolved_versions` resolves each
 source to the newest version the store holds and consults no pin, so between
 deploying a re-pin and the next successful pull the build pairs the new models
 with the old-contract data. These tests are that window.
+
+The same resolution consults no catalog either: a version the pin refused, or
+one that failed verification, leaves the store's newest behind the publisher's
+with the heartbeat still fresh. `BUILD.json`'s `currency` block is where the
+build says so (#535).
 """
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 pytest.importorskip("dbt.adapters.duckdb")
 
-from src.core.ingestion.datasets import Pin, Subscription  # noqa: E402
+from src.core.ingestion.datasets import PULL_MAX_AGE, Pin, Subscription  # noqa: E402
 from src.core.ingestion.mapping import (  # noqa: E402
     check_contracts,
     held_contract,
+    input_currency,
     producer_state,
     write_build_info,
 )
@@ -139,17 +145,23 @@ def test_a_named_version_is_checked_rather_than_the_newest_held(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def _pull_record(root: Path, stale_after: str | None) -> None:
+def _pull_record(
+    root: Path,
+    stale_after: str | None = None,
+    *,
+    offered: dict | None = None,
+    pulled_at: str = "2026-09-23T09:00:00.000000Z",
+) -> None:
+    """A `pull.json`; ``offered`` None is a record written before #535 carried one."""
     (root).mkdir(parents=True, exist_ok=True)
-    (root / "pull.json").write_text(
-        json.dumps(
-            {
-                "pulled_at": "2026-09-23T09:00:00.000000Z",
-                "checked_at": "2026-09-23T08:05:12.345678Z",
-                "stale_after": stale_after,
-            }
-        )
-    )
+    record = {
+        "pulled_at": pulled_at,
+        "checked_at": "2026-09-23T08:05:12.345678Z",
+        "stale_after": stale_after,
+    }
+    if offered is not None:
+        record["offered"] = offered
+    (root / "pull.json").write_text(json.dumps(record))
 
 
 def test_the_producer_is_judged_at_build_time_not_at_pull_time(tmp_path):
@@ -254,3 +266,122 @@ def test_the_moment_given_stamps_built_at_as_well_as_the_verdict(tmp_path):
     )
 
     assert info["built_at"] == "2026-09-26T09:30:00.000000Z"
+
+
+# --------------------------------------------------------------------------
+# Whether the build's inputs are what usa-wa offers (#535)
+# --------------------------------------------------------------------------
+
+NEWER = "v20260920T080505Z-b1c2d3"
+PULLED = datetime(2026, 9, 23, 9, 0, tzinfo=UTC)
+BUILT = PULLED + timedelta(minutes=30)
+
+
+def test_inputs_the_publisher_still_offers_are_current(tmp_path):
+    _pull_record(tmp_path, offered={"persons": VERSION})
+
+    currency = input_currency(tmp_path, datasets={"persons": VERSION}, now=BUILT)
+
+    assert currency == {
+        "pulled_at": "2026-09-23T09:00:00.000000Z",
+        "pull_overdue": False,
+        "superseded": {},
+    }
+
+
+def test_a_version_the_publisher_has_moved_on_from_is_superseded(tmp_path):
+    """The 2026-09-18 night: the pin refused the new version, the heartbeat was
+    fresh, and the build read the store's newest as though nothing had moved."""
+    _pull_record(tmp_path, offered={"persons": NEWER})
+
+    currency = input_currency(tmp_path, datasets={"persons": VERSION}, now=BUILT)
+
+    assert currency["superseded"] == {"persons": {"built": VERSION, "offered": NEWER}}
+
+
+def test_a_dataset_the_publisher_no_longer_offers_is_superseded_by_nothing(tmp_path):
+    """The pull exits 1 on it (`missing`); the build must not read it as current."""
+    _pull_record(tmp_path, offered={"roles": NEWER})
+
+    currency = input_currency(tmp_path, datasets={"persons": VERSION}, now=BUILT)
+
+    assert currency["superseded"] == {"persons": {"built": VERSION, "offered": None}}
+
+
+def test_a_pull_record_from_before_the_offer_was_recorded_is_unknown_not_behind(tmp_path):
+    """A deploy must not restart the streak the nightly has been building: the
+    first build after it reads the record the pre-#535 pull left."""
+    _pull_record(tmp_path)
+
+    currency = input_currency(tmp_path, datasets={"persons": VERSION}, now=BUILT)
+
+    assert currency["superseded"] is None
+
+
+def test_a_store_no_pull_has_recorded_has_no_currency_to_judge(tmp_path):
+    assert input_currency(tmp_path, datasets={"persons": VERSION}, now=BUILT) is None
+
+
+def test_a_pull_older_than_the_bound_is_overdue_whatever_it_offered(tmp_path):
+    """The catalog fetch itself failed, so `pull.json` is yesterday's: its offer
+    says nothing about today's. #551 catches this only while usa-wa's own
+    `stale_after` happens to lapse before the build; this does not depend on it."""
+    _pull_record(tmp_path, offered={"persons": VERSION})
+
+    within = input_currency(tmp_path, datasets={"persons": VERSION}, now=PULLED + PULL_MAX_AGE)
+    beyond = input_currency(
+        tmp_path, datasets={"persons": VERSION}, now=PULLED + PULL_MAX_AGE + timedelta(seconds=1)
+    )
+
+    assert within["pull_overdue"] is False
+    assert beyond["pull_overdue"] is True
+    assert beyond["superseded"] == {}
+
+
+def test_a_recorded_pull_time_that_will_not_parse_is_not_read_as_overdue(tmp_path):
+    """Someone edited the record; that is not evidence the pull failed."""
+    _pull_record(tmp_path, offered={"persons": VERSION}, pulled_at="whenever")
+
+    currency = input_currency(tmp_path, datasets={"persons": VERSION}, now=BUILT)
+
+    assert currency["pull_overdue"] is False
+
+
+def test_build_info_records_the_currency_of_the_versions_it_built_from(tmp_path):
+    store = tmp_path / "store"
+    held(store, snapshot=PINNED)
+    _pull_record(store, offered={"persons": NEWER})
+
+    info = write_build_info(tmp_path / "out", snapshot_root=store, counts={}, now=BUILT)
+
+    assert info["currency"]["superseded"] == {"persons": {"built": VERSION, "offered": NEWER}}
+    assert (
+        json.loads((tmp_path / "out" / "BUILD.json").read_text())["currency"] == (info["currency"])
+    )
+
+
+def test_a_named_version_that_is_not_the_offer_is_superseded(tmp_path):
+    """A hand-picked `versions=` is not what the publisher currently offers either."""
+    store = tmp_path / "store"
+    held(store, snapshot=PINNED)
+    held(store, snapshot=PINNED, version=NEWER)
+    _pull_record(store, offered={"persons": NEWER})
+
+    info = write_build_info(
+        tmp_path / "out", snapshot_root=store, counts={}, versions={"persons": VERSION}, now=BUILT
+    )
+
+    assert info["currency"]["superseded"] == {"persons": {"built": VERSION, "offered": NEWER}}
+
+
+def test_the_producer_block_carries_the_heartbeat_and_not_the_offer(tmp_path):
+    """The offer is judged in `currency`; copied into `producer` too it would be
+    a second record of every dataset's version, and only one would be read."""
+    store = tmp_path / "store"
+    held(store, snapshot=PINNED)
+    _pull_record(store, "2026-09-24T08:45:00.000000Z", offered={"persons": VERSION})
+
+    info = write_build_info(tmp_path / "out", snapshot_root=store, counts={}, now=BUILT)
+
+    assert "offered" not in info["producer"]
+    assert info["producer"]["pulled_at"] == "2026-09-23T09:00:00.000000Z"

@@ -444,3 +444,89 @@ async def test_a_fresh_streak_does_not_open_an_execute_built_on_a_stale_producer
     assert code == 1
     assert conn.events == []
     assert read_ledger(world["out"] / LEDGER)[-1]["mode"] == "refused"
+
+
+# --- a chain built on inputs usa-wa had moved on from (#535) ------------------------
+
+CURRENT = {"pulled_at": "2026-09-11T09:01:00.000000Z", "pull_overdue": False, "superseded": {}}
+BEHIND = {**CURRENT, "superseded": {"persons": {"built": "v1", "offered": "v2"}}}
+
+
+def _build(world, currency):
+    (world["desired"] / "BUILD.json").write_text(
+        json.dumps({"datasets": {"persons": "v1"}, "currency": currency})
+    )
+
+
+async def test_an_execute_is_refused_after_a_streak_built_on_inputs_behind_the_publisher(world):
+    """#535's third acceptance, through the entry point: a fresh heartbeat, three
+    clean dry runs with one digest, and a version the pin refused underneath them."""
+    _build(world, BEHIND)
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+    for _ in range(3):
+        assert await _run(world, store) == 0
+    conn = FakeConn()
+
+    code = await _run(world, store, execute=True, conn=conn)
+
+    assert code == 1
+    assert conn.events == []
+
+
+async def test_the_same_streak_on_current_inputs_opens_the_gate(world):
+    """The control: only the currency differs between this and the run above."""
+    _build(world, CURRENT)
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+    for _ in range(3):
+        assert await _run(world, store) == 0
+
+    assert await _run(world, store, execute=True, conn=FakeConn()) == 0
+
+
+async def test_a_run_on_inputs_behind_the_publisher_names_them_in_the_journal(world, caplog):
+    _build(world, BEHIND)
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+
+    with caplog.at_level("WARNING", logger="scripts.apply_desired_state"):
+        await _run(world, store)
+
+    assert any("persons built from v1, usa-wa offers v2" in r.getMessage() for r in caplog.records)
+
+
+async def test_a_current_streak_does_not_open_an_execute_built_on_inputs_behind(world):
+    """CR 9 of #551, for #535: the ledger holds only the runs before this one, so
+    the execute's own inputs are asked of it directly."""
+    _build(world, CURRENT)
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+    for _ in range(3):
+        assert await _run(world, store) == 0
+    # The publisher mints; the pin refuses it; the desired state is byte-for-byte the same.
+    _build(world, BEHIND)
+    conn = FakeConn()
+
+    code = await _run(world, store, execute=True, conn=conn)
+
+    assert code == 1
+    assert conn.events == []
+    assert read_ledger(world["out"] / LEDGER)[-1]["mode"] == "refused"
+
+
+async def test_a_refused_execute_names_every_reason_not_only_the_last(world, caplog):
+    """CR 3: each check overwrote the last one's reason, so an operator fixed the
+    one named, re-ran, and only then met the next — a round trip per hidden reason."""
+    _build(world, BEHIND)
+    write_desired(world["desired"], desired_people=[{"pm_id": None, "producer_id": P3}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+
+    with caplog.at_level("ERROR", logger="scripts.apply_desired_state"):
+        code = await _run(world, store, execute=True, conn=FakeConn())
+
+    assert code == 1
+    line = next(r.getMessage() for r in caplog.records if "execute refused" in r.getMessage())
+    assert "dry runs recorded" in line
+    assert "this run is blocked" in line
+    assert "behind usa-wa" in line

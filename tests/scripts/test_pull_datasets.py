@@ -6,7 +6,7 @@ which outcomes are allowed to look like success.
 
 import hashlib
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -328,6 +328,58 @@ async def test_the_pull_records_the_heartbeat_of_the_catalog_it_read(tmp_path):
     assert record["checked_at"] == CHECKED_AT
     assert record["stale_after"] == STALE_AFTER
     assert record["pulled_at"] == "2026-09-23T09:00:00.000000Z"
+
+
+async def test_the_pull_records_the_offer_of_a_version_its_pin_refused(tmp_path):
+    """#535, the 2026-09-18 night: the heartbeat was fresh and the refused version
+    never landed, so the store's newest is older than the publisher's. The record
+    is what lets the build say so rather than build on it as if it were current."""
+    refused = Subscription({"persons": Pin(2, CONTRACT)})
+    async with _client(catalog=BEATING) as client:
+        report = await run(
+            "https://usa-wa.exe.xyz:8000",
+            token="tok",
+            store=SnapshotStore(tmp_path),
+            subscription=refused,
+            keep=3,
+            client=client,
+            now=lambda: IN_TIME,
+        )
+
+    assert [name for name, _ in report.incompatible] == ["persons"]
+    assert SnapshotStore(tmp_path).pull_record()["offered"]["persons"] == "v1-aaa"
+
+
+async def test_the_record_is_stamped_when_the_catalog_was_read_not_when_the_pull_ended(
+    tmp_path,
+):
+    """CR 2: the offer is what the catalog said when it was read. Stamped after a
+    slow landing, the record looks newer than its offer by the landing's length,
+    and that comes straight off the 25-minute margin between tonight's pull and
+    a missed night's that `PULL_MAX_AGE` is set inside."""
+    landed = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("catalog.json"):
+            return httpx.Response(200, json=BEATING)
+        if request.url.path.endswith("data.csv"):
+            landed.append(request.url.path)
+            return httpx.Response(200, content=DATA, headers={"content-type": "text/csv"})
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await run(
+            "https://usa-wa.exe.xyz:8000",
+            token="tok",
+            store=SnapshotStore(tmp_path),
+            subscription=PINNED,
+            keep=3,
+            client=client,
+            now=lambda: IN_TIME + (timedelta(minutes=40) if landed else timedelta()),
+        )
+
+    assert landed
+    assert SnapshotStore(tmp_path).pull_record()["pulled_at"] == "2026-09-23T09:00:00.000000Z"
 
 
 async def test_a_pull_after_the_deadline_fails_the_run_rather_than_reading_as_a_quiet_night(

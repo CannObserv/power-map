@@ -274,10 +274,16 @@ def test_the_ledger_line_records_the_phase(tmp_path):
 # --- the ledger and the gate -----------------------------------------------------
 
 
-def _line(run_id, *, verdict="clean", digest="d1", mode="dry", producer_stale=None):
+def _line(
+    run_id, *, verdict="clean", digest="d1", mode="dry", producer_stale=None, inputs_behind=None
+):
     line = {"run_id": run_id, "mode": mode, "verdict": verdict, "digest": digest}
-    # Absent by default: that is every line already in the ledger (#551).
-    return line if producer_stale is None else {**line, "producer_stale": producer_stale}
+    # Absent by default: that is every line already in the ledger (#551, #535).
+    if producer_stale is not None:
+        line["producer_stale"] = producer_stale
+    if inputs_behind is not None:
+        line["inputs_behind"] = inputs_behind
+    return line
 
 
 def test_the_ledger_appends_one_line_per_run(tmp_path):
@@ -484,3 +490,92 @@ def test_the_markdown_says_the_producer_was_behind_its_clock(tmp_path):
     body = (tmp_path / "run" / SUMMARY_MD).read_text()
 
     assert "behind" in body and "2026-09-19T08:05:12" in body
+
+
+# --- a run built on inputs usa-wa had moved on from (#535) ---------------------------
+
+OLD, NEW = "v20260910T080505Z-aaaaaa", "v20260917T214318Z-bbbbbb"
+
+
+def _behind_build(*, superseded=None, overdue=False) -> dict:
+    return {
+        "datasets": {"persons": OLD},
+        "currency": {
+            "pulled_at": "2026-09-17T09:01:38.722414Z",
+            "pull_overdue": overdue,
+            "superseded": superseded if superseded is not None else {},
+        },
+    }
+
+
+def test_the_ledger_line_names_each_dataset_the_publisher_has_moved_on_from(tmp_path):
+    """The gate reads the ledger, not `BUILD.json`; the fact has to travel, and a
+    refusal that names the dataset and both versions is one a person can act on."""
+    build = _behind_build(superseded={"persons": {"built": OLD, "offered": NEW}})
+    summary = _report(tmp_path, Diff([E("noop")]), build_info=build)
+
+    (clause,) = ledger_line(summary)["inputs_behind"]
+
+    assert "persons" in clause and OLD in clause and NEW in clause
+
+
+def test_a_dataset_the_publisher_no_longer_offers_is_named_as_such(tmp_path):
+    build = _behind_build(superseded={"persons": {"built": OLD, "offered": None}})
+    summary = _report(tmp_path, Diff([E("noop")]), build_info=build)
+
+    (clause,) = ledger_line(summary)["inputs_behind"]
+
+    assert "persons" in clause and "no longer offers" in clause
+
+
+def test_an_overdue_pull_is_named_with_the_moment_it_last_read_the_catalog(tmp_path):
+    summary = _report(tmp_path, Diff([E("noop")]), build_info=_behind_build(overdue=True))
+
+    (clause,) = ledger_line(summary)["inputs_behind"]
+
+    assert "2026-09-17T09:01:38" in clause
+
+
+def test_a_run_built_on_current_inputs_says_so_rather_than_saying_nothing(tmp_path):
+    summary = _report(tmp_path, Diff([E("noop")]), build_info=_behind_build())
+
+    assert ledger_line(summary)["inputs_behind"] == []
+
+
+def test_a_run_with_no_currency_record_is_not_claimed_behind(tmp_path):
+    """A hand-made store, or a build from before #535 — unknown, not behind."""
+    summary = _report(tmp_path, Diff([E("noop")]))
+
+    assert ledger_line(summary)["inputs_behind"] == []
+
+
+def test_the_streak_refuses_a_run_built_on_inputs_behind_the_publisher():
+    """#535's third acceptance. The heartbeat was fresh on 2026-09-18; only the
+    comparison with the publisher's offer tells this run from a settled one."""
+    behind = ["persons built from v1, usa-wa offers v2"]
+    ledger = [_line("r1"), _line("r2", inputs_behind=behind), _line("r3")]
+
+    ok, reason = may_execute(ledger, digest="d1", streak=3)
+
+    assert not ok
+    assert "r2" in reason and "persons" in reason
+
+
+def test_a_ledger_line_that_found_its_inputs_current_still_counts():
+    ok, _ = may_execute(
+        [_line("r1", inputs_behind=[]), _line("r2"), _line("r3", inputs_behind=[])],
+        digest="d1",
+        streak=3,
+    )
+
+    assert ok
+
+
+def test_the_markdown_says_the_inputs_were_behind_the_publisher(tmp_path):
+    """`summary.md` is what a person reads before approving an execute."""
+    build = _behind_build(superseded={"persons": {"built": OLD, "offered": NEW}})
+    _report(tmp_path, Diff([E("create")]), build_info=build)
+
+    body = (tmp_path / "run" / SUMMARY_MD).read_text()
+
+    assert "behind usa-wa" in body and NEW in body and "streak" in body

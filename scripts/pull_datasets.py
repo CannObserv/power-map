@@ -32,6 +32,9 @@ completed a run, `stale_after` the deadline for the next one. Both are recorded
 in `pull.json` at the store root, which the build reads; a pull past the
 deadline fails the run, because every dataset then reads `unchanged` and a
 producer behind the clock is indistinguishable from a settled night otherwise.
+The record also carries the version the catalog **offers** of every dataset,
+landed or not (#535): a version its pin refused never lands, and the build
+compares what it resolved against the offer to say it is behind.
 
 Exit codes: 0 all subscribed datasets are held — including any the publisher
 serves with no `datapackage.json`, which the report names; 1 a dataset failed,
@@ -132,6 +135,10 @@ async def run(
     client = client or httpx.AsyncClient(timeout=60.0)
     try:
         catalog = await fetch_catalog(base_url, token=token, client=client)
+        # The moment the offer was read, not the moment the pull ended (#535 CR
+        # 2): a slow landing would otherwise make the record look newer than
+        # what it records, off the margin `PULL_MAX_AGE` is set inside.
+        at = now()
         logger.info("catalog lists %d dataset(s) at %s", len(catalog.entries), base_url)
         report = await pull(
             base_url,
@@ -148,7 +155,6 @@ async def run(
     # The heartbeat (#551), recorded whatever it says: `BUILD.json` reads it to
     # state whether the desired state was built on a producer behind its clock,
     # and the gate at the far end of the chain reads that.
-    at = now()
     store.record_pull(catalog, at=at)
     if catalog.stale(at):
         report.producer_stale = catalog.lateness(at)

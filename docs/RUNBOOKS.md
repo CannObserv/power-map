@@ -230,7 +230,8 @@ as authentication — and the script refuses to start with no token at all.
   `checked_at` says the publisher completed a run — it advances every night
   whether or not anything minted — and `stale_after` is the deadline for the
   next one (the 08:00 run plus 45 minutes of grace). Both are written verbatim
-  to `pull.json` at the store root, which the build reads. A fresh `checked_at`
+  to `pull.json` at the store root, which the build reads — beside `offered`,
+  the version the catalog names for every dataset, landed or not (#535). A fresh `checked_at`
   covers the **publisher**, not everything upstream of it: a failed source
   harvest and a registrar conflict both leave it fresh. A catalog published
   before usa-wa#386 carries neither, and absent is never late.

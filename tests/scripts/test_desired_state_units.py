@@ -6,15 +6,24 @@ own `uv sync` prunes that group from the main checkout's venv. systemd runs
 multiple ExecStart= lines of a oneshot sequentially and stops at the first
 failure, so a broken step reaches `systemctl --failed`. The timer fires after
 the 09:00 UTC pull.
+
+The pull is a separate unit on its own timer, and its failure does not hold the
+chain back — by design (#535): a chain that ran on known-stale inputs and says
+so is worth more than no nightly diff. What connects the two is data, not a
+dependency: `pull.json`'s age and offer, which the build judges.
 """
 
 import re
+from datetime import timedelta
 from pathlib import Path
+
+from src.core.ingestion.datasets import PULL_MAX_AGE
 
 INFRA = Path(__file__).resolve().parents[2] / "infra"
 SERVICE = INFRA / "power-map-desired-state.service"
 TIMER = INFRA / "power-map-desired-state.timer"
 PULL_TIMER = INFRA / "power-map-datasets-pull.timer"
+PULL_UNIT = "power-map-datasets-pull.service"
 
 
 def _lines(path: Path, key: str) -> list[str]:
@@ -55,3 +64,42 @@ def test_the_timer_fires_after_the_pull_and_catches_up_a_missed_night():
     assert "UTC" in chain
     assert _lines(TIMER, "Persistent") == ["true"]
     assert "WantedBy=timers.target" in TIMER.read_text()
+
+
+def _at(timer: Path) -> timedelta:
+    """A daily timer's firing moment as an offset from midnight."""
+    hh, mm = re.search(r"(\d\d):(\d\d):\d\d", _lines(timer, "OnCalendar")[0]).groups()
+    return timedelta(hours=int(hh), minutes=int(mm))
+
+
+def _jitter(timer: Path) -> timedelta:
+    return timedelta(seconds=int(_lines(timer, "RandomizedDelaySec")[0]))
+
+
+def test_the_chain_is_ordered_after_the_pull_but_does_not_require_it():
+    """#535: `After=` holds the chain's start while the pull has a start job of
+    its own — still running at 09:30 on a slow night (a oneshot is started only
+    once its process exits), or fired together with it by a `Persistent=`
+    catch-up — so the build waits for the pull rather than racing it. It never
+    holds the chain back on a failed pull: `pull.json`'s age does that job.
+    `Requires=` or `Wants=` would start a second pull, and the first would also
+    stop the nightly diff whenever the pull fails."""
+    after = " ".join(_lines(SERVICE, "After")).split()
+
+    assert PULL_UNIT in after
+    assert not any(
+        PULL_UNIT in v for key in ("Requires", "Wants", "BindsTo") for v in _lines(SERVICE, key)
+    )
+
+
+def test_the_pull_age_bound_tells_a_missed_pull_from_a_taken_one():
+    """`PULL_MAX_AGE` is judged at build time against the last `pulled_at`. The
+    nightly build must read tonight's pull as fresh even at the latest both
+    timers can fire, and yesterday's as overdue even at the earliest — or a
+    failed catalog fetch leaves the chain reading an offer a day old as current."""
+    pull, chain = _at(PULL_TIMER), _at(TIMER)
+
+    latest_fresh = (chain + _jitter(TIMER)) - pull
+    earliest_missed = (timedelta(days=1) + chain) - (pull + _jitter(PULL_TIMER))
+
+    assert latest_fresh < PULL_MAX_AGE < earliest_missed

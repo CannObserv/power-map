@@ -10,11 +10,13 @@ import hashlib
 import json
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 import pytest
 
 from src.core.ingestion.datasets import (
+    Catalog,
     CatalogEntry,
     Pin,
     PullReport,
@@ -651,7 +653,20 @@ def test_the_run_record_carries_the_heartbeat_verbatim(tmp_path):
         "pulled_at": "2026-09-23T09:00:00.000000Z",
         "checked_at": "2026-09-23T08:05:12.345678Z",
         "stale_after": "2026-09-24T08:45:00.000000Z",
+        "offered": {},
     }
+
+
+def test_the_run_record_carries_what_the_publisher_offers_of_every_dataset(tmp_path):
+    """#535: what the build compares its resolved versions against. Every entry,
+    not only the subscribed ones: a `--dataset` narrowed pull rewrites this file
+    too, and must not leave the build blind to the datasets it did not name."""
+    store = SnapshotStore(tmp_path)
+    catalog = Catalog(entries=(entry("persons", "v2-bbb"), entry("roles", "v1-aaa")))
+
+    store.record_pull(catalog, at=datetime(2026, 9, 23, tzinfo=UTC))
+
+    assert store.pull_record()["offered"] == {"persons": "v2-bbb", "roles": "v1-aaa"}
 
 
 def test_a_record_of_a_catalog_with_no_heartbeat_says_so_rather_than_omitting_it(tmp_path):
@@ -691,3 +706,27 @@ def test_a_run_record_truncated_mid_character_reads_as_none(tmp_path):
     (tmp_path / "pull.json").write_bytes(b'{"checked_at": "\xff\xfe')
 
     assert SnapshotStore(tmp_path).pull_record() is None
+
+
+def test_a_run_record_that_fails_mid_write_leaves_the_last_one_readable(tmp_path, monkeypatch):
+    """#535 CR 4: an unreadable record reads as absent, and absent is "unknown",
+    which counts towards the `--execute` streak unjudged. So a write that fails
+    half-way — a full disk, a crash — must not be what the next build reads."""
+    store = SnapshotStore(tmp_path)
+    store.record_pull(
+        Catalog(entries=(entry("persons", "v1-aaa"),)), at=datetime(2026, 9, 23, tzinfo=UTC)
+    )
+    write_text = Path.write_text
+
+    def half_then_full_disk(self, data, *args, **kwargs):
+        write_text(self, data[: len(data) // 2], *args, **kwargs)
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(Path, "write_text", half_then_full_disk)
+    with pytest.raises(OSError):
+        store.record_pull(
+            Catalog(entries=(entry("persons", "v2-bbb"),)), at=datetime(2026, 9, 24, tzinfo=UTC)
+        )
+    monkeypatch.undo()
+
+    assert store.pull_record()["offered"] == {"persons": "v1-aaa"}

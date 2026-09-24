@@ -1,6 +1,13 @@
 [Unit]
 Description=power-map nightly desired-state chain: export PM tables, build the mapping project, dry-run the applier (issue #499)
-After=network.target
+# Ordered after the pull, never dependent on it (#535). `After=` holds this
+# unit's start while the pull has a start job of its own — still running at
+# 09:30 on a slow night (a oneshot is started only once its process exits), or
+# fired at the same moment by a `Persistent=` catch-up — so the build waits
+# rather than racing it. A failed pull does not hold the chain back: the build
+# reads `pull.json`'s age and offer and says what is behind, which is worth
+# more than no nightly diff. `Requires=` would re-run the pull here.
+After=network.target power-map-datasets-pull.service
 
 [Service]
 Type=oneshot
