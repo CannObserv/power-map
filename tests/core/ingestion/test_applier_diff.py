@@ -103,8 +103,121 @@ async def test_a_create_carries_a_hint_when_pm_already_holds_the_asserted_name()
     create = diff.by_kind("create")[0]
     assert create.entry_id == "desired_people:01P3" and create.pm_id is None
     assert create.hint == (
-        {"table": "person_names", "column": "name", "value": "Patty Murray", "parent": PMX},
+        {
+            "table": "person_names",
+            "column": "name",
+            "value": "Patty Murray",
+            "parent": PMX,
+            "match": "exact",
+            "archived": False,
+        },
     )
+
+
+def _person_create(*names, name_type="legal"):
+    """A create for P3 asserting each name, one desired_person_names row per name type."""
+    types = [name_type] if len(names) == 1 else [f"{name_type}{i}" for i in range(len(names))]
+    return _state(
+        desired_people=[{"pm_id": None, "producer_id": P3}],
+        desired_person_names=[
+            {"pm_id": None, "producer_id": P3, "name": n, "name_type": t}
+            for n, t in zip(names, types)
+        ],
+    )
+
+
+def _held(pm_id, name, **person):
+    return {
+        "tables": {
+            "people": [live(pm_id, **person)],
+            "person_names": [{"id": "n1", "person_id": pm_id, "name": name, "name_type": "legal"}],
+        }
+    }
+
+
+async def test_a_twin_whose_name_differs_only_in_form_still_carries_a_hint():
+    """#533: `Myron “Mike” Kreidler` is PM's `Mike Kreidler` — the literal hint missed it."""
+    store = FakeLiveStore(**_held(PMX, "Mike Kreidler"))
+
+    diff = await diff_desired(_person_create("Myron “Mike” Kreidler"), MANIFEST, store)
+
+    [hint] = diff.by_kind("create")[0].hint
+    assert (hint["parent"], hint["match"], hint["value"]) == (
+        PMX,
+        "given",
+        "Myron “Mike” Kreidler",
+    )
+
+
+async def test_a_hint_says_when_the_twin_pm_holds_is_archived():
+    """A restore may be the right answer rather than a create."""
+    store = FakeLiveStore(**_held(PMX, "Patty Murray"))
+    store.tables["people"][0]["archived_at"] = "2026-09-01T00:00:00Z"
+
+    diff = await diff_desired(_person_create("Patty Murray"), MANIFEST, store)
+
+    [hint] = diff.by_kind("create")[0].hint
+    assert hint["archived"] is True
+
+
+async def test_every_name_a_create_asserts_is_looked_up():
+    """The key is (producer_id, name_type): a second name must not shadow the first."""
+    store = FakeLiveStore(**_held(PMX, "Mike Kreidler"))
+
+    diff = await diff_desired(_person_create("Mike Kreidler", "Myron Q. Nobody"), MANIFEST, store)
+
+    assert [h["parent"] for h in diff.by_kind("create")[0].hint] == [PMX]
+
+
+async def test_hints_list_the_strongest_tier_first():
+    held = [
+        {"id": "n1", "person_id": PMZ, "name": "Michael Kreidler", "name_type": "legal"},
+        {"id": "n2", "person_id": PMX, "name": "Mike Kreidler", "name_type": "legal"},
+    ]
+    store = FakeLiveStore(tables={"people": [live(PMX), live(PMZ)], "person_names": held})
+
+    diff = await diff_desired(_person_create("Mike Kreidler"), MANIFEST, store)
+
+    assert [(h["parent"], h["match"]) for h in diff.by_kind("create")[0].hint] == [
+        (PMX, "exact"),
+        (PMZ, "nickname"),
+    ]
+
+
+async def test_a_nickname_twin_is_listed_before_an_initial_one():
+    held = [
+        {"id": "n1", "person_id": PMX, "name": "M. Kreidler", "name_type": "legal"},
+        {"id": "n2", "person_id": PMZ, "name": "Michael Kreidler", "name_type": "legal"},
+    ]
+    store = FakeLiveStore(tables={"people": [live(PMX), live(PMZ)], "person_names": held})
+
+    diff = await diff_desired(_person_create("Mike Kreidler"), MANIFEST, store)
+
+    assert [(h["parent"], h["match"]) for h in diff.by_kind("create")[0].hint] == [
+        (PMZ, "nickname"),
+        (PMX, "initial"),
+    ]
+
+
+async def test_an_org_create_hint_reads_through_the_legal_form():
+    held = {"id": "on1", "organization_id": MO_OLD, "name": "Acme Holdings LLC"}
+    store = FakeLiveStore(tables={"organizations": [live(MO_OLD)], "organization_names": [held]})
+    state = _state(
+        desired_organizations=[{"pm_id": None, "producer_id": O11}],
+        desired_organization_names=[
+            {
+                "pm_id": None,
+                "producer_id": O11,
+                "name": "Acme Holdings, L.L.C.",
+                "name_type": "legal",
+            }
+        ],
+    )
+
+    diff = await diff_desired(state, MANIFEST, store)
+
+    [hint] = diff.by_kind("create")[0].hint
+    assert (hint["parent"], hint["match"]) == (MO_OLD, "legal_form")
 
 
 async def test_a_create_without_a_match_has_no_hint():

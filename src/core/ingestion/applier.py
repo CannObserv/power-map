@@ -27,6 +27,7 @@ from src.core.ingestion.crosswalk import IN_SCOPE, PRODUCER_SOURCE, TOMBSTONE_TY
 from src.core.ingestion.mapping import BUILD_INFO, Manifest
 from src.core.ingestion.mapping.manifest import Index, Lookup, TableSpec
 from src.core.ingestion.mapping.parquet import read_records
+from src.core.normalizers.name_match import TIERS, NameIndex
 
 __all__ = [
     "ENTRY_KINDS",
@@ -117,9 +118,10 @@ class LiveStore(Protocol):
 
     async def merge_preview(self, primitive: str, loser_id: str, survivor_id: str) -> dict: ...
 
-    async def value_matches(
-        self, table: str, column: str, values: Sequence, parent: str
-    ) -> dict[object, list[str]]: ...
+    async def value_rows(self, table: str, column: str, parent: str) -> list[tuple[str, str]]:
+        """Every (value, parent) pair ``table`` holds — the create hint's candidates,
+        matched in Python so the fold is written once (#533)."""
+        ...
 
     async def cascade_counts(
         self, cascades: Mapping[str, Sequence[str]], ids: Sequence[str]
@@ -1044,34 +1046,58 @@ async def _create_hints(
     manifest: Manifest,
     store: LiveStore,
 ) -> dict[str, tuple[dict, ...]]:
-    """For each create, the parents in a hinting child table already carrying its value —
-    a person PM holds under another producer's anchor is a twin, not a create."""
+    """For each create, the parents in a hinting child table already carrying one of its
+    names — a person PM holds under another producer's anchor is a twin, not a create.
+
+    Names compare by structure, not literally (#533): each hint says at which tier
+    (`src.core.normalizers.name_match`), strongest first, and whether the parent is
+    archived — a restore may be the answer. It carries the producer's value and never
+    the PM-side text, so a name PM holds non-public can match without being shown.
+    """
     if not creates:
         return {}
     producers = {r["producer_id"] for r in creates}
-    hints: dict[str, list[dict]] = {}
+    found: dict[str, dict[tuple[str, str], dict]] = {}
     for child in manifest.tables.values():
         target = child.target
         if not (target.shape == "child" and target.hint_on_create and child.entity == spec.entity):
             continue
         value_col = child.owned_columns[0]
         pm_col = target.columns[value_col]
-        wanted = {
-            r["producer_id"]: r[value_col]
+        wanted = [
+            (r["producer_id"], r[value_col])
             for r in state.tables[child.name]
             if r["producer_id"] in producers and r.get(value_col) is not None
-        }
+        ]
         if not wanted:
             continue
-        matches = await store.value_matches(
-            target.table, pm_col, sorted(set(wanted.values())), target.parent
+        index = NameIndex(spec.entity)
+        for value, parent in await store.value_rows(target.table, pm_col, target.parent):
+            index.add(value, parent)
+        for producer_id, value in wanted:
+            held = found.setdefault(producer_id, {})
+            for parent, tier in index.lookup(value).items():
+                best = held.get((target.table, parent))
+                if best is None or TIERS.index(tier) < TIERS.index(best["match"]):
+                    held[(target.table, parent)] = {
+                        "table": target.table,
+                        "column": pm_col,
+                        "value": value,
+                        "parent": parent,
+                        "match": tier,
+                    }
+    parents = sorted({parent for held in found.values() for _, parent in held})
+    live = await store.entity_rows(spec.target.table, parents, []) if parents else {}
+    return {
+        producer_id: tuple(
+            {**hint, "archived": live.get(hint["parent"], {}).get("archived_at") is not None}
+            for hint in sorted(
+                held.values(), key=lambda h: (TIERS.index(h["match"]), h["table"], h["parent"])
+            )
         )
-        for producer_id, value in wanted.items():
-            for parent in sorted(matches.get(value, [])):
-                hints.setdefault(producer_id, []).append(
-                    {"table": target.table, "column": pm_col, "value": value, "parent": parent}
-                )
-    return {k: tuple(v) for k, v in hints.items()}
+        for producer_id, held in found.items()
+        if held
+    }
 
 
 @dataclass(frozen=True)

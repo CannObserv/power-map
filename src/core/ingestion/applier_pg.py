@@ -81,17 +81,14 @@ class PostgresLiveStore:
         preview = MERGE_PRIMITIVES[primitive].preview
         return await preview(self._conn, winner_id=survivor_id, loser_id=loser_id)
 
-    async def value_matches(
-        self, table: str, column: str, values: Sequence, parent: str
-    ) -> dict[object, list[str]]:
+    async def value_rows(self, table: str, column: str, parent: str) -> list[tuple[str, str]]:
+        """Every value, whatever its visibility: a twin may hold only a non-public name,
+        and the hint names the parent, never this text (#533)."""
         sql = (
             f"SELECT {sql_identifier(column)} AS value, {sql_identifier(parent)} AS parent"
-            f" FROM {sql_identifier(table)} WHERE {sql_identifier(column)} = ANY($1::text[])"
+            f" FROM {sql_identifier(table)} WHERE {sql_identifier(column)} IS NOT NULL"
         )
-        out: dict[object, list[str]] = {}
-        for r in await self._conn.fetch(sql, list(values)):
-            out.setdefault(r["value"], []).append(r["parent"])
-        return out
+        return [(r["value"], r["parent"]) for r in await self._conn.fetch(sql)]
 
     async def slot_holders(
         self, table: str, index: Index, tuples: Sequence[tuple]

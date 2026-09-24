@@ -129,7 +129,8 @@ the publisher's heartbeat as the last pull recorded it (#551) and whether the
 versions are the ones it offered (`currency`, #535).
 
 - **Entry kinds.** `create` (an entity PM lacks; carries a hint naming PM rows
-  already holding the asserted name — a probable twin), `insert` (a child row),
+  already holding the asserted name — a probable twin; see *Create hints*),
+  `insert` (a child row),
   `update` (owned columns differ), `retract` (an in-scope row the snapshot
   dropped — report-only), `stale` (the desired state disagrees with the live
   crosswalk — rebuild), `conflict` (more than one live row matches a keyed
@@ -137,6 +138,18 @@ versions are the ones it offered (`currency`, #535).
   manifest binds a merge primitive, i.e. persons; report-only for organizations
   until #520), `archive` and `restore` (below). A producer id a tombstone
   accounts for is never also a `retract` or an `archive`.
+- **Create hints (#533).** A hint compares names by structure, not literally —
+  a literal match missed 4 of 17 twins in #501's triage — and says which tier
+  it rests on in `match`: `exact` (equal after folding quotes, dashes,
+  diacritics, spacing and case — a parenthetical stays), then for people `given`
+  (surname plus a given name or quoted nickname; a trailing note is dropped),
+  `nickname` (the `nicknames` dictionary) and `initial` (noisiest, so last), and
+  for organizations `legal_form` (cleanco strips the legal form). Middle
+  initials and suffixes may be absent on one side, never different. `archived:
+  true` marks a twin PM holds archived —
+  a restore may be the answer. A hint carries the producer's value, never the
+  PM-side text, so a non-public name matches without being shown. Hints stay out
+  of the digest: changing them never resets the streak.
 - **Archive and restore (#527, assignments).** Under `retraction: archive` an
   in-scope row the snapshot dropped is an `archive`: it sets `archived_at` and
   stamps its anchor's `producer_crosswalk.retracted_at` with the same time. A
