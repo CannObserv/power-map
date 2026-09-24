@@ -7,7 +7,7 @@ hint rests on the same text or on a looser reading of it.
 
 import pytest
 
-from src.core.normalizers.name_match import TIERS, NameIndex, fold, org_match, person_match
+from src.core.normalizers.name_match import NameIndex, fold, org_match, person_match
 
 # --- fold ---------------------------------------------------------------------
 
@@ -137,7 +137,11 @@ def test_the_index_names_each_parent_at_its_strongest_tier():
 def test_a_nickname_outranks_an_initial():
     """On PM's corpus an initial is the noisiest tier: an old roster's `A. A. Smith`
     meets every modern A-named Smith, where a nickname pair is usually one person."""
-    assert TIERS.index("nickname") < TIERS.index("initial")
+    index = NameIndex("person")
+    index.add("M. Kreidler", "01MA")  # seen first, and the weaker reading
+    index.add("Michael Kreidler", "01MA")
+
+    assert index.lookup("Mike Kreidler") == {"01MA": "nickname"}
 
 
 def test_the_index_for_organizations_uses_org_tiers():
