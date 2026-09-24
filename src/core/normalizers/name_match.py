@@ -22,9 +22,12 @@ instead, and names the tier each match rests on:
 - anything else — ``exact`` only.
 
 The ceiling is deliberate. A hint that names a probable twin costs an operator
-one look and silence costs a duplicate, so recall wins — but a looser key
-(first given token plus surname) collides 42 groups on the producer's corpus.
-Anything softer belongs to the duplicate audit, not a per-create hint.
+one look and silence costs a duplicate, so recall wins — but only inside the
+middle-and-suffix guard above. Without it, a given name plus surname collides
+42 groups on the producer's corpus; with it, the four person tiers pair 102 of
+PM's 4,893 live people with another, 66 of them only on an initial (measured
+2026-09-24). Anything softer belongs to the duplicate audit, not a per-create
+hint.
 """
 
 import functools
