@@ -28,6 +28,10 @@ middle-and-suffix guard above. Without it, a given name plus surname collides
 PM's 4,893 live people with another, 66 of them only on an initial (measured
 2026-09-24). Anything softer belongs to the duplicate audit, not a per-create
 hint.
+
+Known gap: a person who goes by the middle name behind a first initial —
+``J. Edgar Hoover`` against ``Edgar Hoover`` — matches at no tier. Closing it
+loosens the person tiers, so it waits on a measurement, not a guess.
 """
 
 import functools
