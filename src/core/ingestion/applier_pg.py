@@ -84,6 +84,8 @@ class PostgresLiveStore:
     async def value_rows(self, table: str, column: str, parent: str) -> list[tuple[str, str]]:
         """Every value, whatever its visibility: a twin may hold only a non-public name,
         and the hint names the parent, never this text (#533)."""
+        # visibility-allowlist (issue #121): the create hint matches every name, so a
+        # twin under a deadname is not minted as a new public person — docs/NAMES.md.
         sql = (
             f"SELECT {sql_identifier(column)} AS value, {sql_identifier(parent)} AS parent"
             f" FROM {sql_identifier(table)} WHERE {sql_identifier(column)} IS NOT NULL"
