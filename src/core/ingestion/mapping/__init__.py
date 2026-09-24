@@ -396,14 +396,15 @@ def write_build_info(
     to and the contract it holds (#553), the publisher's heartbeat as the last
     pull recorded it (#551), whether those versions are what the publisher
     offered at that pull (#535), the digest of each PM export the models
-    joined, the row counts, and when. The applier copies it into every run summary and
-    ledger line, so a diff can always be traced to the inputs that produced it.
+    joined, the row counts, and when. The applier copies it into every run
+    summary and ledger line, so a diff can always be traced to the inputs that
+    produced it.
 
     ``now`` is the moment of this build: it stamps `built_at` and judges the
     producer's deadline and the pull record's age, and defaults to the current
-    moment. One parameter, one
-    clock (CR 11) — it exists so the field deciding whether a run counts towards
-    the `--execute` streak can be pinned to a moment in a test (CR 6).
+    moment. One parameter, one clock (CR 11) — it exists so the fields deciding
+    whether a run counts towards the `--execute` streak can be pinned to a
+    moment in a test (CR 6).
     """
     root = Path(snapshot_root)
     at = now or datetime.now(UTC)
