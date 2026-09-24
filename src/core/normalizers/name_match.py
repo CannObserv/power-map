@@ -41,7 +41,7 @@ from cleanco import basename
 from nameparser import HumanName
 from nicknames import NickNamer
 
-Tier = Literal["exact", "given", "initial", "nickname", "legal_form"]
+Tier = Literal["exact", "given", "nickname", "initial", "legal_form"]
 
 # Strongest first: a lookup reports each parent at the first tier that holds.
 TIERS: tuple[Tier, ...] = ("exact", "given", "nickname", "initial", "legal_form")
