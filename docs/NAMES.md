@@ -30,6 +30,8 @@ A `person_names` row with `visibility ∈ {'legal_only', 'hidden'}` is excluded 
 
 It surfaces **only** on the person-detail admin page, behind an explicit "Show legal/historical names" disclosure toggle (default collapsed).
 
+**Exception — the applier's create hint (#533).** It matches a create's asserted names against every PM name, whatever its visibility: a twin whose only matching name is a `deadname` or `hidden` row would otherwise be minted as a new, publicly displayed person — the worse disclosure. The hint quotes no PM text; it names the parent and the tier, in a run directory only operators read. An `exact` hint does still tell that operator the parent holds the asserted text.
+
 Enforcement layers:
 
 - `v_person_display_names` filters by `visibility='public'` — use the view for all display.
