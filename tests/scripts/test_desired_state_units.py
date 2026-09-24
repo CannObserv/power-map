@@ -77,12 +77,13 @@ def _jitter(timer: Path) -> timedelta:
 
 
 def test_the_chain_is_ordered_after_the_pull_but_does_not_require_it():
-    """#535: `After=` orders the two only when both jobs are queued at once — a
-    `Persistent=` catch-up after downtime can fire them together — and then the
-    build waits for the pull rather than racing it. It never holds the chain
-    back on a failed pull: `pull.json`'s age does that job. `Requires=` or
-    `Wants=` would start a second pull, and the first would also stop the
-    nightly diff whenever the pull fails."""
+    """#535: `After=` holds the chain's start while the pull has a start job of
+    its own — still running at 09:30 on a slow night (a oneshot is started only
+    once its process exits), or fired together with it by a `Persistent=`
+    catch-up — so the build waits for the pull rather than racing it. It never
+    holds the chain back on a failed pull: `pull.json`'s age does that job.
+    `Requires=` or `Wants=` would start a second pull, and the first would also
+    stop the nightly diff whenever the pull fails."""
     after = " ".join(_lines(SERVICE, "After")).split()
 
     assert PULL_UNIT in after
