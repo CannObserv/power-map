@@ -7,7 +7,8 @@
 #             defaults earlyoom kills them first and frees ~5 MiB each.
 #   --prefer  Qdrant, then Ollama — the heavy, restartable consumers (Docker restarts
 #             the container; ollama is a unit). The API (oom_score_adj -900) comes
-#             after them; sessions (-1000) are never picked.
+#             after them; sessions (-1000) come last — badness 0, but still
+#             candidates: earlyoom 1.7 does not exempt -1000 the way the kernel does.
 #
 # systemd word-splits $EARLYOOM_ARGS itself: no spaces, quotes or backslashes inside
 # a value (tests/test_infra_host_memory.py). Matched against /proc/<pid>/comm.
