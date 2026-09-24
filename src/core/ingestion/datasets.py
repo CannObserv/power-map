@@ -534,7 +534,12 @@ class SnapshotStore:
             "offered": {e.name: e.latest_version for e in catalog.entries},
         }
         self.root.mkdir(parents=True, exist_ok=True)
-        (self.root / PULL_FILE).write_text(json.dumps(record, indent=2) + "\n")
+        # Staged and moved into place, as `land()` does a version (#535 CR 4): a
+        # truncated record reads as absent, absent is "unknown", and unknown
+        # counts towards the streak unjudged. A dot name `versions()` never lists.
+        staging = self.root / f".{PULL_FILE}.incoming"
+        staging.write_text(json.dumps(record, indent=2) + "\n")
+        os.replace(staging, self.root / PULL_FILE)
         return record
 
     def pull_record(self) -> dict | None:

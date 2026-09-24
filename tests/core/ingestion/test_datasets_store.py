@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 import pytest
@@ -705,3 +706,27 @@ def test_a_run_record_truncated_mid_character_reads_as_none(tmp_path):
     (tmp_path / "pull.json").write_bytes(b'{"checked_at": "\xff\xfe')
 
     assert SnapshotStore(tmp_path).pull_record() is None
+
+
+def test_a_run_record_that_fails_mid_write_leaves_the_last_one_readable(tmp_path, monkeypatch):
+    """#535 CR 4: an unreadable record reads as absent, and absent is "unknown",
+    which counts towards the `--execute` streak unjudged. So a write that fails
+    half-way — a full disk, a crash — must not be what the next build reads."""
+    store = SnapshotStore(tmp_path)
+    store.record_pull(
+        Catalog(entries=(entry("persons", "v1-aaa"),)), at=datetime(2026, 9, 23, tzinfo=UTC)
+    )
+    write_text = Path.write_text
+
+    def half_then_full_disk(self, data, *args, **kwargs):
+        write_text(self, data[: len(data) // 2], *args, **kwargs)
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(Path, "write_text", half_then_full_disk)
+    with pytest.raises(OSError):
+        store.record_pull(
+            Catalog(entries=(entry("persons", "v2-bbb"),)), at=datetime(2026, 9, 24, tzinfo=UTC)
+        )
+    monkeypatch.undo()
+
+    assert store.pull_record()["offered"] == {"persons": "v1-aaa"}
