@@ -170,7 +170,7 @@ systemd-run --user --scope -p MemoryHigh=1200M -p MemoryMax=1536M \
   -- npm install --prefix ~/.socraticode/pin socraticode@<version>
 ```
 
-`infra/power-map.service` carries the other half (`MemoryLow=512M`, `OOMScoreAdjust=-900`). Two host steps are **not** applied, both needing root: `vm.min_free_kbytes` is still the default `10993`, and `earlyoom` is inactive.
+`infra/power-map.service` carries the other half (`MemoryLow=512M`, `OOMScoreAdjust=-900`). The host steps landed with #541 (2026-09-24): a `system.slice` drop-in that makes the `MemoryLow=` real (cgroup2 here lacks `memory_recursiveprot`, so the slice's default `0` granted the child nothing), `vm.min_free_kbytes` 10993 → 65536, and `earlyoom` on default thresholds with a corrected victim order (its defaults picked the session `dbus-daemon` before Qdrant). Install commands: [COMMANDS.md § Service Management](COMMANDS.md#service-management).
 
 ### The policy block is curation-exempt
 

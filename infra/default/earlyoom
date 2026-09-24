@@ -1,0 +1,15 @@
+# earlyoom settings for this host (#541) — replaces the package's /etc/default/earlyoom.
+# Thresholds stay at the defaults (SIGTERM at <=10% available, SIGKILL at <=5%;
+# with no swap, memory alone decides). Only the victim order changes:
+#
+#   --avoid   the exedev user manager. oom_score_adj 200/100 puts dbus-daemon (800),
+#             systemd --user and (sd-pam) (~734) above Qdrant (~686), so on the
+#             defaults earlyoom kills them first and frees ~5 MiB each.
+#   --prefer  Qdrant, then Ollama — the heavy, restartable consumers (Docker restarts
+#             the container; ollama is a unit). The API (oom_score_adj -900) comes
+#             after them; sessions (-1000) are never picked.
+#
+# systemd word-splits $EARLYOOM_ARGS itself: no spaces, quotes or backslashes inside
+# a value (tests/test_infra_host_memory.py). Matched against /proc/<pid>/comm.
+# Install: /etc/default/earlyoom + `systemctl restart earlyoom` (docs/COMMANDS.md).
+EARLYOOM_ARGS="-r 3600 --prefer ^(qdrant|ollama)$ --avoid ^(systemd|.sd-pam.|dbus-daemon)$"
