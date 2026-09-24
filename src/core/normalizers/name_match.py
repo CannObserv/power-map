@@ -24,9 +24,9 @@ instead, and names the tier each match rests on:
 The ceiling is deliberate. A hint that names a probable twin costs an operator
 one look and silence costs a duplicate, so recall wins — but only inside the
 middle-and-suffix guard above. Without it, a given name plus surname collides
-42 groups on the producer's corpus; with it, the four person tiers pair 102 of
-PM's 4,893 live people with another, 66 of them only on an initial (measured
-2026-09-24). Anything softer belongs to the duplicate audit, not a per-create
+42 groups on the producer's corpus; with it, the four person tiers match 102
+pairs of distinct people among PM's 4,893 live ones, 66 of those pairs only on
+an initial (measured 2026-09-24). Anything softer belongs to the duplicate audit, not a per-create
 hint.
 
 Known gap: a person who goes by the middle name behind a first initial —
