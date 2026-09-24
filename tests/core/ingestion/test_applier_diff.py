@@ -114,9 +114,10 @@ async def test_a_create_carries_a_hint_when_pm_already_holds_the_asserted_name()
     )
 
 
-def _person_create(*names, name_type="legal"):
-    """A create for P3 asserting each name, one desired_person_names row per name type."""
-    types = [name_type] if len(names) == 1 else [f"{name_type}{i}" for i in range(len(names))]
+def _person_create(*names):
+    """A create for P3 asserting its legal name and, if given, a variant."""
+    types = ("legal", "variant")[: len(names)]
+    assert len(types) == len(names), "a create here asserts at most two names"
     return _state(
         desired_people=[{"pm_id": None, "producer_id": P3}],
         desired_person_names=[
