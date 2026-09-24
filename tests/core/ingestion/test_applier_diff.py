@@ -162,12 +162,16 @@ async def test_a_hint_says_when_the_twin_pm_holds_is_archived():
 
 
 async def test_every_name_a_create_asserts_is_looked_up():
-    """The key is (producer_id, name_type): a second name must not shadow the first."""
-    store = FakeLiveStore(**_held(PMX, "Mike Kreidler"))
+    """The key is (producer_id, name_type): neither name may shadow the other."""
+    held = [
+        {"id": "n1", "person_id": PMX, "name": "Mike Kreidler", "name_type": "legal"},
+        {"id": "n2", "person_id": PMZ, "name": "Myron Kreidler", "name_type": "legal"},
+    ]
+    store = FakeLiveStore(tables={"people": [live(PMX), live(PMZ)], "person_names": held})
 
-    diff = await diff_desired(_person_create("Mike Kreidler", "Myron Q. Nobody"), MANIFEST, store)
+    diff = await diff_desired(_person_create("Mike Kreidler", "Myron Kreidler"), MANIFEST, store)
 
-    assert [h["parent"] for h in diff.by_kind("create")[0].hint] == [PMX]
+    assert {h["parent"] for h in diff.by_kind("create")[0].hint} == {PMX, PMZ}
 
 
 async def test_hints_list_the_strongest_tier_first():
