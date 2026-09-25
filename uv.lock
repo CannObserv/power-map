@@ -259,6 +259,15 @@ wheels = [
 ]
 
 [[package]]
+name = "cleanco"
+version = "2.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e9/e1/0b7b567c915ef1d619713b0caee14041536814767bad0c30b5e6542a40c9/cleanco-2.3.tar.gz", hash = "sha256:26b899b2be871be288408205686c5a1dd5f3ab085b709d041a77f3e3049d2961", size = 12311, upload-time = "2024-05-15T16:18:19.314Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f8/4e/e4a24eec01fbfda0df23582bc9be5d8c32b324d79481edf6d1ff52b03733/cleanco-2.3-py3-none-any.whl", hash = "sha256:7ab4672cdfdabe2375a608686da86005b33df6f347ebf7849c9d0e2651f27e01", size = 11139, upload-time = "2024-05-15T16:18:18.032Z" },
+]
+
+[[package]]
 name = "click"
 version = "8.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1168,6 +1177,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nicknames"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/86/ba/b555aee8afcf22fcd463886279d063c48eba71b99a55551cd2a7ca0e3577/nicknames-1.0.1.tar.gz", hash = "sha256:0b599c1ebf6844c5a65659d46d024c46e9c2cf66b3046e119107e82a14598e6a", size = 17223, upload-time = "2026-03-06T04:25:35.87Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/21/55/f820209a0a0ab535246a901e53fdadb4fcf562b37712d4d7f45c56ae1dab/nicknames-1.0.1-py3-none-any.whl", hash = "sha256:30608a6a50086bb508e6d5f4fb618ef4f988d5604f73ec1ebcccbc92952f9de9", size = 18130, upload-time = "2026-03-06T04:25:34.586Z" },
+]
+
+[[package]]
 name = "nodeenv"
 version = "1.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1272,15 +1290,17 @@ wheels = [
 
 [[package]]
 name = "power-map"
-version = "0.56.0"
+version = "0.57.0"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
+    { name = "cleanco" },
     { name = "email-validator" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "jinja2" },
     { name = "nameparser" },
+    { name = "nicknames" },
     { name = "phonenumbers" },
     { name = "python-dotenv" },
     { name = "python-json-logger" },
@@ -1320,11 +1340,13 @@ seed = [
 [package.metadata]
 requires-dist = [
     { name = "asyncpg", specifier = ">=0.31.0" },
+    { name = "cleanco", specifier = ">=2.3" },
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "nameparser", specifier = ">=1.1.3" },
+    { name = "nicknames", specifier = ">=1.0.1" },
     { name = "phonenumbers", specifier = ">=9.0.26" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "python-json-logger", specifier = ">=4.0.0" },

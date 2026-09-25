@@ -151,17 +151,12 @@ class FakeLiveStore:
                     out.setdefault(pm_id, {}).setdefault(table, []).append(r["id"])
         return out
 
-    async def value_matches(
-        self, table: str, column: str, values: Sequence, parent: str
-    ) -> dict[object, list[str]]:
-        """Parents in ``table`` whose ``column`` carries each value — the create hint."""
-        self.requested.append(("value_matches", table, column, tuple(values)))
-        wanted = set(values)
-        out: dict[object, list[str]] = {}
-        for r in self.tables.get(table, []):
-            if r.get(column) in wanted:
-                out.setdefault(r[column], []).append(r[parent])
-        return out
+    async def value_rows(self, table: str, column: str, parent: str) -> list[tuple[str, str]]:
+        """Every (value, parent) pair in ``table`` — the create hint's candidates."""
+        self.requested.append(("value_rows", table, column))
+        return [
+            (r[column], r[parent]) for r in self.tables.get(table, []) if r.get(column) is not None
+        ]
 
 
 class FakeConn:

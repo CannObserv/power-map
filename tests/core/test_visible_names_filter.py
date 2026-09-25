@@ -51,6 +51,11 @@ ALLOWED_DIRECT_ACCESS = {
     # so a person's legal name can surface as a dup signal. hidden names are still
     # excluded. No display is performed — the name is only used for similarity scoring.
     "src/api/admin/people_dups.py",
+    # #533 create hint: value_rows reads every name, hidden included — unlike
+    # people_dups.py — because a twin may hold only a non-public name. The hint
+    # carries the producer's value and the parent id, never this text. Its table
+    # name is dynamic, so the regex never matches; listed for reviewer clarity.
+    "src/core/ingestion/applier_pg.py",
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
