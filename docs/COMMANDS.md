@@ -41,6 +41,8 @@ uv run "${env_args[@]}" <cmd>
 
 Later files win on conflicting keys.
 
+Plain shell: `source scripts/load-env.sh`. `gh` token, version floor, REST fallback: `.claude/hooks/gh-env.sh` header (#570).
+
 ### Environment Variables
 
 | File | Owner | Contents |
