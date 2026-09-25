@@ -273,9 +273,10 @@ versions are the ones it offered (`currency`, #535).
 
   ```bash
   jq '{verdict, counts, by_table}' "data/applier/$(ls data/applier | grep 'Z$' | tail -1)/summary.json"
-  # The streak: a line counts only when dry, clean, on one digest, and "-" in both
-  # of the last two columns — built on a producer behind its clock (#551), or on
-  # inputs behind usa-wa's offer (#535). Lines older than either read "-".
+  # The streak: the last `streak` lines (manifest: 3) must all be dry and clean,
+  # carry the digest the execute will reproduce, and read "-" in both last
+  # columns — producer-stale (#551) and inputs behind usa-wa's offer (#535).
+  # A refused or execute line among them restarts it. Pre-#551/#535 lines read "-".
   jq -r '[.run_id, .mode, .verdict, .digest[:12],
           (if .producer_stale then "producer-stale" else "-" end),
           (.inputs_behind // [] | if length > 0 then join("; ") else "-" end)] | @tsv' \
