@@ -140,6 +140,8 @@ What it catches that three green lights do not:
   which fails if the submodule rolls back past the fix
 - **graph yield.** `READY` is a status, not a result: the graph can be READY with almost no edges, and `codebase_graph_query` then answers "no dependents" rather than failing. Yield is measured in edges/file against a `0.1` floor — that ratio, not `unresolvedPct`, is the verdict.
 
+The server pin (#537) and the daily `graph was built by v…` line moved to [SOCRATICODE.md § Repo-specific notes](SOCRATICODE.md#repo-specific-notes), beside the server they describe.
+
 #### Reading the daily `unresolved N%` line
 
 The hook reports `graph unresolved 63.2% (> 50%)` here **every day, and that is not a defect.** `unresolvedPct` is the share of captured symbol edges (calls, imports, re-exports, type or value references) that match no project symbol — the server's own denominator (skills#308) — so any codebase leaning on frameworks and stdlib runs high by construction — `asyncpg`, `ULID`, `os`, FastAPI and pytest are not in this repo and no re-index lowers it. Judge on `verdict` and edges/file; power-map is `verdict: ok` at 1.640 edges/file against a 0.1 floor (1,337 edges across 815 files, re-measured 2026-09-19).
@@ -147,8 +149,6 @@ The hook reports `graph unresolved 63.2% (> 50%)` here **every day, and that is 
 Verified rather than assumed, by the differential test: `codebase_graph_query` on `src/core/db.py` returns exactly one outbound edge (`src/core/logging.py` — precisely its one first-party import) and 217 unique importers, matching an `rg` sweep over every import spelling at 217. No misses, no false positives. **The import graph is exact; treat `codebase_graph_query` and `codebase_impact` as trustworthy.**
 
 Do not write the reverse of this into the docs — a sibling repo distrusted a correct tool for weeks on that misreading, costing an `rg` round-trip per dependency question (gregoryfoster/skills#198). The distinguishing signal for the real defect (SocratiCode#107) is *near-zero edges/file*, not a high percentage. If you do suspect the graph, re-run the differential test above rather than reasoning from the number.
-
-The server pin (#537) and the daily `graph was built by v…` line moved to [SOCRATICODE.md § Repo-specific notes](SOCRATICODE.md#repo-specific-notes), beside the server they describe.
 
 ### The policy block is curation-exempt
 
