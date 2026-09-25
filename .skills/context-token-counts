@@ -3,7 +3,7 @@
 # The offline estimators prefer a file's own last exact measurement to the
 # repo-wide figure in .skills/context-token-ratio, falling back to it for a
 # file never counted exactly or since drifted far from the size recorded here.
-14036 5991 AGENTS.md
+14070 6003 AGENTS.md
 14446 5631 docs/ACCESSIBILITY.md
 24909 9622 docs/ADMIN.md
 16814 6375 docs/ADMIN_NAMES.md
@@ -20,26 +20,26 @@
 8484 3061 docs/ASSIGNMENTS.md
 16284 6644 docs/AUDITS.md
 21494 7850 docs/CHANGE_FEED.md
-19878 8301 docs/COMMANDS.md
+23889 9964 docs/COMMANDS.md
 8721 3275 docs/CONTEXT.md
 21892 8420 docs/CONVENTIONS.md
 18736 7093 docs/FORMS.md
 24204 9464 docs/HTMX.md
 22524 8733 docs/MERGE.md
-21151 7754 docs/NAMES.md
+21625 7903 docs/NAMES.md
 26134 9690 docs/OBSERVATIONS.md
 8484 3061 docs/OBSERVATIONS_ASSIGNMENTS.md
 22931 8688 docs/PUBLIC_API.md
-22953 8899 docs/RUNBOOKS.md
+23784 9190 docs/RUNBOOKS.md
 5375 2220 docs/RUNBOOK_DB_MIGRATION.md
 3828 1564 docs/RUNBOOK_DB_TRIAGE.md
-16160 6079 docs/RUNBOOK_DESIRED_STATE.md
+20838 7723 docs/RUNBOOK_DESIRED_STATE.md
 15894 6204 docs/SCHEMA.md
 23338 8942 docs/SCHEMA_INDEXES.md
 5482 2121 docs/SCHEMA_VALIDITY.md
 5017 1887 docs/SCRIPTS.md
-26892 9939 docs/SKILLS.md
-16820 5942 docs/SOCRATICODE.md
+27651 10222 docs/SKILLS.md
+19675 6962 docs/SOCRATICODE.md
 16606 7327 docs/STYLE.md
-21338 8233 docs/TESTING.md
+21569 8318 docs/TESTING.md
 21997 8589 docs/UI.md
