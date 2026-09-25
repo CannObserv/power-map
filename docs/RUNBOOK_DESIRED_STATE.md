@@ -273,7 +273,13 @@ versions are the ones it offered (`currency`, #535).
 
   ```bash
   jq '{verdict, counts, by_table}' "data/applier/$(ls data/applier | grep 'Z$' | tail -1)/summary.json"
-  jq -r '[.run_id, .mode, .verdict] | @tsv' data/applier/ledger.jsonl   # the streak
+  # The streak: a line counts only when dry, clean, on one digest, and "-" in both
+  # of the last two columns — built on a producer behind its clock (#551), or on
+  # inputs behind usa-wa's offer (#535). Lines older than either read "-".
+  jq -r '[.run_id, .mode, .verdict, .digest[:12],
+          (if .producer_stale then "producer-stale" else "-" end),
+          (.inputs_behind // [] | if length > 0 then join("; ") else "-" end)] | @tsv' \
+    data/applier/ledger.jsonl
   ```
 
 Install the nightly chain once (`docs/COMMANDS.md` § Scheduled timers lists it):
