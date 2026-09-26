@@ -177,7 +177,7 @@ docs/SCHEMA.md :: `docs/OBSERVATIONS.md`; person-name storage and visibility in 
 docs/SCHEMA_INDEXES.md :: `docs/SCHEMA.md`; write semantics in `docs/OBSERVATIONS.md`.
 docs/SKILLS.md :: `AGENTS.md`'s `## Code Exploration Policy` sits between `<!-- BEGIN socraticode-policy -->` / `<!-- END socraticode-policy -->` markers. `curating-context` refuses to edit a marked policy block, so **that section cannot be trimmed by the budget skill** — it is the one part of `AGENTS.md` the token budget can never reclaim.
 docs/SKILLS.md :: `.socraticodecontextartifacts.json` points `codebase_context_search` at the project's non-code knowledge. Three entries: `src/core/schema.sql`, `AGENTS.md`, and `docs` — the last a **directory**, indexed recursively.
-docs/SKILLS.md :: SocratiCode provides semantic search and dependency graph tools via MCP. The rule lives in `AGENTS.md § Code Exploration Policy`; the full tool table, prefetch string and per-tool notes live in [SOCRATICODE.md](SOCRATICODE.md). Infrastructure details:
+docs/SKILLS.md :: SocratiCode provides semantic search and dependency graph tools via MCP. The rule lives in `AGENTS.md § Code Exploration Policy`; the full tool table, prefetch and per-tool notes live in [SOCRATICODE.md](SOCRATICODE.md). Infrastructure details:
 docs/SOCRATICODE.md :: file wholesale. Repo-specific exploration notes belong in `AGENTS.md` under
 docs/SOCRATICODE.md :: `.socraticodecontextartifacts.json` — here `src/core/schema.sql`, `AGENTS.md`
 src/core/db.py :: matching the visibility rule documented in docs/CONVENTIONS.md.
