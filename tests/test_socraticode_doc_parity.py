@@ -346,8 +346,12 @@ def test_the_doc_carries_no_copied_select_string(doc: str) -> None:
     stale silently — the hook's output cannot drift from itself. A `select:`
     string reappearing is a hand-edit or a rollback past that template change,
     and either way it restores the exact drift channel the retirement closed.
+
+    Keyed on a query that names a tool, not on a line opening with `select:`:
+    the pinned template's own prose reflowed so a line starts with the bare word
+    (#564), and the drift channel is the tool list, not the word.
     """
-    select_lines = [line for line in doc.splitlines() if line.strip().startswith("`select:")]
+    select_lines = [line for line in doc.splitlines() if "select:mcp__" in line]
     assert not select_lines, (
         "docs/SOCRATICODE.md carries a copied select: string again. The "
         "template retired the copy (the hook's output cannot drift from "

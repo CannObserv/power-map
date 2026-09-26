@@ -33,18 +33,14 @@ heading down there, not in `AGENTS.md`.
 
 ## Prefetch
 
-The `codebase_*` MCP tools are **deferred**: their schemas are not in the
-session until a `ToolSearch` prefetch loads them, and calling one before that
-fails validation. The SessionStart hook prints the `select:` query each
-session. If it did not fire, run the hook by hand and use the line it prints:
+The `codebase_*` MCP tools are **deferred**: one called before a `ToolSearch`
+prefetch loads its schema fails validation. The SessionStart hook prints that
+`select:` query each session; if it did not fire, run it and use the line it
+prints:
 
 ```bash
 bash .claude/hooks/socraticode-reminder.sh
 ```
-
-The query is deliberately not copied here: the hook is a vendored symlink, so
-upstream can change which tools it selects, and a copy in this file goes stale
-silently — the hook's output cannot drift from itself.
 
 ## Per-tool notes
 
@@ -107,144 +103,48 @@ silently — the hook's output cannot drift from itself.
 
 ## Graph health
 
-`codebase_graph_status` reporting `READY` does **not** mean the graph resolved
-anything — `READY` is reachable with a handful of edges across hundreds of
-files. Check yield, not status:
+`READY` means a build finished, not that it resolved anything. Measure yield
+from the main checkout — SocratiCode indexes by absolute path, and a
+worktree's was never indexed:
 
 ```bash
 node skills/init-socraticode/scripts/mcp-driver.mjs health-check \
   "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
 ```
 
-**Name the checkout, not the cwd.** SocratiCode indexes by absolute project
-path, so a literal `.` run from a git worktree asks about a project the server
-never saw and reports a healthy index as broken. The spelling above is the one
-`socraticode-health.sh` uses; `--show-toplevel` is the near miss, because in a
-worktree it yields the worktree. Current drivers resolve a relative argument
-this way themselves, so `.` also works — the explicit form is here because it
-works against an older vendored driver too, and because it says out loud which
-path is being measured.
+Since 1.13.0 `codebase_graph_status` prints an `Import resolution: N of M
+captured imports resolved…` advisory when resolution collapses. That advisory —
+or its silence under a `Built by:` of v1.13.0 or later — is the server's
+**ruling**, and outranks edges/file:
 
-`verdict: "low"` means dependency questions must go to `grep`, and the
-`AGENTS.md` block should be on its degraded variant.
+| `verdict` | Meaning | Do |
+|---|---|---|
+| `ok` | a silent ruling; with none, ≥ 0.1 edges/file | nothing |
+| `low` | the advisory fired; with no ruling, < 0.1 edges/file | dependency questions go to `grep`; the `AGENTS.md` block is on its degraded variant |
+| `unknown` | an unparsed status; with no ruling, < 20 files | nothing to conclude |
 
-**`unresolvedPct` is a statistic beside the verdict, never evidence for it.**
-The same check — and the daily `socraticode-health.sh` run — report the figure
-whenever it clears the threshold, on a healthy graph too, and word it from the
-verdict. Beside `ok`: `graph unresolved N% (> 50%) — share of captured symbol
-edges (calls, imports, re-exports, type or value references) matching no
-project symbol; edges into builtins and external libraries count by
-construction, so it runs high on healthy code — verdict is ok, so this is a
-statistic, not a defect`. Beside `low` or `unknown`, where the verdict already
-stands on the yield arithmetic and the server's advisory: `graph unresolved N%
-(> 50%) — share of captured symbol edges (calls, imports, re-exports, type or
-value references) matching no project symbol — reported beside the verdict,
-not as evidence for it, since edges into builtins and external libraries count
-by construction`. Either way it is filed as a **note** — it appears as `note:
-graph unresolved N% …` and does not set the exit code, so a repo whose only
-finding is this one stays silent through the daily hook. The denominator is
-the server's own: since v1.14.0 `codebase_graph_status` says the same thing
-and adds that the share "is not a resolver failure rate". A repo that leans on
-frameworks, the stdlib and SDKs runs high by construction, because those
-symbols are not in the repo — no re-index brings them in and none lowers the
-figure. Judge the graph on `verdict` and on **edges/file**, which is what the
-gate keys on. A high `unresolvedPct` beside `verdict: "ok"` is normal; the
-src-layout resolver defect it can be mistaken for
-(<https://github.com/giancarloerra/SocratiCode/issues/107>) shows up instead
-as near-zero edges/file. Do not cite the figure as the *cause* of an
-under-reporting graph query; test the import graph instead
-([#308](https://github.com/gregoryfoster/skills/issues/308)).
+Trust a ruling only when `Built by:` is current:
 
-**If you suspect the import graph, test the import graph.** Take a file you
-know has first-party importers, run `codebase_graph_query` on it, and compare
-the result against an `rg` sweep over every spelling that import could be
-written as. If the two sets match, the import graph is exact, and whatever
-`unresolvedPct` counts, it is not your first-party imports. Prefer that
-differential to any figure written into this file, which is repo- and
-day-specific.
-
-**Since SocratiCode 1.13.0 the server states the yield itself, and that is the
-signal to read.** When resolution collapses, `codebase_graph_status` prints an
-advisory beneath the edge count:
-
-```
-Import resolution: 35 of 2959 captured imports resolved to project files (1.2%)
-  Most imports did not resolve, so codebase_graph_query, codebase_graph_stats
-  and codebase_impact will under-report dependencies — an empty answer there
-  means unresolved, not independent.
-```
-
-That ratio is **resolved-over-captured**, which is a better measure than the
-edges/file floor this skill computes locally: it does not move with repo size,
-and it does not read as broken on a repo that is merely orphan-heavy. It is
-also not `unresolvedPct`, which counts every captured symbol edge, external
-ones included (see above).
-
-**Believe a present advisory when `Built by:` is current.** It reports what the
-builder that *cut* this graph resolved, so on a stale graph it judges an older
-resolver and a rebuild may clear it. Either way the `Built by:` line below is
-what tells you whether the reading — advisory or silence — is about the
-resolvers you are actually running.
-
-**Its silence, in particular, is only meaningful if the graph is new enough to
-produce it:**
-
-| `Built by:` | what a missing advisory means |
+| `Built by:` | a missing advisory means |
 |---|---|
-| `v<current server>` | the server measured and found nothing wrong — trust it |
+| `v<current server>` | the server measured and found nothing wrong |
 | `v<older> — STALE` | the graph predates the running resolvers; **rebuild before judging** |
 | `unknown (persisted before…)` | same, from a graph cut before the stamp existed |
-| *(line absent)* | server older than 1.13.0 — **or no built graph here at all**; fall back to edges/file |
+| *(line absent)* | server older than 1.13.0, or no built graph; fall back to edges/file |
 
-The middle two are the trap, and it is not hypothetical: a graph sitting at 37
-edges across 621 files looked like a resolver collapse for over a week and was
-merely stale — rebuilt on 1.13.1 the same repo yields **2156 edges across 627
-files**. Run `codebase_graph_build` before concluding anything from a graph
-whose builder is stale or unstamped. `health-check` reports this as its own
-defect, and reports which measure ruled (`source: "server"` or `"local"`) in
-its JSON.
+`health-check` reports a stale builder as its own defect. **Rebuild the graph
+after a SocratiCode upgrade** with `codebase_graph_build`: a stored graph
+reports READY forever, whatever cut it.
 
-**Read row 1 as *the server did not call it stale*, not as *it is current*.**
-The annotation is the server's to volunteer, and every way of not volunteering
-it used to land here: `CannObserv/cannabis.observer-wordpress#803` spent three
-rounds concluding a PSR-4 `composer.json` declaration "would not help", from a
-graph **cut by v1.10.0** — PSR-4 resolution having shipped in **v1.11.0**, so the
-graph predated the feature under discussion. READY throughout, and nothing said
-so. Since [#297](https://github.com/gregoryfoster/skills/issues/297)
-`health-check` keeps the running server's `serverInfo.version` from the MCP
-handshake and makes the comparison itself, so row 1 now means *both* parties
-checked. Reading the stamp **by hand**, you do not have that second opinion:
-compare it against the server you are running before you trust it.
+**`unresolvedPct` is a statistic beside the verdict, never evidence for it**:
+the share of captured symbol edges matching no project symbol. Edges into
+builtins and external libraries count by construction, so it runs high on
+healthy code and no re-index lowers it. It is a note, and does not set the exit
+code; judge on `verdict`. To test the import graph, compare
+`codebase_graph_query` on a file with known importers against an `rg` sweep.
 
-**The server that matters is the one answering your queries.** A rebuild runs
-through the session's server — under Claude Code, the plugin's — which need
-not be the one `health-check` launched to measure. Where the plugin's
-definition fixes a version, the check judges the graph against that one, and a
-graph matching it while trailing the check's own server is a *note*: rebuilding
-would re-stamp the same version, so the fix is to update the plugin, restart
-Claude Code so its MCP server reloads, then rebuild. Where the definition
-floats (`socraticode@latest`) the session's version cannot be read, and the
-finding says so; if a rebuild leaves the stamp unchanged, restart and rebuild
-([#305](https://github.com/gregoryfoster/skills/issues/305)). The JSON records
-every version compared: `graph.builderCheck` holds the builder, `checkServer`,
-`sessionServer` and which of the two ruled; `server` is the check's own launch
-and `sessionServer` says how the session's version was known.
-
-**Stale is not the same as unmeasured, and the two answer different
-questions.** A graph a release or two behind still carries the import counts its
-builder recorded, so the running server reads them and its advisory — or its
-silence — is a real ruling about resolution; `health-check` keeps that ruling
-(`source: "server"`) and reports the staleness *beside* it. Only a graph cut
-before **1.13.0**, which recorded no counts at all, leaves the server with
-nothing to measure and sends the verdict back to the edges/file fallback
-(`source: "local"`). Do not read "this graph is old" as "this graph is broken":
-on an orphan-heavy repo the local floor reads LOW on a graph that is perfectly
-fine, which is the reading that writes variant B.
-
-**Rebuild the graph after a SocratiCode upgrade.** A stored graph reports READY
-forever, whatever cut it, and every resolver fix shipped since is absent from
-it. That rule does not need to live in your `AGENTS.md` — the once-per-day hook
-reports it, names both versions and names `codebase_graph_build`.
+Rationale, and each finding's full wording:
+`skills/init-socraticode/references/graph-health.md`.
 
 ## Index scope
 
