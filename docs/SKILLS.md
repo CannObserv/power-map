@@ -88,6 +88,7 @@ To add a new external skill repo: follow the `managing-skills` skill.
 | `curating-context` | `gregoryfoster-skills` | curate context, context budget, hone AGENTS.md, trim AGENTS.md, prune context |
 | `init-socraticode` | `gregoryfoster-skills` | init socraticode, set up code search, index this project, socraticode setup ³ |
 | `init-project-fastapi` | `gregoryfoster-skills` | init project, bootstrap project, new fastapi project, set up foundation ³ |
+| `using-mayfly-chat` | `gregoryfoster-skills` | mayfly, open a channel, join the channel, `chat with <repo>`, agent chat ⁴ |
 
 ² **Project override — `using-git-worktrees` (#450):** its `worktree-create.sh` links a new
 worktree's `.venv` at the main checkout's. Here the main checkout is production's working
@@ -101,11 +102,13 @@ per the vendored-skill policy, never edit `skills-vendor/`. Details → `docs/CO
 
 ¹ Description-driven: `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
 
-³ **Initializers — power-map is long past bootstrap.** Neither is for setting this project up again. `init-socraticode` is linked for its **audit re-run** (`references/audit-rerun.md`): every phase is idempotent, so re-running it re-validates the policy block, manifest, hooks and graph yield, and is the only thing that catches a manifest the server silently rejected. `init-project-fastapi` is linked for its reference docs, which are the written form of several conventions this repo already follows. A re-run replaces `docs/SOCRATICODE.md` **only between its `<!-- BEGIN socraticode-doc -->` / `<!-- END socraticode-doc -->` markers** (skills#210, adopted in #463) — the `## Repo-specific notes` section below `END` survives. Above it there is nothing left to lose either: no local corrections remain, and `tests/test_socraticode_doc_parity.py` reds if the markers go missing, if the span drifts from the pinned template, or if a divergence block reappears unguarded.
+³ **Initializers — power-map is long past bootstrap.** Neither is for setting this project up again. `init-socraticode` is linked for its **audit re-run** (`references/audit-rerun.md`): every phase is idempotent, so re-running it re-validates the policy block, manifest, hooks and graph yield, and is the only thing that catches a manifest the server silently rejected. `init-project-fastapi` is linked for its reference docs, which are the written form of several conventions this repo already follows. A re-run replaces `docs/SOCRATICODE.md` **only between its `<!-- BEGIN socraticode-doc -->` / `<!-- END socraticode-doc -->` markers** (skills#210, adopted in #463) — the `## Repo-specific notes` section below `END` survives. Above it there is nothing left to lose either: no local corrections remain, and `tests/test_socraticode_doc_parity.py` reds if the markers go missing, if § Prefetch or § Graph health drifts from the pinned template (the two sections the retirements rest on; the rest of the span is left to a re-run), or if a divergence block reappears unguarded.
+
+⁴ **`using-mayfly-chat` (#564)** — needs Node.js ≥18 (the wrapper exits `4` without it). The channel URL is read, write **and delete** access: never commit it anywhere. `tests/test_no_channel_urls.py` reds on one in a tracked file; for untracked output, run the skill's `references/security.md` leak check. `tests/test_skills_listing.py` keeps this table, `skills/` and `.claude/skills/` in step.
 
 ## SocratiCode MCP Tools
 
-SocratiCode provides semantic search and dependency graph tools via MCP. The rule lives in `AGENTS.md § Code Exploration Policy`; the full tool table, prefetch string and per-tool notes live in [SOCRATICODE.md](SOCRATICODE.md). Infrastructure details:
+SocratiCode provides semantic search and dependency graph tools via MCP. The rule lives in `AGENTS.md § Code Exploration Policy`; the full tool table, prefetch and per-tool notes live in [SOCRATICODE.md](SOCRATICODE.md). Infrastructure details:
 
 - **Index status:** `codebase_status` — check before relying on search results
 - **Initial setup / reindex:** use the `socraticode:codebase-management` skill

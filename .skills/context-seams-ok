@@ -137,7 +137,7 @@ docs/OBSERVATIONS.md :: ## Assignment observations (#311/#391)
 # in this change, so every reference to it is correct navigation. These were acked
 # before #453 rewrote the surrounding lines, which expired the old entries.
 docs/SKILLS.md :: SocratiCode provides semantic search and dependency graph tools via MCP. The rule lives in `AGENTS.md § Code Exploration Policy`; this doc covers the vendoring, the hooks and the index health line.
-docs/SOCRATICODE.md :: Detail doc for the `## Code Exploration Policy` block in `AGENTS.md`. That
+docs/SOCRATICODE.md :: Detail doc for the `## Code Exploration Policy` block in `AGENTS.md`: that
 
 # The retract summary in the endpoint section and the full '#### Retraction'
 # subsection are now in the SAME doc — a summary/detail pair, not a stale pointer.
@@ -177,7 +177,7 @@ docs/SCHEMA.md :: `docs/OBSERVATIONS.md`; person-name storage and visibility in 
 docs/SCHEMA_INDEXES.md :: `docs/SCHEMA.md`; write semantics in `docs/OBSERVATIONS.md`.
 docs/SKILLS.md :: `AGENTS.md`'s `## Code Exploration Policy` sits between `<!-- BEGIN socraticode-policy -->` / `<!-- END socraticode-policy -->` markers. `curating-context` refuses to edit a marked policy block, so **that section cannot be trimmed by the budget skill** — it is the one part of `AGENTS.md` the token budget can never reclaim.
 docs/SKILLS.md :: `.socraticodecontextartifacts.json` points `codebase_context_search` at the project's non-code knowledge. Three entries: `src/core/schema.sql`, `AGENTS.md`, and `docs` — the last a **directory**, indexed recursively.
-docs/SKILLS.md :: SocratiCode provides semantic search and dependency graph tools via MCP. The rule lives in `AGENTS.md § Code Exploration Policy`; the full tool table, prefetch string and per-tool notes live in [SOCRATICODE.md](SOCRATICODE.md). Infrastructure details:
+docs/SKILLS.md :: SocratiCode provides semantic search and dependency graph tools via MCP. The rule lives in `AGENTS.md § Code Exploration Policy`; the full tool table, prefetch and per-tool notes live in [SOCRATICODE.md](SOCRATICODE.md). Infrastructure details:
 docs/SOCRATICODE.md :: file wholesale. Repo-specific exploration notes belong in `AGENTS.md` under
 docs/SOCRATICODE.md :: `.socraticodecontextartifacts.json` — here `src/core/schema.sql`, `AGENTS.md`
 src/core/db.py :: matching the visibility rule documented in docs/CONVENTIONS.md.
@@ -245,7 +245,7 @@ docs/OBSERVATIONS.md :: ## Identifier types — the identity vocabulary (#459)
 # line, so the old ack stopped matching and the seam re-raised for re-judging
 # instead of staying silently acknowledged under changed wording.
 docs/SKILLS.md :: That is the deliberate trade for idempotence: a marked block is patched in place by an `init-socraticode` re-run instead of taking the whole-span replace branch that silently eats repo-authored prose (skills#115). To shrink it, move content into this file, or into `SOCRATICODE.md` **below its `<!-- END socraticode-doc -->` marker**, and re-run the skill — above that marker is the template's, and a re-run replaces it. Do not hand-edit between either file's markers, and do not expect `curating-context` to do it for you. `AGENTS.md` runs close to its 6000-token ceiling, so budget pressure has to go elsewhere.
-docs/SOCRATICODE.md :: heading down there, not in `AGENTS.md`.
+docs/SOCRATICODE.md :: after it, not in `AGENTS.md`.
 docs/SOCRATICODE.md :: repo-specific reading goes — not in `AGENTS.md`, which is loaded on every
 
 # back-reference — template-owned (inside the socraticode-doc span, byte-identical
@@ -260,9 +260,11 @@ docs/SOCRATICODE.md :: repo-specific reading goes — not in `AGENTS.md`, which 
 #
 # #473 CLOSED IT (2026-08-29). The answer is back, below the END marker, under
 # `## Repo-specific notes` — "No degraded variant is defined here." This entry
-# stays: line 94 still back-references `AGENTS.md` and is still template-owned,
+# stays: the § Graph health `low` row still back-references `AGENTS.md` and is template-owned,
 # so the seam is permanent and only the unanswered half was the defect.
-docs/SOCRATICODE.md :: `AGENTS.md` block should be on its degraded variant.
+# #564 regenerated the span from the pinned template, rewording this line and the
+# `Detail doc for…` and `after it, not in AGENTS.md` entries; same judgement each.
+docs/SOCRATICODE.md :: | `low` | the advisory fired; with no ruling, < 0.1 edges/file | dependency questions go to `grep`; the `AGENTS.md` block is on its degraded variant |
 
 # --- #473 (2026-08-29) ---------------------------------------------------------
 # back-reference — the restored degraded-variant note. It names `AGENTS.md` as
