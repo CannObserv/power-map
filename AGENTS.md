@@ -118,11 +118,9 @@ Scheduled timers all surface failure through `systemctl --failed` — roster, ca
 
 **Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates its write behind `--execute` and echoes its target first. Uniform flags, the `scripts/_dsn.py` resolver, and the AST sweep enforcing them → `docs/RUNBOOKS.md` § Operational scripts.
 
-Full command reference: `docs/COMMANDS.md`
-
 ### Environment files
 
-`/etc/power-map/.env` then `.env`, later winning — loaded via uv's dotenv parser and gated on existence, because uv errors hard on a missing `--env-file`. The `env_args` idiom every `uv run` here depends on → `docs/COMMANDS.md` § Environment.
+`/etc/power-map/.env` then `.env`, later winning. Every `uv run` here depends on the `env_args` idiom → `docs/COMMANDS.md` § Environment.
 
 ## Agent Skills & Tools
 

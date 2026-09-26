@@ -140,6 +140,8 @@ What it catches that three green lights do not:
   which fails if the submodule rolls back past the fix
 - **graph yield.** `READY` is a status, not a result: the graph can be READY with almost no edges, and `codebase_graph_query` then answers "no dependents" rather than failing. Yield is measured in edges/file against a `0.1` floor — that ratio, not `unresolvedPct`, is the verdict.
 
+The server pin (#537) and the daily `graph was built by v…` line moved to [SOCRATICODE.md § Repo-specific notes](SOCRATICODE.md#repo-specific-notes), beside the server they describe.
+
 #### Reading the daily `unresolved N%` line
 
 The hook reports `graph unresolved 63.2% (> 50%)` here **every day, and that is not a defect.** `unresolvedPct` is the share of captured symbol edges (calls, imports, re-exports, type or value references) that match no project symbol — the server's own denominator (skills#308) — so any codebase leaning on frameworks and stdlib runs high by construction — `asyncpg`, `ULID`, `os`, FastAPI and pytest are not in this repo and no re-index lowers it. Judge on `verdict` and edges/file; power-map is `verdict: ok` at 1.640 edges/file against a 0.1 floor (1,337 edges across 815 files, re-measured 2026-09-19).
@@ -147,30 +149,6 @@ The hook reports `graph unresolved 63.2% (> 50%)` here **every day, and that is 
 Verified rather than assumed, by the differential test: `codebase_graph_query` on `src/core/db.py` returns exactly one outbound edge (`src/core/logging.py` — precisely its one first-party import) and 217 unique importers, matching an `rg` sweep over every import spelling at 217. No misses, no false positives. **The import graph is exact; treat `codebase_graph_query` and `codebase_impact` as trustworthy.**
 
 Do not write the reverse of this into the docs — a sibling repo distrusted a correct tool for weeks on that misreading, costing an `rg` round-trip per dependency question (gregoryfoster/skills#198). The distinguishing signal for the real defect (SocratiCode#107) is *near-zero edges/file*, not a high percentage. If you do suspect the graph, re-run the differential test above rather than reasoning from the number.
-
-#### Reading the daily `graph was built by v…` line
-
-**Cleared by the #537 pin — kept because it explains what to do if it returns.** It was the second expected daily finding. Since the `d3f91c8` pin the health check compares the build that **cut** the graph against the server it is talking to (skills#297) — and here those are two different installs. The graph is built by the Claude Code plugin's pinned server (`~/.claude/plugins/cache/socraticode/socraticode/1.13.1`), while `mcp-driver.mjs` — which the hook runs — resolves the pinned install below, currently `1.14.0`. So the line reads `built by v1.13.1, older than the running server (v1.14.0)`, and unlike the `unresolved %` line it is a **defect**, so it sets the hook's exit code.
-
-**Its prescribed remedy could not clear it, and pinning did.** `codebase_graph_build` through the plugin stamps the plugin's own version again: measured 2026-09-19, a rebuild finished in 5.8s and the graph still read `Built by: v1.13.1`, so a second rebuild was never the answer. Pinning the driver's server (above) was — the health check now runs a `1.14.0` server against a `1.14.0` graph and reports `builder: {state: "current"}`, so the hook is silent and exits `0`.
-
-If the line returns, it means the plugin's cached server and the pin have drifted a feature release apart. Check with `mcp-driver.mjs resolve` and `npm view socraticode version`; the remedies are to re-pin (above) or to update the plugin (`claude plugin install socraticode@socraticode`) and restart Claude Code so the MCP server reloads. Do not reach for a rebuild.
-
-#### The server is pinned, not installed per launch (#537)
-
-`~/.socraticode/pin` holds `socraticode@1.14.0`, installed once. `mcp-driver.mjs resolve` reports `pinned install v1.14.0`; before the pin it reported `npx -y --prefer-online socraticode@latest`, which revalidates against the registry on **every** launch — so a warm npx cache was not a warm path on any day the package moved.
-
-Measured here 2026-09-19 (`init-socraticode/scripts/preflight.sh --check`): **7.2 GiB, no swap**, preflight PASSED. Memory is above the skill's 4 GiB warn line, so two other facts decided it — the host also runs production (`power-map.service` plus eight timers), and with no swap the kernel fails atomic allocations in unrelated processes rather than OOM-killing one. exe.dev session processes inherit `oom_score_adj` **-1000**, so the killer can never pick the session and takes the production service instead; that is how a sibling VM's 2026-09-16 outage presented — nothing killed, the bus down 57m (skills#295). Upstream measured 75 MB for a pinned launch against **1.2 G at the cgroup** for a cold install, every throttle event landing in the install.
-
-**Pinning the driver does not pin the session.** Claude Code cannot override a plugin's MCP command, so the plugin keeps launching `@latest` — a known limitation. The health check reports a defect only when the two differ by a minor or major release; today both are `1.14.0`. Re-pin deliberately, never `@latest`:
-
-```bash
-npm view socraticode version        # pick a literal
-systemd-run --user --scope -p MemoryHigh=1200M -p MemoryMax=1536M \
-  -- npm install --prefix ~/.socraticode/pin socraticode@<version>
-```
-
-`infra/power-map.service` carries the other half (`MemoryLow=512M`, `OOMScoreAdjust=-900`). The host steps landed with #541 (2026-09-24): a `system.slice` drop-in that makes the `MemoryLow=` real (cgroup2 here lacks `memory_recursiveprot`, so the slice's default `0` granted the child nothing), `vm.min_free_kbytes` 10993 → 65536, and `earlyoom` on default thresholds with a corrected victim order (its defaults picked the session `dbus-daemon` before Qdrant). Install commands: [COMMANDS.md § Service Management](COMMANDS.md#service-management).
 
 ### The policy block is curation-exempt
 

@@ -278,3 +278,26 @@ docs/SOCRATICODE.md :: repo to put the `AGENTS.md` block on one. power-map measu
 # link, so a rename would break two references no gate can see. Same shape and
 # same judgement as the other ~57 `#NNN` headings acknowledged above.
 docs/OBSERVATIONS.md :: ## Anti-resurrection is labelled — `attached_archived` (#477)
+
+# 2026-09-25 curation (SKILLS.md -> SOCRATICODE.md: the #537 server pin and the daily
+# `graph was built by` line). Still true: the three measurements this line names — graph
+# yield, the context-artifact list, the `unresolved N%` reading — all remain in SKILLS.md;
+# the moved pair is named as the exception in the sentence that now follows it.
+docs/SOCRATICODE.md :: **Measurements live in [`SKILLS.md`](SKILLS.md).** The graph's yield here, the
+
+# 2026-09-25 curation: moving the #537 pin and `graph was built by` blocks out of SKILLS.md
+# swept these source references to it. Each points at content that stayed — the hook and
+# skill inventories, § Context artifacts, § Reading the daily `unresolved N%` line, and the
+# codebase_update recovery lines in § Declared ≠ indexed — none at the moved pair.
+tests/test_doc_sensitive_paths.py :: ".claude/hooks/socraticode-health.sh",  # hook inventory (docs/SKILLS.md)
+tests/test_doc_sensitive_paths.py :: "skills/brainstorming/SKILL.md",  # skill inventory (docs/SKILLS.md)
+tests/test_doc_sensitive_paths.py :: "docs/SKILLS.md",  # .claude/, skills/, .gitmodules
+tests/test_socraticode_doc_parity.py :: `docs/SKILLS.md` § Context artifacts; `tests/test_socraticode_health_parity.py`
+tests/test_socraticode_doc_parity.py :: `docs/SKILLS.md` § Reading the daily `unresolved N%` line.
+tests/test_socraticode_doc_parity.py :: "revert docs/SKILLS.md's recovery lines to codebase_context_index, "
+tests/test_socraticode_doc_parity.py :: and reports failure while the server finishes. `docs/SKILLS.md` is never
+tests/test_socraticode_doc_parity.py :: assert recovery, "no recovery lines in docs/SKILLS.md"
+tests/test_socraticode_doc_parity.py :: f"docs/SKILLS.md prescribes a full re-embed as recovery: {line.strip()[:160]}"
+tests/test_socraticode_health_parity.py :: block carried now lives in `docs/SKILLS.md` § Context artifacts, which is
+tests/test_socraticode_health_parity.py :: (`docs/SKILLS.md` § Reading the daily `unresolved N%` line) of what a confidently
+tests/test_socraticode_health_parity.py :: "resolve-but-unindexed guidance in docs/SKILLS.md § Context artifacts."

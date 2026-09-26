@@ -275,3 +275,20 @@ docs/COMMANDS.md :: tighten :: detail is in the section named in each row.
 docs/COMMANDS.md :: tighten :: *where*, never *whether*.
 docs/COMMANDS.md :: tighten :: back to `DATABASE_URL`.
 docs/COMMANDS.md :: tighten :: | Situation | Action |
+
+# --- 2026-09-25 curation (AGENTS.md 6003 -> under 6000). Both judged against their replacement.
+#     The Infrastructure section already says "every command itself is in `docs/COMMANDS.md`"
+#     two paragraphs above, and the Detail Docs index lists COMMANDS.md: a third pointer.
+AGENTS.md :: duplicate :: Full command reference: `docs/COMMANDS.md`
+#     Class-C tightening. The two dropped clauses are stated in docs/COMMANDS.md § Environment:
+#     "uv has a proper dotenv parser" and "The flags are gated on existence because uv errors
+#     hard on a missing `--env-file`". The order, the precedence and the pointer stay inline.
+AGENTS.md :: tighten :: `/etc/power-map/.env` then `.env`, later winning — loaded via uv's dotenv parser and gated on existence
+#     SKILLS.md -> SOCRATICODE.md move: the heading carried `(#537)` into a permanent anchor
+#     slug (class 3b provenance-heading). Nothing linked the anchor; #537 stays cited in the
+#     SKILLS.md pointer line and in SOCRATICODE.md's "Measurements live in SKILLS.md" note.
+docs/SKILLS.md :: rename :: #### The server is pinned, not installed per launch (#537)
+#     CR 1: the reorder (pin block first) put the pin ABOVE the `graph was built by` block, so
+#     its "resolves the pinned install below" became "above" — the same move fixed the block's
+#     two "(above)" references, which pointed at a section below them in SKILLS.md.
+docs/SKILLS.md :: retarget :: **Cleared by the #537 pin — kept because it explains what to do if it returns.**
