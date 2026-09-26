@@ -15,7 +15,9 @@ this is the part of that rule the repo can enforce on itself.
   and `test_the_detector_is_live` builds its positive control at runtime.
 
 `git ls-files` does not descend into submodules, so the vendored skill's own
-docs are out of scope; they are upstream's to guard.
+docs are out of scope; they are upstream's to guard. Tracked symlinks are
+skipped for the same reason: every one here points into `skills-vendor/` or at
+another tracked path, so its target is either upstream's or already scanned.
 """
 
 import re
