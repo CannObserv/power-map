@@ -67,7 +67,9 @@ def test_the_declared_session_spec_is_an_exact_version() -> None:
 
 
 def test_the_docs_pin_driver_and_session_to_the_declared_version() -> None:
-    version = EXACT_SPEC.fullmatch(declared_spec()).group(1)
+    match = EXACT_SPEC.fullmatch(declared_spec())
+    assert match, "no exact SOCRATICODE_SPEC declared — see the exact-version test"
+    version = match.group(1)
     notes = repo_notes()
 
     assert f"`~/.socraticode/pin` holds `socraticode@{version}`" in notes
