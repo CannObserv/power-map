@@ -183,9 +183,12 @@ children's `MemoryLow=` — raise the drop-in when a unit adds one
 (SIGTERM at ≤10 % available) plus the 64 MiB atomic reserve close the failure mode without it.
 earlyoom ranks by `oom_score`; on its defaults the first pick is the session `dbus-daemon`
 (`oom_score_adj` 200, 5 MiB), then the user manager. `infra/default/earlyoom` avoids those and
-prefers Qdrant, then Ollama; the API (`-900`) comes after, sessions (`-1000`) last — badness 0,
-not exempt: earlyoom 1.7 keeps `-1000` processes as candidates, unlike the kernel. Check the
-order with `sudo earlyoom -m 99,99 -s 100,100 --dryrun -r 0 <same --prefer/--avoid>` (Ctrl-C).
+prefers Qdrant, then Ollama; small adj-0 daemons follow, then the API (`-900`). Sessions
+(`-1000`) never: earlyoom 1.7 skips them as the kernel does (`kill.c:242-253`, #563); only a
+launch under `choom -n 500 --` is reachable. Read a dry run by its verdict — the `sending … to
+process` line, i.e. the last `<--- new victim` row — never the badness column, which `-d` prints
+before the `-1000` skip. Sends nothing; qdrant on 2026-09-27:
+`timeout --foreground -s INT 3 earlyoom --dryrun -d -r 0 -m 99,98 -s 100,100 --prefer '^(qdrant|ollama)$' --avoid '^(systemd|.sd-pam.|dbus-daemon)$' 2>&1 | grep -m1 'to process'`
 
 ---
 
