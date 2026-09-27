@@ -196,16 +196,24 @@ and current docs, and remain one `artifactName` away.
 
 ### The server is pinned, not installed per launch
 
-`~/.socraticode/pin` holds `socraticode@1.14.0`, installed once. `mcp-driver.mjs resolve` reports `pinned install v1.14.0`; before the pin it reported `npx -y --prefer-online socraticode@latest`, which revalidates against the registry on **every** launch — so a warm npx cache was not a warm path on any day the package moved.
+`~/.socraticode/pin` holds `socraticode@1.15.0` (re-pinned from `1.14.0` on 2026-09-27, #559), installed once. `mcp-driver.mjs resolve` reports `pinned install v1.15.0`; before the pin it reported `npx -y --prefer-online socraticode@latest`, which revalidates against the registry on **every** launch — so a warm npx cache was not a warm path on any day the package moved.
 
 Measured here 2026-09-19 (`init-socraticode/scripts/preflight.sh --check`): **7.2 GiB, no swap**, preflight PASSED. Memory is above the skill's 4 GiB warn line, so two other facts decided it — the host also runs production (`power-map.service` plus eight timers), and with no swap the kernel fails atomic allocations in unrelated processes rather than OOM-killing one. exe.dev session processes inherit `oom_score_adj` **-1000**, so the killer can never pick the session and takes the production service instead; that is how a sibling VM's 2026-09-16 outage presented — nothing killed, the bus down 57m (skills#295). Upstream measured 75 MB for a pinned launch against **1.2 G at the cgroup** for a cold install, every throttle event landing in the install.
 
-**Pinning the driver does not pin the session.** Claude Code cannot override a plugin's MCP command, so the plugin keeps launching `@latest` — a known limitation. The health check reports a defect only when the two differ by a minor or major release; today both are `1.14.0`. Re-pin deliberately, never `@latest`:
+**The session is pinned to the same version (#559).** Since upstream [`0c33776`](https://github.com/giancarloerra/socraticode/commit/0c33776) (2026-09-20) the plugin launches `npx -y --prefer-online ${SOCRATICODE_SPEC:-socraticode@latest}`, so the "cannot pin the session" limitation #537 recorded is gone (skills#327). Unset, every session start ran `@latest` — on 2026-09-27 that was `1.15.0` against the driver's `1.14.0`, two feature releases writing one store, and the daily hook reported it as a defect. Now `SOCRATICODE_SPEC=socraticode@1.15.0`:
+
+- **Mechanism: the VS Code machine setting** `claudeCode.environmentVariables` in `~/.vscode-server/data/Machine/settings.json` — host state, outside the repo. Claude Code must start with the variable; skills#332 measured the repo's settings `env` block reaching the server's environment but not its launch. A terminal `claude` needs the export in its launching shell.
+- **Declared value: `.claude/settings.json` `env`**, which preflight compares against. `tests/test_socraticode_session_pin.py` holds it to an exact version and this section to the same one.
+- **Verify what launched, never a manifest** (the plugin's two root manifests still hardcode `@latest`): `ps -eo pid,ppid,args | awk -v p="$PPID" '$2 == p && $3 == "npm" && $4 == "exec"'` from the Bash tool should print `npm exec socraticode@1.15.0`. `claude mcp list` from a shell is not evidence — it starts its own server with that shell's environment. The daily health hook reads the process table itself. A session started before the setting keeps `@latest` until it restarts.
+
+Re-pin deliberately, never `@latest`, and change all three together — the pre-install, the machine setting, the `env` block — warming the new exact spec's npx tree first, since npx keys its cache on the spec string and the first pinned launch would otherwise install, uncapped:
 
 ```bash
 npm view socraticode version        # pick a literal
 systemd-run --user --scope -p MemoryHigh=1200M -p MemoryMax=1536M \
-  -- npm install --prefix ~/.socraticode/pin socraticode@<version>
+  choom -n 500 -- npm install --prefix ~/.socraticode/pin socraticode@<version>
+systemd-run --user --scope -p MemoryHigh=1200M -p MemoryMax=1536M \
+  choom -n 500 -- npm exec --yes --prefer-online --package=socraticode@<version> -- true
 ```
 
 `infra/power-map.service` carries the other half (`MemoryLow=512M`, `OOMScoreAdjust=-900`). The host steps landed with #541 (2026-09-24): a `system.slice` drop-in that makes the `MemoryLow=` real (cgroup2 here lacks `memory_recursiveprot`, so the slice's default `0` granted the child nothing), `vm.min_free_kbytes` 10993 → 65536, and `earlyoom` on default thresholds with a corrected victim order (its defaults picked the session `dbus-daemon` before Qdrant). Install commands: [COMMANDS.md § Service Management](COMMANDS.md#service-management).
@@ -216,4 +224,4 @@ systemd-run --user --scope -p MemoryHigh=1200M -p MemoryMax=1536M \
 
 **Its prescribed remedy could not clear it, and pinning did.** `codebase_graph_build` through the plugin stamps the plugin's own version again: measured 2026-09-19, a rebuild finished in 5.8s and the graph still read `Built by: v1.13.1`, so a second rebuild was never the answer. Pinning the driver's server (above) was — the health check now runs a `1.14.0` server against a `1.14.0` graph and reports `builder: {state: "current"}`, so the hook is silent and exits `0`.
 
-If the line returns, it means the plugin's cached server and the pin have drifted a feature release apart. Check with `mcp-driver.mjs resolve` and `npm view socraticode version`; the remedies are to re-pin (above) or to update the plugin (`claude plugin install socraticode@socraticode`) and restart Claude Code so the MCP server reloads. Do not reach for a rebuild.
+If the line returns, the session's server and the pin have drifted a feature release apart — since #559 that means a re-pin that changed one side only, or a session that started without `SOCRATICODE_SPEC`. Check with `mcp-driver.mjs resolve` and the process-table line above; the remedy is to bring both to one version (above) and restart Claude Code so the MCP server relaunches. Do not reach for a rebuild.
