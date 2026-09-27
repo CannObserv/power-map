@@ -170,6 +170,10 @@ sudo sysctl --system
 sudo apt-get install -y earlyoom
 sudo install -m644 infra/default/earlyoom /etc/default/earlyoom   # victim order, not thresholds
 sudo systemctl enable earlyoom && sudo systemctl restart earlyoom
+
+# needrestart list-only (#574) — before any apt run; apt's hook restarts services otherwise
+sudo install -m644 -t /etc/needrestart/conf.d infra/needrestart.conf.d/power-map.conf
+sudo needrestart -m u -r l -b   # expect "Disabling Ubuntu mode, ..." (only the conf prints it)
 ```
 
 `power-map.service`'s `MemoryLow=` is only as good as `system.slice`'s: cgroup2 here is
@@ -199,8 +203,9 @@ sudo journalctl -u power-map -f      # watch startup; schema errors surface here
 
 If `infra/power-map.service` changed in the pull, reinstall the unit first (see § Service Management —
 "Install (first time or after updating infra/power-map.service)") before restarting. Likewise the
-host memory files (`infra/system.slice.d/`, `infra/sysctl.d/`, `infra/default/earlyoom`): the host
-runs copies, so a pull changes nothing until the § Service Management "Host memory config" block re-runs.
+host files (`infra/system.slice.d/`, `infra/sysctl.d/`, `infra/default/earlyoom`,
+`infra/needrestart.conf.d/`): the host runs copies, so a pull changes nothing until the matching
+§ Service Management block re-runs.
 
 To apply schema without restarting (e.g. after a manual `git pull` mid-session) — **from the
 main checkout, on `main`**:
