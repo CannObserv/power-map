@@ -183,7 +183,7 @@ children's `MemoryLow=` — raise the drop-in when a unit adds one
 (SIGTERM at ≤10 % available) plus the 64 MiB atomic reserve close the failure mode without it.
 earlyoom ranks by `oom_score`; on its defaults the first pick is the session `dbus-daemon`
 (`oom_score_adj` 200, 5 MiB), then the user manager. `infra/default/earlyoom` avoids those and
-prefers Qdrant, then Ollama; small adj-0 daemons follow, then the API (`-900`). Sessions
+prefers Qdrant, then Ollama; smaller daemons follow, then the API (`-900`). Sessions
 (`-1000`) never: earlyoom 1.7 skips them as the kernel does (`kill.c:242-253`, #563); only a
 launch under `choom -n 500 --` is reachable. Read a dry run by its verdict — the `sending … to
 process` line, i.e. the last `<--- new victim` row — never the badness column, which `-d` prints

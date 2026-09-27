@@ -6,7 +6,7 @@
 #             systemd --user and (sd-pam) (~734) above Qdrant (~686), so on the
 #             defaults earlyoom kills them first and frees ~5 MiB each.
 #   --prefer  Qdrant, then Ollama — the heavy, restartable consumers (Docker restarts
-#             the container; ollama is a unit). After them, small adj-0 daemons in
+#             the container; ollama is a unit). After them, smaller daemons in
 #             the kernel's own order, then the API (oom_score_adj -900).
 #   sessions  never. exe.dev starts them at -1000, and earlyoom 1.7 skips -1000
 #             exactly as the kernel does (kill.c:242-253; its -d table prints badness
