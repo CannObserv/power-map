@@ -152,6 +152,8 @@ def test_the_dry_run_check_reads_the_verdict_not_the_badness_column():
 
     assert "--dryrun" in text
     assert "new victim" in text and "sending" in text
+    # Measured: plain `timeout` in a pipeline signalled the calling shell (exit 130).
+    assert "timeout --foreground" in text
 
 
 def _session_root_adj(proc: Path, pid: int) -> int | None:
