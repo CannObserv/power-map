@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/setup-db.sh — provision local PostgreSQL for power-map
-# Idempotent: safe to re-run.
+# Idempotent: safe to re-run. Offline dev / CI only — never on the production
+# VM, whose local server was purged in #576 (it installs one).
 
 set -euo pipefail
 
