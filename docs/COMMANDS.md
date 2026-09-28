@@ -183,9 +183,10 @@ children's `MemoryLow=` — raise the drop-in when a unit adds one
 (SIGTERM at ≤10 % available) plus the 64 MiB atomic reserve close the failure mode without it.
 earlyoom ranks by `oom_score`; on its defaults the first pick is the session `dbus-daemon`
 (`oom_score_adj` 200, 5 MiB), then the user manager. `infra/default/earlyoom` avoids those and
-prefers Qdrant, then Ollama; the API (`-900`) comes after, sessions (`-1000`) last — badness 0,
-not exempt: earlyoom 1.7 keeps `-1000` processes as candidates, unlike the kernel. Check the
-order with `sudo earlyoom -m 99,99 -s 100,100 --dryrun -r 0 <same --prefer/--avoid>` (Ctrl-C).
+prefers Qdrant, then Ollama; smaller daemons, then the API (`-900`). Sessions (`-1000`) never —
+only a `choom -n 500 --` launch (why: the file's comment, #563). Read a dry run's `sending … to
+process` line (the last `<--- new victim`), not its badness column; qdrant on 2026-09-27:
+`timeout --foreground -s INT 3 earlyoom --dryrun -d -r 0 -m 99,98 -s 100,100 --prefer '^(qdrant|ollama)$' --avoid '^(systemd|.sd-pam.|dbus-daemon)$' 2>&1 | grep -m1 'to process'`
 
 ---
 
@@ -444,20 +445,6 @@ git submodule update --init --recursive
 # Force-refresh vendor skills
 git submodule update --remote --merge skills-vendor/gregoryfoster-skills skills-vendor/obra-superpowers
 ```
-
----
-
-## Claude Code on this host (#542)
-
-One runtime for every client: `/usr/local/bin/claude`, a root-owned link into `/usr/local/lib/claude/versions/<v>`. `~/.local/bin/claude` and each VS Code extension's bundled `native-binary/claude` link to it. Updates are manual and need root. The native installer never moves a `~/.local/bin/claude` that doesn't already point into its own `versions/`, so the user auto-updater is switched off (`DISABLE_AUTOUPDATER`).
-
-```bash
-bash scripts/claude-system.sh                             # dry run: layout + plan
-sudo bash scripts/claude-system.sh --execute              # install latest, relink everything
-sudo bash scripts/claude-system.sh --execute --version stable   # or a pinned X.Y.Z
-```
-
-The SessionStart hook `.claude/hooks/claude-canonical-check.sh` warns when any link drifts (an extension update unpacks a fresh bundled binary) or when the last successful `--execute` is over 14 days old. It never repairs, and it stays silent on hosts without `/usr/local/lib/claude/versions`. `--execute` refuses a downgrade (exit 1) and keeps the current and previous version: to roll back, `sudo ln -sfn /usr/local/lib/claude/versions/<prev> /usr/local/bin/claude`.
 
 ---
 

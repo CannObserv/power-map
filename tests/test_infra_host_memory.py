@@ -15,15 +15,32 @@ exedev session `dbus-daemon` (badness 800, 5 MiB — `oom_score_adj` 200), then
 `systemd --user` and `(sd-pam)` (100): the user manager goes before Qdrant
 (686) and frees nothing. `--prefer`/`--avoid` restore the intended order —
 Qdrant, then Ollama, both restartable.
+
+Sessions are not on that list at all. earlyoom 1.7 skips `oom_score_adj` -1000
+exactly as the kernel does (`kill.c:242-253`), and exe.dev starts sessions at
+-1000 here; its `-d` table prints badness *before* that skip, which is how this
+repo once documented sessions as last-resort candidates (#563,
+gregoryfoster/skills#331). The notes are held to the correction, and the
+premise — sessions at -1000 on this host — is pinned live rather than assumed.
 """
 
+import os
 import re
+import socket
 from pathlib import Path
+
+import pytest
 
 INFRA = Path(__file__).resolve().parents[1] / "infra"
 SLICE_DROPIN = INFRA / "system.slice.d" / "90-power-map-memory.conf"
 SYSCTL = INFRA / "sysctl.d" / "90-power-map-memory.conf"
 EARLYOOM_DEFAULTS = INFRA / "default" / "earlyoom"
+COMMANDS_MD = INFRA.parent / "docs" / "COMMANDS.md"
+
+HOST = "power-map"
+OOM_FLOOR = -1000
+# What exe.dev starts a session from; the -1000 is theirs, inherited or not.
+SESSION_PARENTS = frozenset({"exe-init", "sshd"})
 
 KERNEL_DEFAULT_MIN_FREE_KBYTES = 10993  # measured on this host, 2026-09-19
 _UNITS = {"": 1, "K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
@@ -103,3 +120,101 @@ def test_earlyoom_avoids_the_user_manager_that_outranks_them():
         assert avoid.search(comm), comm
     for comm in ("qdrant", "ollama", "systemd-logind", "systemd-timesyncd"):
         assert not avoid.search(comm), comm
+
+
+def _earlyoom_notes() -> dict[str, str]:
+    """Every passage that states earlyoom's victim order, keyed by where it lives."""
+    comment = "\n".join(
+        ln for ln in EARLYOOM_DEFAULTS.read_text().splitlines() if ln.lstrip().startswith("#")
+    )
+    commands = COMMANDS_MD.read_text()
+    start = commands.index("earlyoom ranks by `oom_score`")
+    return {
+        "infra/default/earlyoom": comment,
+        "docs/COMMANDS.md": commands[start : commands.index("\n---", start)],
+    }
+
+
+def test_earlyoom_notes_never_call_a_minus_1000_session_a_candidate():
+    """earlyoom 1.7 exempts -1000 as the kernel does; a -1000 row in `-d` is pre-skip."""
+    stale = re.compile(r"not exempt|still\s+candidates|keeps\s+`?-1000`?\s+processes", re.I)
+    for where, text in _earlyoom_notes().items():
+        assert not stale.search(text), f"{where} still says earlyoom can take a -1000 session"
+
+
+def test_earlyoom_notes_name_what_makes_a_session_process_reachable():
+    for where, text in _earlyoom_notes().items():
+        assert "choom -n 500" in text, f"{where} does not say how a session process becomes one"
+
+
+def test_the_dry_run_check_reads_the_verdict_not_the_badness_column():
+    text = _earlyoom_notes()["docs/COMMANDS.md"]
+
+    assert "--dryrun" in text
+    assert "new victim" in text and "sending" in text
+    # Measured: plain `timeout` in a pipeline signalled the calling shell (exit 130).
+    assert "timeout --foreground" in text
+
+
+def _session_root_adj(proc: Path, pid: int) -> int | None:
+    """`oom_score_adj` of the process exe.dev started `pid`'s session from.
+
+    Walks the ancestry to the first process whose parent is in
+    `SESSION_PARENTS` and reads that one, not `pid`: a leaf can be `choom`'d,
+    the session root cannot. `None` when no ancestor is a session — a systemd
+    unit, cron, a timer.
+    """
+    while pid > 1:
+        status = (proc / str(pid) / "status").read_text()
+        ppid = int(re.search(r"^PPid:\s*(\d+)", status, flags=re.MULTILINE).group(1))
+        if ppid < 1:
+            return None
+        if (proc / str(ppid) / "comm").read_text().strip() in SESSION_PARENTS:
+            return int((proc / str(pid) / "oom_score_adj").read_text())
+        pid = ppid
+    return None
+
+
+def _fake_process(proc: Path, pid: int, ppid: int, comm: str, adj: int) -> None:
+    (proc / str(pid)).mkdir(parents=True)
+    (proc / str(pid) / "status").write_text(f"Name:\t{comm}\nPPid:\t{ppid}\n")
+    (proc / str(pid) / "comm").write_text(f"{comm}\n")
+    (proc / str(pid) / "oom_score_adj").write_text(f"{adj}\n")
+
+
+def test_a_session_root_is_read_past_a_choomd_leaf(tmp_path: Path):
+    _fake_process(tmp_path, 245, 1, "sshd", -1000)
+    _fake_process(tmp_path, 2826, 245, "sshd-session", -1000)
+    _fake_process(tmp_path, 2829, 2826, "bash", -1000)
+    _fake_process(tmp_path, 900, 2829, "node", 500)  # launched under choom -n 500
+
+    assert _session_root_adj(tmp_path, 900) == -1000
+
+
+def test_a_session_at_zero_reports_zero(tmp_path: Path):
+    _fake_process(tmp_path, 216, 1, "sshd", -1000)
+    _fake_process(tmp_path, 700, 216, "bash", 0)  # notifier's shape (skills#303)
+    _fake_process(tmp_path, 701, 700, "python3", 0)
+
+    assert _session_root_adj(tmp_path, 701) == 0
+
+
+def test_no_session_ancestor_is_none(tmp_path: Path):
+    _fake_process(tmp_path, 1, 0, "systemd", 0)
+    _fake_process(tmp_path, 300, 1, "systemd", 100)
+    _fake_process(tmp_path, 301, 300, "python3", 0)
+
+    assert _session_root_adj(tmp_path, 301) is None
+
+
+@pytest.mark.skipif(socket.gethostname() != HOST, reason=f"not {HOST}")
+def test_sessions_on_this_host_are_still_exempt():
+    """The victim order in infra/default/earlyoom assumes it; nothing else checks."""
+    adj = _session_root_adj(Path("/proc"), os.getpid())
+    if adj is None:
+        pytest.skip("not run from an exe.dev session")
+    assert adj == OOM_FLOOR, (
+        f"this session's root reads oom_score_adj={adj}, not {OOM_FLOOR}: exe.dev no "
+        "longer exempts sessions here, so earlyoom's --prefer could reach them — "
+        "revisit infra/default/earlyoom's victim order (#563, skills#331 §4)"
+    )
