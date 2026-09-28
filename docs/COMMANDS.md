@@ -20,7 +20,7 @@ npm install
 uv run pre-commit install
 ```
 
-Database is on DO managed PostgreSQL — see § Provisioning for first-time setup. (`scripts/setup-db.sh` provisions local postgres only; use it for offline dev or CI without DO access — never on the production VM, whose local server was purged in #576.)
+Database is on DO managed PostgreSQL — production, dev and tests alike; no local PostgreSQL server is installed or supported (#576, #579). See § Provisioning for first-time setup.
 
 The `/etc/power-map/.env` file is created by `bash scripts/write-db-secrets.sh` as part of the provisioning flow (§ Provisioning step 4).
 

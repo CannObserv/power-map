@@ -41,7 +41,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- constraint, rather than surfacing downstream as ON CONFLICT arbitration
 -- ("cannot affect row a second time"). The DROP … IF EXISTS ahead of each
 -- CREATE keeps a re-run working in the one non-transactional apply path
--- (`psql -f`, scripts/setup-db.sh), where a mid-file abort leaves the staging
+-- (a manual `psql -f`), where a mid-file abort leaves the staging
 -- table alive in the session.
 CREATE OR REPLACE FUNCTION reconcile_seeded_slugs(p_target regclass, p_seed regclass)
 RETURNS integer
