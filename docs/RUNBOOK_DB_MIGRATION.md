@@ -5,6 +5,12 @@ DigitalOcean Managed PostgreSQL (`co-pm-db-1`, sfo3). The full provisioning
 and sync steps are in `docs/COMMANDS.md § Provisioning`; this runbook covers
 the final cutover window, rollback path, and post-cutover validation.
 
+> **Status:** cutover done 2026-06-17. The source cluster (`16/main`) was
+> purged on 2026-09-28 (#576): data directory, logs and server packages are
+> gone; `postgresql-client-16` (`psql`, `pg_dump`) stays for DO work. § Rollback
+> no longer applies — there is no local copy. Disaster recovery is DO's managed
+> backups of `co-pm-db-1`.
+
 ---
 
 ## Pre-cutover checklist
@@ -98,11 +104,16 @@ sudo systemctl disable postgresql
 sudo systemctl status postgresql   # confirm: inactive (dead) + disabled
 ```
 
-Optionally remove the local data directory to reclaim disk (irreversible):
+Then decommission the source cluster once the cutover is stable — within
+days, not left optional. A stopped cluster is still a copy of production data,
+and its server packages stay in every security patch set (#576 found it four
+months on). Irreversible; § Rollback ends here:
 
 ```bash
-# WARNING: only run after confirming cutover is stable
 sudo pg_dropcluster --stop 16 main
+# Server only — the client packages (psql, pg_dump) stay for DO work.
+sudo apt-get purge postgresql postgresql-16 postgresql-16-pgvector postgresql-common
+sudo ls /var/lib/postgresql /etc/postgresql /var/log/postgresql   # confirm: all absent
 ```
 
 ### Step 7 — Seed lookup tables (if not already seeded)
@@ -120,7 +131,8 @@ uv run "${env_args[@]}" --group seed scripts/seed_locales_scripts.py --execute
 
 ## Rollback
 
-If smoke tests fail or the service cannot start against DO:
+Valid only until Step 6 decommissions the source cluster. If smoke tests fail
+or the service cannot start against DO:
 
 ```bash
 # 1. Stop the service
@@ -159,6 +171,8 @@ Once the root cause is resolved, re-enter the maintenance window from Step 2.
 - [ ] Admin dashboard loads with correct data
 - [ ] DO Control Panel: `co-pm-db-1` dashboard shows active connections
 - [ ] `sudo systemctl is-enabled postgresql` — disabled
+- [ ] Source cluster decommissioned (Step 6) — `pg_lsclusters` not found,
+      `/var/lib/postgresql` absent
 - [ ] Integration tests pass against DO test DB:
       `uv run pytest -m integration --no-cov -q`
 - [ ] COMMANDS.md § Service Management note updated: remove reference to
