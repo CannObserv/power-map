@@ -2,8 +2,9 @@
 # Install PostgreSQL extensions on the DO cluster (requires doadmin — regular
 # users cannot CREATE EXTENSION) then apply schema.sql to the test database.
 #
-# Production schema is NOT applied here; sync-data-to-do.sh handles it via
-# pg_restore (which includes schema + data from the local dump).
+# Production schema is NOT applied here: that is a production write, so it is
+# the next provisioning step, run by hand from the main checkout with
+# `bash scripts/apply-schema.sh` and its #398 guards (#581).
 #
 # Idempotent — safe to re-run.
 #
@@ -64,8 +65,8 @@ SQL
 done
 
 # ── 4. Apply schema to test database ─────────────────────────────────────────
-# Production schema is handled by sync-data-to-do.sh (pg_restore). Test DB
-# needs apply_schema so integration tests have a working empty schema.
+# Production schema is the next provisioning step (apply-schema.sh, #581). Test
+# DB needs apply_schema so integration tests have a working empty schema.
 # Delegated to apply-schema.sh --test (#398) rather than duplicating the apply
 # inline — one code path for "apply schema.sql to the test database".
 echo "==> Applying schema to co_pm_db_test"
@@ -86,5 +87,5 @@ uv run --group seed scripts/seed_locales_scripts.py \
     --database-url "$TEST_DATABASE_URL" --execute
 
 echo "==> Done"
-echo "    Production schema: run sync-data-to-do.sh next"
-echo "    Seed lookup tables after cutover: uv run --group seed scripts/seed_locales_scripts.py --execute"
+echo "    Production schema: bash scripts/apply-schema.sh (main checkout) next"
+echo "    Then seed production lookup tables: uv run --group seed scripts/seed_locales_scripts.py --execute"

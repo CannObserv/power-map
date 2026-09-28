@@ -25,7 +25,7 @@ Complete all items before entering the maintenance window.
 - [ ] `bash scripts/sync-schema-to-do.sh` completed — extensions installed on
       both DO databases; `co_pm_db_test` schema applied
 - [ ] `bash scripts/sync-data-to-do.sh` completed — row counts match local;
-      no mismatches reported
+      no mismatches reported (script removed, #581)
 - [ ] Local postgres is still running (needed for final sync during window)
 - [ ] Know the local database DSN or confirm peer auth works:
       `sudo -u postgres psql -d powermap -c "SELECT COUNT(*) FROM people;"`
@@ -51,7 +51,7 @@ Run a final sync to capture any writes that occurred between the pre-cutover
 sync and the service stop.
 
 ```bash
-bash scripts/sync-data-to-do.sh
+bash scripts/sync-data-to-do.sh   # script removed (#581)
 # If the pre-cutover sync ran with a LOCAL_DSN argument, pass it again here.
 ```
 

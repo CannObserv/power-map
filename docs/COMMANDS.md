@@ -87,19 +87,22 @@ terraform -chdir=infra/terraform apply
 # 4. Write credentials to /etc/power-map/.env and apply schema-level grants
 bash scripts/write-db-secrets.sh
 
-# 5. Install extensions + apply schema to test DB
+# 5. Install extensions on both DBs; apply schema + seeds to the test DB
 bash scripts/sync-schema-to-do.sh
 
-# 6. Dump local postgres → restore production DB + verify row counts
-#    Run before cutover while local postgres is still running
-bash scripts/sync-data-to-do.sh
+# 6. Apply schema to the production DB — main checkout only (#398, #581)
+bash scripts/apply-schema.sh
 
-# 7. Seed BCP 47 / ISO 15924 lookup tables (once per fresh DB)
+# 7. Seed BCP 47 / ISO 15924 lookup tables (once per fresh DB; needs step 6)
 #    Writes; omit --execute to preview first (#402)
 uv run --group seed scripts/seed_locales_scripts.py --execute
 
-# 8. Cutover — see docs/RUNBOOK_DB_MIGRATION.md for the maintenance window steps
+# 8. Start the service and confirm it reaches the DB
+sudo systemctl restart power-map
+curl -fsS localhost:8000/ready
 ```
+
+This builds an **empty** production DB. Disaster recovery is a restore of `co-pm-db-1` from DO's managed backups, not these steps.
 
 ### Re-running after infrastructure changes
 
