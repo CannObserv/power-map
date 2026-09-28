@@ -52,3 +52,8 @@ def test_provisioning_applies_production_schema_before_seeding():
     assert "sync-data-to-do.sh" not in block
     assert "\nbash scripts/apply-schema.sh\n" in block
     assert block.index("bash scripts/apply-schema.sh\n") < block.index("seed_locales_scripts.py")
+
+
+def test_provisioning_ready_check_waits_for_the_listener():
+    # power-map.service is Type=simple: restart returns before uvicorn listens.
+    assert "curl -fsS --retry 10 --retry-connrefused" in _provisioning_block()

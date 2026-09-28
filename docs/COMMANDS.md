@@ -97,9 +97,9 @@ bash scripts/apply-schema.sh
 #    Writes; omit --execute to preview first (#402)
 uv run --group seed scripts/seed_locales_scripts.py --execute
 
-# 8. Start the service and confirm it reaches the DB
+# 8. Start the service and confirm it reaches the DB (retries: Type=simple)
 sudo systemctl restart power-map
-curl -fsS localhost:8000/ready
+curl -fsS --retry 10 --retry-connrefused --retry-delay 2 localhost:8000/ready
 ```
 
 This builds an **empty** production DB. Disaster recovery is a restore of `co-pm-db-1` from DO's managed backups, not these steps.
