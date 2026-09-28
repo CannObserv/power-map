@@ -102,7 +102,7 @@ sudo systemctl restart power-map
 curl -fsS --retry 10 --retry-connrefused --retry-delay 2 localhost:8000/ready
 ```
 
-This builds an **empty** production DB. Disaster recovery is a restore of `co-pm-db-1` from DO's managed backups, not these steps.
+This builds an **empty** production DB. Disaster recovery is a restore of `co-pm-db-1` from DO's managed backups, not these steps (runbook: #582).
 
 ### Re-running after infrastructure changes
 
