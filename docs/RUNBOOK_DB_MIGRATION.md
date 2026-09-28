@@ -1,9 +1,10 @@
 # Runbook: Local PostgreSQL → DO Managed Database Cutover
 
 Migration of the production database from the local VM PostgreSQL instance to
-DigitalOcean Managed PostgreSQL (`co-pm-db-1`, sfo3). The full provisioning
-and sync steps are in `docs/COMMANDS.md § Provisioning`; this runbook covers
-the final cutover window, rollback path, and post-cutover validation.
+DigitalOcean Managed PostgreSQL (`co-pm-db-1`, sfo3). The provisioning steps
+are in `docs/COMMANDS.md § Provisioning`; the data sync script this runbook
+uses was removed (#581). It covers the final cutover window, rollback path,
+and post-cutover validation.
 
 > **Status:** cutover done 2026-06-17. The source cluster (`16/main`) was
 > purged on 2026-09-28 (#576): data directory, logs and server packages are
