@@ -189,6 +189,18 @@ The `:-.` fallback is load-bearing. A bare `$CLAUDE_PROJECT_DIR` becomes `bash "
 
 Entries installed by `managing-skills/scripts/install-hook.sh` carry a trailing `# <marker>` comment (`socraticode-reminder.sh` has `# socraticode-prefetch` since #463; `socraticode-health.sh` has `# socraticode-health` since the 2026-09-19 audit re-run, which also gave the two entries their `timeout` values — 5s and 120s). It is the installer's dedupe key, written into the *command string* so a re-run can recognize its own entry by reading `settings.json` alone — not decoration, and not something to tidy away. **Never hand-wire a vendored hook:** run the installer, which writes the symlink and the registration together and upgrades a legacy hand-typed copy in place.
 
+## Claude Code on this host (#542)
+
+One runtime for every client: `/usr/local/bin/claude`, a root-owned link into `/usr/local/lib/claude/versions/<v>`. `~/.local/bin/claude` and each VS Code extension's bundled `native-binary/claude` link to it. Updates are manual and need root. The native installer never moves a `~/.local/bin/claude` that doesn't already point into its own `versions/`, so the user auto-updater is switched off (`DISABLE_AUTOUPDATER`).
+
+```bash
+bash scripts/claude-system.sh                             # dry run: layout + plan
+sudo bash scripts/claude-system.sh --execute              # install latest, relink everything
+sudo bash scripts/claude-system.sh --execute --version stable   # or a pinned X.Y.Z
+```
+
+The SessionStart hook `.claude/hooks/claude-canonical-check.sh` warns when any link drifts (an extension update unpacks a fresh bundled binary) or when the last successful `--execute` is over 14 days old. It never repairs, and it stays silent on hosts without `/usr/local/lib/claude/versions`. `--execute` refuses a downgrade (exit 1) and keeps the current and previous version: to roll back, `sudo ln -sfn /usr/local/lib/claude/versions/<prev> /usr/local/bin/claude`.
+
 ## Local Overrides
 
 A committed directory in `skills/` completely supersedes the vendor version (no inheritance). Must be fully self-contained.

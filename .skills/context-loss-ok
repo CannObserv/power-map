@@ -292,3 +292,7 @@ docs/SKILLS.md :: rename :: #### The server is pinned, not installed per launch 
 #     its "resolves the pinned install below" became "above" — the same move fixed the block's
 #     two "(above)" references, which pointed at a section below them in SKILLS.md.
 docs/SKILLS.md :: retarget :: **Cleared by the #537 pin — kept because it explains what to do if it returns.**
+# 2026-09-28 (#559/#563 branch): COMMANDS.md § Claude Code on this host (#542) moved verbatim to
+#     SKILLS.md; the SKILLS index line gained "the host's Claude Code runtime" so the pointer
+#     describes what now lives there. Every word of the old line is kept.
+AGENTS.md :: retarget :: - [docs/SKILLS.md](docs/SKILLS.md) — vendored skill inventory, submodule refresh, hook command form, index health (the daily `unresolved %` line is not a defect)
