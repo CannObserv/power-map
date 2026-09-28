@@ -240,7 +240,7 @@ the #369 a11y sweep and its reminder hook, `scripts/worktree-setup.sh`, the ship
 gate, the `.claude/settings.json` hook registrations,
 and `scripts/claude-system.sh` with its SessionStart hook (#542). Fully hermetic:
 `uv`, `gh`, and `systemctl` are PATH shims from `tests/sh/stubs/`, driven by
-`STUB_*` env knobs, the #542 suite builds its system prefix, home and
+`STUB_*` env knobs, and the #542 suite builds its system prefix, home and
 installer stub under `$BATS_TEST_TMPDIR` — no network, GitHub, systemd, root,
 or DB. Runs in pre-commit (fast), alongside a `shellcheck` hook over
 `scripts/*.sh` + `.claude/hooks/*.sh` (vendored-skill symlink hooks excluded).
