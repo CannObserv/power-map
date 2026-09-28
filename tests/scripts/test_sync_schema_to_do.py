@@ -57,3 +57,15 @@ def test_provisioning_applies_production_schema_before_seeding():
 def test_provisioning_ready_check_waits_for_the_listener():
     # power-map.service is Type=simple: restart returns before uvicorn listens.
     assert "curl -fsS --retry 10 --retry-connrefused" in _provisioning_block()
+
+
+def test_production_seed_command_loads_the_env_file():
+    # seed_locales_scripts.py loads no env file and DATABASE_URL is not in a
+    # login shell, so a bare `uv run` exits "no database URL".
+    seed = (
+        "uv run --env-file /etc/power-map/.env --group seed"
+        " scripts/seed_locales_scripts.py --execute"
+    )
+
+    assert seed in _provisioning_block()
+    assert seed in SYNC.read_text()

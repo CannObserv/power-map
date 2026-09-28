@@ -95,7 +95,7 @@ bash scripts/apply-schema.sh
 
 # 7. Seed BCP 47 / ISO 15924 lookup tables (once per fresh DB; needs step 6)
 #    Writes; omit --execute to preview first (#402)
-uv run --group seed scripts/seed_locales_scripts.py --execute
+uv run --env-file /etc/power-map/.env --group seed scripts/seed_locales_scripts.py --execute
 
 # 8. Start the service and confirm it reaches the DB (retries: Type=simple)
 sudo systemctl restart power-map

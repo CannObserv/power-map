@@ -88,4 +88,4 @@ uv run --group seed scripts/seed_locales_scripts.py \
 
 echo "==> Done"
 echo "    Production schema: bash scripts/apply-schema.sh (main checkout) next"
-echo "    Then seed production lookup tables: uv run --group seed scripts/seed_locales_scripts.py --execute"
+echo "    Then seed production lookup tables: uv run --env-file /etc/power-map/.env --group seed scripts/seed_locales_scripts.py --execute"
