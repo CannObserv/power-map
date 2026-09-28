@@ -24,7 +24,7 @@ the fresh-database case and requires `--execute` — applying DDL inside a run
 that is about to be rolled back would be a lie.
 
 Environment variables:
-    DATABASE_URL             — PostgreSQL DSN (written by scripts/setup-db.sh);
+    DATABASE_URL             — PostgreSQL DSN (from the env files);
                                 override per-run with --database-url.
     ADDRESS_VALIDATOR_API_KEY — Required for external address standardization.
                                 Loaded from /etc/power-map/.env in production.
