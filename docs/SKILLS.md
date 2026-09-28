@@ -1,6 +1,6 @@
 # Agent Skills
 
-This project follows the [agentskills.io](https://agentskills.io) spec.
+This project follows the [agentskills.io](https://agentskills.io) spec. It also covers the tooling the skills run in: SessionStart hooks, SocratiCode's MCP tools, and the host's Claude Code runtime ([§ Claude Code on this host](#claude-code-on-this-host-542)).
 
 ## Directory Layout
 
