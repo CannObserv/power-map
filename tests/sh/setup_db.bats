@@ -72,3 +72,13 @@ run_setup() {
     [ "$status" -ne 124 ]
     [[ "$output" == *"PostgreSQL did not become ready"* ]]
 }
+
+# The script writes both DSNs, password included, to <repo>/env (ENV_FILE). An
+# unignored target is one `git add -A` from a committed credential. --no-index:
+# answer from the ignore rules alone, not from what happens to be staged.
+# GIT_* scrubbed: under pre-commit, git's exported GIT_DIR outranks -C.
+@test "the env file setup-db.sh writes is gitignored" {
+    grep -q '^ENV_FILE="${REPO_ROOT}/env"$' "$(repo_root)/scripts/setup-db.sh"
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+        git -C "$(repo_root)" check-ignore -q --no-index env
+}

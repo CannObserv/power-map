@@ -11,6 +11,8 @@ wheels/
 
 # Environment / secrets
 .env
+# scripts/setup-db.sh writes local DSNs, password included, here
+/env
 
 # Coverage
 htmlcov/
