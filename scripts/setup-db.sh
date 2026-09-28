@@ -27,7 +27,7 @@ fi
 
 if ! pg_isready -q; then
     echo "Starting PostgreSQL..."
-    sudo service postgresql start || true
+    sudo service postgresql start
     tries=0
     until pg_isready -q; do
         tries=$((tries + 1))

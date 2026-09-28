@@ -29,8 +29,9 @@ setup() {
 
     STUB_SUDO_LOG="$BATS_TEST_TMPDIR/sudo-calls.log"
     STUB_PG_READY_RC=0
-    # sudo: record argv, run nothing.
-    printf '#!/usr/bin/env bash\necho "$*" >> "$STUB_SUDO_LOG"\n' > "$BIN/sudo"
+    STUB_SERVICE_RC=0
+    # sudo: record argv, run nothing; `sudo service …` exits $STUB_SERVICE_RC.
+    printf '#!/usr/bin/env bash\necho "$*" >> "$STUB_SUDO_LOG"\n[ "$1" = service ] && exit "$STUB_SERVICE_RC"\nexit 0\n' > "$BIN/sudo"
     printf '#!/usr/bin/env bash\nexit "$STUB_PG_READY_RC"\n' > "$BIN/pg_isready"
     printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN/psql"
     printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN/sleep"
@@ -48,6 +49,7 @@ with_server() {
 run_setup() {
     run timeout 20 env -i HOME="$HOME" PATH="$BIN" \
         STUB_SUDO_LOG="$STUB_SUDO_LOG" STUB_PG_READY_RC="$STUB_PG_READY_RC" \
+        STUB_SERVICE_RC="$STUB_SERVICE_RC" \
         bash "$FAKE_REPO/scripts/setup-db.sh"
 }
 
@@ -71,6 +73,17 @@ run_setup() {
     [ "$status" -ne 0 ]
     [ "$status" -ne 124 ]
     [[ "$output" == *"PostgreSQL did not become ready"* ]]
+}
+
+# A start that fails (sudo refused, unit missing) is the error to show — not a
+# 30s readiness wait that then blames the cluster.
+@test "a failed start exits at once, without the readiness wait" {
+    with_server
+    STUB_PG_READY_RC=2
+    STUB_SERVICE_RC=1
+    run_setup
+    [ "$status" -eq 1 ]
+    [[ "$output" != *"did not become ready"* ]]
 }
 
 # The script writes both DSNs, password included, to <repo>/env (ENV_FILE). An
