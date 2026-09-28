@@ -17,7 +17,9 @@ DB_TEST="powermap_test"
 # 1. Install PostgreSQL
 # ---------------------------------------------------------------------------
 
-if ! command -v psql &>/dev/null; then
+# Detect the server, not psql: a client-only host (the VM since #576) has psql
+# and pg_isready but nothing to start. pg_ctlcluster ships with the server.
+if ! command -v pg_ctlcluster &>/dev/null; then
     echo "Installing PostgreSQL..."
     sudo apt-get update -qq
     sudo apt-get install -y postgresql
@@ -25,8 +27,16 @@ fi
 
 if ! pg_isready -q; then
     echo "Starting PostgreSQL..."
-    sudo service postgresql start
-    until pg_isready -q; do sleep 1; done
+    sudo service postgresql start || true
+    tries=0
+    until pg_isready -q; do
+        tries=$((tries + 1))
+        if (( tries >= 30 )); then
+            echo "PostgreSQL did not become ready after ${tries}s — check 'pg_lsclusters'." >&2
+            exit 1
+        fi
+        sleep 1
+    done
 fi
 
 # ---------------------------------------------------------------------------

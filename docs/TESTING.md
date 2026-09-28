@@ -238,7 +238,8 @@ sudo journalctl -u power-map-a11y -f           # live run + surfacing log
 The repo's shell entrypoints are covered by bats-core suites in `tests/sh/`:
 the #369 a11y sweep and its reminder hook, `scripts/worktree-setup.sh`, the ship
 gate, the `.claude/settings.json` hook registrations, and
-`scripts/claude-system.sh` with its SessionStart hook (#542). Fully hermetic:
+`scripts/claude-system.sh` with its SessionStart hook (#542), and
+`scripts/setup-db.sh`'s install/start step (#576). Fully hermetic:
 `uv`, `gh`, and `systemctl` are PATH shims from `tests/sh/stubs/`, driven by
 `STUB_*` env knobs, and the #542 suite builds its system prefix, home and
 installer stub under `$BATS_TEST_TMPDIR` — no network, GitHub, systemd, root,
