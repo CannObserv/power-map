@@ -32,7 +32,8 @@ if ! pg_isready -q; then
     until pg_isready -q; do
         tries=$((tries + 1))
         if (( tries >= 30 )); then
-            echo "PostgreSQL did not become ready after ${tries}s — check 'pg_lsclusters'." >&2
+            echo "PostgreSQL did not become ready after ${tries}s — check 'pg_lsclusters';" \
+                "if it lists no cluster: sudo pg_createcluster 16 main --start" >&2
             exit 1
         fi
         sleep 1

@@ -73,6 +73,9 @@ run_setup() {
     [ "$status" -ne 0 ]
     [ "$status" -ne 124 ]
     [[ "$output" == *"PostgreSQL did not become ready"* ]]
+    # The likely half-state is postgresql-common with no cluster (pg_dropcluster
+    # without a purge), so the hint names the remedy, not just the diagnosis.
+    [[ "$output" == *"pg_createcluster"* ]]
 }
 
 # A start that fails (sudo refused, unit missing) is the error to show — not a
