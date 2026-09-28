@@ -241,8 +241,9 @@ gate, the `.claude/settings.json` hook registrations, and
 `scripts/claude-system.sh` with its SessionStart hook (#542), and
 `scripts/setup-db.sh`'s install/start step (#576). Fully hermetic:
 `uv`, `gh`, and `systemctl` are PATH shims from `tests/sh/stubs/`, driven by
-`STUB_*` env knobs, and the #542 suite builds its system prefix, home and
-installer stub under `$BATS_TEST_TMPDIR` — no network, GitHub, systemd, root,
+`STUB_*` env knobs, the #542 suite builds its system prefix, home and
+installer stub under `$BATS_TEST_TMPDIR`, and the #576 suite builds its own
+stub PATH (`sudo`, `psql`, `pg_isready`) there — no network, GitHub, systemd, root,
 or DB. Runs in pre-commit (fast), alongside a `shellcheck` hook over
 `scripts/*.sh` + `.claude/hooks/*.sh` (vendored-skill symlink hooks excluded).
 
