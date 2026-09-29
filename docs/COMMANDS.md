@@ -201,7 +201,7 @@ privilege and which its children inherit. VS Code's remote session is a login `b
 server and `claude` now rank first, the order #588 wanted. It lives in the home directory, not
 this repo (a rebuilt VM re-adds it; revert: `~/.profile.pre-586`), and `sshd-session` stays at
 -1000. Read the live order from `/proc` (`comm` only, never the cmdline):
-`for d in /proc/[0-9]*; do a=$(cat $d/oom_score_adj 2>/dev/null) && [ "$a" != -1000 ] && echo "$(cat $d/oom_score) $a $(cat $d/comm)"; done | sort -rn | head`
+`for d in /proc/[0-9]*; do a=$(cat $d/oom_score_adj 2>/dev/null) && [ "$a" != -1000 ] && echo "$(cat $d/oom_score) $a $(cat $d/comm)"; done 2>/dev/null | sort -rn | head`
 
 ### Tailnet (#568)
 
