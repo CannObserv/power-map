@@ -25,7 +25,8 @@ sources:
         meta:
           external_location: "read_csv('{{ env_var('PM_SRC_ORGANIZATIONS', '') }}', header=true, all_varchar=true)"
           schema_major: 1
-          contract_hash: "sha256:4fe2ccad8a27e284b1a8c2c7d82b3eed1b8f75143ab1eefdd38ed51160f0d22e"
+          # 1.1.0 (usa-wa#428) appends `active`; the model ignores it (#591, #592).
+          contract_hash: "sha256:907ee1ce75ffe84d9bc31a0038e1f44c4952d35abab52adaef3f943c2fb7278f"
       - name: person_crosswalk
         description: usa-wa's own crosswalk — entity → source keys, with merged_into tombstones (design § gap E).
         meta:
