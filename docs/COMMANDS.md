@@ -186,11 +186,13 @@ children's `MemoryLow=` — raise the drop-in when a unit adds one
 (SIGTERM at ≤10 % available) plus the 64 MiB atomic reserve close the failure mode without it.
 earlyoom ranks by `oom_score`; on its defaults the first pick is the session `dbus-daemon`
 (`oom_score_adj` 200, 5 MiB), then the user manager. `infra/default/earlyoom` avoids those, and
-`tailscaled`, which answers every DNS lookup since #568 (the DB host's too), and
-prefers Qdrant, then Ollama; smaller daemons, then the API (`-900`). Sessions (`-1000`) never —
+`tailscaled`, which answers every DNS lookup since #568 (the DB host's too). No `--prefer`
+since #568 retired the local Qdrant and Ollama, so measured 2026-09-29 the order is
+`systemd-logind`, `systemd-timesyncd`, `cron`, earlyoom, `journald` (under 30 MiB together), then
+the API (`-900`) — its first kill that frees real memory is production (#588). Sessions (`-1000`) never —
 only a `choom -n 500 --` launch (why: the file's comment, #563). Read a dry run's `sending … to
-process` line (the last `<--- new victim`), not its badness column; qdrant on 2026-09-27:
-`timeout --foreground -s INT 3 earlyoom --dryrun -d -r 0 -m 99,98 -s 100,100 --prefer '^(qdrant|ollama)$' --avoid '^(systemd|.sd-pam.|dbus-daemon|tailscaled)$' 2>&1 | grep -m1 'to process'`
+process` line (the last `<--- new victim`), not its badness column; `systemd-logind` on 2026-09-29:
+`timeout --foreground -s INT 3 earlyoom --dryrun -d -r 0 -m 99,98 -s 100,100 --avoid '^(systemd|.sd-pam.|dbus-daemon|tailscaled)$' 2>&1 | grep -m1 'to process'`
 
 ### Tailnet (#568)
 
@@ -204,6 +206,11 @@ served through the exe.dev proxy. Joining pattern and key hygiene: CannObserv/re
 `/etc/resolv.pre-tailscale-backup.conf`), so **every** lookup, the DB host's included, now goes
 through `tailscaled` — hence earlyoom's `--avoid` above, and the triage row in
 `docs/RUNBOOK_DB_TRIAGE.md`.
+
+SocratiCode's index lives on co-index over this link; nothing of it is on this disk. Its config,
+the key's installation (notifier's `install_qdrant_key.sh`, key on stdin, never by hand), the
+main-checkout-only writer rule and the way back to a local store:
+[SOCRATICODE.md § The store is co-index](SOCRATICODE.md#the-store-is-co-index-568).
 
 ```bash
 tailscale status                           # `index … active; direct …` — `relay` means DERP

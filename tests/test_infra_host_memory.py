@@ -12,9 +12,11 @@ presented.
 
 earlyoom ranks by `oom_score`, and on its defaults its first pick here is the
 exedev session `dbus-daemon` (badness 800, 5 MiB — `oom_score_adj` 200), then
-`systemd --user` and `(sd-pam)` (100): the user manager goes before Qdrant
-(686) and frees nothing. `--prefer`/`--avoid` restore the intended order —
-Qdrant, then Ollama, both restartable.
+`systemd --user` and `(sd-pam)` (100): the user manager went before Qdrant
+(686) and freed nothing. `--avoid` restores the intended order. Qdrant and
+Ollama were `--prefer`red until #568 retired the local SocratiCode store; what
+the order is now, and the open decision about it, are in infra/default/earlyoom
+(#588).
 
 Sessions are not on that list at all. earlyoom 1.7 skips `oom_score_adj` -1000
 exactly as the kernel does (`kill.c:242-253`), and exe.dev starts sessions at
@@ -106,11 +108,11 @@ def test_earlyoom_args_survive_systemd_word_splitting():
         assert not set(arg) & {"'", '"', "\\"}, f"{arg!r} depends on quoting"
 
 
-def test_earlyoom_prefers_the_restartable_heavyweights():
-    prefer = re.compile(_flag(_earlyoom_args(), "--prefer"))
-
-    assert prefer.search("qdrant") and prefer.search("ollama")
-    assert not prefer.search("uvicorn") and not prefer.search("python3")
+def test_earlyoom_prefers_nothing_once_the_local_store_is_retired():
+    """`--prefer` named Qdrant and Ollama, the heavy restartable consumers, until
+    #568 moved SocratiCode to co-index. Nothing left here is both heavy and
+    safely restartable, so the kernel's own order stands after `--avoid`."""
+    assert "--prefer" not in _earlyoom_args()
 
 
 def test_earlyoom_avoids_the_user_manager_that_outranks_them():
@@ -118,13 +120,13 @@ def test_earlyoom_avoids_the_user_manager_that_outranks_them():
 
     for comm in ("systemd", "(sd-pam)", "dbus-daemon"):
         assert avoid.search(comm), comm
-    for comm in ("qdrant", "ollama", "systemd-logind", "systemd-timesyncd"):
+    for comm in ("uvicorn", "python3", "systemd-logind", "systemd-timesyncd"):
         assert not avoid.search(comm), comm
 
 
 def test_earlyoom_avoids_tailscaled_which_answers_every_dns_lookup():
     """`tailscale up --accept-dns` points /etc/resolv.conf at MagicDNS (#568), so the
-    DB host resolves through tailscaled; at badness ~672 it sits level with Ollama."""
+    DB host resolves through tailscaled; at badness ~672 it is otherwise the first pick."""
     avoid = re.compile(_flag(_earlyoom_args(), "--avoid"))
 
     assert avoid.search("tailscaled")

@@ -204,9 +204,13 @@ The index lives on `co-index`, the cohort's shared Qdrant and Ollama (CannObserv
 
 **One writer: the main checkout.** There is no lock across hosts or checkouts, and with a `projectId` a worktree's session would auto-resume and watch the same collections from its branch's files. `scripts/worktree-setup.sh` gives every worktree `SOCRATICODE_AUTO_RESUME=off` and `SOCRATICODE_WATCHER=off` in its local settings, plus a copy of the key, so worktrees search and never write. A full `codebase_index`, and the `codebase_remove` → `codebase_index` re-index, run only from the main checkout. A pull into main triggers the watcher's incremental update there, which is intended.
 
-**The `env` block reaches the server only at launch, in a trusted folder.** After changing it, restart Claude Code. Then bare `preflight.sh --check` must show the line saying the session carries the `env` block, and `codebase_health` must report `Qdrant mode: external`. A session that did not pick the block up falls back to managed mode and starts local containers, without reporting anything missing.
+**The `env` block reaches the server only at launch, in a trusted folder.** After changing it, restart Claude Code. Then bare `preflight.sh --check` must show the line saying the session carries the `env` block, and `codebase_health` must report `Qdrant mode: external`. A session that did not pick the block up falls back to managed mode and tries to start local containers, without reporting anything missing. Docker has been disabled since the local store was removed, so that start fails: a Qdrant connection error in a new session means it missed the block.
 
-**When co-index is down,** search falls back to `grep`. Nothing on a production path uses the index. To go back to a local store for good, delete the six store keys from the `env` block. The server then runs managed: Docker containers for Qdrant and Ollama, and a full re-index took about 4 hours on this CPU (#542).
+**First index on co-index (2026-09-29):** 911 files and 9,001 chunks in 99 minutes (about 1.9 chunks/s, against 0.8 on the old local CPU Ollama); graph 831 files and 1,351 edges, verdict `ok`; context 5/5, 1,708 chunks.
+
+**The local store is gone (2026-09-29).** The `socraticode-qdrant` container, its volume and image, and Ollama (unit, binary, libraries, models, service user) were removed, freeing 823 MB on `/`. Docker's packages stay installed, but `docker.socket`, `docker.service` and `containerd.service` are disabled, since nothing else here uses them.
+
+**When co-index is down,** search falls back to `grep`. Nothing on a production path uses the index. To go back to a local store for good: enable Docker (`sudo systemctl enable --now docker.socket`), delete the six store keys from the `env` block, update `tests/test_socraticode_store_settings.py` (it pins them), and restart Claude Code. The server then runs managed and starts Qdrant and Ollama containers itself. Expect a full re-index of about 4 hours on this CPU (#542).
 
 ### The server is pinned, not installed per launch
 
