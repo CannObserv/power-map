@@ -53,7 +53,8 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   name stay PM's. **Organizations:** identity, legal name
   (`coalesce(long_name, name)` — no dba), acronym, a row-scoped parent claim
   (House/Senate/Joint/chambers only), and `dissolved` from `last_biennium`
-  (year = first year + 1; none at the dataset's newest biennium).
+  (year = first year + 1; none at the dataset's newest biennium). usa-wa's
+  `active` (1.1.0) is published but not taken — whether it should be is #592.
 - **The overlay wins by presence.** An *active* `curation_overlay` row (a pin)
   overrides the mapped value even when its value is null (the row then drops
   out); an unpinned one is archived and applies nowhere. Its vocabulary —
