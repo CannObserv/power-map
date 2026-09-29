@@ -189,7 +189,7 @@ earlyoom ranks by `oom_score`; on its defaults the first pick is the session `db
 `tailscaled`, which answers every DNS lookup since #568 (the DB host's too). No `--prefer`
 since #568 retired the local Qdrant and Ollama, so measured 2026-09-29 the order is
 `systemd-logind`, `systemd-timesyncd`, `cron`, earlyoom, `journald` (under 30 MiB together), then
-the API (`-900`) — its first kill that frees real memory is production. Sessions (`-1000`) never —
+the API (`-900`) — its first kill that frees real memory is production (#588). Sessions (`-1000`) never —
 only a `choom -n 500 --` launch (why: the file's comment, #563). Read a dry run's `sending … to
 process` line (the last `<--- new victim`), not its badness column; `systemd-logind` on 2026-09-29:
 `timeout --foreground -s INT 3 earlyoom --dryrun -d -r 0 -m 99,98 -s 100,100 --avoid '^(systemd|.sd-pam.|dbus-daemon|tailscaled)$' 2>&1 | grep -m1 'to process'`
