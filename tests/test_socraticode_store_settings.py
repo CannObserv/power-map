@@ -65,3 +65,36 @@ def test_the_committed_env_block_never_splits_or_misroutes_the_shared_store() ->
 
     present = sorted(set(env) & set(FORBIDDEN_TRACKED_ENV))
     assert not present, f".claude/settings.json env carries {present}"
+
+
+CO_INDEX_QDRANT_URL = "https://index.taild0fb76.ts.net:6333"
+SOCRATICODE_JSON = REPO_ROOT / ".socraticode.json"
+
+
+def test_the_project_id_is_the_repo_name() -> None:
+    """Without it the id is a path hash, shared by every host with this layout
+    (init-socraticode troubleshooting S); the cohort names each by its repo."""
+    assert json.loads(SOCRATICODE_JSON.read_text()).get("projectId") == "power-map"
+
+
+def test_the_env_block_addresses_co_index() -> None:
+    env = json.loads(SETTINGS.read_text()).get("env", {})
+
+    assert env.get("QDRANT_MODE") == "external"
+    # The full MagicDNS name: the certificate does not cover the short `index`.
+    assert env.get("QDRANT_URL") == CO_INDEX_QDRANT_URL
+    # Left at `auto`, a host without a native Ollama starts an Ollama container.
+    assert env.get("OLLAMA_MODE") == "external"
+    assert env.get("OLLAMA_URL") == "http://index:11434"
+    # A collection holds one model at one dimension: the cohort's.
+    assert env.get("EMBEDDING_MODEL") == "nomic-embed-text"
+    assert env.get("EMBEDDING_DIMENSIONS") == "768"
+
+
+def test_the_main_checkout_writers_stay_on_in_the_committed_block() -> None:
+    """The opt-outs belong to worktrees' local settings (worktree-setup.sh); in the
+    tracked block they would switch off the one writer, the main checkout."""
+    env = json.loads(SETTINGS.read_text()).get("env", {})
+
+    assert "SOCRATICODE_AUTO_RESUME" not in env
+    assert "SOCRATICODE_WATCHER" not in env

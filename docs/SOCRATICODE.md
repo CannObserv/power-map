@@ -194,6 +194,20 @@ declared on its own as `design-history`. Dated plans stop outranking source
 and current docs, and remain one `artifactName` away.
 `tests/test_context_artifacts.py` pins all three.
 
+### The store is co-index (#568)
+
+The index lives on `co-index`, the cohort's shared Qdrant and Ollama (CannObserv/notifier#57), reached over the tailnet ([COMMANDS.md § Tailnet](COMMANDS.md#tailnet-568)). Nothing about it sits on this disk. The client config is split three ways, and `tests/test_socraticode_store_settings.py` pins the tracked two:
+
+- **`.socraticode.json`**: `projectId: power-map`, so the collections are `codebase_power-map` and its siblings in every checkout. Before #568 the id was the path hash `51b441abf223`.
+- **`.claude/settings.json` `env`**: `QDRANT_MODE`/`OLLAMA_MODE` `external`, `QDRANT_URL` on the full MagicDNS name (the certificate does not cover `index`), `nomic-embed-text` at 768. Never `QDRANT_HOST`, `QDRANT_COLLECTION_PREFIX` or `SOCRATICODE_BRANCH_AWARE`.
+- **`.claude/settings.local.json`**: the `QDRANT_API_KEY`, git-ignored. It is one global key for the whole store, so a leak anywhere means rotating it on every cohort VM. Install it only with notifier's `scripts/install_qdrant_key.sh`, key on stdin, from the operator's machine: `ssh co-index.exe.xyz "sudo sed -n 's/^QDRANT__SERVICE__API_KEY=//p' /etc/socraticode/qdrant.env" | ssh power-map.exe.xyz 'bash ~/install_qdrant_key.sh ~/power-map'`.
+
+**One writer: the main checkout.** There is no lock across hosts or checkouts, and with a `projectId` a worktree's session would auto-resume and watch the same collections from its branch's files. `scripts/worktree-setup.sh` gives every worktree `SOCRATICODE_AUTO_RESUME=off` and `SOCRATICODE_WATCHER=off` in its local settings, plus a copy of the key, so worktrees search and never write. A full `codebase_index`, and the `codebase_remove` → `codebase_index` re-index, run only from the main checkout. A pull into main triggers the watcher's incremental update there, which is intended.
+
+**The `env` block reaches the server only at launch, in a trusted folder.** After changing it, restart Claude Code. Then bare `preflight.sh --check` must show the line saying the session carries the `env` block, and `codebase_health` must report `Qdrant mode: external`. A session that did not pick the block up falls back to managed mode and starts local containers, without reporting anything missing.
+
+**When co-index is down,** search falls back to `grep`. Nothing on a production path uses the index. To go back to a local store for good, delete the six store keys from the `env` block. The server then runs managed: Docker containers for Qdrant and Ollama, and a full re-index took about 4 hours on this CPU (#542).
+
 ### The server is pinned, not installed per launch
 
 `~/.socraticode/pin` holds `socraticode@1.15.0` (re-pinned from `1.14.0` on 2026-09-27, #559), installed once. `mcp-driver.mjs resolve` reports `pinned install v1.15.0`; before the pin it reported `npx -y --prefer-online socraticode@latest`, which revalidates against the registry on **every** launch — so a warm npx cache was not a warm path on any day the package moved.
