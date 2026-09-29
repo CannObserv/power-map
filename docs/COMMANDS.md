@@ -170,29 +170,38 @@ sudo systemctl daemon-reload
 cat /sys/fs/cgroup/system.slice/memory.low       # expect 536870912
 sudo install -m644 -t /etc/sysctl.d infra/sysctl.d/90-power-map-memory.conf
 sudo sysctl --system
-sudo apt-get install -y earlyoom
-sudo install -m644 infra/default/earlyoom /etc/default/earlyoom   # victim order, not thresholds
-sudo systemctl enable earlyoom && sudo systemctl restart earlyoom
+sudo install -Dm644 -t /etc/systemd/system/tailscaled.service.d infra/tailscaled.service.d/90-power-map-oom.conf
+sudo systemctl daemon-reload && sudo systemctl restart tailscaled   # adj applies at start; DNS blips
+cat /proc/$(pgrep -xo tailscaled)/oom_score_adj   # expect -950
 
 # needrestart list-only (#574) — before any apt run; apt's hook restarts services otherwise
 sudo install -m644 -t /etc/needrestart/conf.d infra/needrestart.conf.d/power-map.conf
 sudo needrestart -m u -r l -b   # expect "Disabling Ubuntu mode, ..." (only the conf prints it)
+sudo apt-get purge -y earlyoom   # retired (#588); a no-op where it was never installed
 ```
 
 `power-map.service`'s `MemoryLow=` is only as good as `system.slice`'s: cgroup2 here is
 mounted without `memory_recursiveprot`, so the slice must claim at least the sum of its
 children's `MemoryLow=` — raise the drop-in when a unit adds one
-(`tests/test_infra_host_memory.py` fails until you do). No swap, by decision: earlyoom
-(SIGTERM at ≤10 % available) plus the 64 MiB atomic reserve close the failure mode without it.
-earlyoom ranks by `oom_score`; on its defaults the first pick is the session `dbus-daemon`
-(`oom_score_adj` 200, 5 MiB), then the user manager. `infra/default/earlyoom` avoids those, and
-`tailscaled`, which answers every DNS lookup since #568 (the DB host's too). No `--prefer`
-since #568 retired the local Qdrant and Ollama, so measured 2026-09-29 the order is
-`systemd-logind`, `systemd-timesyncd`, `cron`, earlyoom, `journald` (under 30 MiB together), then
-the API (`-900`) — its first kill that frees real memory is production (#588). Sessions (`-1000`) never —
-only a `choom -n 500 --` launch (why: the file's comment, #563). Read a dry run's `sending … to
-process` line (the last `<--- new victim`), not its badness column; `systemd-logind` on 2026-09-29:
-`timeout --foreground -s INT 3 earlyoom --dryrun -d -r 0 -m 99,98 -s 100,100 --avoid '^(systemd|.sd-pam.|dbus-daemon|tailscaled)$' 2>&1 | grep -m1 'to process'`
+(`tests/test_infra_host_memory.py` fails until you do). No swap, by decision: the 64 MiB
+atomic reserve closes the failure mode without it.
+
+The kernel OOM killer is the only killer; earlyoom was retired (#588). The heavy consumers
+are sessions, which exe.dev starts at `oom_score_adj` -1000 (#586) and which both killers skip,
+so earlyoom's only effect was an earlier trigger (≤10 % available, page cache counted) that reached
+production before the kernel would have killed anything. `tailscaled` answers every DNS lookup
+since #568 (the DB host's too), so a drop-in ranks it below the API. Projected from `oom_score`
+on 2026-09-29: the exedev `systemd --user` and `(sd-pam)` (`oom_score_adj` 100), `systemd-logind`,
+`systemd-timesyncd`, `cron`, `journald` (about 40 MiB together), then the API (`-900`), then
+`tailscaled` (`-950`).
+
+That order leaves sessions out, and since 2026-09-29 a login-shell session no longer is (#586):
+the top of `~/.profile` raises the shell's own `oom_score_adj` from -1000 to 0, which needs no
+privilege and which its children inherit. VS Code's remote session is a login `bash`, so its
+server and `claude` now rank first, the order #588 wanted. It lives in the home directory, not
+this repo (a rebuilt VM re-adds it; revert: `~/.profile.pre-586`), and `sshd-session` stays at
+-1000. Read the live order from `/proc` (`comm` only, never the cmdline):
+`for d in /proc/[0-9]*; do a=$(cat $d/oom_score_adj 2>/dev/null) && [ "$a" != -1000 ] && echo "$(cat $d/oom_score) $a $(cat $d/comm)"; done 2>/dev/null | sort -rn | head`
 
 ### Tailnet (#568)
 
@@ -204,7 +213,7 @@ served through the exe.dev proxy. Joining pattern and key hygiene: CannObserv/re
 
 `--accept-dns` rewrote `/etc/resolv.conf` to MagicDNS (original kept at
 `/etc/resolv.pre-tailscale-backup.conf`), so **every** lookup, the DB host's included, now goes
-through `tailscaled` — hence earlyoom's `--avoid` above, and the triage row in
+through `tailscaled` — hence its OOM drop-in above, and the triage row in
 `docs/RUNBOOK_DB_TRIAGE.md`.
 
 SocratiCode's index lives on co-index over this link; nothing of it is on this disk. Its config,
@@ -234,7 +243,7 @@ sudo journalctl -u power-map -f      # watch startup; schema errors surface here
 
 If `infra/power-map.service` changed in the pull, reinstall the unit first (see § Service Management —
 "Install (first time or after updating infra/power-map.service)") before restarting. Likewise the
-host files (`infra/system.slice.d/`, `infra/sysctl.d/`, `infra/default/earlyoom`,
+host files (`infra/system.slice.d/`, `infra/sysctl.d/`, `infra/tailscaled.service.d/`,
 `infra/needrestart.conf.d/`): the host runs copies, so a pull changes nothing until the matching
 § Service Management block re-runs.
 

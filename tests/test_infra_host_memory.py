@@ -10,20 +10,18 @@ sum of every unit's `MemoryLow=`, or the newest claim silently gets nothing.
 their failure in unrelated processes is how the 2026-09-16 sibling-VM outage
 presented.
 
-earlyoom ranks by `oom_score`, and on its defaults its first pick here is the
-exedev session `dbus-daemon` (badness 800, 5 MiB — `oom_score_adj` 200), then
-`systemd --user` and `(sd-pam)` (100): the user manager went before Qdrant
-(686) and freed nothing. `--avoid` restores the intended order. Qdrant and
-Ollama were `--prefer`red until #568 retired the local SocratiCode store; what
-the order is now, and the open decision about it, are in infra/default/earlyoom
-(#588).
+The kernel OOM killer is the only killer (#588). earlyoom was retired: every
+heavy consumer here is a session, which exe.dev starts at `oom_score_adj` -1000
+and which earlyoom skips just as the kernel does (#563), so all it could add
+was an earlier trigger (<=10 % available, page cache counted) that reached
+production before the kernel would have killed anything. Its one real job,
+keeping `tailscaled` alive, moved to a unit drop-in the kernel honours: since
+#568 every DNS lookup, the DB host's included, goes through it, so it ranks
+below the API.
 
-Sessions are not on that list at all. earlyoom 1.7 skips `oom_score_adj` -1000
-exactly as the kernel does (`kill.c:242-253`), and exe.dev starts sessions at
--1000 here; its `-d` table prints badness *before* that skip, which is how this
-repo once documented sessions as last-resort candidates (#563,
-gregoryfoster/skills#331). The notes are held to the correction, and the
-premise — sessions at -1000 on this host — is pinned live rather than assumed.
+The -1000 premise is exe.dev's (#586) and is pinned live rather than assumed. A
+login shell raises itself to 0 from `~/.profile` (docs/COMMANDS.md); that happens
+below `sshd-session`, which the live check reads, so the pin still tracks exe.dev.
 """
 
 import os
@@ -36,7 +34,8 @@ import pytest
 INFRA = Path(__file__).resolve().parents[1] / "infra"
 SLICE_DROPIN = INFRA / "system.slice.d" / "90-power-map-memory.conf"
 SYSCTL = INFRA / "sysctl.d" / "90-power-map-memory.conf"
-EARLYOOM_DEFAULTS = INFRA / "default" / "earlyoom"
+TAILSCALED_DROPIN = INFRA / "tailscaled.service.d" / "90-power-map-oom.conf"
+API_UNIT = INFRA / "power-map.service"
 COMMANDS_MD = INFRA.parent / "docs" / "COMMANDS.md"
 
 HOST = "power-map"
@@ -91,80 +90,46 @@ def test_the_sysctl_file_raises_min_free_kbytes_and_sets_nothing_else():
     assert int(keys["vm.min_free_kbytes"]) > KERNEL_DEFAULT_MIN_FREE_KBYTES
 
 
-def _earlyoom_args() -> list[str]:
-    [value] = _values(EARLYOOM_DEFAULTS, "EARLYOOM_ARGS")
-    assert value.startswith('"') and value.endswith('"')
-    return value[1:-1].split()
+def _oom_score_adj(path: Path) -> int:
+    [value] = _values(path, "OOMScoreAdjust")
+    return int(value)
 
 
-def _flag(args: list[str], name: str) -> str:
-    return args[args.index(name) + 1]
+def test_tailscaled_dropin_is_a_service_section():
+    assert "[Service]" in TAILSCALED_DROPIN.read_text().splitlines()
 
 
-def test_earlyoom_args_survive_systemd_word_splitting():
-    """The unit passes `$EARLYOOM_ARGS` unquoted: systemd splits on whitespace and
-    unquotes/unescapes itself, so a quote or backslash inside it is a trap."""
-    for arg in _earlyoom_args():
-        assert not set(arg) & {"'", '"', "\\"}, f"{arg!r} depends on quoting"
+def test_tailscaled_ranks_below_the_api_it_resolves_for():
+    """Killing tailscaled frees ~52 MiB and takes the API's DNS with it (#568)."""
+    assert OOM_FLOOR < _oom_score_adj(TAILSCALED_DROPIN) < _oom_score_adj(API_UNIT)
 
 
-def test_earlyoom_prefers_nothing_once_the_local_store_is_retired():
-    """`--prefer` named Qdrant and Ollama, the heavy restartable consumers, until
-    #568 moved SocratiCode to co-index. Nothing left here is both heavy and
-    safely restartable, so the kernel's own order stands after `--avoid`."""
-    assert "--prefer" not in _earlyoom_args()
+def test_earlyoom_stays_retired():
+    """#588: nothing on this host is both reachable and worth killing early."""
+    assert not (INFRA / "default" / "earlyoom").exists()
+    install = re.compile(r"apt(-get)?\s+install\b.*\bearlyoom")
+    assert not install.search(COMMANDS_MD.read_text())
 
 
-def test_earlyoom_avoids_the_user_manager_that_outranks_them():
-    avoid = re.compile(_flag(_earlyoom_args(), "--avoid"))
+def test_every_host_file_has_an_install_line():
+    """Every file under `infra/*/` (terraform aside) has a `sudo install` line.
 
-    for comm in ("systemd", "(sd-pam)", "dbus-daemon"):
-        assert avoid.search(comm), comm
-    for comm in ("uvicorn", "python3", "systemd-logind", "systemd-timesyncd"):
-        assert not avoid.search(comm), comm
+    The host runs copies; a file COMMANDS.md never installs is never applied.
+    Top-level units are out of scope: they install by `cp` in their own blocks.
+    """
+    install_lines = [
+        ln for ln in COMMANDS_MD.read_text().splitlines() if ln.startswith("sudo install ")
+    ]
+    host_files = [
+        f.relative_to(INFRA.parent).as_posix()
+        for d in INFRA.iterdir()
+        if d.is_dir() and d.name != "terraform"
+        for f in d.iterdir()
+    ]
 
-
-def test_earlyoom_avoids_tailscaled_which_answers_every_dns_lookup():
-    """`tailscale up --accept-dns` points /etc/resolv.conf at MagicDNS (#568), so the
-    DB host resolves through tailscaled; at badness ~672 it is otherwise the first pick."""
-    avoid = re.compile(_flag(_earlyoom_args(), "--avoid"))
-
-    assert avoid.search("tailscaled")
-    assert not avoid.search("tailscale")
-
-
-def _earlyoom_notes() -> dict[str, str]:
-    """Every passage that states earlyoom's victim order, keyed by where it lives."""
-    comment = "\n".join(
-        ln for ln in EARLYOOM_DEFAULTS.read_text().splitlines() if ln.lstrip().startswith("#")
-    )
-    commands = COMMANDS_MD.read_text()
-    start = commands.index("earlyoom ranks by `oom_score`")
-    return {
-        "infra/default/earlyoom": comment,
-        "docs/COMMANDS.md": commands[start : commands.index("\n---", start)],
-    }
-
-
-def test_earlyoom_notes_never_call_a_minus_1000_session_a_candidate():
-    """earlyoom 1.7 exempts -1000 as the kernel does; a -1000 row in `-d` is pre-skip."""
-    stale = re.compile(r"not exempt|still\s+candidates|keeps\s+`?-1000`?\s+processes", re.I)
-    for where, text in _earlyoom_notes().items():
-        assert not stale.search(text), f"{where} still says earlyoom can take a -1000 session"
-
-
-def test_earlyoom_notes_name_what_makes_a_session_process_reachable():
-    for where, text in _earlyoom_notes().items():
-        assert "choom -n 500" in text, f"{where} does not say how a session process becomes one"
-
-
-def test_the_dry_run_check_reads_the_verdict_not_the_badness_column():
-    text = _earlyoom_notes()["docs/COMMANDS.md"]
-
-    assert "--dryrun" in text
-    assert "new victim" in text and "sending" in text
-    # Measured: plain `timeout` in a pipeline signalled the calling shell (exit 130).
-    assert "timeout --foreground" in text
+    assert host_files
+    for rel in host_files:
+        assert any(rel in ln for ln in install_lines), f"{rel} has no install line"
 
 
 def _session_root_adj(proc: Path, pid: int) -> int | None:
@@ -220,12 +185,12 @@ def test_no_session_ancestor_is_none(tmp_path: Path):
 
 @pytest.mark.skipif(socket.gethostname() != HOST, reason=f"not {HOST}")
 def test_sessions_on_this_host_are_still_exempt():
-    """The victim order in infra/default/earlyoom assumes it; nothing else checks."""
+    """#586's premise: the kernel's order in docs/COMMANDS.md assumes it."""
     adj = _session_root_adj(Path("/proc"), os.getpid())
     if adj is None:
         pytest.skip("not run from an exe.dev session")
     assert adj == OOM_FLOOR, (
         f"this session's root reads oom_score_adj={adj}, not {OOM_FLOOR}: exe.dev no "
-        "longer exempts sessions here, so earlyoom's --prefer could reach them — "
-        "revisit infra/default/earlyoom's victim order (#563, skills#331 §4)"
+        "longer exempts sessions here — #586 may be fixed upstream; re-measure the "
+        "kernel's victim order in docs/COMMANDS.md and revisit #586's mitigation"
     )
