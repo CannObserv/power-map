@@ -9,8 +9,11 @@
 #             MagicDNS, so every lookup, the DB host's included, goes through it;
 #             at ~672 it is otherwise the first pick.
 #   no --prefer since #568. It named Qdrant and Ollama, the heavy restartable
-#             consumers, until SocratiCode moved to co-index. Now the kernel's own
-#             order stands: smaller daemons, then the API (oom_score_adj -900).
+#             consumers, until SocratiCode moved to co-index. Measured 2026-09-29,
+#             the order is now systemd-logind (8 MiB), systemd-timesyncd, cron,
+#             earlyoom, journald (under 30 MiB together), then the API
+#             (oom_score_adj -900): its first kill that frees real memory is
+#             production. Nothing heavy and restartable remains to prefer.
 #   sessions  never. exe.dev starts them at -1000, and earlyoom 1.7 skips -1000
 #             exactly as the kernel does (kill.c:242-253; its -d table prints badness
 #             before that skip). Only a launch under `choom -n 500 --` is reachable
