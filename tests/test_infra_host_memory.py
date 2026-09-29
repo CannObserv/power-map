@@ -107,7 +107,8 @@ def test_tailscaled_ranks_below_the_api_it_resolves_for():
 def test_earlyoom_stays_retired():
     """#588: nothing on this host is both reachable and worth killing early."""
     assert not (INFRA / "default" / "earlyoom").exists()
-    assert "apt-get install -y earlyoom" not in COMMANDS_MD.read_text()
+    install = re.compile(r"apt(-get)?\s+install\b.*\bearlyoom")
+    assert not install.search(COMMANDS_MD.read_text())
 
 
 def test_every_host_file_has_an_install_line():
