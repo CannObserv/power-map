@@ -210,7 +210,7 @@ The index lives on `co-index`, the cohort's shared Qdrant and Ollama (CannObserv
 
 **The local store is gone (2026-09-29).** The `socraticode-qdrant` container, its volume and image, and Ollama (unit, binary, libraries, models, service user) were removed, freeing 823 MB on `/`. Docker's packages stay installed, but `docker.socket`, `docker.service` and `containerd.service` are disabled, since nothing else here uses them.
 
-**When co-index is down,** search falls back to `grep`. Nothing on a production path uses the index. To go back to a local store for good: enable Docker (`sudo systemctl enable --now docker.socket`), delete the six store keys from the `env` block, and restart Claude Code. The server then runs managed and starts Qdrant and Ollama containers itself. Expect a full re-index of about 4 hours on this CPU (#542).
+**When co-index is down,** search falls back to `grep`. Nothing on a production path uses the index. To go back to a local store for good: enable Docker (`sudo systemctl enable --now docker.socket`), delete the six store keys from the `env` block, update `tests/test_socraticode_store_settings.py` (it pins them), and restart Claude Code. The server then runs managed and starts Qdrant and Ollama containers itself. Expect a full re-index of about 4 hours on this CPU (#542).
 
 ### The server is pinned, not installed per launch
 
