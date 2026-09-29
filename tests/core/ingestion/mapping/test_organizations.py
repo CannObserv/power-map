@@ -144,7 +144,7 @@ O12 = "01O12000000000000000000000A"
 def test_an_organization_published_with_a_blank_name_still_lands(build):
     """CR 16: a blank name warns, as it does for persons (CR 1). Identity lands, the
     legal name comes from long_name, and the other 200-odd orgs are not lost with it."""
-    row = f"{O11}, ,House Committee on Nothing,,House,committee,2021-22,2025-26"
+    row = f"{O11}, ,House Committee on Nothing,,House,committee,2021-22,2025-26,true"
     b = build(datasets={"organizations": fixture_csv("organizations", add=[row])})
 
     assert b.result.success
@@ -157,7 +157,7 @@ def test_an_organization_published_with_a_blank_name_still_lands(build):
 def test_an_unknown_org_type_is_reported_and_claims_no_parent(build):
     """A vocabulary the producer grows is not a defect in PM's build. The org lands;
     the type determines no parent; the accepted_values test warns by name."""
-    row = f"{O12},Freedom Caucus,,,,caucus,,"
+    row = f"{O12},Freedom Caucus,,,,caucus,,,true"
     b = build(datasets={"organizations": fixture_csv("organizations", add=[row])})
 
     assert b.result.success
