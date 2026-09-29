@@ -173,11 +173,11 @@ sudo sysctl --system
 sudo install -Dm644 -t /etc/systemd/system/tailscaled.service.d infra/tailscaled.service.d/90-power-map-oom.conf
 sudo systemctl daemon-reload && sudo systemctl restart tailscaled   # adj applies at start; DNS blips
 cat /proc/$(pgrep -xo tailscaled)/oom_score_adj   # expect -950
-sudo apt-get purge -y earlyoom   # retired (#588); a no-op where it was never installed
 
 # needrestart list-only (#574) — before any apt run; apt's hook restarts services otherwise
 sudo install -m644 -t /etc/needrestart/conf.d infra/needrestart.conf.d/power-map.conf
 sudo needrestart -m u -r l -b   # expect "Disabling Ubuntu mode, ..." (only the conf prints it)
+sudo apt-get purge -y earlyoom   # retired (#588); a no-op where it was never installed
 ```
 
 `power-map.service`'s `MemoryLow=` is only as good as `system.slice`'s: cgroup2 here is
