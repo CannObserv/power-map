@@ -5,6 +5,9 @@
 #   --avoid   the exedev user manager. oom_score_adj 200/100 puts dbus-daemon (800),
 #             systemd --user and (sd-pam) (~734) above Qdrant (~686), so on the
 #             defaults earlyoom kills them first and frees ~5 MiB each.
+#             And tailscaled (#568): `--accept-dns` points /etc/resolv.conf at
+#             MagicDNS, so every lookup, the DB host's included, goes through it;
+#             at ~672 it sits level with Ollama and is the first pick without them.
 #   --prefer  Qdrant, then Ollama — the heavy, restartable consumers (Docker restarts
 #             the container; ollama is a unit). After them, smaller daemons in
 #             the kernel's own order, then the API (oom_score_adj -900).
@@ -16,4 +19,4 @@
 # systemd word-splits $EARLYOOM_ARGS itself: no spaces, quotes or backslashes inside
 # a value (tests/test_infra_host_memory.py). Matched against /proc/<pid>/comm.
 # Install: /etc/default/earlyoom + `systemctl restart earlyoom` (docs/COMMANDS.md).
-EARLYOOM_ARGS="-r 3600 --prefer ^(qdrant|ollama)$ --avoid ^(systemd|.sd-pam.|dbus-daemon)$"
+EARLYOOM_ARGS="-r 3600 --prefer ^(qdrant|ollama)$ --avoid ^(systemd|.sd-pam.|dbus-daemon|tailscaled)$"
