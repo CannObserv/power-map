@@ -192,7 +192,7 @@ so earlyoom's only effect was an earlier trigger (≤10 % available, page cache 
 production before the kernel would have killed anything. `tailscaled` answers every DNS lookup
 since #568 (the DB host's too), so a drop-in ranks it below the API. Projected from `oom_score`
 on 2026-09-29: the exedev `systemd --user` and `(sd-pam)` (`oom_score_adj` 100), `systemd-logind`,
-`systemd-timesyncd`, `cron`, `journald` (under 40 MiB together), then the API (`-900`), then
+`systemd-timesyncd`, `cron`, `journald` (about 40 MiB together), then the API (`-900`), then
 `tailscaled` (`-950`).
 
 That order leaves sessions out, and since 2026-09-29 a login-shell session no longer is (#586):
