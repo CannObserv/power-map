@@ -186,11 +186,11 @@ children's `MemoryLow=` — raise the drop-in when a unit adds one
 (SIGTERM at ≤10 % available) plus the 64 MiB atomic reserve close the failure mode without it.
 earlyoom ranks by `oom_score`; on its defaults the first pick is the session `dbus-daemon`
 (`oom_score_adj` 200, 5 MiB), then the user manager. `infra/default/earlyoom` avoids those, and
-`tailscaled`, which answers every DNS lookup since #568 (the DB host's too), and
-prefers Qdrant, then Ollama; smaller daemons, then the API (`-900`). Sessions (`-1000`) never —
-only a `choom -n 500 --` launch (why: the file's comment, #563). Read a dry run's `sending … to
-process` line (the last `<--- new victim`), not its badness column; qdrant on 2026-09-27:
-`timeout --foreground -s INT 3 earlyoom --dryrun -d -r 0 -m 99,98 -s 100,100 --prefer '^(qdrant|ollama)$' --avoid '^(systemd|.sd-pam.|dbus-daemon|tailscaled)$' 2>&1 | grep -m1 'to process'`
+`tailscaled`, which answers every DNS lookup since #568 (the DB host's too). No `--prefer`
+since #568 retired the local Qdrant and Ollama: smaller daemons, then the API (`-900`).
+Sessions (`-1000`) never — only a `choom -n 500 --` launch (why: the file's comment, #563).
+Read a dry run's `sending … to process` line (the last `<--- new victim`), not its badness column:
+`timeout --foreground -s INT 3 earlyoom --dryrun -d -r 0 -m 99,98 -s 100,100 --avoid '^(systemd|.sd-pam.|dbus-daemon|tailscaled)$' 2>&1 | grep -m1 'to process'`
 
 ### Tailnet (#568)
 
