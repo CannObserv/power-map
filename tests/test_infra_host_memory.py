@@ -12,9 +12,11 @@ presented.
 
 earlyoom ranks by `oom_score`, and on its defaults its first pick here is the
 exedev session `dbus-daemon` (badness 800, 5 MiB — `oom_score_adj` 200), then
-`systemd --user` and `(sd-pam)` (100): the user manager goes before Qdrant
-(686) and frees nothing. `--avoid` restores the intended order. Qdrant and
-Ollama were `--prefer`red until #568 retired the local SocratiCode store.
+`systemd --user` and `(sd-pam)` (100): the user manager went before Qdrant
+(686) and freed nothing. `--avoid` restores the intended order. Qdrant and
+Ollama were `--prefer`red until #568 retired the local SocratiCode store; what
+the order is now, and the open decision about it, are in infra/default/earlyoom
+(#588).
 
 Sessions are not on that list at all. earlyoom 1.7 skips `oom_score_adj` -1000
 exactly as the kernel does (`kill.c:242-253`), and exe.dev starts sessions at
@@ -118,13 +120,13 @@ def test_earlyoom_avoids_the_user_manager_that_outranks_them():
 
     for comm in ("systemd", "(sd-pam)", "dbus-daemon"):
         assert avoid.search(comm), comm
-    for comm in ("qdrant", "ollama", "systemd-logind", "systemd-timesyncd"):
+    for comm in ("uvicorn", "python3", "systemd-logind", "systemd-timesyncd"):
         assert not avoid.search(comm), comm
 
 
 def test_earlyoom_avoids_tailscaled_which_answers_every_dns_lookup():
     """`tailscale up --accept-dns` points /etc/resolv.conf at MagicDNS (#568), so the
-    DB host resolves through tailscaled; at badness ~672 it sits level with Ollama."""
+    DB host resolves through tailscaled; at badness ~672 it is otherwise the first pick."""
     avoid = re.compile(_flag(_earlyoom_args(), "--avoid"))
 
     assert avoid.search("tailscaled")
