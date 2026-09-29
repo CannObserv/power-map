@@ -17,9 +17,9 @@ Python ≥3.12, uv, pytest, ruff; Node ≥22, npm, vitest + ESLint + Prettier (J
 <!-- BEGIN socraticode-policy -->
 ## Code Exploration Policy
 
-SocratiCode is the preferred semantic-search tool here (local Qdrant store +
-on-disk graph; manifest `.socraticodecontextartifacts.json`). Its MCP tools are
-**deferred** — schemas load only after the `ToolSearch` prefetch that
+SocratiCode is the preferred semantic-search tool here once indexed (manifest
+`.socraticodecontextartifacts.json`). Its MCP tools are **deferred** — schemas
+load only after the `ToolSearch` prefetch that
 `.claude/hooks/socraticode-reminder.sh` prints each session.
 
 **Negative rule.** Use SocratiCode MCP tools first for semantic questions
@@ -34,7 +34,7 @@ search.
 | Exact string or regex (errors, log lines, known symbols) | `grep` / `rg` |
 | Imports/dependents of a file · blast radius of a change | `codebase_graph_query` / `codebase_impact` |
 
-Full tool table, prefetch query, per-tool guidance: [`docs/SOCRATICODE.md`](docs/SOCRATICODE.md).
+Full tool table, prefetch hook, per-tool guidance: [`docs/SOCRATICODE.md`](docs/SOCRATICODE.md).
 <!-- END socraticode-policy -->
 
 ## Project Layout

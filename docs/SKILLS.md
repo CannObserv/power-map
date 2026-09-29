@@ -132,7 +132,7 @@ It **reports; it never repairs or re-indexes.** Silent when clean, so read a qui
 What it catches that three green lights do not:
 
 - a FAILED last operation or an INCOMPLETE index sitting unreported
-- a stopped Qdrant container or a missing embedding model
+- an unreachable store (co-index, #568) or a missing embedding model
 - **declared ≠ indexed** (#461). A *completed* operation can still leave a context
   artifact out — #454 sat at `2/3 indexed` with every light green and the whole
   `docs/` tree unreachable. The check measures the manifest's declared count
