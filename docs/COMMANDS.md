@@ -193,7 +193,14 @@ production before the kernel would have killed anything. `tailscaled` answers ev
 since #568 (the DB host's too), so a drop-in ranks it below the API. Projected from `oom_score`
 on 2026-09-29: the exedev `systemd --user` and `(sd-pam)` (`oom_score_adj` 100), `systemd-logind`,
 `systemd-timesyncd`, `cron`, `journald` (under 40 MiB together), then the API (`-900`), then
-`tailscaled` (`-950`). Read the live order from `/proc` (`comm` only, never the cmdline):
+`tailscaled` (`-950`).
+
+That order leaves sessions out, and since 2026-09-29 a login-shell session no longer is (#586):
+the top of `~/.profile` raises the shell's own `oom_score_adj` from -1000 to 0, which needs no
+privilege and which its children inherit. VS Code's remote session is a login `bash`, so its
+server and `claude` now rank first, the order #588 wanted. It lives in the home directory, not
+this repo (a rebuilt VM re-adds it; revert: `~/.profile.pre-586`), and `sshd-session` stays at
+-1000. Read the live order from `/proc` (`comm` only, never the cmdline):
 `for d in /proc/[0-9]*; do a=$(cat $d/oom_score_adj 2>/dev/null) && [ "$a" != -1000 ] && echo "$(cat $d/oom_score) $a $(cat $d/comm)"; done | sort -rn | head`
 
 ### Tailnet (#568)

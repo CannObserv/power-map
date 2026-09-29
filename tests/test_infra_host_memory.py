@@ -11,14 +11,17 @@ their failure in unrelated processes is how the 2026-09-16 sibling-VM outage
 presented.
 
 The kernel OOM killer is the only killer (#588). earlyoom was retired: every
-heavy consumer here is a session at `oom_score_adj` -1000, which it skips just
-as the kernel does (#563), so all it could add was an earlier trigger (<=10 %
-available, page cache counted) that reached production before the kernel
-would have killed anything. Its one real job, keeping `tailscaled` alive,
-moved to a unit drop-in the kernel honours: since #568 every DNS lookup, the
-DB host's included, goes through it, so it ranks below the API.
+heavy consumer here is a session, which exe.dev starts at `oom_score_adj` -1000
+and which earlyoom skips just as the kernel does (#563), so all it could add
+was an earlier trigger (<=10 % available, page cache counted) that reached
+production before the kernel would have killed anything. Its one real job,
+keeping `tailscaled` alive, moved to a unit drop-in the kernel honours: since
+#568 every DNS lookup, the DB host's included, goes through it, so it ranks
+below the API.
 
-The -1000 premise is exe.dev's (#586) and is pinned live rather than assumed.
+The -1000 premise is exe.dev's (#586) and is pinned live rather than assumed. A
+login shell raises itself to 0 from `~/.profile` (docs/COMMANDS.md); that happens
+below `sshd-session`, which the live check reads, so the pin still tracks exe.dev.
 """
 
 import os
