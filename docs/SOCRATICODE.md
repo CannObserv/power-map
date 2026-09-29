@@ -234,7 +234,7 @@ systemd-run --user --scope -p MemoryHigh=1200M -p MemoryMax=1536M \
   choom -n 500 -- npm exec --yes --prefer-online --package=socraticode@<version> -- true
 ```
 
-`infra/power-map.service` carries the other half (`MemoryLow=512M`, `OOMScoreAdjust=-900`). The host steps landed with #541 (2026-09-24): a `system.slice` drop-in that makes the `MemoryLow=` real (cgroup2 here lacks `memory_recursiveprot`, so the slice's default `0` granted the child nothing), `vm.min_free_kbytes` 10993 → 65536, and `earlyoom` on default thresholds with a corrected victim order (its defaults picked the session `dbus-daemon` before Qdrant). Install commands: [COMMANDS.md § Service Management](COMMANDS.md#service-management).
+`infra/power-map.service` carries the other half (`MemoryLow=512M`, `OOMScoreAdjust=-900`). The host steps landed with #541 (2026-09-24): a `system.slice` drop-in that makes the `MemoryLow=` real (cgroup2 here lacks `memory_recursiveprot`, so the slice's default `0` granted the child nothing), and `vm.min_free_kbytes` 10993 → 65536. The `earlyoom` it also added was retired once the local store left (#588). Install commands: [COMMANDS.md § Service Management](COMMANDS.md#service-management).
 
 ### Reading the daily `graph was built by v…` line
 
