@@ -185,11 +185,31 @@ children's `MemoryLow=` — raise the drop-in when a unit adds one
 (`tests/test_infra_host_memory.py` fails until you do). No swap, by decision: earlyoom
 (SIGTERM at ≤10 % available) plus the 64 MiB atomic reserve close the failure mode without it.
 earlyoom ranks by `oom_score`; on its defaults the first pick is the session `dbus-daemon`
-(`oom_score_adj` 200, 5 MiB), then the user manager. `infra/default/earlyoom` avoids those and
+(`oom_score_adj` 200, 5 MiB), then the user manager. `infra/default/earlyoom` avoids those, and
+`tailscaled`, which answers every DNS lookup since #568 (the DB host's too), and
 prefers Qdrant, then Ollama; smaller daemons, then the API (`-900`). Sessions (`-1000`) never —
 only a `choom -n 500 --` launch (why: the file's comment, #563). Read a dry run's `sending … to
 process` line (the last `<--- new victim`), not its badness column; qdrant on 2026-09-27:
-`timeout --foreground -s INT 3 earlyoom --dryrun -d -r 0 -m 99,98 -s 100,100 --prefer '^(qdrant|ollama)$' --avoid '^(systemd|.sd-pam.|dbus-daemon)$' 2>&1 | grep -m1 'to process'`
+`timeout --foreground -s INT 3 earlyoom --dryrun -d -r 0 -m 99,98 -s 100,100 --prefer '^(qdrant|ollama)$' --avoid '^(systemd|.sd-pam.|dbus-daemon|tailscaled)$' 2>&1 | grep -m1 'to process'`
+
+### Tailnet (#568)
+
+Joined 2026-09-28 as `power-map` on `cannobserv.org.github`, single tag `tag:power-map`, no
+Tailscale SSH. Outbound only: the ACL grants `tag:power-map → tag:index:6333,11434` (co-index,
+the shared SocratiCode store), and nothing lists `tag:power-map` as a destination — the API is
+served through the exe.dev proxy. Joining pattern and key hygiene: CannObserv/replicator
+`docs/reference/tailscale.md` (the key reaches `tailscale up` as `--auth-key=file:`, never argv).
+
+`--accept-dns` rewrote `/etc/resolv.conf` to MagicDNS (original kept at
+`/etc/resolv.pre-tailscale-backup.conf`), so **every** lookup, the DB host's included, now goes
+through `tailscaled` — hence earlyoom's `--avoid` above, and the triage row in
+`docs/RUNBOOK_DB_TRIAGE.md`.
+
+```bash
+tailscale status                           # `index … active; direct …` — `relay` means DERP
+tailscale debug prefs | grep CorpDNS       # must be true, or every name lookup fails
+sudo tailscale debug netmap | jq -c .PacketFilter   # [] — nothing may connect in
+```
 
 ---
 
@@ -276,6 +296,13 @@ Gives the worktree **its own** `.venv` (`uv sync --group browser --group seed --
 and **its own** `node_modules` (`npm ci`, skipped when `node_modules/.bin` is already there), initialises
 the `skills-vendor/` submodules, and symlinks the gitignored `.env` and
 `data/cannabis_observer` from the main checkout. Refuses (exit 2) against the main checkout.
+
+It also merges `.claude/settings.local.json` with `SOCRATICODE_AUTO_RESUME=off`,
+`SOCRATICODE_WATCHER=off` and the co-index key copied from the main checkout's copy (#568).
+On the shared store every checkout addresses the same collections, and a session's auto-resume
+and watcher would write the worktree's branch into them: a worktree searches, only the main
+checkout writes. An explicit `codebase_index` from a worktree is still a write; don't. Nothing
+is written unless git ignores the path — the key is shared by every cohort VM.
 
 The rest exist so a worktree's first test run matches the main checkout's (#482).
 `git worktree add` populates tracked files only: the submodule directories arrive empty, so

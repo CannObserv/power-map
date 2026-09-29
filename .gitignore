@@ -43,6 +43,8 @@ tmp/
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 .claude/projects/
+# Per-host SocratiCode env, including the co-index key (#568)
+.claude/settings.local.json
 
 # Terraform
 infra/terraform/.terraform/

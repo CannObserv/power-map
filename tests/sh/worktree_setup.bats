@@ -440,6 +440,98 @@ EOF
     [ ! -e "$FAKE_WORKTREE/data/cannabis_observer" ]
 }
 
+# --- the shared SocratiCode store (#568) ------------------------------------
+#
+# With a `projectId` every checkout addresses the same co-index collections, so
+# a worktree session's startup auto-resume and file watcher would write its
+# branch into the shared index. A worktree searches; only the main checkout
+# writes. The key is copied from the main checkout's git-ignored settings.
+
+ignore_local_settings() {
+    printf '.claude/settings.local.json\n' > "$FAKE_WORKTREE/.gitignore"
+}
+
+main_local_settings() {
+    mkdir -p "$FAKE_MAIN/.claude"
+    printf '%s\n' "$1" > "$FAKE_MAIN/.claude/settings.local.json"
+}
+
+@test "a worktree's SocratiCode session searches but never writes the shared index" {
+    ignore_local_settings
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    local f="$FAKE_WORKTREE/.claude/settings.local.json"
+    [ "$(jq -r '.env.SOCRATICODE_AUTO_RESUME' "$f")" = "off" ]
+    [ "$(jq -r '.env.SOCRATICODE_WATCHER' "$f")" = "off" ]
+}
+
+@test "copies the co-index key from the main checkout, and nothing else" {
+    ignore_local_settings
+    main_local_settings '{"env": {"QDRANT_API_KEY": "sekrit-key", "OTHER": "x"}}'
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    local f="$FAKE_WORKTREE/.claude/settings.local.json"
+    [ "$(jq -r '.env.QDRANT_API_KEY' "$f")" = "sekrit-key" ]
+    [ "$(jq -r '.env.OTHER' "$f")" = "null" ]
+    [ "$(stat -c %a "$f")" = "600" ]
+}
+
+@test "the key never reaches the script's output" {
+    ignore_local_settings
+    main_local_settings '{"env": {"QDRANT_API_KEY": "sekrit-key"}}'
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"sekrit-key"* ]]
+}
+
+@test "no key in the main checkout still switches the writers off" {
+    ignore_local_settings
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    local f="$FAKE_WORKTREE/.claude/settings.local.json"
+    [ "$(jq -r '.env | has("QDRANT_API_KEY")' "$f")" = "false" ]
+    [[ "$output" == *"no co-index key"* ]]
+}
+
+@test "refuses to write settings git would commit, and finishes the rest" {
+    main_local_settings '{"env": {"QDRANT_API_KEY": "sekrit-key"}}'
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ ! -e "$FAKE_WORKTREE/.claude/settings.local.json" ]
+    [[ "$output" == *"WARN"* ]]
+    [[ "$output" == *"not ignored"* ]]
+    [[ "$output" == *"worktree ready"* ]]
+}
+
+@test "merges into existing local settings rather than replacing them" {
+    ignore_local_settings
+    mkdir -p "$FAKE_WORKTREE/.claude"
+    printf '{"permissions": {"allow": ["Bash(ls)"]}, "env": {"FOO": "bar"}}\n' \
+        > "$FAKE_WORKTREE/.claude/settings.local.json"
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    local f="$FAKE_WORKTREE/.claude/settings.local.json"
+    [ "$(jq -r '.permissions.allow[0]' "$f")" = "Bash(ls)" ]
+    [ "$(jq -r '.env.FOO' "$f")" = "bar" ]
+    [ "$(jq -r '.env.SOCRATICODE_WATCHER' "$f")" = "off" ]
+}
+
+@test "unparseable local settings are left alone with a warning" {
+    ignore_local_settings
+    mkdir -p "$FAKE_WORKTREE/.claude"
+    printf '{not json\n' > "$FAKE_WORKTREE/.claude/settings.local.json"
+    run bash "$(repo_root)/scripts/worktree-setup.sh" "$FAKE_WORKTREE"
+    [ "$status" -eq 0 ]
+    [ "$(cat "$FAKE_WORKTREE/.claude/settings.local.json")" = "{not json" ]
+    [[ "$output" == *"not valid JSON"* ]]
+    [[ "$output" == *"worktree ready"* ]]
+}
+
+@test "the real repo ignores the local settings file" {
+    run git -C "$(repo_root)" check-ignore -q .claude/settings.local.json
+    [ "$status" -eq 0 ]
+}
+
 # --- idempotence ------------------------------------------------------------
 
 @test "a second run is a no-op beyond re-syncing" {

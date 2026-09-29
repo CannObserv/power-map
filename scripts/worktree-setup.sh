@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Finish setting up a linked git worktree: give it its own venv, its own
-# node_modules, and an .env.
+# node_modules, an .env, and SocratiCode settings that never write the shared
+# index (#568).
 #
 # Usage:
 #   bash scripts/worktree-setup.sh                 # the current directory
@@ -64,8 +65,10 @@ usage: bash scripts/worktree-setup.sh [<worktree-path>]
 Replaces a shared .venv symlink with a real per-worktree environment
 (`uv sync --group browser --group seed --group mapping`), installs the worktree's own
 node_modules from the lockfile (`npm ci`), initialises the skills-vendor
-submodules, and symlinks the gitignored .env and data/cannabis_observer from
-the main checkout. Refuses to run against the main checkout.
+submodules, symlinks the gitignored .env and data/cannabis_observer from
+the main checkout, and merges .claude/settings.local.json with SocratiCode's
+auto-resume and watcher off plus the main checkout's co-index key. Refuses to
+run against the main checkout.
 EOF
 }
 
@@ -282,5 +285,65 @@ link_shared() {
 
 link_shared .env "GH_TOKEN-dependent commands will not work"
 link_shared data/cannabis_observer "importer and seed-file tests will skip"
+
+# ── SocratiCode: search the shared store, never write it (#568) ──────────────
+# With a `projectId`, every checkout addresses the same co-index collections,
+# and a session's startup auto-resume and file watcher update them from its
+# own files — a worktree's would put its unmerged branch into the shared index.
+# So a worktree gets both writers switched off, plus the co-index key copied
+# from the main checkout, so it can still search. Merged, never clobbered: the
+# file may carry the operator's own permissions.
+#
+# Not a link like .env: the flags must differ from the main checkout's, which
+# is the one writer. The key goes file to file inside python: never an
+# argument, a shell variable, or output (install_qdrant_key.sh's rules).
+#
+# Refused unless git ignores the path: the key is shared by every cohort VM,
+# and this repo is public — a leak is a rotation everywhere (notifier#57).
+LOCAL_SETTINGS_REL=".claude/settings.local.json"
+if ! (cd "$TARGET" && git check-ignore -q "$LOCAL_SETTINGS_REL"); then
+    echo "WARN: $LOCAL_SETTINGS_REL is not ignored in $TARGET — no SocratiCode" >&2
+    echo "      settings written, so its sessions may write the shared index;" >&2
+    echo "      add the rule to .gitignore and re-run" >&2
+else
+    settings_rc=0
+    MAIN_SETTINGS="$MAIN_ROOT/$LOCAL_SETTINGS_REL" DEST="$TARGET/$LOCAL_SETTINGS_REL" \
+        python3 - <<'PY' || settings_rc=$?
+import json, os, pathlib, sys, tempfile
+
+dest = pathlib.Path(os.environ["DEST"])
+try:
+    current = json.loads(dest.read_text()) if dest.exists() else {}
+except ValueError:
+    sys.exit(4)
+try:
+    key = json.loads(pathlib.Path(os.environ["MAIN_SETTINGS"]).read_text())["env"]["QDRANT_API_KEY"]
+except (OSError, ValueError, KeyError, TypeError):
+    key = None
+
+env = current.setdefault("env", {})
+env["SOCRATICODE_AUTO_RESUME"] = "off"
+env["SOCRATICODE_WATCHER"] = "off"
+if key:
+    env["QDRANT_API_KEY"] = key
+
+dest.parent.mkdir(parents=True, exist_ok=True)
+fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=".settings.local.")
+with os.fdopen(fd, "w") as fh:
+    json.dump(current, fh, indent=2)
+    fh.write("\n")
+os.chmod(tmp, 0o600)
+os.replace(tmp, dest)
+sys.exit(0 if key else 3)
+PY
+    case "$settings_rc" in
+        0) echo "wrote $LOCAL_SETTINGS_REL: co-index key, auto-resume and watcher off" >&2 ;;
+        3) echo "wrote $LOCAL_SETTINGS_REL: auto-resume and watcher off; no co-index key" >&2
+           echo "      in $MAIN_ROOT/$LOCAL_SETTINGS_REL, so search needs one later" >&2 ;;
+        4) echo "WARN: $TARGET/$LOCAL_SETTINGS_REL is not valid JSON — left alone," >&2
+           echo "      so its sessions may write the shared index" >&2 ;;
+        *) echo "WARN: could not write $LOCAL_SETTINGS_REL (exit $settings_rc)" >&2 ;;
+    esac
+fi
 
 echo "worktree ready: $TARGET" >&2

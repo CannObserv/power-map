@@ -122,6 +122,15 @@ def test_earlyoom_avoids_the_user_manager_that_outranks_them():
         assert not avoid.search(comm), comm
 
 
+def test_earlyoom_avoids_tailscaled_which_answers_every_dns_lookup():
+    """`tailscale up --accept-dns` points /etc/resolv.conf at MagicDNS (#568), so the
+    DB host resolves through tailscaled; at badness ~672 it sits level with Ollama."""
+    avoid = re.compile(_flag(_earlyoom_args(), "--avoid"))
+
+    assert avoid.search("tailscaled")
+    assert not avoid.search("tailscale")
+
+
 def _earlyoom_notes() -> dict[str, str]:
     """Every passage that states earlyoom's victim order, keyed by where it lives."""
     comment = "\n".join(

@@ -65,6 +65,12 @@ Then close the loop so it does not silently recur:
 | `db_error` | the query raised | the logged exception carries the detail; `/ready` deliberately does not |
 | `unreachable` (guard-side) | nothing listening on :8000 | `systemctl status power-map` |
 
+A `gaierror` / `Temporary failure in name resolution` in the traceback, with `getent hosts
+<cluster host>` failing too, is not the DB: since #568 `tailscaled` answers every DNS lookup
+(MagicDNS). `systemctl status tailscaled`, then `tailscale debug prefs | grep CorpDNS` (must be
+true). Last resort while it is down: `sudo cp /etc/resolv.pre-tailscale-backup.conf
+/etc/resolv.conf`, then `sudo systemctl restart tailscaled` once it is healthy to hand DNS back.
+
 ### Scheduled guards
 
 `power-map-ready.timer` (every 2 min, #347) catches the effect; the
