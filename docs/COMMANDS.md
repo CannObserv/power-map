@@ -205,6 +205,11 @@ served through the exe.dev proxy. Joining pattern and key hygiene: CannObserv/re
 through `tailscaled` — hence earlyoom's `--avoid` above, and the triage row in
 `docs/RUNBOOK_DB_TRIAGE.md`.
 
+SocratiCode's index lives on co-index over this link; nothing of it is on this disk. Its config,
+the key's installation (notifier's `install_qdrant_key.sh`, key on stdin, never by hand), the
+main-checkout-only writer rule and the way back to a local store:
+[SOCRATICODE.md § The store is co-index](SOCRATICODE.md#the-store-is-co-index-568).
+
 ```bash
 tailscale status                           # `index … active; direct …` — `relay` means DERP
 tailscale debug prefs | grep CorpDNS       # must be true, or every name lookup fails
