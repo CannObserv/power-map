@@ -112,7 +112,11 @@ def test_earlyoom_stays_retired():
 
 
 def test_every_host_file_has_an_install_line():
-    """The host runs copies; a file COMMANDS.md never installs is never applied."""
+    """Every file under `infra/*/` (terraform aside) has a `sudo install` line.
+
+    The host runs copies; a file COMMANDS.md never installs is never applied.
+    Top-level units are out of scope: they install by `cp` in their own blocks.
+    """
     install_lines = [
         ln for ln in COMMANDS_MD.read_text().splitlines() if ln.startswith("sudo install ")
     ]
