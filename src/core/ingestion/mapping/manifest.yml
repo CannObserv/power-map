@@ -12,8 +12,8 @@
 #                  row is PM's, column-scoped (safeguard 4)
 #   types          every column the table exports → its duckdb type (VARCHAR,
 #                  INTEGER, DATE, BOOLEAN). Declared, never inferred: duckdb
-#                  types an all-NULL column INTEGER, so the build is held to this
-#                  from an empty store as well as a full one (#569)
+#                  types a bare NULL INTEGER and a CSV by its data, so the build
+#                  is held to this from an empty store and a populated one (#569)
 #   owned_event_types  events only: retraction-as-absence reaches these types
 #                  and no others — 315 org events in PM have no producer column
 #   overlay        the curation_overlay field that pins the owned value (#498):

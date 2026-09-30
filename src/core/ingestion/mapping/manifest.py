@@ -53,7 +53,7 @@ SHAPES = ("entity", "column", "child", "merge")
 MATCHES = ("any_then_canonical", "key")
 RETRACTIONS = ("none", "report", "archive")
 # The duckdb types a desired-state column may carry (#569): the marts' declared
-# output, which the build is held to from an empty store as well as a full one.
+# output, which the build is held to from an empty store and a populated one.
 TYPES = ("VARCHAR", "INTEGER", "DATE", "BOOLEAN")
 # The merge primitives a `merge` binding may name — each is a core merge function
 # the applier's registry (`applier_merge.MERGE_PRIMITIVES`) knows how to call.
@@ -177,7 +177,7 @@ class TableSpec:
     owned_columns: list[str]
     target: Target
     # #569: every exported column → its duckdb type (`TYPES`). Declared, because
-    # duckdb infers an all-NULL column as INTEGER and the applier would never know.
+    # duckdb types a bare NULL as INTEGER and the applier would never know.
     types: dict[str, str] = field(default_factory=dict)
     owned_event_types: list[str] = field(default_factory=list)
     # #498: the curation_overlay field that pins each owned column — the pair is

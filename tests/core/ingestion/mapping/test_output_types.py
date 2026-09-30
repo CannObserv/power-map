@@ -1,12 +1,12 @@
 """The marts' column types are declared, never inferred (#569).
 
-duckdb types a column from the values a SELECT yields. An expression that is
-NULL on every row — an empty store, an all-NULL `CASE` branch — falls back to
-`INTEGER`, and the applier reads it by name as `None` either way, so the wrong
-type hides until a value arrives. usa-wa shipped an always-empty model typed
-`integer` for its whole life (usa-wa#423). The empty store is the build that
-exposes inference; the populated one hides it, so both are held to the types
-`manifest.yml` declares.
+Two ways a mart column gets a type nobody chose. A bare `NULL` — a literal, a
+`CASE` with no typed branch — is `INTEGER` at bind time, whatever the rows; the
+applier reads it by name as `None`, so the wrong type hides until a value
+arrives (usa-wa#423 shipped such a model for its whole life). And a source read
+without `all_varchar` takes its types from the data: a header-only CSV reads
+`VARCHAR`, one with values `BIGINT`. So an empty store and a populated one are
+both built, and both held to the types `manifest.yml` declares.
 """
 
 import pytest
