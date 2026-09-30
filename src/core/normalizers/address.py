@@ -7,7 +7,25 @@ from dataclasses import dataclass, field
 import httpx
 import usaddress
 
+from src.core.logging import get_logger
 from src.core.normalizers.base import NormalizationResult, is_null_like
+
+logger = get_logger(__name__)
+
+# Declared rather than httpx's implicit 5 s: the admin address form blocks on this
+# call. /validate may wait on USPS or Google upstream, so reads keep 5 s; a connect
+# through the exe.dev proxy is near-instant when the service is up (#589).
+_REQUEST_TIMEOUT = httpx.Timeout(5.0, connect=2.0)
+
+# Failures that are fast and usually heal within a second: the service restarting
+# behind the proxy. Timeouts are excluded (a retry doubles an already-slow wait), and
+# so is 500 (address-validator#239 turns its warm-up 500 into a 503).
+_TRANSIENT_ERRORS = (httpx.ConnectError, httpx.RemoteProtocolError)
+_TRANSIENT_STATUSES = frozenset({502, 503, 504})
+
+# HTTP statuses meaning the validator read the input and refused it; a later retry
+# fails the same way. Anything else that reaches the fallback is "unavailable".
+_REJECTED_STATUSES = frozenset({400, 422})
 
 # ValidationResult.status → field_confidence.validation_status
 _STATUS_MAP = {
@@ -32,12 +50,18 @@ class AddressNormalizerConfig:
         run_validation: If True, call /validate (includes standardization).
                         If False, call /standardize only.
         max_retries: Max 429 retry attempts before giving up.
+        transient_retries: Max retries on a connect error, dropped connection,
+                           or 502/503/504 before giving up.
+        transient_backoff: Seconds before the first transient retry; the
+                           Nth retry waits N times this.
     """
 
     api_key: str
     base_url: str = "https://address-validator.exe.xyz:8000"
     run_validation: bool = False
     max_retries: int = 3
+    transient_retries: int = 2
+    transient_backoff: float = 0.5
 
 
 @dataclass
@@ -115,6 +139,11 @@ class ExternalAddressNormalizer:
 
     429 handling: reads Retry-After header, sleeps, retries up to config.max_retries.
     Raises RuntimeError if retry budget is exhausted.
+
+    Transient handling (#589): a connect error, dropped connection, or 502/503/504
+    is retried up to config.transient_retries times with linear backoff; the last
+    failure is then raised for the caller's fallback. Timeouts, 500, and other
+    4xx are raised at once.
     """
 
     config: AddressNormalizerConfig
@@ -129,23 +158,38 @@ class ExternalAddressNormalizer:
         payload = {"address": raw, "country": country}
         headers = {"X-API-Key": self.config.api_key}
 
-        async with httpx.AsyncClient() as client:
-            for attempt in range(self.config.max_retries + 1):
-                response = await client.post(url, json=payload, headers=headers)
+        rate_limited = 0
+        transient = 0
+        async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT) as client:
+            while True:
+                try:
+                    response = await client.post(url, json=payload, headers=headers)
+                except _TRANSIENT_ERRORS:
+                    if transient >= self.config.transient_retries:
+                        raise
+                    transient += 1
+                    await asyncio.sleep(self.config.transient_backoff * transient)
+                    continue
                 if response.status_code == 429:
-                    if attempt >= self.config.max_retries:
+                    if rate_limited >= self.config.max_retries:
                         raise RuntimeError(
                             "address-validator rate limit: exhausted "
                             f"{self.config.max_retries} retries"
                         )
+                    rate_limited += 1
                     wait = float(response.headers.get("Retry-After", "1"))
                     await asyncio.sleep(wait)
+                    continue
+                if (
+                    response.status_code in _TRANSIENT_STATUSES
+                    and transient < self.config.transient_retries
+                ):
+                    transient += 1
+                    await asyncio.sleep(self.config.transient_backoff * transient)
                     continue
                 response.raise_for_status()
                 data = response.json()
                 return self._parse_response(raw, data)
-
-        raise RuntimeError("address-validator: retry loop exited unexpectedly")
 
     def _parse_response(self, raw: str, data: dict) -> NormalizationResult:
         """Parse API response into a NormalizationResult."""
@@ -184,11 +228,27 @@ class ExternalAddressNormalizer:
         )
 
 
+def _fallback_reason(exc: Exception) -> str:
+    """Classify why the external normalizer failed: ``rejected`` or ``unavailable``.
+
+    ``rejected`` — the validator refused the input (400/422); retrying won't help.
+    ``unavailable`` — anything else: an outage, a timeout, 5xx, 429 exhaustion, or a
+    bad API key. Those rows are worth re-standardizing once the service is back (#595).
+    """
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in _REJECTED_STATUSES:
+        return "rejected"
+    return "unavailable"
+
+
 @dataclass
 class FallbackAddressNormalizer:
     """Tries ExternalAddressNormalizer; falls back to LocalAddressNormalizer on any error.
 
     Use this in production pipelines. Pass config=None to always use local.
+
+    A fallback marks ``validation_detail["fallback"]`` with ``_fallback_reason`` so
+    callers can tell the curator (#589); a config=None run is deliberate and
+    carries no marker.
     """
 
     config: AddressNormalizerConfig | None = None
@@ -202,7 +262,17 @@ class FallbackAddressNormalizer:
             external = ExternalAddressNormalizer(self.config)
             return await external.normalize(raw, country=country)
         except Exception as exc:
+            reason = _fallback_reason(exc)
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            # Exception type and status only: the address is PII and stays out of logs.
+            logger.warning(
+                "address-validator %s (%s, status=%s); fell back to local parser",
+                reason,
+                type(exc).__name__,
+                status,
+            )
             result = self._local.normalize(raw, country=country)
+            result.validation_detail["fallback"] = reason
             result.warnings.insert(0, f"fallback to local address parser: {exc}")
             return result
 

@@ -1,8 +1,9 @@
 """Tests for address normalizers."""
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 import usaddress
 
@@ -164,6 +165,150 @@ async def test_fallback_uses_local_on_service_error(config):
         r = await n.normalize("123 Main St, Seattle WA 98101")
     assert r.validation_detail["provider"] == "usaddress"
     assert "fallback" in r.warnings[0].lower()
+
+
+# ---------------------------------------------------------------------------
+# Transient failures: timeout, retry, fallback reason, log (#589)
+# ---------------------------------------------------------------------------
+
+_URL = "https://address-validator.exe.xyz:8000/api/v2/standardize"
+_RAW = "123 Main St, Seattle WA 98101"
+
+
+def _ok_response():
+    r = MagicMock()
+    r.status_code = 200
+    r.json.return_value = {
+        "address_line_1": "123 MAIN ST",
+        "city": "SEATTLE",
+        "region": "WA",
+        "postal_code": "98101",
+        "country": "US",
+        "standardized": "123 MAIN ST SEATTLE WA 98101",
+        "warnings": [],
+    }
+    return r
+
+
+def _status_response(code: int) -> httpx.Response:
+    """A real httpx.Response, so raise_for_status() raises HTTPStatusError."""
+    return httpx.Response(code, request=httpx.Request("POST", _URL))
+
+
+@pytest.fixture
+def no_sleep():
+    """Patch the retry backoff sleep; yield the mock for delay assertions."""
+    with patch("src.core.normalizers.address.asyncio.sleep", new=AsyncMock()) as m:
+        yield m
+
+
+async def test_external_sets_explicit_timeout(external):
+    """httpx's implicit 5 s default is replaced by a declared, short-connect timeout."""
+    with mock_http_client(_ok_response()) as MockClient:
+        await external.normalize(_RAW)
+    assert MockClient.call_args.kwargs.get("timeout") == httpx.Timeout(5.0, connect=2.0)
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        httpx.ConnectError("connection refused"),
+        httpx.RemoteProtocolError("server disconnected"),
+        _status_response(502),
+        _status_response(503),
+        _status_response(504),
+    ],
+    ids=["connect-error", "remote-protocol-error", "502", "503", "504"],
+)
+async def test_external_retries_transient_failure_then_succeeds(external, no_sleep, first):
+    with mock_http_client(side_effect=[first, _ok_response()]) as MockClient:
+        r = await external.normalize(_RAW)
+    assert r.value["standardized"] == "123 MAIN ST SEATTLE WA 98101"
+    assert MockClient.return_value.post.await_count == 2
+    no_sleep.assert_awaited_once_with(0.5)
+
+
+async def test_external_transient_retries_back_off_then_raise(external, no_sleep):
+    """Two retries (0.5 s, 1.0 s), then the last error propagates to the fallback."""
+    with mock_http_client(side_effect=httpx.ConnectError("refused")) as MockClient:
+        with pytest.raises(httpx.ConnectError):
+            await external.normalize(_RAW)
+    assert MockClient.return_value.post.await_count == 3
+    assert [c.args[0] for c in no_sleep.await_args_list] == [0.5, 1.0]
+
+
+async def test_external_transient_status_exhausted_raises_http_status_error(external, no_sleep):
+    with mock_http_client(side_effect=[_status_response(503)] * 3) as MockClient:
+        with pytest.raises(httpx.HTTPStatusError):
+            await external.normalize(_RAW)
+    assert MockClient.return_value.post.await_count == 3
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.ReadTimeout("read timed out"),
+        httpx.ConnectTimeout("connect timed out"),
+        _status_response(500),
+        _status_response(422),
+        _status_response(400),
+    ],
+    ids=["read-timeout", "connect-timeout", "500", "422", "400"],
+)
+async def test_external_does_not_retry_slow_or_permanent_failure(external, no_sleep, failure):
+    """A timeout already cost the caller seconds; a 500 or 4xx won't heal on retry."""
+    with mock_http_client(side_effect=[failure, _ok_response()]) as MockClient:
+        with pytest.raises((httpx.TimeoutException, httpx.HTTPStatusError)):
+            await external.normalize(_RAW)
+    assert MockClient.return_value.post.await_count == 1
+    no_sleep.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("failure", "reason"),
+    [
+        (httpx.ConnectError("refused"), "unavailable"),
+        (httpx.ReadTimeout("slow"), "unavailable"),
+        (_status_response(500), "unavailable"),
+        (_status_response(503), "unavailable"),
+        (_status_response(401), "unavailable"),
+        (RuntimeError("address-validator rate limit: exhausted 3 retries"), "unavailable"),
+        (_status_response(400), "rejected"),
+        (_status_response(422), "rejected"),
+    ],
+    ids=["connect", "timeout", "500", "503", "401", "429-exhausted", "400", "422"],
+)
+async def test_fallback_records_reason(config, no_sleep, failure, reason):
+    """The reason is structured, so callers need not parse the warning string."""
+    n = FallbackAddressNormalizer(config)
+    # A list side_effect returns Responses and raises exceptions, one per attempt.
+    with mock_http_client(side_effect=[failure] * 3):
+        r = await n.normalize(_RAW)
+    assert r.validation_detail["provider"] == "usaddress"
+    assert r.validation_detail["fallback"] == reason
+    assert r.value["standardized"] is None
+
+
+async def test_fallback_logs_warning_without_the_address(config, no_sleep, caplog):
+    n = FallbackAddressNormalizer(config)
+    with mock_http_client(side_effect=[_status_response(503)] * 3):
+        with caplog.at_level("WARNING", logger="src.core.normalizers.address"):
+            await n.normalize(_RAW)
+    records = [r for r in caplog.records if r.name == "src.core.normalizers.address"]
+    assert len(records) == 1
+    msg = records[0].getMessage()
+    assert records[0].levelname == "WARNING"
+    assert "unavailable" in msg
+    assert "HTTPStatusError" in msg
+    assert "503" in msg
+    assert "Main St" not in msg
+    assert "98101" not in msg
+
+
+async def test_local_only_normalizer_records_no_fallback():
+    """No API key configured is a deliberate local run, not a degraded one."""
+    r = await FallbackAddressNormalizer(config=None).normalize(_RAW)
+    assert "fallback" not in r.validation_detail
 
 
 async def test_external_standardize_captures_components(external):
