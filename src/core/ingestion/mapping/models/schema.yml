@@ -26,7 +26,8 @@ models:
       - name: resolution
         tests:
           - accepted_values:
-              values: [live, archived, merged, deleted_no_successor, missing, cycle]
+              arguments:
+                values: [live, archived, merged, deleted_no_successor, missing, cycle]
 
   - name: stg_pm__curation_overlay
     description: The overlay's vocabulary is enforced per entity type by tests/overlay_field_unmapped.sql (CR 15) — a row naming a field no model maps for its type is warned by name and applied nowhere (CR 26). entity_type mirrors the table's CHECK.
@@ -34,7 +35,8 @@ models:
       - name: entity_type
         tests:
           - accepted_values:
-              values: [person, organization, role, assignment]
+              arguments:
+                values: [person, organization, role, assignment]
 
   - name: int_person_identity
     columns:
@@ -57,14 +59,16 @@ models:
         tests:
           - not_null
           - relationships:
-              to: ref('desired_people')
-              field: producer_id
+              arguments:
+                to: ref('desired_people')
+                field: producer_id
       - name: name
         tests: [not_null]
       - name: name_type
         tests:
           - accepted_values:
-              values: [legal]
+              arguments:
+                values: [legal]
 
   - name: desired_person_merges
     columns:
@@ -90,7 +94,8 @@ models:
       - name: org_type
         tests:
           - accepted_values:
-              values: [legislature, chamber, committee, party, other]
+              arguments:
+                values: [legislature, chamber, committee, party, other]
               config:
                 severity: warn
 
@@ -118,15 +123,17 @@ models:
           - unique
           - not_null
           - relationships:
-              to: ref('desired_organizations')
-              field: producer_id
+              arguments:
+                to: ref('desired_organizations')
+                field: producer_id
       - name: parent_pm_id
         description: Every claim names an in-scope PM org — an invariant, not a warning (CR 2).
         tests:
           - not_null
           - relationships:
-              to: ref('desired_organizations')
-              field: pm_id
+              arguments:
+                to: ref('desired_organizations')
+                field: pm_id
 
   - name: desired_organization_names
     description: Keyed (producer_id, name_type) — tests/desired_organization_names_key_unique.sql (CR 28).
@@ -135,14 +142,16 @@ models:
         tests:
           - not_null
           - relationships:
-              to: ref('desired_organizations')
-              field: producer_id
+              arguments:
+                to: ref('desired_organizations')
+                field: producer_id
       - name: name
         tests: [not_null]
       - name: name_type
         tests:
           - accepted_values:
-              values: [legal]
+              arguments:
+                values: [legal]
 
   - name: desired_organization_acronyms
     columns:
@@ -151,8 +160,9 @@ models:
           - unique
           - not_null
           - relationships:
-              to: ref('desired_organizations')
-              field: producer_id
+              arguments:
+                to: ref('desired_organizations')
+                field: producer_id
       - name: acronym
         tests: [not_null]
 
@@ -174,19 +184,22 @@ models:
         tests:
           - not_null
           - relationships:
-              to: ref('desired_organizations')
-              field: producer_id
+              arguments:
+                to: ref('desired_organizations')
+                field: producer_id
       - name: pm_id
         description: Null for a create, like every mart — the key is producer_id (CR 19).
         tests:
           - unique
           - relationships:
-              to: ref('desired_organizations')
-              field: pm_id
+              arguments:
+                to: ref('desired_organizations')
+                field: pm_id
       - name: event_type
         tests:
           - accepted_values:
-              values: [dissolved]
+              arguments:
+                values: [dissolved]
       - name: event_year
         tests: [not_null]
 
@@ -236,8 +249,9 @@ models:
           - unique
           - not_null
           - relationships:
-              to: ref('desired_roles')
-              field: producer_id
+              arguments:
+                to: ref('desired_roles')
+                field: producer_id
 
   - name: desired_role_assignments
     description: One row per published span in scope (#527); keyed by span_key.
@@ -256,5 +270,6 @@ models:
           - unique
           - not_null
           - relationships:
-              to: ref('desired_role_assignments')
-              field: producer_id
+              arguments:
+                to: ref('desired_role_assignments')
+                field: producer_id

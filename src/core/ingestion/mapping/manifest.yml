@@ -10,6 +10,10 @@
 #                              applier archived restores when it returns (#527)
 #   owned_columns  the PM columns the producer asserts; everything else on the
 #                  row is PM's, column-scoped (safeguard 4)
+#   types          every column the table exports → its duckdb type (VARCHAR,
+#                  INTEGER, DATE, BOOLEAN). Declared, never inferred: duckdb
+#                  types a bare NULL INTEGER and a CSV by its data, so the build
+#                  is held to this from an empty store and a populated one (#569)
 #   owned_event_types  events only: retraction-as-absence reaches these types
 #                  and no others — 315 org events in PM have no producer column
 #   overlay        the curation_overlay field that pins the owned value (#498):
@@ -61,6 +65,9 @@ tables:
     pm_key: pm_id
     retraction: report
     owned_columns: []          # usa-wa fills no column on people
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
     target:
       shape: entity
       table: people
@@ -70,6 +77,11 @@ tables:
     pm_key: pm_id
     retraction: none           # PM keeps every other name; 3,121 rows for 3,118 people
     owned_columns: [name]
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
+      name: VARCHAR
+      name_type: VARCHAR
     overlay: name
     target:
       shape: child
@@ -87,6 +99,11 @@ tables:
     pm_key: loser_pm_id
     retraction: none           # gap E: a re-point instruction, not a row to diff
     owned_columns: [survivor_pm_id]   # null = survivor out of scope (unanchored, a create, archived): report, never act
+    types:
+      loser_producer_id: VARCHAR
+      loser_pm_id: VARCHAR
+      survivor_producer_id: VARCHAR
+      survivor_pm_id: VARCHAR
     target:
       shape: merge
       table: people            # where the loser and survivor are checked live and unarchived
@@ -97,6 +114,9 @@ tables:
     pm_key: pm_id
     retraction: report
     owned_columns: []
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
     target:
       shape: entity
       table: organizations
@@ -106,6 +126,10 @@ tables:
     pm_key: pm_id
     retraction: none           # an absent row is silence, not a null parent
     owned_columns: [parent_pm_id]
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
+      parent_pm_id: VARCHAR
     overlay: parent_id
     target:
       shape: column
@@ -117,6 +141,11 @@ tables:
     pm_key: pm_id
     retraction: none           # 310 legal + 13 former rows stay PM's
     owned_columns: [name]
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
+      name: VARCHAR
+      name_type: VARCHAR
     overlay: legal_name
     target:
       shape: child
@@ -133,6 +162,10 @@ tables:
     pm_key: pm_id
     retraction: none           # 240 acronym rows on 219 orgs; the producer has 186
     owned_columns: [acronym]
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
+      acronym: VARCHAR
     overlay: acronym
     target:
       shape: child
@@ -147,6 +180,11 @@ tables:
     pm_key: loser_pm_id
     retraction: none
     owned_columns: [survivor_pm_id]   # null = survivor out of scope (unanchored, a create, archived): report, never act
+    types:
+      loser_producer_id: VARCHAR
+      loser_pm_id: VARCHAR
+      survivor_producer_id: VARCHAR
+      survivor_pm_id: VARCHAR
     target:
       shape: merge             # no primitive: report-only until #520 binds the org merge
   desired_entity_events:
@@ -156,6 +194,12 @@ tables:
     retraction: report
     owned_event_types: [dissolved]
     owned_columns: [event_year]   # month/day: PM holds finer precision on 5 of 152
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
+      entity_type: VARCHAR
+      event_type: VARCHAR
+      event_year: INTEGER
     overlay: dissolved_year
     target:
       shape: child
@@ -175,6 +219,12 @@ tables:
     pm_key: pm_id
     retraction: archive          # #527: absent spans archive; the applier's own restore
     owned_columns: []            # the dates are desired_role_assignment_dates'
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
+      person_producer_id: VARCHAR
+      role_producer_id: VARCHAR
+      start_date: DATE
     target:
       shape: entity
       table: role_assignments
@@ -192,6 +242,12 @@ tables:
     pm_key: pm_id
     retraction: none
     owned_columns: [start_date, end_date, is_current]
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
+      start_date: DATE
+      end_date: DATE
+      is_current: BOOLEAN
     overlay: {start_date: start_date, end_date: end_date, is_current: is_current}
     target:
       shape: column
@@ -204,6 +260,14 @@ tables:
     pm_key: pm_id
     retraction: archive          # #529: absent roles archive, unless PM rows depend on them
     owned_columns: []            # the title is desired_role_titles'
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
+      org_producer_id: VARCHAR
+      role_type: VARCHAR
+      jurisdiction_slug: VARCHAR
+      qualifier: VARCHAR
+      title: VARCHAR
     target:
       shape: entity
       table: roles
@@ -227,6 +291,10 @@ tables:
     pm_key: pm_id
     retraction: none
     owned_columns: [title]
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
+      title: VARCHAR
     overlay: title
     target:
       shape: column

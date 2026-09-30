@@ -174,10 +174,24 @@ class Built:
         finally:
             con.close()
 
+    def types(self) -> dict[str, dict[str, str]]:
+        """Every built model's column → duckdb type, keyed by model name (#569)."""
+        con = duckdb.connect(str(self.duckdb_path), read_only=True)
+        try:
+            rows = con.execute(
+                "SELECT table_name, column_name, data_type FROM information_schema.columns"
+            ).fetchall()
+        finally:
+            con.close()
+        types: dict[str, dict[str, str]] = {}
+        for table, column, data_type in rows:
+            types.setdefault(table, {})[column] = data_type
+        return types
+
 
 @pytest.fixture(scope="session")
 def _build_cache(tmp_path_factory):
-    """One build per distinct (crosswalk, overlay, select) for the whole session.
+    """One build per distinct (crosswalk, overlay, role_types, select) for the whole session.
 
     A full `dbt build` is ~2.5s and most tests build the identical default
     project; unshared, the tier took the unit gate from 12s to 93s (CR 6).
@@ -189,6 +203,7 @@ def _build_cache(tmp_path_factory):
         *,
         crosswalk: Sequence[tuple] = DEFAULT_CROSSWALK,
         overlay: Sequence[tuple] = DEFAULT_OVERLAY,
+        role_types: Sequence[tuple] = DEFAULT_ROLE_TYPES,
         datasets: Mapping[str, str] | None = None,
         select: str | None = None,
         must_succeed: bool = True,
@@ -196,7 +211,7 @@ def _build_cache(tmp_path_factory):
         """``datasets`` replaces a usa-wa dataset's CSV (see `fixture_csv`); ``must_succeed=False``
         returns a failed build for a test that asserts *what* failed."""
         edits = tuple(sorted((datasets or {}).items()))
-        key = (tuple(crosswalk), tuple(overlay), edits, select, must_succeed)
+        key = (tuple(crosswalk), tuple(overlay), tuple(role_types), edits, select, must_succeed)
         if key in cache:
             return cache[key]
         root = tmp_path_factory.mktemp("mapping") / "store"
@@ -206,7 +221,7 @@ def _build_cache(tmp_path_factory):
         pm = root / PM_EXPORT_DIR
         write_parquet(crosswalk, TABLES["producer_crosswalk"], pm / "producer_crosswalk.parquet")
         write_parquet(overlay, TABLES["curation_overlay"], pm / "curation_overlay.parquet")
-        write_parquet(DEFAULT_ROLE_TYPES, TABLES["role_types"], pm / "role_types.parquet")
+        write_parquet(role_types, TABLES["role_types"], pm / "role_types.parquet")
         db = root.parent / "mapping.duckdb"
         # `--indirect-selection cautious`: a partial build runs a singular test only
         # when every model it reads was selected, so a test of another family does
