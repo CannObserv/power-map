@@ -9,8 +9,12 @@ from fastapi.templating import Jinja2Templates
 from src.api.admin._addresses_shared import (
     AddressEchoParams,
     ConfirmPersist,
+    NothingToConfirm,
+    fallback_notice,
     field_context,
     parse_validity,
+    saved_flash_body,
+    saved_flash_key,
 )
 from src.api.admin.deps import (
     AdminUser,
@@ -84,7 +88,8 @@ async def _maybe_confirm(
 ):
     """Call normalizer; decide the confirm-step outcome.
 
-    Returns ``None`` when there's nothing to confirm (no standardized result), a
+    Returns ``NothingToConfirm`` when there's no standardized result (its ``notice``
+    set if the normalizer fell back, #589), a
     confirm-modal ``TemplateResponse`` for an HTMX client, or a ``ConfirmPersist``
     marker for a non-HTMX client so the route persists directly (#280).
     """
@@ -102,7 +107,7 @@ async def _maybe_confirm(
     )
     result = await _NORMALIZER.normalize(raw, country=country)
     if not (result.value and result.value.get("standardized")):
-        return None
+        return NothingToConfirm(fallback_notice(result))
     validation_status = None
     validation_provider = None
     if result.validation_detail:
@@ -291,6 +296,7 @@ async def address_create(
             },
         )
     persist: ConfirmPersist | None = None
+    notice: str | None = None
     if mode == "confirm":
         confirm = await _maybe_confirm(
             request,
@@ -309,7 +315,9 @@ async def address_create(
         )
         if isinstance(confirm, ConfirmPersist):
             persist = confirm  # non-HTMX: persist normalized values directly (#280)
-        elif confirm is not None:
+        elif isinstance(confirm, NothingToConfirm):
+            notice = confirm.notice
+        else:
             return confirm
     aid = generate_id()
     eaid = generate_id()
@@ -386,13 +394,14 @@ async def address_create(
     row = await _get_entity_address_or_404(eaid, jurisdiction_id, db)
     if not is_htmx(request):
         return RedirectResponse(
-            with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "saved"), status_code=303
+            with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", saved_flash_key(notice)),
+            status_code=303,
         )
     return templates.TemplateResponse(
         request,
         "admin/jurisdictions/partials/_address_row.html",
         {"jurisdiction_id": jurisdiction_id, "a": row},
-        headers=flash_trigger("success", "Address added."),
+        headers=flash_trigger("success", saved_flash_body("Address added.", notice)),
     )
 
 
@@ -520,6 +529,7 @@ async def address_edit_row_post(
             },
         )
     persist: ConfirmPersist | None = None
+    notice: str | None = None
     if mode == "confirm":
         confirm = await _maybe_confirm(
             request,
@@ -538,7 +548,9 @@ async def address_edit_row_post(
         )
         if isinstance(confirm, ConfirmPersist):
             persist = confirm  # non-HTMX: persist normalized values directly (#280)
-        elif confirm is not None:
+        elif isinstance(confirm, NothingToConfirm):
+            notice = confirm.notice
+        else:
             return confirm
     if persist is not None:
         (
@@ -610,13 +622,14 @@ async def address_edit_row_post(
     row = await _get_entity_address_or_404(addr_id, jurisdiction_id, db)
     if not is_htmx(request):
         return RedirectResponse(
-            with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "saved"), status_code=303
+            with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", saved_flash_key(notice)),
+            status_code=303,
         )
     return templates.TemplateResponse(
         request,
         "admin/jurisdictions/partials/_address_row.html",
         {"jurisdiction_id": jurisdiction_id, "a": row},
-        headers=flash_trigger("success", "Address saved."),
+        headers=flash_trigger("success", saved_flash_body("Address saved.", notice)),
     )
 
 

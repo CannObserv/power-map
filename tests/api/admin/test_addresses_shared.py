@@ -11,9 +11,14 @@ from src.api.admin._addresses_shared import (
     DATE_FORMAT_ERROR,
     VALIDITY_ORDER_ERROR,
     AddressEchoParams,
+    fallback_notice,
     field_context,
     parse_validity,
+    saved_flash_body,
+    saved_flash_key,
 )
+from src.api.admin.deps import SHARED_FLASH_MESSAGES
+from src.core.normalizers.base import NormalizationResult
 
 
 def test_blank_fields_are_open_ended():
@@ -104,3 +109,55 @@ def test_address_echo_params_is_frozen():
     p = AddressEchoParams(city="Olympia")
     with pytest.raises(dataclasses.FrozenInstanceError):
         p.city = "Tacoma"
+
+
+# ---------------------------------------------------------------------------
+# Fallback notice (#589)
+# ---------------------------------------------------------------------------
+
+
+def _result(detail):
+    return NormalizationResult(value={"standardized": None}, validation_detail=detail)
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected"),
+    [
+        ("unavailable", "Not standardized: the address service is unavailable."),
+        ("rejected", "Not standardized: the address service couldn't read it."),
+    ],
+)
+def test_fallback_notice_names_the_reason(reason, expected):
+    detail = {"provider": "usaddress", "status": "not_attempted", "fallback": reason}
+    assert fallback_notice(_result(detail)) == expected
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        None,
+        {"provider": "usaddress", "status": "not_attempted"},  # config=None: deliberate
+        {"provider": "google", "status": "not_found"},  # the validator answered
+        {"provider": "usaddress", "fallback": "something-new"},  # unknown reason
+    ],
+    ids=["no-detail", "local-only", "validator-answered", "unknown-reason"],
+)
+def test_fallback_notice_is_none_without_a_known_fallback(detail):
+    assert fallback_notice(_result(detail)) is None
+
+
+def test_saved_flash_body_appends_the_notice():
+    assert saved_flash_body("Address added.", None) == "Address added."
+    assert saved_flash_body("Address saved.", "Not standardized.") == (
+        "Address saved. Not standardized."
+    )
+
+
+def test_saved_flash_key_selects_a_registered_success_key():
+    """A save that happened is a success (#353); the key only changes the body."""
+    assert saved_flash_key(None) == "saved"
+    key = saved_flash_key("Not standardized.")
+    assert key == "saved_unstandardized"
+    level, body = SHARED_FLASH_MESSAGES[key]
+    assert level == "success"
+    assert "not standardized" in body.lower()

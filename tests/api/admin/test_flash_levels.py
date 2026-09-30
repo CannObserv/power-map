@@ -142,9 +142,11 @@ def _registry_levels(module: str, name: str) -> dict[str, str]:
 def test_shared_flash_messages_levels_match_taxonomy():
     """`saved`/`removed` → success, `invalid`/`exists` → warning (#353); the overlay's
     pin keys (#498) are mutations that changed state → success, save `pin_stale` and
-    `already_pinned`, rejected no-ops → warning."""
+    `already_pinned`, rejected no-ops → warning. `saved_unstandardized` (#589) is a
+    save that happened with the address stored as typed → success, caveat in the body."""
     assert _registry_levels("deps.py", "SHARED_FLASH_MESSAGES") == {
         "saved": "success",
+        "saved_unstandardized": "success",
         "removed": "success",
         "invalid": "warning",
         "exists": "warning",

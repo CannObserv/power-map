@@ -107,6 +107,8 @@ def flash_trigger(level: str, body: str, extra: dict | None = None) -> dict[str,
 # So `removed` flashes `success` (was `info` pre-#353) — a delete is a successful
 # mutation, matching the Danger Zone `deleted` precedent. Keys:
 #   saved   — a create or edit succeeded
+#   saved_unstandardized — an address create/edit succeeded, but the address
+#             normalizer fell back, so it was stored as typed (#589)
 #   removed — a delete/unlink succeeded
 #   invalid — a create/edit was rejected for bad input (nothing changed)
 #   exists  — a create/edit hit a uniqueness conflict (nothing changed)
@@ -117,6 +119,10 @@ def flash_trigger(level: str, body: str, extra: dict | None = None) -> dict[str,
 #   already_pinned — a Pin on a slot pinned since the page loaded (nothing changed)
 SHARED_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "saved": ("success", "Saved."),
+    "saved_unstandardized": (
+        "success",
+        "Saved, but not standardized: the address service couldn't process it.",
+    ),
     "removed": ("success", "Removed."),
     "invalid": ("warning", "Couldn't save — check your input."),
     "exists": ("warning", "That already exists."),

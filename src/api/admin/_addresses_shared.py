@@ -4,9 +4,16 @@ from dataclasses import dataclass
 from datetime import date
 
 from src.core.normalizers.address_meta import get_country_format
+from src.core.normalizers.base import NormalizationResult
 
 DATE_FORMAT_ERROR = "Dates must be YYYY-MM-DD."
 VALIDITY_ORDER_ERROR = "Valid from must be on or before valid until."
+
+# FallbackAddressNormalizer's validation_detail["fallback"] → flash-body suffix (#589).
+_FALLBACK_NOTICES = {
+    "unavailable": "Not standardized: the address service is unavailable.",
+    "rejected": "Not standardized: the address service couldn't read it.",
+}
 
 
 @dataclass(frozen=True)
@@ -80,6 +87,40 @@ class ConfirmPersist:
             self.longitude,
             self.components,
         )
+
+
+@dataclass(frozen=True)
+class NothingToConfirm:
+    """Signal from ``_maybe_confirm``: no standardized form, so save as submitted.
+
+    ``notice`` is set when that is because the normalizer fell back to the local
+    parser (#589), so the save's flash can say the address went in unstandardized.
+    """
+
+    notice: str | None = None
+
+
+def fallback_notice(result: NormalizationResult) -> str | None:
+    """Curator-facing sentence for a normalizer fallback, or None if none happened.
+
+    A config-less (local-only) run and a validator that answered without a
+    standardized form both carry no ``fallback`` marker, so neither gets a notice.
+    """
+    detail = result.validation_detail or {}
+    return _FALLBACK_NOTICES.get(detail.get("fallback"))
+
+
+def saved_flash_body(done: str, notice: str | None) -> str:
+    """HX-Trigger flash body for a create/edit: ``done``, plus the fallback notice."""
+    return f"{done} {notice}" if notice else done
+
+
+def saved_flash_key(notice: str | None) -> str:
+    """Non-HTMX ``with_flash`` key for a create/edit: ``saved`` or its unstandardized twin.
+
+    The static ``?flash=`` key can't carry the reason, so both reasons share one key.
+    """
+    return "saved_unstandardized" if notice else "saved"
 
 
 @dataclass(frozen=True)
