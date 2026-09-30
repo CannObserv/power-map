@@ -178,7 +178,7 @@ class TableSpec:
     target: Target
     # #569: every exported column → its duckdb type (`TYPES`). Declared, because
     # duckdb types a bare NULL as INTEGER and the applier would never know.
-    types: dict[str, str] = field(default_factory=dict)
+    types: dict[str, str]
     owned_event_types: list[str] = field(default_factory=list)
     # #498: the curation_overlay field that pins each owned column — the pair is
     # (entity, field). Required where a value is owned (column, child). Written

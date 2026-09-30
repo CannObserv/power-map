@@ -6,6 +6,8 @@ one of four shapes the applier interprets and nothing else. The loader is
 typed so a binding missing what its shape needs fails at load, not at 09:30.
 """
 
+import dataclasses
+
 import pytest
 import yaml
 
@@ -23,6 +25,7 @@ from src.core.ingestion.mapping.manifest import (  # noqa: E402
     Index,
     Lookup,
     ManifestError,
+    TableSpec,
     parse_manifest,
 )
 from src.core.ingestion.mapping.parquet import read_rows  # noqa: E402
@@ -238,6 +241,14 @@ def test_each_table_types_its_key_and_owned_columns(table):
 
     assert set(spec.key) | set(spec.owned_columns) <= set(spec.types)
     assert set(spec.types.values()) <= set(TYPES)
+
+
+def test_types_is_a_required_field_not_an_empty_default():
+    """CR 2: a spec built outside the loader must not declare no types by omission."""
+    types = {f.name: f for f in dataclasses.fields(TableSpec)}["types"]
+
+    assert types.default is dataclasses.MISSING
+    assert types.default_factory is dataclasses.MISSING
 
 
 @pytest.mark.parametrize(
