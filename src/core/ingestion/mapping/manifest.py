@@ -2,8 +2,9 @@
 
 `manifest.yml` is the contract between the mapping models and the applier:
 per desired-state table, what the producer claims (`key`, `retraction`,
-`owned_columns`, `owned_event_types`) and — v2 — how a row binds to a PM table
-(`target`). The applier interprets four binding shapes and nothing else:
+`owned_columns`, `owned_event_types`), the type of every column it exports
+(`types`, #569) and — v2 — how a row binds to a PM table (`target`). The
+applier interprets four binding shapes and nothing else:
 
     entity   a row in an entity table (people, organizations, role_assignments):
              identity, create, and retraction — reported, or (#527) archived,
@@ -34,6 +35,7 @@ __all__ = [
     "OVERLAY_SHAPES",
     "RETRACTIONS",
     "SHAPES",
+    "TYPES",
     "Identity",
     "Index",
     "Lookup",
@@ -50,6 +52,9 @@ MANIFEST_PATH = Path(__file__).resolve().parent / "manifest.yml"
 SHAPES = ("entity", "column", "child", "merge")
 MATCHES = ("any_then_canonical", "key")
 RETRACTIONS = ("none", "report", "archive")
+# The duckdb types a desired-state column may carry (#569): the marts' declared
+# output, which the build is held to from an empty store as well as a full one.
+TYPES = ("VARCHAR", "INTEGER", "DATE", "BOOLEAN")
 # The merge primitives a `merge` binding may name — each is a core merge function
 # the applier's registry (`applier_merge.MERGE_PRIMITIVES`) knows how to call.
 MERGE_PRIMITIVES = ("person",)
@@ -171,6 +176,9 @@ class TableSpec:
     retraction: str
     owned_columns: list[str]
     target: Target
+    # #569: every exported column → its duckdb type (`TYPES`). Declared, because
+    # duckdb infers an all-NULL column as INTEGER and the applier would never know.
+    types: dict[str, str] = field(default_factory=dict)
     owned_event_types: list[str] = field(default_factory=list)
     # #498: the curation_overlay field that pins each owned column — the pair is
     # (entity, field). Required where a value is owned (column, child). Written
@@ -366,6 +374,20 @@ def _target(name: str, raw: object) -> Target:
     return target
 
 
+def _types(name: str, raw: object, required: list[str]) -> dict[str, str]:
+    """A table's column → type map: every type in `TYPES`, every key and owned column typed."""
+    if not isinstance(raw, dict) or not raw:
+        raise ManifestError(f"{name}: types must map each column to its duckdb type")
+    types = {str(col): str(typ) for col, typ in raw.items()}
+    for col, typ in types.items():
+        if typ not in TYPES:
+            raise ManifestError(f"{name}: {col} has type {typ!r}, not one of {', '.join(TYPES)}")
+    for col in required:
+        if col not in types:
+            raise ManifestError(f"{name}: key/owned column {col} has no declared type")
+    return types
+
+
 def _table(name: str, raw: object) -> TableSpec:
     if not isinstance(raw, dict):
         raise ManifestError(f"{name}: a mapping is required")
@@ -391,6 +413,7 @@ def _table(name: str, raw: object) -> TableSpec:
                 " against the partial index it could collide on (#424)"
             )
     owned = list(_require(raw, "owned_columns", name))
+    types = _types(name, _require(raw, "types", name), [*key, *owned])
     overlay = raw.get("overlay")
     if target.shape in OVERLAY_SHAPES and not overlay:
         raise ManifestError(
@@ -419,6 +442,7 @@ def _table(name: str, raw: object) -> TableSpec:
         owned_columns=owned,
         owned_event_types=list(raw.get("owned_event_types") or []),
         target=target,
+        types=types,
         overlays=overlays,
     )
 

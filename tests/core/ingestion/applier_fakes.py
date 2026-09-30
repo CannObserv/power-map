@@ -255,6 +255,13 @@ ASSIGNMENT_TABLES: dict[str, dict] = {
         "pm_key": "pm_id",
         "retraction": "archive",
         "owned_columns": [],
+        "types": {
+            "producer_id": "VARCHAR",
+            "pm_id": "VARCHAR",
+            "person_producer_id": "VARCHAR",
+            "role_producer_id": "VARCHAR",
+            "start_date": "DATE",
+        },
         "target": {
             "shape": "entity",
             "table": "role_assignments",
@@ -276,6 +283,13 @@ ASSIGNMENT_TABLES: dict[str, dict] = {
         "pm_key": "pm_id",
         "retraction": "none",
         "owned_columns": ["start_date", "end_date", "is_current"],
+        "types": {
+            "producer_id": "VARCHAR",
+            "pm_id": "VARCHAR",
+            "start_date": "DATE",
+            "end_date": "DATE",
+            "is_current": "BOOLEAN",
+        },
         "overlay": {"start_date": "start_date", "end_date": "end_date", "is_current": "is_current"},
         "target": {
             "shape": "column",
@@ -298,6 +312,15 @@ ROLE_TABLES: dict[str, dict] = {
         "pm_key": "pm_id",
         "retraction": "archive",
         "owned_columns": [],
+        "types": {
+            "producer_id": "VARCHAR",
+            "pm_id": "VARCHAR",
+            "org_producer_id": "VARCHAR",
+            "role_type": "VARCHAR",
+            "jurisdiction_slug": "VARCHAR",
+            "qualifier": "VARCHAR",
+            "title": "VARCHAR",
+        },
         "target": {
             "shape": "entity",
             "table": "roles",
@@ -334,6 +357,11 @@ ROLE_TABLES: dict[str, dict] = {
         "pm_key": "pm_id",
         "retraction": "none",
         "owned_columns": ["title"],
+        "types": {
+            "producer_id": "VARCHAR",
+            "pm_id": "VARCHAR",
+            "title": "VARCHAR",
+        },
         "overlay": "title",
         "target": {"shape": "column", "table": "roles", "columns": {"title": "title"}},
     },

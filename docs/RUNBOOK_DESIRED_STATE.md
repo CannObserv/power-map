@@ -49,6 +49,11 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   policy (`none` / `report` / `archive`), owned columns, and for events the
   owned types. `desired_entity_events` owns `dissolved` only; the 315 other org
   events in PM have no producer column and are never diffed.
+- **Output types are declared, never inferred (#569).** Each table's `types`
+  in `manifest.yml` names every exported column's duckdb type. duckdb types an
+  all-NULL column `INTEGER`, which the applier would read as `None` and never
+  notice. `test_output_types.py` holds the build to the manifest from an
+  empty store and a populated one. A new or changed mart column updates `types`.
 - **Persons:** identity plus one legal name; pronouns, notes and every non-legal
   name stay PM's. **Organizations:** identity, legal name
   (`coalesce(long_name, name)` — no dba), acronym, a row-scoped parent claim

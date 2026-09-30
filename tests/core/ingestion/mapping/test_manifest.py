@@ -19,6 +19,7 @@ from src.core.ingestion.mapping import (  # noqa: E402
 from src.core.ingestion.mapping.manifest import (  # noqa: E402
     MANIFEST_PATH,
     SHAPES,
+    TYPES,
     Index,
     Lookup,
     ManifestError,
@@ -224,6 +225,36 @@ def test_a_table_without_a_target_fails_at_load():
     raw["tables"]["desired_people"].pop("target")
 
     with pytest.raises(ManifestError, match="target"):
+        parse_manifest(raw)
+
+
+# --- output types (#569) ------------------------------------------------------
+
+
+@pytest.mark.parametrize("table", MARTS)
+def test_each_table_types_its_key_and_owned_columns(table):
+    """The applier's side of the type contract; test_output_types.py holds the build to it."""
+    spec = load_manifest().tables[table]
+
+    assert set(spec.key) | set(spec.owned_columns) <= set(spec.types)
+    assert set(spec.types.values()) <= set(TYPES)
+
+
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        (lambda t: t.pop("types"), "types is required"),
+        (lambda t: t["types"].__setitem__("name", "BLOB"), "BLOB"),
+        (lambda t: t["types"].pop("name"), "name"),
+        (lambda t: t["types"].pop("producer_id"), "producer_id"),
+    ],
+    ids=["no types", "type outside the vocabulary", "owned column untyped", "key column untyped"],
+)
+def test_a_table_whose_types_do_not_cover_it_fails_at_load(edit, message):
+    raw = _raw()
+    edit(raw["tables"]["desired_person_names"])
+
+    with pytest.raises(ManifestError, match=message):
         parse_manifest(raw)
 
 
