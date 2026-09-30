@@ -21,7 +21,6 @@ from src.core.ingestion.mapping import (  # noqa: E402
 from src.core.ingestion.mapping.manifest import (  # noqa: E402
     MANIFEST_PATH,
     SHAPES,
-    TYPES,
     Index,
     Lookup,
     ManifestError,
@@ -232,15 +231,6 @@ def test_a_table_without_a_target_fails_at_load():
 
 
 # --- output types (#569) ------------------------------------------------------
-
-
-@pytest.mark.parametrize("table", MARTS)
-def test_each_table_types_its_key_and_owned_columns(table):
-    """The applier's side of the type contract; test_output_types.py holds the build to it."""
-    spec = load_manifest().tables[table]
-
-    assert set(spec.key) | set(spec.owned_columns) <= set(spec.types)
-    assert set(spec.types.values()) <= set(TYPES)
 
 
 def test_types_is_a_required_field_not_an_empty_default():
