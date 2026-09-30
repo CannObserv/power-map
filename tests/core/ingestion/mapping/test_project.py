@@ -28,6 +28,17 @@ def test_the_project_parses_with_no_snapshot_present(tmp_path):
     assert (PROJECT_DIR / "dbt_project.yml").exists()
 
 
+def test_the_project_parses_without_a_single_warning(tmp_path):
+    """#569: a deprecation is a warning today and a parse error on the next dbt major.
+
+    `--warn-error` turns every parse-time warning into the failure it will become,
+    so a schema.yml written the old way fails here, not at the next upgrade.
+    """
+    result = run_dbt(["parse", "--warn-error"], snapshot_root=tmp_path, duckdb_path=":memory:")
+
+    assert result.success, result.exception
+
+
 def test_every_registered_source_is_declared_and_vice_versa(tmp_path):
     """`USA_WA_SOURCES` / `PM_SOURCES` and models/sources.yml must name the same tables.
 
