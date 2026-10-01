@@ -1,6 +1,8 @@
 """Tests for address normalizers."""
 
 import os
+from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -12,6 +14,7 @@ from src.core.normalizers.address import (
     ExternalAddressNormalizer,
     FallbackAddressNormalizer,
     LocalAddressNormalizer,
+    RateLimitedError,
     _reset_normalizer,
     get_address_normalizer,
 )
@@ -123,15 +126,6 @@ async def test_external_validate_endpoint_used_when_configured(external_validate
     called_url = MockClient.return_value.post.call_args[0][0]
     assert "/validate" in called_url
     assert r.confidence_hint == "confirmed"
-
-
-async def test_external_429_retries_then_raises(external):
-    mock_response = MagicMock()
-    mock_response.status_code = 429
-    mock_response.headers = {"Retry-After": "0"}  # 0s for fast tests
-    with mock_http_client(mock_response):
-        with pytest.raises(RuntimeError, match="rate limit"):
-            await external.normalize("123 Main St, Seattle WA 98101")
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +326,135 @@ async def test_fallback_logs_unsupported_country_at_info(config, caplog):
     records = [r for r in caplog.records if r.name == "src.core.normalizers.address"]
     assert [r.levelname for r in records] == ["INFO"]
     assert "unsupported" in records[0].getMessage()
+
+
+# ---------------------------------------------------------------------------
+# 429 Retry-After: per-caller cap, header parsing (#597)
+# ---------------------------------------------------------------------------
+
+
+def _too_many(retry_after: str | None = None) -> httpx.Response:
+    """address-validator's 429: every upstream provider is exhausted."""
+    headers = {} if retry_after is None else {"Retry-After": retry_after}
+    return httpx.Response(429, headers=headers, request=httpx.Request("POST", _URL))
+
+
+def _http_date(when: datetime) -> str:
+    """An RFC 9110 HTTP-date, e.g. ``Wed, 21 Oct 2026 07:28:00 GMT``."""
+    return format_datetime(when, usegmt=True)
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "wait"),
+    [
+        ("0", 0.0),
+        ("1", 1.0),
+        ("1.5", 1.5),
+        (None, 1.0),
+        ("soon", 1.0),
+        ("-5", 1.0),
+        ("nan", 1.0),
+        ("inf", 1.0),
+        (_http_date(datetime(2000, 1, 1, tzinfo=UTC)), 0.0),
+        # RFC 9110's obsolete forms, which a recipient must still accept;
+        # asctime carries no zone, so it parses to a naive datetime.
+        ("Sunday, 06-Nov-94 08:49:37 GMT", 0.0),
+        ("Sun Nov  6 08:49:37 1994", 0.0),
+    ],
+    ids=[
+        "zero",
+        "integer",
+        "fraction",
+        "missing",
+        "garbage",
+        "negative",
+        "nan",
+        "inf",
+        "past-date",
+        "past-rfc850-date",
+        "past-asctime-date",
+    ],
+)
+async def test_external_429_waits_retry_after_then_succeeds(external, no_sleep, retry_after, wait):
+    """An unreadable header waits the 1 s default instead of sending the call to the fallback."""
+    with mock_http_client(side_effect=[_too_many(retry_after), _ok_response()]) as MockClient:
+        r = await external.normalize(_RAW)
+    assert r.value["standardized"] == "123 MAIN ST SEATTLE WA 98101"
+    assert MockClient.return_value.post.await_count == 2
+    no_sleep.assert_awaited_once_with(wait)
+
+
+async def test_external_429_honours_a_future_http_date(no_sleep):
+    """RFC 9110 lets Retry-After be a date; it is waited out, not misread as garbage."""
+    external = ExternalAddressNormalizer(
+        AddressNormalizerConfig(api_key="test-key", retry_after_cap=120.0)
+    )
+    retry_at = _http_date(datetime.now(UTC) + timedelta(seconds=60))
+    with mock_http_client(side_effect=[_too_many(retry_at), _ok_response()]):
+        await external.normalize(_RAW)
+    (wait,) = no_sleep.await_args.args
+    assert 55.0 < wait <= 60.0
+
+
+@pytest.mark.parametrize(
+    "retry_after",
+    ["30", _http_date(datetime(2099, 1, 1, tzinfo=UTC))],
+    ids=["seconds", "http-date"],
+)
+async def test_external_429_over_the_cap_gives_up_without_waiting(external, no_sleep, retry_after):
+    """The admin form blocks on this call: a long wait falls back now, not after 3x it."""
+    with mock_http_client(side_effect=[_too_many(retry_after), _ok_response()]) as MockClient:
+        with pytest.raises(RateLimitedError, match="exceeds the 2s cap"):
+            await external.normalize(_RAW)
+    assert MockClient.return_value.post.await_count == 1
+    no_sleep.assert_not_awaited()
+
+
+def test_retry_after_cap_defaults_short_for_interactive_callers():
+    """Admin saves and public-API writes share the default; each wait stays under 2 s."""
+    assert AddressNormalizerConfig(api_key="k").retry_after_cap == 2.0
+
+
+async def test_external_429_cap_is_set_per_caller(no_sleep):
+    """A bulk caller raises the cap and waits out the server's Retry-After."""
+    external = ExternalAddressNormalizer(
+        AddressNormalizerConfig(api_key="test-key", retry_after_cap=60.0)
+    )
+    with mock_http_client(side_effect=[_too_many("30"), _ok_response()]) as MockClient:
+        r = await external.normalize(_RAW)
+    assert r.value["standardized"] == "123 MAIN ST SEATTLE WA 98101"
+    assert MockClient.return_value.post.await_count == 2
+    no_sleep.assert_awaited_once_with(30.0)
+
+
+async def test_external_429_exhausts_max_retries_within_the_cap(external, no_sleep):
+    """Waits under the cap still stop after max_retries (3), then the fallback takes over."""
+    with mock_http_client(side_effect=[_too_many("1")] * 4) as MockClient:
+        with pytest.raises(RateLimitedError, match="exhausted 3 retries"):
+            await external.normalize(_RAW)
+    assert MockClient.return_value.post.await_count == 4
+    assert [c.args[0] for c in no_sleep.await_args_list] == [1.0, 1.0, 1.0]
+
+
+async def test_fallback_429_over_the_cap_records_unavailable(config, no_sleep):
+    """A rate-limited save is worth re-standardizing later (#595): reason unavailable."""
+    n = FallbackAddressNormalizer(config)
+    with mock_http_client(side_effect=[_too_many("30"), _ok_response()]):
+        r = await n.normalize(_RAW)
+    assert r.validation_detail["fallback"] == "unavailable"
+    assert r.value["standardized"] is None
+    assert "exceeds the 2s cap" in r.warnings[0]
+    no_sleep.assert_not_awaited()
+
+
+async def test_fallback_logs_a_429_give_up_by_name(config, no_sleep, caplog):
+    """A rate-limit give-up is named in the WARNING, not logged as a bare RuntimeError."""
+    n = FallbackAddressNormalizer(config)
+    with mock_http_client(side_effect=[_too_many("30")]):
+        with caplog.at_level("WARNING", logger="src.core.normalizers.address"):
+            await n.normalize(_RAW)
+    (record,) = [r for r in caplog.records if r.name == "src.core.normalizers.address"]
+    assert "RateLimitedError" in record.getMessage()
 
 
 async def test_local_only_normalizer_records_no_fallback():
@@ -592,6 +715,13 @@ def test_get_address_normalizer_with_api_key_sets_config():
     assert n.config is not None
     assert n.config.api_key == "test-key-123"
     assert n.config.run_validation is False
+
+
+def test_get_address_normalizer_keeps_the_interactive_retry_after_cap():
+    """The admin form and public-API writes share this instance: each 429 wait stays short."""
+    with patch.dict("os.environ", {"ADDRESS_VALIDATOR_API_KEY": "test-key-123"}, clear=False):
+        n = get_address_normalizer()
+    assert n.config.retry_after_cap == 2.0
 
 
 def test_get_address_normalizer_honors_base_url_env_and_strips_slash():

@@ -2,8 +2,11 @@
 
 import asyncio
 import logging
+import math
 import os
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 import httpx
 import usaddress
@@ -23,6 +26,15 @@ _REQUEST_TIMEOUT = httpx.Timeout(5.0, connect=2.0)
 # so is 500 (address-validator#239 turns its warm-up 500 into a 503).
 _TRANSIENT_ERRORS = (httpx.ConnectError, httpx.RemoteProtocolError)
 _TRANSIENT_STATUSES = frozenset({502, 503, 504})
+
+# address-validator answers 429 only once every upstream provider is exhausted, with an
+# integer Retry-After of 0-1 s in practice; nothing limits per API key. The default cap
+# is for the shared normalizer, which the admin form and public-API writes block on; a
+# longer Retry-After falls back at once rather than retry early into another 429 (#597).
+_DEFAULT_RETRY_AFTER_CAP = 2.0
+
+# The wait for a 429 whose Retry-After is missing or unreadable.
+_DEFAULT_RETRY_AFTER = 1.0
 
 # HTTP statuses meaning the validator read the input and refused it; a later retry
 # fails the same way. Anything else that reaches the fallback is "unavailable".
@@ -45,6 +57,14 @@ _STATUS_MAP = {
 }
 
 
+class RateLimitedError(RuntimeError):
+    """address-validator's 429 outlasted the retry budget or the Retry-After cap (#597).
+
+    The fallback's WARNING logs this class name, so a rate limit is told apart from
+    any other RuntimeError; the base class keeps existing RuntimeError handling.
+    """
+
+
 @dataclass
 class AddressNormalizerConfig:
     """Configuration for the external address normalizer.
@@ -55,6 +75,9 @@ class AddressNormalizerConfig:
         run_validation: If True, call /validate (includes standardization).
                         If False, call /standardize only.
         max_retries: Max 429 retry attempts before giving up.
+        retry_after_cap: Longest Retry-After, in seconds, one 429 may wait out;
+                         a longer one gives up at once. Short by default for
+                         interactive callers; the CSV import raises it.
         transient_retries: Max retries on a connect error, dropped connection,
                            or 502/503/504 before giving up.
         transient_backoff: Seconds before the first transient retry; the
@@ -65,6 +88,7 @@ class AddressNormalizerConfig:
     base_url: str = "https://address-validator.exe.xyz:8000"
     run_validation: bool = False
     max_retries: int = 3
+    retry_after_cap: float = _DEFAULT_RETRY_AFTER_CAP
     transient_retries: int = 2
     transient_backoff: float = 0.5
 
@@ -139,11 +163,12 @@ class ExternalAddressNormalizer:
     """Calls the address-validator API to standardize or validate addresses.
 
     Endpoint selection:
-      - config.run_validation=False → POST /api/v1/standardize
-      - config.run_validation=True  → POST /api/v1/validate (includes standardization)
+      - config.run_validation=False → POST /api/v2/standardize
+      - config.run_validation=True  → POST /api/v2/validate (includes standardization)
 
-    429 handling: reads Retry-After header, sleeps, retries up to config.max_retries.
-    Raises RuntimeError if retry budget is exhausted.
+    429 handling (#597): waits out Retry-After (seconds or an HTTP-date) and retries
+    up to config.max_retries times. Raises RateLimitedError once that budget is spent,
+    or at once when Retry-After exceeds config.retry_after_cap.
 
     Transient handling (#589): a connect error, dropped connection, or 502/503/504
     is retried up to config.transient_retries times with linear backoff; the last
@@ -177,12 +202,17 @@ class ExternalAddressNormalizer:
                     continue
                 if response.status_code == 429:
                     if rate_limited >= self.config.max_retries:
-                        raise RuntimeError(
+                        raise RateLimitedError(
                             "address-validator rate limit: exhausted "
                             f"{self.config.max_retries} retries"
                         )
+                    wait = _retry_after_seconds(response.headers.get("Retry-After"))
+                    if wait > self.config.retry_after_cap:
+                        raise RateLimitedError(
+                            f"address-validator rate limit: Retry-After {wait:g}s exceeds "
+                            f"the {self.config.retry_after_cap:g}s cap"
+                        )
                     rate_limited += 1
-                    wait = float(response.headers.get("Retry-After", "1"))
                     await asyncio.sleep(wait)
                     continue
                 if (
@@ -233,6 +263,32 @@ class ExternalAddressNormalizer:
         )
 
 
+def _retry_after_seconds(header: str | None) -> float:
+    """Seconds a 429's ``Retry-After`` asks for: delay-seconds or an HTTP-date (RFC 9110).
+
+    address-validator sends integer seconds. A missing or unreadable header, or a
+    negative or non-finite number, waits the default rather than falling back (#597).
+    """
+    if header is None:
+        return _DEFAULT_RETRY_AFTER
+    try:
+        seconds = float(header)
+    except ValueError:
+        return _http_date_delay(header)
+    return seconds if math.isfinite(seconds) and seconds >= 0 else _DEFAULT_RETRY_AFTER
+
+
+def _http_date_delay(header: str) -> float:
+    """Seconds from now until the HTTP-date *header*; 0 if past, the default if unparseable."""
+    try:
+        when = parsedate_to_datetime(header)
+    except (TypeError, ValueError):
+        return _DEFAULT_RETRY_AFTER
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max(0.0, (when - datetime.now(UTC)).total_seconds())
+
+
 def _error_code(response: httpx.Response) -> str | None:
     """The ``error`` code from an address-validator ErrorResponse body, if it has one."""
     try:
@@ -246,8 +302,9 @@ def _fallback_reason(exc: Exception) -> str:
 
     ``unsupported`` — 422 ``country_not_supported``: the validator doesn't cover the
     country. ``rejected`` — any other 400/422: it refused the input. Retrying either
-    won't help. ``unavailable`` — anything else: an outage, a timeout, 5xx, 429
-    exhaustion, or a bad API key; worth re-standardizing once the service is back (#595).
+    won't help. ``unavailable`` — anything else: an outage, a timeout, 5xx, a 429 it
+    gave up on (retries spent, or Retry-After over the cap; #597), or a bad API key;
+    worth re-standardizing once the service is back (#595).
     """
     if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in _REJECTED_STATUSES:
         if _error_code(exc.response) == _UNSUPPORTED_ERROR:

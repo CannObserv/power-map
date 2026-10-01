@@ -81,3 +81,45 @@ def test_build_address_normalizer_local_only_overrides_validate_addresses(keyed_
 
 def test_build_address_normalizer_uses_the_service_when_not_local_only(keyed_normalizer):
     assert _build_address_normalizer(False, local_only=False).config is not None
+
+
+# --------------------------------------------------------------------------- #
+# 429 Retry-After cap (#597)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def shared_normalizer(monkeypatch):
+    """Pin the singleton to one instance, as prod's admin form and public API see it."""
+    shared = FallbackAddressNormalizer(
+        config=AddressNormalizerConfig(
+            api_key="k",
+            base_url="https://validator.test",
+            run_validation=True,
+            transient_retries=1,
+        )
+    )
+    monkeypatch.setattr("src.core.ingestion.pipeline.get_address_normalizer", lambda: shared)
+    return shared
+
+
+@pytest.mark.parametrize("validate_addresses", [False, True])
+def test_build_address_normalizer_waits_out_long_retry_after(shared_normalizer, validate_addresses):
+    """A bulk import honours Retry-After rather than fall back and leave rows for #595."""
+    built = _build_address_normalizer(validate_addresses)
+    assert built.config.retry_after_cap == 60.0
+
+
+def test_build_address_normalizer_leaves_the_shared_cap_alone(shared_normalizer):
+    """The admin form and public API keep the short cap; the import gets its own config."""
+    built = _build_address_normalizer(False)
+    assert built is not shared_normalizer
+    assert shared_normalizer.config.retry_after_cap == 2.0
+
+
+def test_build_address_normalizer_keeps_the_shared_settings(shared_normalizer):
+    config = _build_address_normalizer(False).config
+    assert config.api_key == "k"
+    assert config.base_url == "https://validator.test"
+    assert config.run_validation is True
+    assert config.transient_retries == 1
