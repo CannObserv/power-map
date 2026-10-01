@@ -506,6 +506,11 @@ async def _live_entity_id(conn, entity_type: str, entity_id: str) -> str | None:
 
     The liveness gate both ``resolve_entity`` branches share: the pm_* lookup
     and the external-identifier hit (#481).
+
+    Deliberately unlocked: an archive committing after this check still lets the
+    observation's writes land. ``FOR SHARE`` is not the fix — the #327 touch
+    triggers ``UPDATE`` the parent entity row, so two concurrent observations on
+    one entity would each wait on the other's share lock and deadlock.
     """
     table = _ENTITY_TABLE.get(entity_type)
     if table is None:
