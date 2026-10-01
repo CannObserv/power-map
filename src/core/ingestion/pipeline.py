@@ -5,7 +5,7 @@ import hashlib
 import json
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -18,12 +18,16 @@ from src.core.ingestion.sources.csv_person import transform_person, validate_per
 from src.core.ingestion.sources.csv_role import transform_role, validate_role
 from src.core.logging import get_logger
 from src.core.normalizers.address import (
-    AddressNormalizerConfig,
     FallbackAddressNormalizer,
     get_address_normalizer,
 )
 
 logger = get_logger(__name__)
+
+# An import is an operator's bulk run, not a blocked request: wait out
+# address-validator's Retry-After rather than fall back and leave the row
+# unstandardized for repair (#597, #595).
+_IMPORT_RETRY_AFTER_CAP = 60.0
 
 
 @dataclass
@@ -80,8 +84,9 @@ def _build_address_normalizer(
 ) -> FallbackAddressNormalizer:
     """Build address normalizer from environment.
 
-    Uses the shared get_address_normalizer() singleton as the base, but overrides
-    run_validation when validate_addresses=True or VALIDATE_ADDRESSES env var is set.
+    Copies the shared get_address_normalizer() singleton's config, never mutating it:
+    run_validation is forced on when validate_addresses=True or the VALIDATE_ADDRESSES
+    env var is set, and the 429 Retry-After cap is raised for a bulk run (#597).
     Falls back to local usaddress parsing if ADDRESS_VALIDATOR_API_KEY is absent.
 
     ``local_only`` short-circuits all of that with a config-less normalizer:
@@ -99,17 +104,13 @@ def _build_address_normalizer(
         "true",
         "yes",
     )
-    if run_validation and not normalizer.config.run_validation:
-        # Return a new instance with run_validation enabled; don't mutate the singleton.
-        return FallbackAddressNormalizer(
-            config=AddressNormalizerConfig(
-                api_key=normalizer.config.api_key,
-                run_validation=True,
-                base_url=normalizer.config.base_url,
-                max_retries=normalizer.config.max_retries,
-            )
+    return FallbackAddressNormalizer(
+        config=replace(
+            normalizer.config,
+            run_validation=run_validation or normalizer.config.run_validation,
+            retry_after_cap=_IMPORT_RETRY_AFTER_CAP,
         )
-    return normalizer
+    )
 
 
 def _file_hash(path: Path) -> str:
