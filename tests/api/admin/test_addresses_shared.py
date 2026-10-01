@@ -14,6 +14,7 @@ from src.api.admin._addresses_shared import (
     fallback_notice,
     field_context,
     parse_validity,
+    same_address,
     saved_flash_body,
     saved_flash_key,
 )
@@ -161,3 +162,35 @@ def test_saved_flash_key_selects_a_registered_success_key():
     level, body = SHARED_FLASH_MESSAGES[key]
     assert level == "success"
     assert "not standardized" in body.lower()
+
+
+_STORED = {
+    "address_line_1": "1 OLD RD",
+    "address_line_2": None,
+    "city": "OLYMPIA",
+    "region": "WA",
+    "postal_code": "98501",
+    "country": "US",
+}
+
+
+def test_same_address_matches_identical_columns():
+    assert same_address(_STORED, "1 OLD RD", None, "OLYMPIA", "WA", "98501", "US")
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        ("2 OLD RD", None, "OLYMPIA", "WA", "98501", "US"),
+        ("1 OLD RD", "STE 4", "OLYMPIA", "WA", "98501", "US"),
+        ("1 OLD RD", None, "LACEY", "WA", "98501", "US"),
+        ("1 OLD RD", None, "OLYMPIA", "OR", "98501", "US"),
+        ("1 OLD RD", None, "OLYMPIA", "WA", "98502", "US"),
+        ("1 OLD RD", None, "OLYMPIA", "WA", "98501", "CA"),
+        ("1 Old Rd", None, "OLYMPIA", "WA", "98501", "US"),
+    ],
+    ids=["line1", "line2", "city", "region", "postal", "country", "case"],
+)
+def test_same_address_detects_any_column_change(changed):
+    """Exact match only: a case change is a change, and might standardize differently."""
+    assert not same_address(_STORED, *changed)

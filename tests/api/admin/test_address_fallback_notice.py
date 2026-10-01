@@ -6,6 +6,7 @@ than a hand-built one.
 """
 
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import httpx
@@ -29,6 +30,14 @@ FORM = {
     "city": "Seattle",
     "region": "WA",
     "postal_code": "98101",
+    "address_type": "mailing",
+}
+# The fixture's stored address, as the edit form would resubmit it untouched.
+STORED = {
+    "address_line_1": "1 Old Rd",
+    "city": "Olympia",
+    "region": "WA",
+    "postal_code": "98501",
     "address_type": "mailing",
 }
 UNAVAILABLE = "Not standardized: the address service is unavailable."
@@ -89,7 +98,7 @@ async def _insert_entity(db, entity_type: str) -> str:
 
 @pytest_asyncio.fixture(loop_scope="session", params=ENTITIES, ids=[e[0] for e in ENTITIES])
 async def entity(request, db):
-    """(base URL, existing entity_addresses id, router module) for one entity kind."""
+    """One entity kind with one stored address: base URL, ids, and router module."""
     segment, entity_type, module = request.param
     eid = await _insert_entity(db, entity_type)
     aid, eaid = generate_id(), generate_id()
@@ -106,7 +115,9 @@ async def entity(request, db):
         eid,
         aid,
     )
-    yield f"/admin/{segment}/{eid}", eaid, module
+    yield SimpleNamespace(
+        base=f"/admin/{segment}/{eid}", eid=eid, aid=aid, eaid=eaid, module=module
+    )
 
 
 def _failing_normalizer(module: str):
@@ -122,7 +133,7 @@ def _flash(r) -> dict:
 
 
 async def test_create_flashes_unavailable_notice(client, entity):
-    base, _, module = entity
+    base, module = entity.base, entity.module
     with _failing_normalizer(module), mock_http_client(side_effect=httpx.ConnectError("x")):
         r = await client.post(f"{base}/addresses/", headers=HTMX_HEADERS, data=FORM)
     assert r.status_code == 200
@@ -130,7 +141,7 @@ async def test_create_flashes_unavailable_notice(client, entity):
 
 
 async def test_create_flashes_rejected_notice(client, entity):
-    base, _, module = entity
+    base, module = entity.base, entity.module
     rejected = httpx.Response(422, request=httpx.Request("POST", "https://av.test/"))
     with _failing_normalizer(module), mock_http_client(rejected):
         r = await client.post(f"{base}/addresses/", headers=HTMX_HEADERS, data=FORM)
@@ -138,7 +149,7 @@ async def test_create_flashes_rejected_notice(client, entity):
 
 
 async def test_edit_flashes_unavailable_notice(client, entity):
-    base, eaid, module = entity
+    base, eaid, module = entity.base, entity.eaid, entity.module
     with _failing_normalizer(module), mock_http_client(side_effect=httpx.ConnectError("x")):
         r = await client.post(f"{base}/addresses/{eaid}/edit-row/", headers=HTMX_HEADERS, data=FORM)
     assert r.status_code == 200
@@ -146,7 +157,7 @@ async def test_edit_flashes_unavailable_notice(client, entity):
 
 
 async def test_create_non_htmx_redirects_with_unstandardized_key(client, entity, db):
-    base, _, module = entity
+    base, module = entity.base, entity.module
     with _failing_normalizer(module), mock_http_client(side_effect=httpx.ConnectError("x")):
         r = await client.post(f"{base}/addresses/", headers=AUTH_HEADERS, data=FORM)
     assert r.status_code == 303
@@ -159,7 +170,7 @@ async def test_create_non_htmx_redirects_with_unstandardized_key(client, entity,
 
 
 async def test_edit_non_htmx_redirects_with_unstandardized_key(client, entity):
-    base, eaid, module = entity
+    base, eaid, module = entity.base, entity.eaid, entity.module
     with _failing_normalizer(module), mock_http_client(side_effect=httpx.ConnectError("x")):
         r = await client.post(f"{base}/addresses/{eaid}/edit-row/", headers=AUTH_HEADERS, data=FORM)
     assert r.status_code == 303
@@ -168,6 +179,59 @@ async def test_edit_non_htmx_redirects_with_unstandardized_key(client, entity):
 
 async def test_keep_my_input_save_carries_no_notice(client, entity):
     """mode=save is the curator's own choice; nothing fell back."""
-    base, _, _ = entity
+    base = entity.base
     r = await client.post(f"{base}/addresses/", headers=HTMX_HEADERS, data={**FORM, "mode": "save"})
     assert _flash(r) == {"level": "success", "body": "Address added."}
+
+
+async def _standardize_stored(db, aid: str) -> None:
+    await db.execute(
+        "UPDATE addresses SET standardized='1 OLD RD OLYMPIA WA 98501', latitude=47.04,"
+        ' longitude=-122.9, components=\'{"spec": "usps-pub28"}\' WHERE id=$1',
+        aid,
+    )
+
+
+async def test_edit_unchanged_address_during_outage_keeps_stored_standardization(
+    client, entity, db
+):
+    """CR 1: a label-only edit while the validator is down must not wipe good data."""
+    await _standardize_stored(db, entity.aid)
+    with _failing_normalizer(entity.module), mock_http_client(side_effect=httpx.ConnectError("x")):
+        r = await client.post(
+            f"{entity.base}/addresses/{entity.eaid}/edit-row/",
+            headers=HTMX_HEADERS,
+            data={**STORED, "display_name": "Front office"},
+        )
+    assert r.status_code == 200
+    assert _flash(r) == {"level": "success", "body": "Address saved."}
+    row = await db.fetchrow(
+        "SELECT a.standardized, a.latitude, a.longitude, a.components, ea.display_name"
+        " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id WHERE ea.id=$1",
+        entity.eaid,
+    )
+    assert row["standardized"] == "1 OLD RD OLYMPIA WA 98501"
+    assert (row["latitude"], row["longitude"]) == (47.04, -122.9)
+    assert json.loads(row["components"]) == {"spec": "usps-pub28"}
+    assert row["display_name"] == "Front office"
+
+
+async def test_edit_unchanged_unstandardized_address_during_outage_keeps_notice(client, entity):
+    """Nothing was standardized to keep, so the notice still holds."""
+    with _failing_normalizer(entity.module), mock_http_client(side_effect=httpx.ConnectError("x")):
+        r = await client.post(
+            f"{entity.base}/addresses/{entity.eaid}/edit-row/", headers=HTMX_HEADERS, data=STORED
+        )
+    assert _flash(r) == {"level": "success", "body": f"Address saved. {UNAVAILABLE}"}
+
+
+async def test_edit_changed_address_during_outage_clears_stale_standardization(client, entity, db):
+    """A changed address can't keep the old standardized form: it describes the old one."""
+    await _standardize_stored(db, entity.aid)
+    with _failing_normalizer(entity.module), mock_http_client(side_effect=httpx.ConnectError("x")):
+        r = await client.post(
+            f"{entity.base}/addresses/{entity.eaid}/edit-row/", headers=HTMX_HEADERS, data=FORM
+        )
+    assert _flash(r)["body"] == f"Address saved. {UNAVAILABLE}"
+    std = await db.fetchval("SELECT standardized FROM addresses WHERE id=$1", entity.aid)
+    assert std is None

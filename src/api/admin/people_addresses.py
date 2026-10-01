@@ -13,6 +13,7 @@ from src.api.admin._addresses_shared import (
     fallback_notice,
     field_context,
     parse_validity,
+    same_address,
     saved_flash_body,
     saved_flash_key,
 )
@@ -575,23 +576,32 @@ async def address_edit_row_post(
         _region = region.strip() or None
         _postal = postal_code.strip() or None
         _country = country.strip() or "US"
-    await db.execute(
-        "UPDATE addresses"
-        " SET address_line_1=$1, address_line_2=$2, city=$3, region=$4, postal_code=$5,"
-        "     country=$6, standardized=$7, latitude=$8, longitude=$9, components=$10"
-        " WHERE id=$11",
-        _line_1,
-        _line_2,
-        _city,
-        _region,
-        _postal,
-        _country,
-        _standardized,
-        _latitude,
-        _longitude,
-        _comps,
-        existing["address_id"],
+    # #589 CR 1: a fallback must not wipe the stored standardized form of an address
+    # the edit didn't change (a label- or date-only edit during an outage). The
+    # UPDATE would rewrite identical lines and NULL the normalizer columns.
+    keep_stored = notice is not None and same_address(
+        existing, _line_1, _line_2, _city, _region, _postal, _country
     )
+    if keep_stored and existing["standardized"]:
+        notice = None
+    if not keep_stored:
+        await db.execute(
+            "UPDATE addresses"
+            " SET address_line_1=$1, address_line_2=$2, city=$3, region=$4, postal_code=$5,"
+            "     country=$6, standardized=$7, latitude=$8, longitude=$9, components=$10"
+            " WHERE id=$11",
+            _line_1,
+            _line_2,
+            _city,
+            _region,
+            _postal,
+            _country,
+            _standardized,
+            _latitude,
+            _longitude,
+            _comps,
+            existing["address_id"],
+        )
     await db.execute(
         "UPDATE entity_addresses"
         " SET address_type=$1, display_name=$2, valid_from=$3, valid_until=$4"

@@ -1,5 +1,6 @@
 """Shared helpers for entity address CRUD routers (orgs, people, and jurisdictions)."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 
@@ -121,6 +122,31 @@ def saved_flash_key(notice: str | None) -> str:
     The static ``?flash=`` key can't carry the reason, so both reasons share one key.
     """
     return "saved_unstandardized" if notice else "saved"
+
+
+def same_address(
+    stored: Mapping,
+    address_line_1: str | None,
+    address_line_2: str | None,
+    city: str | None,
+    region: str | None,
+    postal_code: str | None,
+    country: str,
+) -> bool:
+    """True when the submitted address columns exactly equal the stored row's (#589 CR 1).
+
+    An edit route uses it to tell a label- or date-only edit from a changed
+    address: only the former may keep the stored standardized form when the
+    normalizer falls back. Exact match: a case change could standardize differently.
+    """
+    return (
+        stored["address_line_1"],
+        stored["address_line_2"],
+        stored["city"],
+        stored["region"],
+        stored["postal_code"],
+        stored["country"],
+    ) == (address_line_1, address_line_2, city, region, postal_code, country)
 
 
 @dataclass(frozen=True)
