@@ -221,3 +221,18 @@ async def test_preview_script_honours_blocked_marker(client, tree):
     """syncExecute runs on load; it must not re-enable a blocked Execute."""
     r = await _preview(client, tree["c"], tree["p"])
     assert "[data-merge-blocked]" in r.text
+
+
+async def test_archived_link_in_the_chain_still_counts(client, db, tree):
+    """The walk crosses archived orgs, as `trg_no_org_cycle` does.
+
+    Filtering them out would leave the merge refused (by the trigger backstop)
+    while the preview stopped blocking — Execute enabled for a doomed merge.
+    """
+    await db.execute("UPDATE organizations SET archived_at=now() WHERE id=$1", tree["c"])
+    r = await _preview(client, tree["g"], tree["p"])
+    assert r.status_code == 200
+    assert BLOCKED_ALERT in " ".join(r.text.split())
+    r = await client.post(f"/admin/orgs/{tree['g']}/merge-with/{tree['p']}/", headers=HTMX_HEADERS)
+    assert _flash(r)["level"] == "warning"
+    assert await _exists(db, tree["p"])
