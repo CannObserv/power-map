@@ -112,7 +112,9 @@ async def _descends_from(db, org_id: str, ancestor_id: str) -> bool:
     )
 
 
-def _cycle_refusal(request: Request, winner_name, loser_name, fallback_url: str):
+def _cycle_refusal(
+    request: Request, winner_name: str | None, loser_name: str | None, fallback_url: str
+) -> HTMLResponse | RedirectResponse:
     """Refuse a merge whose survivor descends from the loser (#523); nothing changed.
 
     Shared by both merge routes so the wording can't drift. ``HX-Reswap: none``
