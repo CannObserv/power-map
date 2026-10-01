@@ -122,9 +122,9 @@ def _cycle_refusal(request: Request, winner_name, loser_name, fallback_url: str)
     if not is_htmx(request):
         return RedirectResponse(with_flash(fallback_url, "invalid"), status_code=303)
     body = (
-        f"Not merged: <strong>{escape(winner_name)}</strong> is a sub-organization of "
-        f"<strong>{escape(loser_name)}</strong>, so keeping it would make it its own "
-        f"ancestor. Keep <strong>{escape(loser_name)}</strong> instead."
+        f"Not merged: <strong>{escape(winner_name)}</strong> sits under "
+        f"<strong>{escape(loser_name)}</strong> in the organization hierarchy, so keeping "
+        f"it would make it its own ancestor. Keep <strong>{escape(loser_name)}</strong> instead."
     )
     return HTMLResponse("", headers={**flash_trigger("warning", body), "HX-Reswap": "none"})
 

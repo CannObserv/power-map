@@ -40,15 +40,17 @@
 
     {% if merge_cycle %}
     {# #523: the kept org descends from the deleted one. A merge re-points the
-       deleted org's sub-organizations onto the kept org — its own chain included —
+       deleted org's child organizations onto the kept org — its own chain included —
        so it would close a hierarchy loop. No acknowledgement can unblock it; the
-       reverse merge is the way through. `data-merge-blocked` pins Execute off. #}
+       reverse merge is the way through. `data-merge-blocked` pins Execute off.
+       Depth-neutral wording: the deleted org may be a grandparent, not a parent. #}
     <div class="alert alert--warning" role="alert" data-merge-blocked style="margin-bottom:var(--space-4)">
-      <strong>{{ winner_name }} is a sub-organization of {{ loser_name }}.</strong>
+      <strong>{{ winner_name }} sits under {{ loser_name }} in the organization hierarchy.</strong>
       <p style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm)">
-        Merging moves the deleted organization's sub-organizations onto the kept one,
-        so keeping a descendant would make it its own ancestor. Keep the parent
-        instead: {{ winner_name }}'s own sub-organizations then move onto it.
+        Merging moves the deleted organization's child organizations onto the kept one,
+        so keeping an organization below it would make that organization its own
+        ancestor. Merge the other way: {{ winner_name }}'s own child organizations
+        then move onto {{ loser_name }}.
       </p>
       <div style="margin-top:var(--space-2)">
         <button type="button" class="btn btn--primary btn--sm"

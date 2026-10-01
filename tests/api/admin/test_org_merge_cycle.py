@@ -114,6 +114,7 @@ async def test_merge_with_into_descendant_refuses_with_warning(client, db, tree,
     flash = _flash(r)
     assert flash["level"] == "warning"
     assert "Not merged" in flash["body"]
+    assert "in the organization hierarchy" in flash["body"]
     assert "Cycle Parent Committee" in flash["body"]
     await _assert_tree_untouched(db, tree)
 
@@ -202,7 +203,7 @@ async def test_preview_blocks_merge_into_descendant(client, tree, survivor):
     assert r.status_code == 200
     text = " ".join(r.text.split())
     assert BLOCKED_ALERT in text
-    assert "sub-organization of" in text
+    assert "in the organization hierarchy" in text
     # Execute ships disabled; the reverse merge is offered from inside the alert.
     assert 'id="merge-execute-btn" disabled' in text
     assert "Keep Cycle Parent Committee instead" in text
@@ -213,7 +214,7 @@ async def test_preview_reverse_direction_is_not_blocked(client, tree):
     assert r.status_code == 200
     text = " ".join(r.text.split())
     assert BLOCKED_ALERT not in text
-    assert "sub-organization of" not in text
+    assert "in the organization hierarchy" not in text
     assert 'id="merge-execute-btn" disabled' not in text
 
 
