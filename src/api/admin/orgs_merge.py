@@ -1,5 +1,6 @@
 """Admin views for org merge and duplicate review."""
 
+import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -81,6 +82,51 @@ async def _winner_lifespan_note(db, winner_id: str) -> str:
         return ""
     noun = "assignment remains" if open_count == 1 else "assignments remain"
     return f" Warning: {open_count} open {noun} on the merged organization — close or re-home them."
+
+
+class OrgMergeCycle(Exception):
+    """The surviving org descends from the loser, so the merge would close a loop (#523)."""
+
+
+async def _descends_from(db, org_id: str, ancestor_id: str) -> bool:
+    """True when ``ancestor_id`` is a strict ancestor of ``org_id`` (#523).
+
+    Walks ``org_id``'s parent chain the way ``trg_no_org_cycle`` does, archived
+    orgs included. A merge that keeps ``org_id`` and deletes ``ancestor_id``
+    re-points the loser's children onto the winner — the chain down to the
+    winner included — so it would make the winner its own ancestor.
+    """
+    return bool(
+        await db.fetchval(
+            """WITH RECURSIVE ancestors AS (
+                   SELECT parent_id FROM organizations WHERE id = $1
+                   UNION
+                   SELECT o.parent_id
+                   FROM organizations o
+                   JOIN ancestors a ON o.id = a.parent_id
+               )
+               SELECT 1 FROM ancestors WHERE parent_id = $2""",
+            org_id,
+            ancestor_id,
+        )
+    )
+
+
+def _cycle_refusal(request: Request, winner_name, loser_name, fallback_url: str):
+    """Refuse a merge whose survivor descends from the loser (#523); nothing changed.
+
+    Shared by both merge routes so the wording can't drift. ``HX-Reswap: none``
+    keeps the form's target (the list region, or the body) from being blanked
+    by the empty response.
+    """
+    if not is_htmx(request):
+        return RedirectResponse(with_flash(fallback_url, "invalid"), status_code=303)
+    body = (
+        f"Not merged: <strong>{escape(winner_name)}</strong> is a sub-organization of "
+        f"<strong>{escape(loser_name)}</strong>, so keeping it would make it its own "
+        f"ancestor. Keep <strong>{escape(loser_name)}</strong> instead."
+    )
+    return HTMLResponse("", headers={**flash_trigger("warning", body), "HX-Reswap": "none"})
 
 
 templates = Jinja2Templates(directory="src/templates")
@@ -201,6 +247,10 @@ async def _execute_merge(
         loser = await db.fetchrow("SELECT id FROM organizations WHERE id=$1 FOR UPDATE", loser_id)
         if not winner or not loser:
             raise HTTPException(status_code=404, detail="Organization not found")
+        # #523: checked before any write. The parent re-point below would catch the
+        # winner itself (or an org on its chain) and trip `trg_no_org_cycle`.
+        if await _descends_from(db, winner_id, loser_id):
+            raise OrgMergeCycle
 
         # Merge conflicting role pairs BEFORE the bulk role UPDATE to avoid violating
         # uq_role_org_title (organization_id, lower(title)) WHERE archived_at IS NULL.
@@ -241,11 +291,17 @@ async def _execute_merge(
                     continue
                 dropped_assignments += await _absorb_role(db, winner_role_id, loser_role_id)
 
-        await db.execute(
-            "UPDATE organizations SET parent_id=$1 WHERE parent_id=$2",
-            winner_id,
-            loser_id,
-        )
+        try:
+            await db.execute(
+                "UPDATE organizations SET parent_id=$1 WHERE parent_id=$2",
+                winner_id,
+                loser_id,
+            )
+        except asyncpg.RaiseError as exc:
+            # Backstop for a reparent landing between the check above and this
+            # write: `trg_no_org_cycle` is the only RAISE on an organizations
+            # UPDATE (cf. `observation._set_org_parent`, #334).
+            raise OrgMergeCycle from exc
         # jurisdiction affiliations: dedup then reassign to winner.
         await db.execute(
             """DELETE FROM organization_jurisdiction_affiliations
@@ -537,7 +593,10 @@ async def org_merge(
     loser_name = await db.fetchval(
         "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", loser_id
     )
-    dropped = await _execute_merge(db, winner_id, loser_id)
+    try:
+        dropped = await _execute_merge(db, winner_id, loser_id)
+    except OrgMergeCycle:
+        return _cycle_refusal(request, winner_name, loser_name, "/admin/orgs/duplicates/")
     if is_htmx(request):
         body = (
             f"Merged <strong>{escape(loser_name)}</strong> into "
@@ -597,14 +656,17 @@ async def org_merge_with(
         "SELECT display_name FROM v_org_display_names WHERE organization_id=$1", loser_id
     )
     parsed_pairs = [(p.split(":", 1)[0], p.split(":", 1)[1]) for p in merge_role_pairs if ":" in p]
-    dropped = await _execute_merge(
-        db,
-        winner_id,
-        loser_id,
-        keep_name_ids=keep_name_ids,
-        keep_acronym_ids=keep_acronym_ids,
-        role_pairs_to_merge=parsed_pairs if parsed_pairs else None,
-    )
+    try:
+        dropped = await _execute_merge(
+            db,
+            winner_id,
+            loser_id,
+            keep_name_ids=keep_name_ids,
+            keep_acronym_ids=keep_acronym_ids,
+            role_pairs_to_merge=parsed_pairs if parsed_pairs else None,
+        )
+    except OrgMergeCycle:
+        return _cycle_refusal(request, winner_name, loser_name, f"/admin/orgs/{winner_id}/")
     body = (
         f"Merged <strong>{escape(loser_name)}</strong> into "
         f"<strong>{escape(winner_name)}</strong>. "
@@ -841,6 +903,10 @@ async def org_merge_preview(
         winner_id,
     )
 
+    # #523: keeping a descendant of the loser cannot succeed — say so up front and
+    # offer the reverse merge, rather than let Execute run into the refusal.
+    merge_cycle = await _descends_from(db, winner_id, loser_id)
+
     # #469 guardrail: both orgs carrying DIFFERENT values of one external
     # identifier type are two source records — a producer keys them 1:1, and a
     # merge silently makes that mapping N:1. Surface the conflict, demote the
@@ -909,6 +975,7 @@ async def org_merge_preview(
             "identifiers_count": identifiers_count,
             "conflicting_roles": conflicting_roles,
             "identifier_conflicts": identifier_conflicts,
+            "merge_cycle": merge_cycle,
             "assignments_count": assignments_count,
             "dropped_assignments_count": dropped_assignments_count,
             "ctx": ctx,
