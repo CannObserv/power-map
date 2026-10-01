@@ -167,6 +167,56 @@ async def test_rejected_on_wrong_entity_type(client, ppl_write_key):
     assert r.json()["disposition"] == "rejected"
 
 
+async def test_rejected_on_identifier_of_archived_person(client, ppl_write_key, db):
+    """A known external identifier on an archived person → rejected, nothing written (#481)."""
+    person_id = generate_id()
+    value = _unique_id()
+    await db.execute("INSERT INTO people (id, archived_at) VALUES ($1, NOW())", person_id)
+    eit_id = await db.fetchval("SELECT id FROM entity_identifier_types WHERE slug='person_wa_pdc'")
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        person_id,
+        eit_id,
+        value,
+    )
+    before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+
+    raw, _ = ppl_write_key
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": value,
+            "names": [{"name": "Should Not Persist", "name_type": "legal"}],
+            "links": [{"url": f"https://example.com/{value}", "link_type_slug": "website"}],
+        },
+    )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == f"person_archived: {person_id!r}"
+    assert body["entity_id"] is None
+    assert await db.fetchval("SELECT COUNT(*) FROM person_names WHERE person_id=$1", person_id) == 0
+    assert (
+        await db.fetchval(
+            "SELECT COUNT(*) FROM links WHERE entity_type='person' AND entity_id=$1", person_id
+        )
+        == 0
+    )
+    assert (
+        await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_id=$1 AND id > $2",
+            person_id,
+            before,
+        )
+        == 0
+    )
+
+
 # ---------------------------------------------------------------------------
 # Name claim
 # ---------------------------------------------------------------------------

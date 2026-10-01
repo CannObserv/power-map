@@ -367,9 +367,10 @@ async def resolve_entity(
     Returns (entity_id, entity_type, disposition, reason).
 
     disposition is:
-      - AUTO_ATTACHED  if an existing identifier row was found
+      - AUTO_ATTACHED  if an existing identifier row was found on a live entity
       - NEW            if a new entity + identifier row were created
-      - REJECTED       if the identifier_type_slug is unknown, or if the entity
+      - REJECTED       if the identifier_type_slug is unknown, if the identifier
+                       resolves to an archived entity (#481), or if the entity
                        type requires create_data for NEW and none was provided
 
     reason is a human-readable string on REJECTED, None otherwise.
@@ -388,7 +389,7 @@ async def resolve_entity(
     if eit["is_internal"]:
         # PM-native lookup: bypass identifiers table, query entity row directly.
         # Never NEW — a pm_* type cannot create entities.
-        entity_id = await _lookup_entity_by_pm_id(conn, entity_type, identifier_value)
+        entity_id = await _live_entity_id(conn, entity_type, identifier_value)
         if entity_id is None:
             logger.warning("pm-internal resolve: %s id=%r not found", entity_type, identifier_value)
             return "", "", Disposition.REJECTED, f"pm_id_not_found: {identifier_value!r}"
@@ -401,7 +402,21 @@ async def resolve_entity(
         identifier_value,
     )
     if existing:
-        return existing["entity_id"], entity_type, Disposition.AUTO_ATTACHED, None
+        entity_id = existing["entity_id"]
+        # #481: an archived entity keeps its identifiers (archive is reversible),
+        # so the lookup can land on a soft-deleted row. Reject it as the pm_*
+        # branch does, but say *archived* — the producer's fix is an admin
+        # unarchive, not a different identifier.
+        if await _live_entity_id(conn, entity_type, entity_id) is None:
+            logger.warning(
+                "external resolve: %s id=%s is archived; identifier_type=%r value=%r",
+                entity_type,
+                entity_id,
+                identifier_type_slug,
+                identifier_value,
+            )
+            return "", "", Disposition.REJECTED, f"{entity_type}_archived: {entity_id!r}"
+        return entity_id, entity_type, Disposition.AUTO_ATTACHED, None
 
     if entity_type == "jurisdiction":
         if not create_data:
@@ -485,8 +500,12 @@ _ENTITY_TABLE = {
 }
 
 
-async def _lookup_entity_by_pm_id(conn, entity_type: str, entity_id: str) -> str | None:
-    """Return entity_id if the row exists and is not archived, else None."""
+async def _live_entity_id(conn, entity_type: str, entity_id: str) -> str | None:
+    """Return entity_id if the row exists and is not archived, else None.
+
+    The liveness gate both ``resolve_entity`` branches share: the pm_* lookup
+    and the external-identifier hit (#481).
+    """
     table = _ENTITY_TABLE.get(entity_type)
     if table is None:
         return None
