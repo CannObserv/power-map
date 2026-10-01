@@ -163,8 +163,8 @@ class ExternalAddressNormalizer:
     """Calls the address-validator API to standardize or validate addresses.
 
     Endpoint selection:
-      - config.run_validation=False → POST /api/v1/standardize
-      - config.run_validation=True  → POST /api/v1/validate (includes standardization)
+      - config.run_validation=False → POST /api/v2/standardize
+      - config.run_validation=True  → POST /api/v2/validate (includes standardization)
 
     429 handling (#597): waits out Retry-After (seconds or an HTTP-date) and retries
     up to config.max_retries times. Raises RateLimitedError once that budget is spent,
