@@ -82,6 +82,16 @@ async def _maybe_confirm(
     valid_from: str = "",
     valid_until: str = "",
 ):
+    """Call normalizer; decide the confirm-step outcome.
+
+    Returns one of:
+
+    - ``NothingToConfirm`` — no standardized result, so save as submitted; its
+      ``notice`` is set when the normalizer fell back (#589);
+    - a confirm-modal ``TemplateResponse`` for an HTMX client;
+    - a ``ConfirmPersist`` marker for a non-HTMX client, so the route persists
+      the normalized values directly (#280).
+    """
     raw = " ".join(
         filter(
             None,
