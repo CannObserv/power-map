@@ -406,10 +406,11 @@ async def resolve_entity(
         # #481: an archived entity keeps its identifiers (archive is reversible),
         # so the lookup can land on a soft-deleted row. Reject it as the pm_*
         # branch does, but say *archived* — the producer's fix is an admin
-        # unarchive, not a different identifier.
+        # unarchive, not a different identifier. A hard-deleted entity's dangling
+        # identifier lands here too and is mislabelled archived (#605).
         if await _live_entity_id(conn, entity_type, entity_id) is None:
             logger.warning(
-                "external resolve: %s id=%s is archived; identifier_type=%r value=%r",
+                "external resolve: %s id=%s is archived or missing; identifier_type=%r value=%r",
                 entity_type,
                 entity_id,
                 identifier_type_slug,
