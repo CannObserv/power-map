@@ -302,8 +302,9 @@ def _fallback_reason(exc: Exception) -> str:
 
     ``unsupported`` — 422 ``country_not_supported``: the validator doesn't cover the
     country. ``rejected`` — any other 400/422: it refused the input. Retrying either
-    won't help. ``unavailable`` — anything else: an outage, a timeout, 5xx, 429
-    exhaustion, or a bad API key; worth re-standardizing once the service is back (#595).
+    won't help. ``unavailable`` — anything else: an outage, a timeout, 5xx, a 429 it
+    gave up on (retries spent, or Retry-After over the cap; #597), or a bad API key;
+    worth re-standardizing once the service is back (#595).
     """
     if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in _REJECTED_STATUSES:
         if _error_code(exc.response) == _UNSUPPORTED_ERROR:
