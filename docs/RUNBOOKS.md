@@ -61,6 +61,8 @@ Defer an `--execute` run while address-validator is down. Each address row then
 pays up to three refused attempts and 1.5 s of retry backoff before it falls back
 (#589) — about 25 extra minutes per 1,000 rows — and still lands unstandardized,
 marked `fallback: unavailable` in `field_confidence` for re-standardization (#595).
+A 429 is different: the import waits out its `Retry-After`, up to 60 s a wait,
+rather than fall back (#597).
 
 ---
 
