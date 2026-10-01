@@ -42,6 +42,7 @@ STORED = {
 }
 UNAVAILABLE = "Not standardized: the address service is unavailable."
 REJECTED = "Not standardized: the address service couldn't read it."
+UNSUPPORTED = "Not standardized: the address service doesn't cover this country."
 
 # (url segment, entity_type, router module)
 ENTITIES = [
@@ -146,6 +147,19 @@ async def test_create_flashes_rejected_notice(client, entity):
     with _failing_normalizer(module), mock_http_client(rejected):
         r = await client.post(f"{base}/addresses/", headers=HTMX_HEADERS, data=FORM)
     assert _flash(r)["body"] == f"Address added. {REJECTED}"
+
+
+async def test_create_flashes_unsupported_country_notice(client, entity):
+    """CR 6: 422 country_not_supported is a capability limit, not unreadable input."""
+    base, module = entity.base, entity.module
+    unsupported = httpx.Response(
+        422,
+        json={"error": "country_not_supported", "message": "GB not supported"},
+        request=httpx.Request("POST", "https://av.test/"),
+    )
+    with _failing_normalizer(module), mock_http_client(unsupported):
+        r = await client.post(f"{base}/addresses/", headers=HTMX_HEADERS, data=FORM)
+    assert _flash(r)["body"] == f"Address added. {UNSUPPORTED}"
 
 
 async def test_edit_flashes_unavailable_notice(client, entity):

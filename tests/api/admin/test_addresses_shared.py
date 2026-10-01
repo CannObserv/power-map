@@ -126,6 +126,7 @@ def _result(detail):
     [
         ("unavailable", "Not standardized: the address service is unavailable."),
         ("rejected", "Not standardized: the address service couldn't read it."),
+        ("unsupported", "Not standardized: the address service doesn't cover this country."),
     ],
 )
 def test_fallback_notice_names_the_reason(reason, expected):

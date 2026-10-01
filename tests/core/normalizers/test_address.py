@@ -190,9 +190,14 @@ def _ok_response():
     return r
 
 
-def _status_response(code: int) -> httpx.Response:
+def _status_response(code: int, body: dict | None = None) -> httpx.Response:
     """A real httpx.Response, so raise_for_status() raises HTTPStatusError."""
-    return httpx.Response(code, request=httpx.Request("POST", _URL))
+    return httpx.Response(code, json=body, request=httpx.Request("POST", _URL))
+
+
+def _error_422(code: str) -> httpx.Response:
+    """address-validator's ErrorResponse: {"error": <snake_case code>, "message": ...}."""
+    return _status_response(422, {"error": code, "message": "x"})
 
 
 @pytest.fixture
@@ -275,8 +280,21 @@ async def test_external_does_not_retry_slow_or_permanent_failure(external, no_sl
         (RuntimeError("address-validator rate limit: exhausted 3 retries"), "unavailable"),
         (_status_response(400), "rejected"),
         (_status_response(422), "rejected"),
+        (_error_422("address_required"), "rejected"),
+        (_error_422("country_not_supported"), "unsupported"),
     ],
-    ids=["connect", "timeout", "500", "503", "401", "429-exhausted", "400", "422"],
+    ids=[
+        "connect",
+        "timeout",
+        "500",
+        "503",
+        "401",
+        "429-exhausted",
+        "400",
+        "422-no-body",
+        "422-address-required",
+        "422-country-not-supported",
+    ],
 )
 async def test_fallback_records_reason(config, no_sleep, failure, reason):
     """The reason is structured, so callers need not parse the warning string."""
@@ -303,6 +321,17 @@ async def test_fallback_logs_warning_without_the_address(config, no_sleep, caplo
     assert "503" in msg
     assert "Main St" not in msg
     assert "98101" not in msg
+
+
+async def test_fallback_logs_unsupported_country_at_info(config, caplog):
+    """A country the validator doesn't cover is a known limit, not an incident."""
+    n = FallbackAddressNormalizer(config)
+    with mock_http_client(side_effect=[_error_422("country_not_supported")]):
+        with caplog.at_level("INFO", logger="src.core.normalizers.address"):
+            await n.normalize("10 Downing St, London SW1A 2AA", country="GB")
+    records = [r for r in caplog.records if r.name == "src.core.normalizers.address"]
+    assert [r.levelname for r in records] == ["INFO"]
+    assert "unsupported" in records[0].getMessage()
 
 
 async def test_local_only_normalizer_records_no_fallback():

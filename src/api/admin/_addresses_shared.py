@@ -14,6 +14,7 @@ VALIDITY_ORDER_ERROR = "Valid from must be on or before valid until."
 _FALLBACK_NOTICES = {
     "unavailable": "Not standardized: the address service is unavailable.",
     "rejected": "Not standardized: the address service couldn't read it.",
+    "unsupported": "Not standardized: the address service doesn't cover this country.",
 }
 
 

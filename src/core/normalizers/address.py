@@ -1,6 +1,7 @@
 """Address normalizers: local (usaddress), external (address-validator API), and fallback."""
 
 import asyncio
+import logging
 import os
 from dataclasses import dataclass, field
 
@@ -26,6 +27,10 @@ _TRANSIENT_STATUSES = frozenset({502, 503, 504})
 # HTTP statuses meaning the validator read the input and refused it; a later retry
 # fails the same way. Anything else that reaches the fallback is "unavailable".
 _REJECTED_STATUSES = frozenset({400, 422})
+
+# The ErrorResponse code for a country the validator doesn't cover (only US and CA
+# take raw strings). A capability limit, not unreadable input: reason "unsupported".
+_UNSUPPORTED_ERROR = "country_not_supported"
 
 # ValidationResult.status → field_confidence.validation_status
 _STATUS_MAP = {
@@ -228,14 +233,25 @@ class ExternalAddressNormalizer:
         )
 
 
-def _fallback_reason(exc: Exception) -> str:
-    """Classify why the external normalizer failed: ``rejected`` or ``unavailable``.
+def _error_code(response: httpx.Response) -> str | None:
+    """The ``error`` code from an address-validator ErrorResponse body, if it has one."""
+    try:
+        return response.json().get("error")
+    except (ValueError, AttributeError):
+        return None
 
-    ``rejected`` — the validator refused the input (400/422); retrying won't help.
-    ``unavailable`` — anything else: an outage, a timeout, 5xx, 429 exhaustion, or a
-    bad API key. Those rows are worth re-standardizing once the service is back (#595).
+
+def _fallback_reason(exc: Exception) -> str:
+    """Classify why the external normalizer failed.
+
+    ``unsupported`` — 422 ``country_not_supported``: the validator doesn't cover the
+    country. ``rejected`` — any other 400/422: it refused the input. Retrying either
+    won't help. ``unavailable`` — anything else: an outage, a timeout, 5xx, 429
+    exhaustion, or a bad API key; worth re-standardizing once the service is back (#595).
     """
     if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in _REJECTED_STATUSES:
+        if _error_code(exc.response) == _UNSUPPORTED_ERROR:
+            return "unsupported"
         return "rejected"
     return "unavailable"
 
@@ -265,7 +281,9 @@ class FallbackAddressNormalizer:
             reason = _fallback_reason(exc)
             status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
             # Exception type and status only: the address is PII and stays out of logs.
-            logger.warning(
+            # An unsupported country is expected, not an incident: INFO, not WARNING.
+            logger.log(
+                logging.INFO if reason == "unsupported" else logging.WARNING,
                 "address-validator %s (%s, status=%s); fell back to local parser",
                 reason,
                 type(exc).__name__,
