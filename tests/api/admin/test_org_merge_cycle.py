@@ -8,6 +8,7 @@ the preview must say so before the curator clicks, offering the reverse merge.
 """
 
 import json
+import logging
 
 import pytest
 import pytest_asyncio
@@ -153,16 +154,27 @@ async def test_bulk_merge_into_descendant_nonhtmx_redirects_with_invalid(client,
     await _assert_tree_untouched(db, tree)
 
 
-async def test_trigger_backstop_maps_to_refusal(client, db, tree, monkeypatch):
-    """A reparent racing the pre-check still reaches the trigger — and still refuses."""
+async def test_trigger_backstop_maps_to_refusal(client, db, tree, monkeypatch, caplog):
+    """A reparent racing the pre-check still reaches the trigger — and still refuses.
+
+    The curator sees the same warning either way, so the log is the only place a
+    missed pre-check (a race, or a regression in the walk) shows up.
+    """
 
     async def _never(*_args, **_kwargs):
         return False
 
     monkeypatch.setattr(orgs_merge, "_descends_from", _never)
-    r = await client.post(f"/admin/orgs/{tree['c']}/merge-with/{tree['p']}/", headers=HTMX_HEADERS)
+    with caplog.at_level(logging.WARNING, logger="src.api.admin.orgs_merge"):
+        r = await client.post(
+            f"/admin/orgs/{tree['c']}/merge-with/{tree['p']}/", headers=HTMX_HEADERS
+        )
     assert r.status_code == 200
     assert _flash(r)["level"] == "warning"
+    assert any(
+        rec.levelno == logging.WARNING and rec.getMessage() == "org_merge_cycle_backstop"
+        for rec in caplog.records
+    )
     await _assert_tree_untouched(db, tree)
 
 

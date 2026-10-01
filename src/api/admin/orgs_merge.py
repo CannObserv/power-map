@@ -300,7 +300,13 @@ async def _execute_merge(
         except asyncpg.RaiseError as exc:
             # Backstop for a reparent landing between the check above and this
             # write: `trg_no_org_cycle` is the only RAISE on an organizations
-            # UPDATE (cf. `observation._set_org_parent`, #334).
+            # UPDATE (cf. `observation._set_org_parent`, #334). Logged because the
+            # curator sees the same warning either way: this is the only trace of
+            # a missed pre-check.
+            logger.warning(
+                "org_merge_cycle_backstop",
+                extra={"winner_org_id": winner_id, "loser_org_id": loser_id},
+            )
             raise OrgMergeCycle from exc
         # jurisdiction affiliations: dedup then reassign to winner.
         await db.execute(
