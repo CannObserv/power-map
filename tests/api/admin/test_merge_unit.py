@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+from src.api.admin import orgs_merge
 from src.api.admin.deps import get_db
 from src.api.admin.org_dups import get_org_dup_count
 from src.api.admin.people_dups import get_person_dup_count
@@ -69,12 +70,20 @@ async def _zero():
     return 0
 
 
+async def _never(*_args, **_kwargs):
+    return False
+
+
 # No `with` on TestClient → no lifespan → no app pool created. get_db is fully
 # mocked, so these smoke handlers never touch a real connection; entering the
 # lifespan would needlessly pay the ~170 ms pool create/introspect and couple
 # these "fully mocked DB" tests to a live database (#288).
 @pytest.fixture
-def org_client():
+def org_client(monkeypatch):
+    # The single fetchval mock answers every query with a truthy name, which the
+    # #523 descent check would read as "winner descends from loser" and refuse.
+    # Descent correctness lives in tests/api/admin/test_org_merge_cycle.py.
+    monkeypatch.setattr(orgs_merge, "_descends_from", _never)
     app.dependency_overrides[get_db] = _org_merge_db
     app.dependency_overrides[get_org_dup_count] = _zero
     app.dependency_overrides[get_person_dup_count] = _zero

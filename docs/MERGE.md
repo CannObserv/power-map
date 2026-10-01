@@ -84,6 +84,16 @@ pair that is a genuine conflict is still resolved by the safeguard pass. The
 preview modal only ever renders in-scope pairs, so this bites on manipulation, not
 on normal use.
 
+**The survivor may not descend from the loser (#523).** Org merge re-points the
+loser's children onto the winner, so a winner anywhere below the loser would become
+its own ancestor and `trg_no_org_cycle` would raise. `_execute_merge` checks
+`_descends_from` before any write and raises `OrgMergeCycle`. It also maps the
+trigger's `RaiseError` to that exception, for a reparent racing the check. Both
+merge routes turn it into a `warning` flash with `HX-Reswap: none`; the non-HTMX
+fallback is a 303 to `?flash=invalid`. The preview names the relationship, ships
+Execute disabled behind `data-merge-blocked` (no acknowledgement lifts it), and
+offers the reverse merge. Guard: `test_org_merge_cycle.py`.
+
 **The one destructive case, and its bound.** A loser assignment sharing
 `(person_id, role_id, start_date)` with a winner row cannot be re-pointed —
 `uq_role_assignment_person_role_start` holds that tuple once. Only those rows are
