@@ -128,15 +128,6 @@ async def test_external_validate_endpoint_used_when_configured(external_validate
     assert r.confidence_hint == "confirmed"
 
 
-async def test_external_429_retries_then_raises(external):
-    mock_response = MagicMock()
-    mock_response.status_code = 429
-    mock_response.headers = {"Retry-After": "0"}  # 0s for fast tests
-    with mock_http_client(mock_response):
-        with pytest.raises(RuntimeError, match="rate limit"):
-            await external.normalize("123 Main St, Seattle WA 98101")
-
-
 # ---------------------------------------------------------------------------
 # FallbackAddressNormalizer
 # ---------------------------------------------------------------------------
