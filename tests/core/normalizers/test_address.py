@@ -364,6 +364,10 @@ def _http_date(when: datetime) -> str:
         ("nan", 1.0),
         ("inf", 1.0),
         (_http_date(datetime(2000, 1, 1, tzinfo=UTC)), 0.0),
+        # RFC 9110's obsolete forms, which a recipient must still accept;
+        # asctime carries no zone, so it parses to a naive datetime.
+        ("Sunday, 06-Nov-94 08:49:37 GMT", 0.0),
+        ("Sun Nov  6 08:49:37 1994", 0.0),
     ],
     ids=[
         "zero",
@@ -375,6 +379,8 @@ def _http_date(when: datetime) -> str:
         "nan",
         "inf",
         "past-date",
+        "past-rfc850-date",
+        "past-asctime-date",
     ],
 )
 async def test_external_429_waits_retry_after_then_succeeds(external, no_sleep, retry_after, wait):
