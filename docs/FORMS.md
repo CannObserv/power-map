@@ -199,6 +199,8 @@ The modal JS (inline in the partial) handles: Escape to close, Tab/Shift-Tab foc
 
 If the normalizer returns no standardized form, `_maybe_confirm()` returns `NothingToConfirm` and the route falls through to the save path directly — no modal, no `HX-Retarget`. When that is because the normalizer fell back to local parsing (#589), `NothingToConfirm.notice` says why (`fallback_notice()` in `_addresses_shared.py`) and the save's flash carries it: `saved_flash_body("Address added.", notice)` on HTMX, `with_flash(url, saved_flash_key(notice))` → `saved_unstandardized` on the non-HTMX fallback. Still `success` — the save happened (#353). "Keep my input" (`mode=save`) never carries a notice: that is the curator's choice, not a fallback.
 
+The edit form carries no normalizer fields, so a fallback edit would write `standardized`, latitude, longitude and `components` as NULL. When the edit fell back and the address columns are unchanged (`same_address()` — a label- or date-only edit during an outage), the edit route skips the `addresses` UPDATE, keeping the stored standardization, and drops the notice if the stored row was standardized (#589 CR 1). A changed address still saves as typed: the old standardized form describes the old address.
+
 ---
 
 ## Paired Date Control Pattern
