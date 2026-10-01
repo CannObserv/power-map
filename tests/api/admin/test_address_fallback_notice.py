@@ -163,8 +163,10 @@ async def test_create_non_htmx_redirects_with_unstandardized_key(client, entity,
     assert r.status_code == 303
     assert r.headers["location"] == f"{base}/?flash=saved_unstandardized"
     saved = await db.fetchval(
-        "SELECT count(*) FROM addresses WHERE address_line_1 = '123 Main St'"
-        " AND standardized IS NULL"
+        "SELECT count(*) FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
+        " WHERE ea.entity_id=$1 AND a.address_line_1 = '123 Main St'"
+        " AND a.standardized IS NULL",
+        entity.eid,
     )
     assert saved == 1
 
