@@ -110,6 +110,19 @@ async def test_write_org_active_missing_org_rejected(db):
     assert exc.value.detail == "org_not_found"
 
 
+async def test_write_org_active_archived_org_rejected(db):
+    """An archived org maps ActiveOnArchivedOrg → ObservationRejected('active_on_archived_org').
+
+    Since #481 resolution refuses an archived org first, so no endpoint test reaches
+    this mapping; it is the backstop for an org archived after resolution (#240).
+    """
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id, archived_at) VALUES ($1, NOW())", org_id)
+    with pytest.raises(ObservationRejected) as exc:
+        await write_org_active(db, org_id, False)
+    assert exc.value.detail == "active_on_archived_org"
+
+
 # ---------------------------------------------------------------------------
 # write_names — person
 # ---------------------------------------------------------------------------

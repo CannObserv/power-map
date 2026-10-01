@@ -1054,8 +1054,7 @@ async def test_observation_active_on_archived_org_rejected(client, org_write_key
         assert r.status_code == 200
         body = r.json()
         assert body["disposition"] == "rejected"
-        assert body["reason"] is not None
-        assert "archiv" in body["reason"].lower()
+        assert body["reason"] == f"organization_archived: {org_id!r}"
         # The flag must remain untouched on rejection.
         row = await db.fetchrow("SELECT active FROM organizations WHERE id=$1", org_id)
         assert row["active"] is True
