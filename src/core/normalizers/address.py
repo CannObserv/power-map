@@ -57,6 +57,14 @@ _STATUS_MAP = {
 }
 
 
+class RateLimitedError(RuntimeError):
+    """address-validator's 429 outlasted the retry budget or the Retry-After cap (#597).
+
+    The fallback's WARNING logs this class name, so a rate limit is told apart from
+    any other RuntimeError; the base class keeps existing RuntimeError handling.
+    """
+
+
 @dataclass
 class AddressNormalizerConfig:
     """Configuration for the external address normalizer.
@@ -159,7 +167,7 @@ class ExternalAddressNormalizer:
       - config.run_validation=True  → POST /api/v1/validate (includes standardization)
 
     429 handling (#597): waits out Retry-After (seconds or an HTTP-date) and retries
-    up to config.max_retries times. Raises RuntimeError once that budget is spent,
+    up to config.max_retries times. Raises RateLimitedError once that budget is spent,
     or at once when Retry-After exceeds config.retry_after_cap.
 
     Transient handling (#589): a connect error, dropped connection, or 502/503/504
@@ -194,13 +202,13 @@ class ExternalAddressNormalizer:
                     continue
                 if response.status_code == 429:
                     if rate_limited >= self.config.max_retries:
-                        raise RuntimeError(
+                        raise RateLimitedError(
                             "address-validator rate limit: exhausted "
                             f"{self.config.max_retries} retries"
                         )
                     wait = _retry_after_seconds(response.headers.get("Retry-After"))
                     if wait > self.config.retry_after_cap:
-                        raise RuntimeError(
+                        raise RateLimitedError(
                             f"address-validator rate limit: Retry-After {wait:g}s exceeds "
                             f"the {self.config.retry_after_cap:g}s cap"
                         )

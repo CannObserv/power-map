@@ -14,6 +14,7 @@ from src.core.normalizers.address import (
     ExternalAddressNormalizer,
     FallbackAddressNormalizer,
     LocalAddressNormalizer,
+    RateLimitedError,
     _reset_normalizer,
     get_address_normalizer,
 )
@@ -412,7 +413,7 @@ async def test_external_429_honours_a_future_http_date(no_sleep):
 async def test_external_429_over_the_cap_gives_up_without_waiting(external, no_sleep, retry_after):
     """The admin form blocks on this call: a long wait falls back now, not after 3x it."""
     with mock_http_client(side_effect=[_too_many(retry_after), _ok_response()]) as MockClient:
-        with pytest.raises(RuntimeError, match="rate limit"):
+        with pytest.raises(RateLimitedError, match="exceeds the 2s cap"):
             await external.normalize(_RAW)
     assert MockClient.return_value.post.await_count == 1
     no_sleep.assert_not_awaited()
@@ -438,7 +439,7 @@ async def test_external_429_cap_is_set_per_caller(no_sleep):
 async def test_external_429_exhausts_max_retries_within_the_cap(external, no_sleep):
     """Waits under the cap still stop after max_retries (3), then the fallback takes over."""
     with mock_http_client(side_effect=[_too_many("1")] * 4) as MockClient:
-        with pytest.raises(RuntimeError, match="exhausted 3 retries"):
+        with pytest.raises(RateLimitedError, match="exhausted 3 retries"):
             await external.normalize(_RAW)
     assert MockClient.return_value.post.await_count == 4
     assert [c.args[0] for c in no_sleep.await_args_list] == [1.0, 1.0, 1.0]
@@ -453,6 +454,16 @@ async def test_fallback_429_over_the_cap_records_unavailable(config, no_sleep):
     assert r.value["standardized"] is None
     assert "exceeds the 2s cap" in r.warnings[0]
     no_sleep.assert_not_awaited()
+
+
+async def test_fallback_logs_a_429_give_up_by_name(config, no_sleep, caplog):
+    """A rate-limit give-up is named in the WARNING, not logged as a bare RuntimeError."""
+    n = FallbackAddressNormalizer(config)
+    with mock_http_client(side_effect=[_too_many("30")]):
+        with caplog.at_level("WARNING", logger="src.core.normalizers.address"):
+            await n.normalize(_RAW)
+    (record,) = [r for r in caplog.records if r.name == "src.core.normalizers.address"]
+    assert "RateLimitedError" in record.getMessage()
 
 
 async def test_local_only_normalizer_records_no_fallback():
