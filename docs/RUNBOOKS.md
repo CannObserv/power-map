@@ -51,10 +51,16 @@ uv run "${env_args[@]}" python scripts/import_cannabis_observer.py \
 ```
 
 The target database is echoed (redacted) to stderr before the connection, so a
-run is attributable in scrollback. A dry run still calls the external
-address-validator when `ADDRESS_VALIDATOR_API_KEY` is set — it is the same
-pipeline. Applying schema DDL was implicit before #402; it is now opt-in, and
-`scripts/apply-schema.sh` is the door that carries the production guards.
+run is attributable in scrollback. A dry run parses addresses locally and never
+calls address-validator (`local_addresses_only`, #402), so its address fields can
+differ from a committed run's. Applying schema DDL was implicit before #402; it
+is now opt-in, and `scripts/apply-schema.sh` is the door that carries the
+production guards.
+
+Defer an `--execute` run while address-validator is down. Each address row then
+pays up to three refused attempts and 1.5 s of retry backoff before it falls back
+(#589) — about 25 extra minutes per 1,000 rows — and still lands unstandardized,
+marked `fallback: unavailable` in `field_confidence` for re-standardization (#595).
 
 ---
 

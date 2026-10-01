@@ -9,8 +9,13 @@ from fastapi.templating import Jinja2Templates
 from src.api.admin._addresses_shared import (
     AddressEchoParams,
     ConfirmPersist,
+    NothingToConfirm,
+    fallback_notice,
     field_context,
     parse_validity,
+    same_address,
+    saved_flash_body,
+    saved_flash_key,
 )
 from src.api.admin.deps import (
     AdminUser,
@@ -82,9 +87,13 @@ async def _maybe_confirm(
 ):
     """Call normalizer; decide the confirm-step outcome.
 
-    Returns ``None`` when there's nothing to confirm (no standardized result), a
-    confirm-modal ``TemplateResponse`` for an HTMX client, or a ``ConfirmPersist``
-    marker for a non-HTMX client so the route persists directly (#280).
+    Returns one of:
+
+    - ``NothingToConfirm`` — no standardized result, so save as submitted; its
+      ``notice`` is set when the normalizer fell back (#589);
+    - a confirm-modal ``TemplateResponse`` for an HTMX client;
+    - a ``ConfirmPersist`` marker for a non-HTMX client, so the route persists
+      the normalized values directly (#280).
     """
     raw = " ".join(
         filter(
@@ -100,7 +109,7 @@ async def _maybe_confirm(
     )
     result = await _NORMALIZER.normalize(raw, country=country)
     if not (result.value and result.value.get("standardized")):
-        return None
+        return NothingToConfirm(fallback_notice(result))
     validation_status = None
     validation_provider = None
     if result.validation_detail:
@@ -289,6 +298,7 @@ async def address_create(
             },
         )
     persist: ConfirmPersist | None = None
+    notice: str | None = None
     if mode == "confirm":
         confirm = await _maybe_confirm(
             request,
@@ -307,7 +317,9 @@ async def address_create(
         )
         if isinstance(confirm, ConfirmPersist):
             persist = confirm  # non-HTMX: persist normalized values directly (#280)
-        elif confirm is not None:
+        elif isinstance(confirm, NothingToConfirm):
+            notice = confirm.notice
+        else:
             return confirm
     aid = generate_id()
     eaid = generate_id()
@@ -382,12 +394,14 @@ async def address_create(
     )
     row = await _get_entity_address_or_404(eaid, org_id, db)
     if not is_htmx(request):
-        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/orgs/{org_id}/", saved_flash_key(notice)), status_code=303
+        )
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_address_row.html",
         {"org_id": org_id, "a": row},
-        headers=flash_trigger("success", "Address added."),
+        headers=flash_trigger("success", saved_flash_body("Address added.", notice)),
     )
 
 
@@ -513,6 +527,7 @@ async def address_edit_row_post(
             },
         )
     persist: ConfirmPersist | None = None
+    notice: str | None = None
     if mode == "confirm":
         confirm = await _maybe_confirm(
             request,
@@ -531,7 +546,9 @@ async def address_edit_row_post(
         )
         if isinstance(confirm, ConfirmPersist):
             persist = confirm  # non-HTMX: persist normalized values directly (#280)
-        elif confirm is not None:
+        elif isinstance(confirm, NothingToConfirm):
+            notice = confirm.notice
+        else:
             return confirm
     if persist is not None:
         (
@@ -572,23 +589,32 @@ async def address_edit_row_post(
         _region = region.strip() or None
         _postal = postal_code.strip() or None
         _country = country.strip() or "US"
-    await db.execute(
-        "UPDATE addresses"
-        " SET address_line_1=$1, address_line_2=$2, city=$3, region=$4, postal_code=$5,"
-        "     country=$6, standardized=$7, latitude=$8, longitude=$9, components=$10"
-        " WHERE id=$11",
-        _line_1,
-        _line_2,
-        _city,
-        _region,
-        _postal,
-        _country,
-        _standardized,
-        _latitude,
-        _longitude,
-        _components,
-        existing["address_id"],
+    # #589 CR 1: a fallback must not wipe the stored standardized form of an address
+    # the edit didn't change (a label- or date-only edit during an outage). The
+    # UPDATE would rewrite identical lines and NULL the normalizer columns.
+    keep_stored = notice is not None and same_address(
+        existing, _line_1, _line_2, _city, _region, _postal, _country
     )
+    if keep_stored and existing["standardized"]:
+        notice = None
+    if not keep_stored:
+        await db.execute(
+            "UPDATE addresses"
+            " SET address_line_1=$1, address_line_2=$2, city=$3, region=$4, postal_code=$5,"
+            "     country=$6, standardized=$7, latitude=$8, longitude=$9, components=$10"
+            " WHERE id=$11",
+            _line_1,
+            _line_2,
+            _city,
+            _region,
+            _postal,
+            _country,
+            _standardized,
+            _latitude,
+            _longitude,
+            _components,
+            existing["address_id"],
+        )
     await db.execute(
         "UPDATE entity_addresses"
         " SET address_type=$1, display_name=$2, valid_from=$3, valid_until=$4"
@@ -601,12 +627,14 @@ async def address_edit_row_post(
     )
     row = await _get_entity_address_or_404(addr_id, org_id, db)
     if not is_htmx(request):
-        return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
+        return RedirectResponse(
+            with_flash(f"/admin/orgs/{org_id}/", saved_flash_key(notice)), status_code=303
+        )
     return templates.TemplateResponse(
         request,
         "admin/orgs/partials/_address_row.html",
         {"org_id": org_id, "a": row},
-        headers=flash_trigger("success", "Address saved."),
+        headers=flash_trigger("success", saved_flash_body("Address saved.", notice)),
     )
 
 

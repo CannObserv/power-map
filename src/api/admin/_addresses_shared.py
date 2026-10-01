@@ -1,12 +1,21 @@
 """Shared helpers for entity address CRUD routers (orgs, people, and jurisdictions)."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 
 from src.core.normalizers.address_meta import get_country_format
+from src.core.normalizers.base import NormalizationResult
 
 DATE_FORMAT_ERROR = "Dates must be YYYY-MM-DD."
 VALIDITY_ORDER_ERROR = "Valid from must be on or before valid until."
+
+# FallbackAddressNormalizer's validation_detail["fallback"] → flash-body suffix (#589).
+_FALLBACK_NOTICES = {
+    "unavailable": "Not standardized: the address service is unavailable.",
+    "rejected": "Not standardized: the address service couldn't read it.",
+    "unsupported": "Not standardized: the address service doesn't cover this country.",
+}
 
 
 @dataclass(frozen=True)
@@ -80,6 +89,65 @@ class ConfirmPersist:
             self.longitude,
             self.components,
         )
+
+
+@dataclass(frozen=True)
+class NothingToConfirm:
+    """Signal from ``_maybe_confirm``: no standardized form, so save as submitted.
+
+    ``notice`` is set when that is because the normalizer fell back to the local
+    parser (#589), so the save's flash can say the address went in unstandardized.
+    """
+
+    notice: str | None = None
+
+
+def fallback_notice(result: NormalizationResult) -> str | None:
+    """Curator-facing sentence for a normalizer fallback, or None if none happened.
+
+    A config-less (local-only) run and a validator that answered without a
+    standardized form both carry no ``fallback`` marker, so neither gets a notice.
+    """
+    detail = result.validation_detail or {}
+    return _FALLBACK_NOTICES.get(detail.get("fallback"))
+
+
+def saved_flash_body(done: str, notice: str | None) -> str:
+    """HX-Trigger flash body for a create/edit: ``done``, plus the fallback notice."""
+    return f"{done} {notice}" if notice else done
+
+
+def saved_flash_key(notice: str | None) -> str:
+    """Non-HTMX ``with_flash`` key for a create/edit: ``saved`` or its unstandardized twin.
+
+    The static ``?flash=`` key can't carry the reason, so both reasons share one key.
+    """
+    return "saved_unstandardized" if notice else "saved"
+
+
+def same_address(
+    stored: Mapping,
+    address_line_1: str | None,
+    address_line_2: str | None,
+    city: str | None,
+    region: str | None,
+    postal_code: str | None,
+    country: str,
+) -> bool:
+    """True when the submitted address columns exactly equal the stored row's (#589 CR 1).
+
+    An edit route uses it to tell a label- or date-only edit from a changed
+    address: only the former may keep the stored standardized form when the
+    normalizer falls back. Exact match: a case change could standardize differently.
+    """
+    return (
+        stored["address_line_1"],
+        stored["address_line_2"],
+        stored["city"],
+        stored["region"],
+        stored["postal_code"],
+        stored["country"],
+    ) == (address_line_1, address_line_2, city, region, postal_code, country)
 
 
 @dataclass(frozen=True)
