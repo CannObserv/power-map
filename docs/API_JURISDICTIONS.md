@@ -54,7 +54,7 @@ the single home for them; the catalog carries no value-format column.
 |-------------|-----------|
 | `new` | Identifier not seen before; jurisdiction created |
 | `auto-attached` | Identifier already known; existing entity returned |
-| `rejected` | Unknown identifier type; identifier belongs to a non-jurisdiction entity; an internal type in `additional_identifiers`; a conflicting `additional_identifiers` value (`identifier_conflict: '<slug>'`); required NEW fields missing; invalid `jurisdiction_type_slug`; slug collision with a different entity. A human-readable `reason` string is always present on rejected responses. |
+| `rejected` | Unknown identifier type; identifier belongs to a non-jurisdiction entity; identifier belongs to an archived jurisdiction (`jurisdiction_archived: '<id>'`, #481); an internal type in `additional_identifiers`; a conflicting `additional_identifiers` value (`identifier_conflict: '<slug>'`); required NEW fields missing; invalid `jurisdiction_type_slug`; slug collision with a different entity. A human-readable `reason` string is always present on rejected responses. |
 
 ### Implicit behaviors
 

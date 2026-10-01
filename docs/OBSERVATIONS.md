@@ -29,7 +29,9 @@ citation hung off the fork.
   create one (`pm_id_not_found` on a miss). Refused in `additional_identifiers`: an
   internal type is how you *reach* an entity, not a scheme you attach to one.
 - **External** — auto-attaches on a known value (`auto-attached`), creates on an
-  unknown one (`new`).
+  unknown one (`new`). A known value on an **archived** entity is rejected
+  `<entity_type>_archived: '<id>'` and nothing is written (#481): archiving keeps the
+  identifiers, so the producer's fix is an admin unarchive, not a new identifier.
 
 **Value conventions.** The catalog has no value-format column, so these stay here — the
 ones worth knowing before minting:
