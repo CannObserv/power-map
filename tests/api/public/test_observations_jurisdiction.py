@@ -377,6 +377,64 @@ async def test_rejected_on_wrong_entity_type(client, jur_write_key):
     assert r.json()["disposition"] == "rejected"
 
 
+async def test_rejected_on_identifier_of_archived_jurisdiction(client, jur_write_key, db):
+    """A known external identifier on an archived jurisdiction → rejected, nothing written.
+
+    #481: the external-identifier lookup used to auto-attach to the soft-deleted row.
+    """
+    jur_id = generate_id()
+    suffix = os.urandom(4).hex()
+    type_id = await db.fetchval("SELECT id FROM jurisdiction_types WHERE slug='state'")
+    await db.execute(
+        "INSERT INTO jurisdictions (id, slug, name, type_id, archived_at)"
+        " VALUES ($1, $2, $3, $4, NOW())",
+        jur_id,
+        f"test-archived-{suffix}",
+        f"Test Archived {suffix}",
+        type_id,
+    )
+    ocd = f"ocd-division/country:us/test:archived-{suffix}"
+    eit_id = await db.fetchval("SELECT id FROM entity_identifier_types WHERE slug='jur_ocd'")
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        jur_id,
+        eit_id,
+        ocd,
+    )
+    before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+
+    raw, _ = jur_write_key
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "jur_ocd",
+            "identifier_value": ocd,
+            "links": [{"url": f"https://example.com/{suffix}", "link_type_slug": "website"}],
+        },
+    )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == f"jurisdiction_archived: {jur_id!r}"
+    assert body["entity_id"] is None
+    assert (
+        await db.fetchval(
+            "SELECT COUNT(*) FROM links WHERE entity_type='jurisdiction' AND entity_id=$1", jur_id
+        )
+        == 0
+    )
+    assert (
+        await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_id=$1 AND id > $2", jur_id, before
+        )
+        == 0
+    )
+
+
 async def test_slug_collision_returns_rejected(client, jur_write_key, db):
     """Two different OCD IDs claiming the same slug → second is rejected."""
     raw, _ = jur_write_key

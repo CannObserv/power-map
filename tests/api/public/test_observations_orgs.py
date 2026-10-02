@@ -1025,7 +1025,11 @@ async def test_observation_omitted_active_leaves_org_unchanged(client, org_write
 
 
 async def test_observation_active_on_archived_org_rejected(client, org_write_key, db):
-    """Setting active on an archived org is a malformed observation → rejected."""
+    """Setting active on an archived org is a malformed observation → rejected.
+
+    Since #481 resolution rejects the archived org (``organization_archived``)
+    before the #240 guard runs; ``active_on_archived_org`` is the race backstop.
+    """
     org_id = generate_id()
     ubi_val = _unique_id()
     await db.execute("INSERT INTO organizations (id, archived_at) VALUES ($1, NOW())", org_id)
@@ -1050,8 +1054,7 @@ async def test_observation_active_on_archived_org_rejected(client, org_write_key
         assert r.status_code == 200
         body = r.json()
         assert body["disposition"] == "rejected"
-        assert body["reason"] is not None
-        assert "archiv" in body["reason"].lower()
+        assert body["reason"] == f"organization_archived: {org_id!r}"
         # The flag must remain untouched on rejection.
         row = await db.fetchrow("SELECT active FROM organizations WHERE id=$1", org_id)
         assert row["active"] is True
@@ -1063,7 +1066,7 @@ async def test_observation_active_on_archived_org_rejected(client, org_write_key
 async def test_observation_active_on_archived_org_is_atomic(client, org_write_key, db):
     """An archived-org reject rolls back the whole observation — sibling writes too.
 
-    The active write runs first and rejects before any name write; the surrounding
+    Resolution rejects the archived org before any write (#481); the surrounding
     transaction guarantees nothing (not even the names) is persisted.
     """
     org_id = generate_id()
@@ -1105,6 +1108,63 @@ async def test_observation_active_on_archived_org_is_atomic(client, org_write_ke
         await db.execute("DELETE FROM organization_names WHERE organization_id=$1", org_id)
         await db.execute("DELETE FROM identifiers WHERE id=$1", eid)
         await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
+
+
+async def test_rejected_on_identifier_of_archived_org(client, org_write_key, db):
+    """A known external identifier on an archived org → rejected, nothing written (#481).
+
+    No ``active`` in the payload, so the #240 guard never runs: before #481 this
+    auto-attached and wrote names and links onto the soft-deleted org.
+    """
+    org_id = generate_id()
+    ubi_val = _unique_id()
+    await db.execute("INSERT INTO organizations (id, archived_at) VALUES ($1, NOW())", org_id)
+    ubi_type_id = await db.fetchval("SELECT id FROM entity_identifier_types WHERE slug='org_ubi'")
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        org_id,
+        ubi_type_id,
+        ubi_val,
+    )
+    before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+
+    raw, _ = org_write_key
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": ubi_val,
+            "names": [{"name": "Should Not Persist Corp", "name_type": "legal"}],
+            "links": [{"url": f"https://example.com/{ubi_val}", "link_type_slug": "website"}],
+        },
+    )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == f"organization_archived: {org_id!r}"
+    assert body["entity_id"] is None
+    assert (
+        await db.fetchval(
+            "SELECT COUNT(*) FROM organization_names WHERE organization_id=$1", org_id
+        )
+        == 0
+    )
+    assert (
+        await db.fetchval(
+            "SELECT COUNT(*) FROM links WHERE entity_type='organization' AND entity_id=$1", org_id
+        )
+        == 0
+    )
+    assert (
+        await db.fetchval(
+            "SELECT COUNT(*) FROM entity_changes WHERE entity_id=$1 AND id > $2", org_id, before
+        )
+        == 0
+    )
 
 
 async def test_observation_active_change_emits_entity_change(client, org_write_key, db):

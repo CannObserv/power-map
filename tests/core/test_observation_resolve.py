@@ -317,6 +317,81 @@ async def test_pm_assignment_id_auto_attached(db):
     assert entity_type == "role_assignment"
 
 
+async def test_pm_person_id_archived_stays_pm_id_not_found(db):
+    """An archived pm_* target keeps the pm_id_not_found reason (#481 leaves it as is).
+
+    API_ASSIGNMENTS § retract relies on this reason, so the shared liveness helper
+    must not leak the external branch's ``<entity_type>_archived`` slug into it.
+    """
+    person_id = generate_id()
+    await db.execute("INSERT INTO people (id, archived_at) VALUES ($1, NOW())", person_id)
+
+    _, _, disp, reason = await resolve_entity(db, "pm_person_id", person_id)
+
+    assert disp == Disposition.REJECTED
+    assert reason == f"pm_id_not_found: {person_id!r}"
+
+
+# ---------------------------------------------------------------------------
+# External identifier pointing at an archived entity (#481)
+# ---------------------------------------------------------------------------
+
+
+async def _insert_archived(db, entity_type: str) -> str:
+    """Insert one archived entity of the given type and return its id."""
+    entity_id = generate_id()
+    if entity_type == "person":
+        await db.execute("INSERT INTO people (id, archived_at) VALUES ($1, NOW())", entity_id)
+    elif entity_type == "organization":
+        await db.execute(
+            "INSERT INTO organizations (id, archived_at) VALUES ($1, NOW())", entity_id
+        )
+    else:
+        type_row = await db.fetchrow("SELECT id FROM jurisdiction_types WHERE slug='state'")
+        await db.execute(
+            "INSERT INTO jurisdictions (id, slug, name, type_id, archived_at)"
+            " VALUES ($1, $2, $3, $4, NOW())",
+            entity_id,
+            f"test-archived-{entity_id[-8:].lower()}",
+            "Test Archived Jurisdiction",
+            type_row["id"],
+        )
+    return entity_id
+
+
+@pytest.mark.parametrize(
+    ("slug", "entity_type"),
+    [
+        ("person_wa_legislature_member_id", "person"),
+        ("org_ubi", "organization"),
+        ("jur_ocd", "jurisdiction"),
+    ],
+)
+async def test_external_identifier_on_archived_entity_rejected(db, slug, entity_type):
+    """A known external identifier on an archived entity → REJECTED <type>_archived.
+
+    The pm_* branch has always filtered archived_at; the external branch returned
+    AUTO_ATTACHED and the caller wrote onto the soft-deleted row (#481).
+    """
+    entity_id = await _insert_archived(db, entity_type)
+    eit_id = await db.fetchval("SELECT id FROM entity_identifier_types WHERE slug=$1", slug)
+    value = f"archived-{entity_id}"
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        entity_id,
+        eit_id,
+        value,
+    )
+
+    got_id, got_type, disp, reason = await resolve_entity(db, slug, value)
+
+    assert disp == Disposition.REJECTED
+    assert reason == f"{entity_type}_archived: {entity_id!r}"
+    assert (got_id, got_type) == ("", "")
+
+
 async def test_write_additional_identifiers_rejects_internal_type(db):
     """write_additional_identifiers raises ObservationRejected for internal pm_* types."""
     org_id = generate_id()

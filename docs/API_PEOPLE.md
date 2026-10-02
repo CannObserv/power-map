@@ -61,6 +61,6 @@ for them; the catalog carries no value-format column.
 |-------------|-----------|
 | `new` | Identifier not seen before; person created |
 | `auto-attached` | Identifier already known; existing entity returned |
-| `rejected` | Unknown identifier type; identifier belongs to a non-person entity (`entity_type_mismatch: '<type>'`); an internal type in `additional_identifiers`; a conflicting `additional_identifiers` value (`identifier_conflict: '<slug>'`); DB constraint violation. A human-readable `reason` string is always present on rejected responses, and **nothing is written** — see Atomicity below. |
+| `rejected` | Unknown identifier type; identifier belongs to a non-person entity (`entity_type_mismatch: '<type>'`); identifier belongs to an archived person (`person_archived: '<id>'`, #481); an internal type in `additional_identifiers`; a conflicting `additional_identifiers` value (`identifier_conflict: '<slug>'`); DB constraint violation. A human-readable `reason` string is always present on rejected responses, and **nothing is written** — see Atomicity below. |
 
 **When to include `display_label`:** Add a label when the contact method serves a specific named function — e.g. `"Scheduler"`, `"Committee Office"`, `"Main Switchboard"`. Omit it for generic personal numbers where the value alone is self-explanatory.

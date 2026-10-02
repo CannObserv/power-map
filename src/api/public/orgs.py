@@ -80,7 +80,8 @@ async def submit_org_observation(
             if entity_type != "organization":
                 raise ObservationRejected(f"entity_type_mismatch: {entity_type!r}")
 
-            # Fail fast on an archived target before doing any write work (#240).
+            # resolve_entity already refused an archived org (#481); this guard is
+            # the backstop for one archived between resolve and here (#240).
             if request.active is not None:
                 await write_org_active(db, entity_id, request.active)
             await write_names(db, entity_id, entity_type, auth.key_id, request.names)
