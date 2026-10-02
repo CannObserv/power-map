@@ -22,6 +22,7 @@ from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE
 from src.api.admin.people_assignments import fetch_person_assignments
 from src.api.admin.people_embeddings import fetch_person_embeddings
 from src.api.admin.people_queries import VALID_STATUSES, query_people_rows
+from src.core.ancillary_migrate import delete_entity_ancillary
 from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
 
@@ -387,6 +388,9 @@ async def person_delete(
         raise HTTPException(status_code=409, detail="Person must be archived before deletion")
     try:
         async with db.transaction():
+            # #605: identifiers/links/etc. have no FK — drop them (and the names'
+            # citations) first.
+            await delete_entity_ancillary(db, "person", person_id)
             # visibility-allowlist (issue #121): hard-delete must remove ALL name
             # rows regardless of visibility.
             await db.execute("DELETE FROM person_names WHERE person_id = $1", person_id)

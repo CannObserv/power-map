@@ -17,9 +17,9 @@ Before a delete, each merge path re-homes the loser's ancillary onto the survivo
 :func:`rehome_role_ancillary` for roles): each row is re-pointed, or deleted when
 the survivor already carries an identical one (mirrors
 ``scripts/archive_legacy_legislator_roles.py::_migrate_rows``); ``import_provenance``
-is append-only and always re-points (never dedups). A role hard-delete instead
-drops the rows outright (:func:`delete_role_ancillary`), relying on the role's own
-'deleted' tombstone.
+is append-only and always re-points (never dedups). An admin hard delete — of any
+entity type — instead drops the rows outright (:func:`delete_entity_ancillary`,
+#605), relying on the entity's own 'deleted' tombstone.
 
 **Survivor signal (#327).** ``links`` / ``contact_methods`` / ``identifiers`` now
 carry touch-cascade triggers, so a re-point ``UPDATE`` self-emits an
@@ -409,19 +409,6 @@ async def rehome_role_ancillary(
     return result
 
 
-async def delete_role_ancillary(db: asyncpg.Connection, role_id: str) -> None:
-    """Hard-delete a role's own contacts/links before the role row is removed.
-
-    The polymorphic rows have no FK, so a bare ``DELETE FROM roles`` would strand
-    them. The role-delete path already emits a 'deleted' tombstone for the role, so
-    no per-table outbox signal is needed here — subscribers drop the whole role.
-    """
-    for table in ("links", "contact_methods"):
-        await db.execute(f"DELETE FROM {table} WHERE entity_type='role' AND entity_id=$1", role_id)
-    # Citations (#319) are polymorphic no-FK too; drop the role's own before delete.
-    await db.execute("DELETE FROM citations WHERE entity_type='role' AND entity_id=$1", role_id)
-
-
 # ---------------------------------------------------------------------------
 # Citations (#319)
 #
@@ -625,3 +612,74 @@ async def rehome_curation_overlay(
         rows = await db.fetch(_MOVE_OVERRIDES_SQL, entity_type, loser_id, winner_id)
         moved += sum(1 for r in rows if r["active"])
     return moved, archived
+
+
+# ---------------------------------------------------------------------------
+# Hard delete (#605)
+#
+# An admin hard delete has no survivor, so an entity's polymorphic rows go with
+# it. Left behind, an identifier names a deleted id: resolve_entity rejects the
+# producer's next observation of it as `<type>_archived` (#481), for good,
+# instead of minting a new entity.
+# ---------------------------------------------------------------------------
+
+#: Polymorphic tables keyed on (entity_type, entity_id) that an entity owns
+#: outright. A type a table's CHECK does not admit simply matches no row.
+_OWNED_TABLES = ("links", "contact_methods", "citations", "field_confidence", "import_provenance")
+
+
+async def delete_entity_ancillary(db: asyncpg.Connection, entity_type: str, entity_id: str) -> None:
+    """Drop every polymorphic row an entity owns, before its hard ``DELETE``.
+
+    Call inside the delete's transaction, ahead of the entity row and its FK
+    children (a person's names carry citations of their own). The route's
+    'deleted' tombstone announces the removal, so no per-table signal is
+    needed. Outliving the entity on purpose: ``deleted_entities`` and
+    ``entity_changes`` (the tombstone and its outbox) and
+    ``api_key_entity_subscriptions`` (the change feed joins it to deliver
+    that tombstone). Another entity's event linking here is not this
+    entity's to drop (#608).
+    """
+    if entity_type == "person":
+        await db.execute(
+            "DELETE FROM citations WHERE entity_type='person_name' AND entity_id IN"
+            " (SELECT id FROM person_names WHERE person_id=$1)",
+            entity_id,
+        )
+    await delete_event_citations_for_owner(db, entity_type, entity_id)
+    await db.execute(
+        "DELETE FROM entity_events WHERE entity_type=$1 AND entity_id=$2", entity_type, entity_id
+    )
+    for table in _OWNED_TABLES:
+        await db.execute(
+            f"DELETE FROM {table} WHERE entity_type=$1 AND entity_id=$2", entity_type, entity_id
+        )
+    await db.execute(
+        "DELETE FROM identifiers i USING entity_identifier_types t"
+        " WHERE t.id = i.entity_identifier_type_id AND t.entity_type=$1 AND i.entity_id=$2",
+        entity_type,
+        entity_id,
+    )
+    # The address goes with its link, as the admin address delete does — unless
+    # another entity's link or an event's place still uses it.
+    address_ids = [
+        r["address_id"]
+        for r in await db.fetch(
+            "DELETE FROM entity_addresses WHERE entity_type=$1 AND entity_id=$2"
+            " RETURNING address_id",
+            entity_type,
+            entity_id,
+        )
+    ]
+    await db.execute(
+        "DELETE FROM addresses a WHERE a.id = ANY($1::text[])"
+        " AND NOT EXISTS (SELECT 1 FROM entity_addresses ea WHERE ea.address_id = a.id)"
+        " AND NOT EXISTS (SELECT 1 FROM entity_events ev WHERE ev.event_place_address_id = a.id)",
+        address_ids,
+    )
+    overlay_type = "assignment" if entity_type == "role_assignment" else entity_type
+    await db.execute(
+        "DELETE FROM curation_overlay WHERE entity_type=$1 AND entity_id=$2",
+        overlay_type,
+        entity_id,
+    )

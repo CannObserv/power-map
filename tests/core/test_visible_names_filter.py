@@ -44,6 +44,9 @@ ALLOWED_DIRECT_ACCESS = {
     # citations existence-checks a person_name id before attaching provenance
     # (#319) — a legal_only/hidden name is still citable. No display is performed.
     "src/core/citations.py",
+    # a person hard delete drops the citations on every one of its names (#605),
+    # whatever their visibility. No display is performed.
+    "src/core/ancillary_migrate.py",
     # resolves a name's owning person_id for the non-htmx redirect after a citation
     # write (#319) — no name display is performed.
     "src/api/admin/people_name_citations.py",

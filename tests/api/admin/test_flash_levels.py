@@ -33,7 +33,7 @@ ERROR_ALLOWED: frozenset[str] = frozenset()
 # rather than a string constant. These bypass the level sweeps below (the AST
 # can't resolve the value), so each must be vetted by hand and allowlisted here.
 # orgs.py active-toggle resolves `level` to success/warning only (#353).
-DYNAMIC_LEVEL_ALLOWED: frozenset[str] = frozenset({"orgs.py::L239"})
+DYNAMIC_LEVEL_ALLOWED: frozenset[str] = frozenset({"orgs.py::L240"})
 
 
 def _flash_trigger_calls() -> list[tuple[str, int, ast.expr]]:

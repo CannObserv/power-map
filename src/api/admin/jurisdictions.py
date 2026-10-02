@@ -26,6 +26,7 @@ from src.api.admin.deps import (
 )
 from src.api.admin.jurisdictions_queries import VALID_STATUSES, query_jurisdictions_rows
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
+from src.core.ancillary_migrate import delete_entity_ancillary
 from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
 from src.core.jurisdictions import fetch_lineage
@@ -554,6 +555,8 @@ async def jurisdiction_delete(
         raise HTTPException(status_code=409, detail="Jurisdiction must be archived before deletion")
     try:
         async with db.transaction():
+            # #605: identifiers/links/etc. have no FK — drop them with the row.
+            await delete_entity_ancillary(db, "jurisdiction", jurisdiction_id)
             await db.execute("DELETE FROM jurisdictions WHERE id = $1", jurisdiction_id)
             await db.execute(
                 "INSERT INTO deleted_entities (entity_type, entity_id) VALUES ('jurisdiction', $1)"
