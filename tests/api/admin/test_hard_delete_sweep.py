@@ -20,31 +20,35 @@ ENTITY_DELETE = re.compile(
 )
 
 
-def _deletes_an_entity(path: Path) -> bool:
+def _entity_deletes(path: Path) -> int:
+    """How many string literals in the module hard-delete an entity row."""
     tree = ast.parse(path.read_text())
-    return any(
-        isinstance(n, ast.Constant) and isinstance(n.value, str) and ENTITY_DELETE.search(n.value)
+    return sum(
+        1
         for n in ast.walk(tree)
+        if isinstance(n, ast.Constant)
+        and isinstance(n.value, str)
+        and ENTITY_DELETE.search(n.value)
     )
 
 
-def _calls(path: Path, name: str) -> bool:
+def _calls(path: Path, name: str) -> int:
+    """How many times the module calls ``name`` (bare or attribute form)."""
     tree = ast.parse(path.read_text())
-    return any(
-        isinstance(n, ast.Call)
+    return sum(
+        1
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
         and (
             (isinstance(n.func, ast.Name) and n.func.id == name)
             or (isinstance(n.func, ast.Attribute) and n.func.attr == name)
         )
-        for n in ast.walk(tree)
     )
 
 
 def test_sweep_sees_the_hard_delete_routes():
     """Guards the ratchet below against passing vacuously on a renamed file."""
-    found = {
-        p.name for p in ADMIN_DIR.glob("*.py") if p not in MERGE_PATHS and _deletes_an_entity(p)
-    }
+    found = {p.name for p in ADMIN_DIR.glob("*.py") if p not in MERGE_PATHS and _entity_deletes(p)}
     assert {
         "people.py",
         "orgs.py",
@@ -55,14 +59,15 @@ def test_sweep_sees_the_hard_delete_routes():
 
 
 def test_every_admin_hard_delete_drops_its_polymorphic_rows():
-    offenders = [
-        p.name
+    """Per delete, not per module: a second delete route needs its own call."""
+    offenders = {
+        p.name: (deletes, calls)
         for p in sorted(ADMIN_DIR.glob("*.py"))
         if p not in MERGE_PATHS
-        and _deletes_an_entity(p)
-        and not _calls(p, "delete_entity_ancillary")
-    ]
+        and (deletes := _entity_deletes(p)) > (calls := _calls(p, "delete_entity_ancillary"))
+    }
     assert not offenders, (
-        f"{offenders} hard-delete an entity without delete_entity_ancillary. Its"
+        f"{offenders} (entity DELETEs, delete_entity_ancillary calls): a hard delete"
+        " without its own delete_entity_ancillary call. Its"
         " identifiers / links / contact_methods have no FK and would dangle (#605)."
     )
