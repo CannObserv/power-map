@@ -150,6 +150,26 @@ async def test_own_self_linking_event_does_not_block(client, db):
     assert r.status_code == 200, r.text
 
 
+async def _until_lock_waiting(conn, pid: int, timeout: float = 10.0) -> None:
+    """Return once backend ``pid`` is blocked on a lock; fail after ``timeout``.
+
+    ``pg_stat_activity`` is snapshotted per transaction, and ``conn`` is inside
+    one, so each poll clears the snapshot first (the test pool has no spare
+    connection to poll from).
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        await conn.execute("SELECT pg_stat_clear_snapshot()")
+        waiting = await conn.fetchval(
+            "SELECT wait_event_type = 'Lock' FROM pg_stat_activity WHERE pid = $1", pid
+        )
+        if waiting:
+            return
+        await asyncio.sleep(0.05)
+    pytest.fail(f"backend {pid} never blocked on a lock")
+
+
 @pytest_asyncio.fixture(loop_scope="session")
 async def committed_orgs(db_pool):
     """Committed org ids, removed at teardown.
@@ -185,8 +205,7 @@ async def test_delete_waits_for_a_concurrent_link_then_refuses(committed_orgs, c
             delete = asyncio.create_task(
                 client.delete(f"/admin/orgs/{target}/", headers=HTMX_HEADERS)
             )
-            await asyncio.sleep(0.5)
-            assert not delete.done(), "the delete should be waiting on the link's lock"
+            await _until_lock_waiting(producer, db.get_server_pid())
     r = await delete
     assert r.status_code == 409, r.text
 
