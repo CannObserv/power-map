@@ -455,6 +455,13 @@ async def test_delete_entity_ancillary_drops_role_rows(db):
     )
 
 
+@pytest.mark.parametrize("entity_type", ["org", "assignment", "person_name", ""])
+async def test_delete_entity_ancillary_rejects_an_unknown_type(db, entity_type):
+    """#605 CR: a misspelt type would match no row and strand them all, silently."""
+    with pytest.raises(ValueError, match="hard-deletable"):
+        await delete_entity_ancillary(db, entity_type, generate_id())
+
+
 async def test_role_guard_counts_orphans_after_raw_delete(db):
     rid = await _role(db)
     await _add_role_link(db, rid, "https://orphan.example/r")

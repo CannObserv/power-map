@@ -627,6 +627,11 @@ async def rehome_curation_overlay(
 #: outright. A type a table's CHECK does not admit simply matches no row.
 _OWNED_TABLES = ("links", "contact_methods", "citations", "field_confidence", "import_provenance")
 
+#: The types an admin hard delete removes, spelt as `deleted_entities` spells them.
+HARD_DELETABLE_TYPES = frozenset(
+    {"person", "organization", "jurisdiction", "role", "role_assignment"}
+)
+
 
 async def delete_entity_ancillary(db: asyncpg.Connection, entity_type: str, entity_id: str) -> None:
     """Drop every polymorphic row an entity owns, before its hard ``DELETE``.
@@ -639,7 +644,15 @@ async def delete_entity_ancillary(db: asyncpg.Connection, entity_type: str, enti
     ``api_key_entity_subscriptions`` (the change feed joins it to deliver
     that tombstone). Another entity's event linking here is not this
     entity's to drop (#608).
+
+    Raises ``ValueError`` on a type outside :data:`HARD_DELETABLE_TYPES`: a
+    misspelt one would match no row and strand them all without a word.
     """
+    if entity_type not in HARD_DELETABLE_TYPES:
+        raise ValueError(
+            f"not a hard-deletable entity type: {entity_type!r}"
+            f" (one of {', '.join(sorted(HARD_DELETABLE_TYPES))})"
+        )
     if entity_type == "person":
         await db.execute(
             "DELETE FROM citations WHERE entity_type='person_name' AND entity_id IN"
