@@ -121,6 +121,33 @@ async def test_409_detail_names_the_linking_entity_and_event_type(client, db):
     assert "archive and delete" in detail.lower()
 
 
+async def test_409_detail_counts_repeats_and_summarises_past_five(client, db):
+    """One owner's repeated event type is counted; past five pairs, the rest summarise."""
+    target = await _entity(db, "organization", archived=True)
+    repeat = await _entity(db, "organization", archived=False, name="Org 0")
+    for _ in range(2):
+        await db.execute(
+            """INSERT INTO entity_events
+                   (id, entity_type, entity_id, event_type_id, linked_entity_type, linked_entity_id)
+               SELECT $1, 'organization', $2, t.id, 'organization', $3
+               FROM entity_event_types t WHERE t.slug = 'other'""",
+            generate_id(),
+            repeat,
+            target,
+        )
+    for i in range(1, 7):
+        owner = await _entity(db, "organization", archived=False, name=f"Org {i}")
+        await _inbound_event(db, "organization", owner, target)
+
+    r = await client.delete(f"/admin/orgs/{target}/", headers=HTMX_HEADERS)
+
+    detail = r.json()["detail"]
+    assert "Other on Org 0 (2 events)" in detail
+    assert "Succeeded By on Org 4;" in detail
+    assert "Org 5" not in detail and "Org 6" not in detail
+    assert "and 2 more." in detail
+
+
 @pytest.mark.parametrize("entity_type", sorted(CASES))
 async def test_delete_proceeds_once_the_inbound_event_is_gone(client, db, entity_type):
     target = await _entity(db, entity_type, archived=True)
