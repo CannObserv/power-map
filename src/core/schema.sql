@@ -2602,6 +2602,40 @@ CREATE OR REPLACE TRIGGER trg_touch_entity_on_event_change
     AFTER INSERT OR UPDATE OR DELETE ON entity_events
     FOR EACH ROW EXECUTE FUNCTION touch_parent_on_entity_event_change();
 
+-- #608: linked_entity_id is polymorphic, so no real FK can hold it; this is
+-- the referencing half of one. A new or changed link takes FOR KEY SHARE on
+-- the linked row — an admin hard delete locks that row FOR UPDATE before
+-- checking for inbound links, so it waits for this write to commit and then
+-- sees it — and a link to a missing row raises foreign_key_violation, as a
+-- real FK would. An unchanged link is not rechecked: editing another field
+-- of an event must not force a repoint first.
+CREATE OR REPLACE FUNCTION lock_event_linked_entity()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.linked_entity_id IS NULL
+       OR (TG_OP = 'UPDATE'
+           AND NEW.linked_entity_id IS NOT DISTINCT FROM OLD.linked_entity_id
+           AND NEW.linked_entity_type IS NOT DISTINCT FROM OLD.linked_entity_type) THEN
+        RETURN NEW;
+    END IF;
+    IF NEW.linked_entity_type = 'organization' THEN
+        PERFORM 1 FROM organizations WHERE id = NEW.linked_entity_id FOR KEY SHARE;
+    ELSE
+        PERFORM 1 FROM people WHERE id = NEW.linked_entity_id FOR KEY SHARE;
+    END IF;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'entity_events.linked_entity_id % names no %',
+            NEW.linked_entity_id, NEW.linked_entity_type
+            USING ERRCODE = 'foreign_key_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_entity_events_linked_entity
+    BEFORE INSERT OR UPDATE OF linked_entity_type, linked_entity_id ON entity_events
+    FOR EACH ROW EXECUTE FUNCTION lock_event_linked_entity();
+
 -- #307 CR rounds 1–2: reconcile entity_events CHECKs on pre-existing DBs.
 -- CREATE TABLE IF NOT EXISTS no-ops on an existing table, so constraints added
 -- inline to the CREATE never reach a DB whose table predates them — prod was

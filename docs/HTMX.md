@@ -210,7 +210,7 @@ Both top and sticky footer pagination appear on all list views.
 
 ### Archive gate
 
-`archived_at IS NOT NULL` required before hard delete. Attempting to delete an active record returns HTTP 409.
+`archived_at IS NOT NULL` required before hard delete. Attempting to delete an active record returns HTTP 409. Every hard-delete 409 — not archived, an FK reference, an inbound event link (#608) — carries its reason in `detail`; `delete_modal.html` shows that text (`textContent`), falling back to "archive the entity first" only for a body with no string `detail`.
 
 ### Danger zone
 
@@ -345,7 +345,7 @@ Any route that enforces a minimum-count or canonical invariant:
 
 ### Contrast with archive gate
 
-The archive gate (§ Destructive Actions) blocks hard delete when `archived_at IS NULL` — that can safely return 409 unconditionally because the delete button is served via HTMX but the error surface is the `delete_modal.html` which reads the response status explicitly.
+The archive gate (§ Destructive Actions) blocks hard delete when `archived_at IS NULL` — that can safely return 409 unconditionally because the delete button is served via HTMX but the error surface is the `delete_modal.html` which reads the response status and `detail` explicitly.
 
 ---
 

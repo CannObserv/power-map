@@ -50,3 +50,12 @@ def test_delete_button_has_type_button():
     match = re.search(r"<button[^>]*hx-delete[^>]*>", TEMPLATE, re.DOTALL)
     assert match, "Delete button with hx-delete not found"
     assert 'type="button"' in match.group(0)
+
+
+def test_409_shows_the_server_detail():
+    """A 409's JSON ``detail`` is what the curator needs (#608): which events still
+    link here, or which records block the delete — not a blanket 'archive first'."""
+    script = TEMPLATE[TEMPLATE.index("<script>") :]
+    assert "JSON.parse(xhr.responseText).detail" in script
+    assert "conflictDetail(event.detail.xhr)" in script
+    assert "innerHTML" not in script  # textContent only: the detail carries DB-derived names
