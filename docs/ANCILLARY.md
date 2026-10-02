@@ -26,9 +26,11 @@ All three conflict-delete sites — `person_merge.py` (core, #514), `orgs_roles.
 
 An admin hard delete (people, orgs, jurisdictions, roles, role-assignments) has nothing to re-home onto. Each route calls `delete_entity_ancillary(db, entity_type, entity_id)` inside its delete transaction, ahead of the entity row: `links`, `contact_methods`, `identifiers` (scoped through `entity_identifier_types`), `field_confidence`, `import_provenance`, `entity_addresses` (and each `addresses` row no other link or event place still uses), `curation_overlay` (an assignment spelled `assignment`), the entity's own `entity_events`, and the citations on the entity, its events and — for a person — its names. A type a table's CHECK excludes matches no row, so the helper needs no per-type matrix. Left behind, an identifier names a deleted id, and `resolve_entity` rejects the producer's next observation of it as `<type>_archived` (#481) — an unarchive that cannot happen — instead of minting a new entity.
 
+**Feed shape:** each dropped row on a touch-triggered table (#327) still bumps the entity first, so the outbox carries a burst of `'updated'` rows for it ahead of its `'deleted'` tombstone, all in one transaction. A subscriber fetching on one of those may get a 404; the tombstone that follows is the answer.
+
 **Outlive the entity on purpose:** `deleted_entities` and `entity_changes` (the tombstone and its outbox) and `api_key_entity_subscriptions` (the change feed joins it to deliver that tombstone). **Not covered:** another entity's event whose `linked_entity_id` names the deleted one (#608).
 
-**Guards:** `tests/api/admin/test_hard_delete_ancillary.py` drives every route with a row in every polymorphic table and fails when a new `entity_id` table appears with neither a seeder nor a reason to survive; `test_hard_delete_sweep.py` fails an admin module (merge modules aside) that deletes an entity without calling the helper.
+**Guards:** `tests/api/admin/test_hard_delete_ancillary.py` drives every route with a row in every polymorphic table and fails when a new `entity_id` table appears with neither a seeder nor a reason to survive; `test_hard_delete_sweep.py` fails an admin module (merge modules aside) with more entity `DELETE`s than helper calls. The helper raises `ValueError` on a type outside `HARD_DELETABLE_TYPES`.
 
 ---
 
