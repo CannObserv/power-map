@@ -62,7 +62,7 @@ Every route handler: `user: AdminUser = Depends(get_admin_user)` — `get_admin_
 
 `archived_at TIMESTAMPTZ` — NULL = active, non-NULL = archived.
 
-- Hard delete: gated on `archived_at IS NOT NULL` (returns 409 if not archived)
+- Hard delete: gated on `archived_at IS NOT NULL` (returns 409 if not archived); drops polymorphic rows via `delete_entity_ancillary` (#605, `docs/ANCILLARY.md`)
 - `POST /{id}/unarchive/`: sets `archived_at = NULL`, preserves prior `active` state (returns 409 if not archived)
 - Archive: returns 409 if already archived — enforced across all entity types (orgs, people, roles, role-assignments)
 - Flash on detail pages: `org_detail`, `person_detail`, `ra_detail` accept `?flash=` param via `resolve_query_flash`; add entity-specific flash keys to the module-level `_FLASH_MESSAGES` dict. `resolve_query_flash` also falls back to `SHARED_FLASH_MESSAGES` (`saved`/`removed`/`invalid`/`exists`) — the generic ancillary-fallback keys (#351) — so a target route need not re-declare them; a route-local key of the same name still wins
