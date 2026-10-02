@@ -1,8 +1,10 @@
 """Shared lookups for the polymorphic linked-entity reference (person | organization).
 
-`entity_events.linked_entity_id` is a polymorphic FK with no DB-level constraint,
-so existence and type must be checked in the application. These helpers back both
-the admin entity-search typeahead and event linked-entity validation (#172).
+`entity_events.linked_entity_id` is polymorphic, so no real FK holds it. The schema
+trigger `trg_entity_events_linked_entity` enforces existence and type (#608); the
+application still checks first so a curator gets a form error, not a constraint
+failure. These helpers back the admin entity-search typeahead, event linked-entity
+validation (#172), and the hard-delete inbound-link guard (#608).
 """
 
 import asyncpg
