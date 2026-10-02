@@ -2607,7 +2607,8 @@ CREATE OR REPLACE TRIGGER trg_touch_entity_on_event_change
 -- the linked row — an admin hard delete locks that row FOR UPDATE before
 -- checking for inbound links, so it waits for this write to commit and then
 -- sees it — and a link to a missing row raises foreign_key_violation, as a
--- real FK would. An unchanged link is not rechecked: editing another field
+-- real FK would, naming the trigger as its constraint so callers can tell it
+-- from the event's other FKs. An unchanged link is not rechecked: editing another field
 -- of an event must not force a repoint first.
 CREATE OR REPLACE FUNCTION lock_event_linked_entity()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
@@ -2626,7 +2627,8 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'entity_events.linked_entity_id % names no %',
             NEW.linked_entity_id, NEW.linked_entity_type
-            USING ERRCODE = 'foreign_key_violation';
+            USING ERRCODE = 'foreign_key_violation',
+                  CONSTRAINT = 'trg_entity_events_linked_entity';
     END IF;
     RETURN NEW;
 END;

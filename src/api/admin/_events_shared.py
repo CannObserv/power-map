@@ -18,7 +18,12 @@ from src.api.admin.deps import (
     provision_app_user,
     with_flash,
 )
-from src.api.admin.entity_lookup import ENTITY_TYPES, entity_exists, resolve_entity_label
+from src.api.admin.entity_lookup import (
+    ENTITY_TYPES,
+    entity_exists,
+    linked_entity_vanished,
+    resolve_entity_label,
+)
 from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
 from src.core.ancillary_migrate import delete_citations
 from src.core.db import generate_id
@@ -398,38 +403,51 @@ def make_events_router(
             return _form_response(request, entity_id, None, event_types, error=addr_error)
 
         eid = generate_id()
-        async with (
-            db.transaction(),
-            tracked(
-                db, entity_type, entity_id, user_id=user.id, fields=("dissolved_year",)
-            ) as edit,
-        ):
-            await db.execute(
-                """INSERT INTO entity_events
-                   (id, entity_type, entity_id, event_type_id,
-                    event_year, event_month, event_day,
-                    event_hour, event_minute, event_second,
-                    event_place_text, event_place_address_id,
-                    linked_entity_type, linked_entity_id,
-                    notes, visibility)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-                           $9, $10, $11, $12, $13, $14, $15, $16)""",
-                eid,
-                entity_type,
-                entity_id,
-                event_type_id,
-                year_val,
-                month_val,
-                day_val,
-                hour_val,
-                minute_val,
-                second_val,
-                event_place_text.strip() or None,
-                place_addr_id,
-                linked_type,
-                linked_id,
-                notes.strip() or None,
-                visibility,
+        try:
+            async with (
+                db.transaction(),
+                tracked(
+                    db, entity_type, entity_id, user_id=user.id, fields=("dissolved_year",)
+                ) as edit,
+            ):
+                await db.execute(
+                    """INSERT INTO entity_events
+                       (id, entity_type, entity_id, event_type_id,
+                        event_year, event_month, event_day,
+                        event_hour, event_minute, event_second,
+                        event_place_text, event_place_address_id,
+                        linked_entity_type, linked_entity_id,
+                        notes, visibility)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                               $9, $10, $11, $12, $13, $14, $15, $16)""",
+                    eid,
+                    entity_type,
+                    entity_id,
+                    event_type_id,
+                    year_val,
+                    month_val,
+                    day_val,
+                    hour_val,
+                    minute_val,
+                    second_val,
+                    event_place_text.strip() or None,
+                    place_addr_id,
+                    linked_type,
+                    linked_id,
+                    notes.strip() or None,
+                    visibility,
+                )
+        except asyncpg.ForeignKeyViolationError as exc:
+            # #608: the linked entity was deleted after the check above.
+            if not linked_entity_vanished(exc):
+                raise
+            if not is_htmx(request):
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(
+                request, entity_id, None, event_types, error="Linked entity not found."
             )
         row = await _get_event_or_404(eid, entity_id, db)
         if not is_htmx(request):
@@ -605,35 +623,53 @@ def make_events_router(
                 linked_label=existing_label,
             )
 
-        async with (
-            db.transaction(),
-            tracked(
-                db, entity_type, entity_id, user_id=user.id, fields=("dissolved_year",)
-            ) as edit,
-        ):
-            await db.execute(
-                """UPDATE entity_events SET
-                   event_type_id=$1,
-                   event_year=$2, event_month=$3, event_day=$4,
-                   event_hour=$5, event_minute=$6, event_second=$7,
-                   event_place_text=$8, event_place_address_id=$9,
-                   linked_entity_type=$10, linked_entity_id=$11,
-                   notes=$12, visibility=$13
-                   WHERE id=$14""",
-                event_type_id,
-                year_val,
-                month_val,
-                day_val,
-                hour_val,
-                minute_val,
-                second_val,
-                event_place_text.strip() or None,
-                place_addr_id,
-                linked_type,
-                linked_id,
-                notes.strip() or None,
-                visibility,
-                event_id,
+        try:
+            async with (
+                db.transaction(),
+                tracked(
+                    db, entity_type, entity_id, user_id=user.id, fields=("dissolved_year",)
+                ) as edit,
+            ):
+                await db.execute(
+                    """UPDATE entity_events SET
+                       event_type_id=$1,
+                       event_year=$2, event_month=$3, event_day=$4,
+                       event_hour=$5, event_minute=$6, event_second=$7,
+                       event_place_text=$8, event_place_address_id=$9,
+                       linked_entity_type=$10, linked_entity_id=$11,
+                       notes=$12, visibility=$13
+                       WHERE id=$14""",
+                    event_type_id,
+                    year_val,
+                    month_val,
+                    day_val,
+                    hour_val,
+                    minute_val,
+                    second_val,
+                    event_place_text.strip() or None,
+                    place_addr_id,
+                    linked_type,
+                    linked_id,
+                    notes.strip() or None,
+                    visibility,
+                    event_id,
+                )
+        except asyncpg.ForeignKeyViolationError as exc:
+            # #608: the linked entity was deleted after the check above.
+            if not linked_entity_vanished(exc):
+                raise
+            if not is_htmx(request):
+                return RedirectResponse(
+                    with_flash(detail_url(entity_id), "invalid"), status_code=303
+                )
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(
+                request,
+                entity_id,
+                existing,
+                event_types,
+                error="Linked entity not found.",
+                linked_label=existing_label,
             )
         row = await _get_event_or_404(event_id, entity_id, db)
         if not is_htmx(request):

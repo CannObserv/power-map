@@ -189,3 +189,93 @@ async def test_delete_waits_for_a_concurrent_link_then_refuses(committed_orgs, c
             assert not delete.done(), "the delete should be waiting on the link's lock"
     r = await delete
     assert r.status_code == 409, r.text
+
+
+# --- The admin link writers, when the target vanishes after their check ---
+# Each writer validates the linked entity, then writes later; a delete landing in
+# between trips the schema trigger. The curator gets the writer's own "not found"
+# answer, not a 500. Each test deletes the target from a step that runs between
+# the check and the write.
+
+
+async def _event_type_id(db, slug: str) -> str:
+    return await db.fetchval("SELECT id FROM entity_event_types WHERE slug = $1", slug)
+
+
+def _vanish_during_place_check(monkeypatch, target: str) -> None:
+    """Delete ``target`` while the event form validates its place address."""
+
+    async def _place_check(conn, raw_id):
+        await conn.execute("DELETE FROM organizations WHERE id = $1", target)
+        return None, None
+
+    monkeypatch.setattr("src.api.admin._events_shared._validate_event_place_address", _place_check)
+
+
+async def test_event_create_whose_link_vanishes_shows_the_form_error(client, db, monkeypatch):
+    owner = await _entity(db, "organization", archived=False)
+    target = await _entity(db, "organization", archived=True)
+    _vanish_during_place_check(monkeypatch, target)
+
+    r = await client.post(
+        f"/admin/orgs/{owner}/events/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": await _event_type_id(db, "other"),
+            "event_year": "2020",
+            "linked_entity_type": "organization",
+            "linked_entity_id": target,
+            "visibility": "public",
+        },
+    )
+
+    assert r.status_code == 200, r.text
+    assert "Linked entity not found" in r.text
+    assert not await db.fetchval("SELECT 1 FROM entity_events WHERE entity_id = $1", owner)
+
+
+async def test_event_edit_whose_new_link_vanishes_shows_the_form_error(client, db, monkeypatch):
+    owner = await _entity(db, "organization", archived=False)
+    target = await _entity(db, "organization", archived=True)
+    etid = await _event_type_id(db, "other")
+    ev = generate_id()
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
+        " VALUES ($1, 'organization', $2, $3, 2020)",
+        ev,
+        owner,
+        etid,
+    )
+    _vanish_during_place_check(monkeypatch, target)
+
+    r = await client.post(
+        f"/admin/orgs/{owner}/events/{ev}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={
+            "event_type_id": etid,
+            "event_year": "2020",
+            "linked_entity_type": "organization",
+            "linked_entity_id": target,
+            "visibility": "public",
+        },
+    )
+
+    assert r.status_code == 200, r.text
+    assert "Linked entity not found" in r.text
+    assert await db.fetchval("SELECT linked_entity_id FROM entity_events WHERE id = $1", ev) is None
+
+
+async def test_succession_link_whose_successor_vanishes_is_a_404(client, db, monkeypatch):
+    pred = await _entity(db, "organization", archived=False)
+    succ = await _entity(db, "organization", archived=False)
+
+    async def _chain_check(conn, id_a, id_b):
+        await conn.execute("DELETE FROM organizations WHERE id = $1", succ)
+        return False
+
+    monkeypatch.setattr("src.api.admin.orgs_succession._in_same_chain", _chain_check)
+
+    r = await client.post(f"/admin/orgs/{pred}/link-successor/{succ}/", headers=HTMX_HEADERS)
+
+    assert r.status_code == 404, r.text
+    assert not await db.fetchval("SELECT 1 FROM entity_events WHERE entity_id = $1", pred)

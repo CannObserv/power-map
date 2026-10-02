@@ -23,6 +23,7 @@ from src.api.admin.deps import (
     is_htmx,
     with_flash,
 )
+from src.api.admin.entity_lookup import linked_entity_vanished
 from src.api.admin.org_dups import fetch_duplicate_pairs, invalidate_dup_count_cache
 from src.core.db import generate_id
 from src.core.logging import get_logger
@@ -166,18 +167,25 @@ async def _apply_link(db, user, pred_id: str, succ_id: str, succession_date: str
         return False, body, "exists"
 
     try:
-        await db.execute(
-            """INSERT INTO entity_events
-                   (id, entity_type, entity_id, event_type_id,
-                    event_year, event_month, event_day,
-                    linked_entity_type, linked_entity_id)
-               SELECT $1, 'organization', $2, t.id, $4, $5, $6, 'organization', $3
-               FROM entity_event_types t WHERE t.slug = 'succeeded_by'""",
-            generate_id(),
-            pred_id,
-            succ_id,
-            *date_parts,
-        )
+        # Own (sub)transaction: a failed insert must not abort the caller's.
+        async with db.transaction():
+            await db.execute(
+                """INSERT INTO entity_events
+                       (id, entity_type, entity_id, event_type_id,
+                        event_year, event_month, event_day,
+                        linked_entity_type, linked_entity_id)
+                   SELECT $1, 'organization', $2, t.id, $4, $5, $6, 'organization', $3
+                   FROM entity_event_types t WHERE t.slug = 'succeeded_by'""",
+                generate_id(),
+                pred_id,
+                succ_id,
+                *date_parts,
+            )
+    except asyncpg.ForeignKeyViolationError as exc:
+        # #608: the successor was deleted after the existence check above.
+        if not linked_entity_vanished(exc):
+            raise
+        raise HTTPException(status_code=404)
     except asyncpg.UniqueViolationError:
         # uq_entity_events_succession_edge: a concurrent request won the race
         # between our chain check and this insert — same outcome as the check.
