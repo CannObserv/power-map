@@ -374,3 +374,25 @@ async def test_hard_delete_keeps_an_address_another_entity_shares(client, db):
 
     assert not await db.fetchval("SELECT 1 FROM entity_addresses WHERE id = $1", link_id)
     assert await db.fetchval("SELECT 1 FROM addresses WHERE id = $1", address_id)
+
+
+async def test_hard_delete_keeps_an_address_that_is_another_events_place(client, db):
+    """An event place reference keeps the address too (its FK would SET NULL)."""
+    gone = await _archived_entity(db, "organization")
+    kept = await _archived_entity(db, "organization")
+    [(_, link_id), (_, address_id)] = await _seed_entity_addresses(db, "organization", gone)
+    [(_, event_id), _] = await _seed_entity_events(db, "organization", kept)
+    await db.execute(
+        "UPDATE entity_events SET event_place_address_id = $1 WHERE id = $2", address_id, event_id
+    )
+
+    r = await client.delete(f"/admin/orgs/{gone}/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+
+    assert not await db.fetchval("SELECT 1 FROM entity_addresses WHERE id = $1", link_id)
+    assert (
+        await db.fetchval(
+            "SELECT event_place_address_id FROM entity_events WHERE id = $1", event_id
+        )
+        == address_id
+    )
