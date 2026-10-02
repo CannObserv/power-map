@@ -1,10 +1,11 @@
 # power-map — Ancillary Rows: Merge Re-homing & Change Emission
 
-The two rules that govern **ancillary rows** — the `links`, `contact_methods`,
-`addresses`, `identifiers` and `field_confidence` records hanging off an assignment,
-a role or an entity. They are polymorphic (`entity_type` + `entity_id`, no FK), which
-is what makes both rules necessary: a merge must re-home them by hand, and only a DB
-trigger can turn an edit into the parent's `entity_changes` signal.
+The rules that govern **ancillary rows** — the `links`, `contact_methods`,
+`addresses`, `identifiers`, `field_confidence` and kindred records hanging off an
+assignment, a role or an entity. They are polymorphic (`entity_type` + `entity_id`,
+no FK), which is what makes each rule necessary: a merge must re-home them by hand,
+a hard delete must drop them by hand (#605), and only a DB trigger can turn an edit
+into the parent's `entity_changes` signal.
 
 Observation write semantics per kind are in `docs/OBSERVATIONS.md` — assignments
 in `docs/API_ASSIGNMENTS.md` — and the tables themselves in `docs/SCHEMA.md`.
