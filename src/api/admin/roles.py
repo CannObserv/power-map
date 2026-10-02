@@ -24,7 +24,7 @@ from src.api.admin.roles_shared import (
     positioned_at_large_error,
     positionless_seat_error,
 )
-from src.core.ancillary_migrate import delete_role_ancillary
+from src.core.ancillary_migrate import delete_entity_ancillary
 from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
 
@@ -435,9 +435,9 @@ async def role_delete(
         raise HTTPException(status_code=409, detail="Role must be archived before deletion")
     try:
         async with db.transaction():
-            # #326: drop the role's own contacts/links (entity_type='role', no FK)
-            # so the hard-delete doesn't orphan them.
-            await delete_role_ancillary(db, role_id)
+            # #326/#605: drop the role's polymorphic rows (no FK) so the
+            # hard-delete doesn't orphan them.
+            await delete_entity_ancillary(db, "role", role_id)
             await db.execute("DELETE FROM roles WHERE id = $1", role_id)
             # Tombstone (issue #277): emit a 'deleted' signal for subscribers.
             await db.execute(

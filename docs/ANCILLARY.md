@@ -1,10 +1,11 @@
 # power-map — Ancillary Rows: Merge Re-homing & Change Emission
 
-The two rules that govern **ancillary rows** — the `links`, `contact_methods`,
-`addresses`, `identifiers` and `field_confidence` records hanging off an assignment,
-a role or an entity. They are polymorphic (`entity_type` + `entity_id`, no FK), which
-is what makes both rules necessary: a merge must re-home them by hand, and only a DB
-trigger can turn an edit into the parent's `entity_changes` signal.
+The rules that govern **ancillary rows** — the `links`, `contact_methods`,
+`addresses`, `identifiers`, `field_confidence` and kindred records hanging off an
+assignment, a role or an entity. They are polymorphic (`entity_type` + `entity_id`,
+no FK), which is what makes each rule necessary: a merge must re-home them by hand,
+a hard delete must drop them by hand (#605), and only a DB trigger can turn an edit
+into the parent's `entity_changes` signal.
 
 Observation write semantics per kind are in `docs/OBSERVATIONS.md` — assignments
 in `docs/API_ASSIGNMENTS.md` — and the tables themselves in `docs/SCHEMA.md`.
@@ -20,7 +21,17 @@ All three conflict-delete sites — `person_merge.py` (core, #514), `orgs_roles.
 
 **Guard:** `count_orphaned_role_assignment_ancillary` (anti-join, no matching `role_assignments` row) backs both a unit test and the daily `power-map-ancillary-orphans.timer` (`scripts/audit_ancillary_orphans.py`, exit 3 on any orphan). **Existing-orphan cleanup:** `scripts/cleanup_role_assignment_ancillary_orphans.py` — merges leave no assignment tombstone, so recovery is heuristic per dead id (PDC filer→person→current seat; `first.last@` email→unique person→current seat; redundant-link purge; everything else reported for manual triage). Dry-run by default; `--execute` is supervised.
 
-**Role-level ancillary (#326).** A role *definition* carries the same hazard for its own `links` / `contact_methods` (`entity_type='role'`, no FK — `role` is excluded from `identifiers`/`field_confidence`/`import_provenance`), made routine by the admin contacts/links editors. `src.core.ancillary_migrate` mirrors the assignment machinery via a shared `_migrate_specs`: `rehome_role_ancillary` (merge: re-point + dedup onto the surviving role — the survivor 'role' 'updated' signal comes from the `links`/`contact_methods` touch triggers, #327, so no manual emit) is called by all three role-deleting paths (`roles.py` hard-delete uses `delete_role_ancillary` instead — a hard delete removes the rows; `orgs_roles.py::role_merge` and both `orgs_merge.py` role-pair deletes re-home). The same daily `audit_ancillary_orphans.py` guard counts role orphans too (`count_orphaned_role_ancillary`), namespaced `role.*` in the breakdown. No dedicated cleanup script — the write paths are all covered, so a role orphan is an anomaly for manual triage.
+**Role-level ancillary (#326).** A role *definition* carries the same hazard for its own `links` / `contact_methods` (`entity_type='role'`, no FK — `role` is excluded from `identifiers`/`field_confidence`/`import_provenance`), made routine by the admin contacts/links editors. `src.core.ancillary_migrate` mirrors the assignment machinery via a shared `_migrate_specs`: `rehome_role_ancillary` (merge: re-point + dedup onto the surviving role — the survivor 'role' 'updated' signal comes from the `links`/`contact_methods` touch triggers, #327, so no manual emit) is called by all three role-deleting paths (`roles.py` hard-delete uses `delete_entity_ancillary` instead — a hard delete removes the rows, below; `orgs_roles.py::role_merge` and both `orgs_merge.py` role-pair deletes re-home). The same daily `audit_ancillary_orphans.py` guard counts role orphans too (`count_orphaned_role_ancillary`), namespaced `role.*` in the breakdown. No dedicated cleanup script — the write paths are all covered, so a role orphan is an anomaly for manual triage.
+
+## Hard delete — no survivor, so the rows go (#605)
+
+An admin hard delete (people, orgs, jurisdictions, roles, role-assignments) has nothing to re-home onto. Each route calls `delete_entity_ancillary(db, entity_type, entity_id)` inside its delete transaction, ahead of the entity row: `links`, `contact_methods`, `identifiers` (scoped through `entity_identifier_types`), `field_confidence`, `import_provenance`, `entity_addresses` (and each `addresses` row no other link or event place still uses), `curation_overlay` (an assignment spelled `assignment`), the entity's own `entity_events`, and the citations on the entity, its events and — for a person — its names. A type a table's CHECK excludes matches no row, so the helper needs no per-type matrix. Left behind, an identifier names a deleted id, and `resolve_entity` rejects the producer's next observation of it as `<type>_archived` (#481) — an unarchive that cannot happen — instead of minting a new entity.
+
+**Feed shape:** each dropped row on a touch-triggered table (#327) still bumps the entity first, so the outbox carries a burst of `'updated'` rows for it ahead of its `'deleted'` tombstone, all in one transaction. A subscriber fetching on one of those may get a 404; the tombstone that follows is the answer.
+
+**Outlive the entity on purpose:** `deleted_entities` and `entity_changes` (the tombstone and its outbox) and `api_key_entity_subscriptions` (the change feed joins it to deliver that tombstone). **Not covered:** another entity's event whose `linked_entity_id` names the deleted one (#608).
+
+**Guards:** `tests/api/admin/test_hard_delete_ancillary.py` drives every route with a row in every polymorphic table and fails when a new `entity_id` table appears with neither a seeder nor a reason to survive; `test_hard_delete_sweep.py` fails an admin module (merge modules aside) with more entity `DELETE`s than helper calls. The helper raises `ValueError` on a type outside `HARD_DELETABLE_TYPES`.
 
 ---
 

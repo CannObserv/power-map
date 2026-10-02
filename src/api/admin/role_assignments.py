@@ -21,6 +21,7 @@ from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note,
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.role_assignments_queries import VALID_STATUSES, query_role_assignments_rows
 from src.api.admin.role_assignments_relationships import fetch_panel_rows
+from src.core.ancillary_migrate import delete_entity_ancillary
 from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
 from src.core.org_lifecycle import (
@@ -683,6 +684,8 @@ async def ra_delete(
         )
 
     async with db.transaction():
+        # #605: identifiers/links/etc. have no FK — drop them with the row.
+        await delete_entity_ancillary(db, "role_assignment", ra_id)
         await db.execute("DELETE FROM role_assignments WHERE id = $1", ra_id)
         # Tombstone (issue #277): emit a 'deleted' signal for subscribers.
         await db.execute(

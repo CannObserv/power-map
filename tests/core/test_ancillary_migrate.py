@@ -13,7 +13,7 @@ import pytest_asyncio
 from src.core.ancillary_migrate import (
     count_orphaned_role_ancillary,
     count_orphaned_role_assignment_ancillary,
-    delete_role_ancillary,
+    delete_entity_ancillary,
     migrate_role_assignment_ancillary,
     rehome_conflicting_assignment_ancillary,
     rehome_curation_overlay,
@@ -436,12 +436,12 @@ async def test_rehome_role_dedups_identical_and_skips_signal(db):
     assert await _role_updated_signals(db, winner) == before
 
 
-async def test_delete_role_ancillary_drops_rows(db):
+async def test_delete_entity_ancillary_drops_role_rows(db):
     rid = await _role(db)
     await _add_role_link(db, rid, "https://x.example/y")
     await _add_role_contact(db, rid, "gone@example.org")
 
-    await delete_role_ancillary(db, rid)
+    await delete_entity_ancillary(db, "role", rid)
 
     assert (
         await db.fetchval(
@@ -453,6 +453,13 @@ async def test_delete_role_ancillary_drops_rows(db):
         )
         == 0
     )
+
+
+@pytest.mark.parametrize("entity_type", ["org", "assignment", "person_name", ""])
+async def test_delete_entity_ancillary_rejects_an_unknown_type(db, entity_type):
+    """#605 CR: a misspelt type would match no row and strand them all, silently."""
+    with pytest.raises(ValueError, match="hard-deletable"):
+        await delete_entity_ancillary(db, entity_type, generate_id())
 
 
 async def test_role_guard_counts_orphans_after_raw_delete(db):

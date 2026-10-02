@@ -23,6 +23,7 @@ from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.api.admin.orgs_roles import fetch_org_roles
 from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
+from src.core.ancillary_migrate import delete_entity_ancillary
 from src.core.citations import CITABLE_FIELDS
 from src.core.db import generate_id
 from src.core.logging import get_logger
@@ -743,6 +744,8 @@ async def org_delete(
         raise HTTPException(status_code=409, detail="Organization must be archived before deletion")
     try:
         async with db.transaction():
+            # #605: identifiers/links/etc. have no FK — drop them with the org.
+            await delete_entity_ancillary(db, "organization", org_id)
             await db.execute("DELETE FROM organization_acronyms WHERE organization_id = $1", org_id)
             await db.execute("DELETE FROM organization_names WHERE organization_id = $1", org_id)
             await db.execute("DELETE FROM organizations WHERE id = $1", org_id)
