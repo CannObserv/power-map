@@ -307,3 +307,18 @@ def visible_names_filter(alias: str | None = None) -> str:
     """
     col = f"{alias}.visibility" if alias else "visibility"
     return f"{col} = 'public'"
+
+
+#: The constraint name ``trg_entity_events_linked_entity`` raises
+#: ``foreign_key_violation`` under (#608).
+LINKED_ENTITY_GUARD = "trg_entity_events_linked_entity"
+
+
+def linked_entity_vanished(exc: asyncpg.ForeignKeyViolationError) -> bool:
+    """True when an event write failed because its linked entity is gone (#608).
+
+    A writer validates the link, then writes later; a delete landing in between
+    trips the schema trigger. Distinct from the event's real FKs (its place
+    address, its type), which keep their own handling.
+    """
+    return exc.constraint_name == LINKED_ENTITY_GUARD

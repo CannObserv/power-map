@@ -12,7 +12,7 @@ import asyncpg
 if TYPE_CHECKING:
     from src.api.public.schemas import ObservationAcronym, ObservationOrgName, ObservationPersonName
 
-from src.core.db import generate_id
+from src.core.db import generate_id, linked_entity_vanished
 from src.core.logging import get_logger
 from src.core.normalizers.address import get_address_normalizer
 from src.core.normalizers.email import EmailNormalizer
@@ -1835,7 +1835,14 @@ async def write_entity_events(
     """
     results: list[EventResult] = []
     for ev in events:
-        result = await _apply_one_event(conn, entity_id, entity_type, key_id, ev)
+        try:
+            result = await _apply_one_event(conn, entity_id, entity_type, key_id, ev)
+        except asyncpg.ForeignKeyViolationError as exc:
+            # #608: the linked entity was deleted after _linked_entity_exists —
+            # the pre-check's slug, not the route's blanket constraint answer.
+            if not linked_entity_vanished(exc):
+                raise
+            raise ObservationRejected(EventRejectReason.LINKED_ENTITY_UNRESOLVED) from exc
         if result.disposition is EventDisposition.REJECTED:
             raise ObservationRejected(result.reason)
         results.append(result)
@@ -1868,9 +1875,17 @@ async def apply_event_observations(
                     raise _SavepointRollback(result)  # unwind this event's savepoint
         except _SavepointRollback as sr:
             result = sr.result
+        except asyncpg.ForeignKeyViolationError as exc:
+            # #608: the linked entity was deleted after _linked_entity_exists —
+            # the same cause, and so the same slug, as finding it missing there.
+            reason = (
+                EventRejectReason.LINKED_ENTITY_UNRESOLVED
+                if linked_entity_vanished(exc)
+                else EventRejectReason.INVALID
+            )
+            result = EventResult(EventDisposition.REJECTED, None, reason)
         except (
             asyncpg.CheckViolationError,
-            asyncpg.ForeignKeyViolationError,
             asyncpg.UniqueViolationError,
         ):
             # A per-event DB constraint (e.g. a partial-date-chain check) — the

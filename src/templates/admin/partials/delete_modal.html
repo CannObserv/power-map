@@ -43,13 +43,24 @@
     }
   }
 
+  // A 409's JSON detail says what blocks the delete (#608): not archived, related
+  // records, or other entities' events still linking here.
+  function conflictDetail(xhr) {
+    try {
+      var detail = JSON.parse(xhr.responseText).detail;
+      return typeof detail === 'string' ? detail : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   window.__pmHandleDeleteResult = function (event) {
     if (event.detail.successful) {
       close();
     } else {
       var status = event.detail.xhr.status;
       var msg = status === 409
-        ? 'Cannot delete: archive the entity first.'
+        ? conflictDetail(event.detail.xhr) || 'Cannot delete: archive the entity first.'
         : status === 0
           ? 'Delete failed: network error. Please try again.'
           : 'Delete failed (' + status + '). Please try again.';

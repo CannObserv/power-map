@@ -643,7 +643,8 @@ async def delete_entity_ancillary(db: asyncpg.Connection, entity_type: str, enti
     ``entity_changes`` (the tombstone and its outbox) and
     ``api_key_entity_subscriptions`` (the change feed joins it to deliver
     that tombstone). Another entity's event linking here is not this
-    entity's to drop (#608).
+    entity's to drop: the route refuses the delete first, via
+    ``inbound_link_conflict`` (#608).
 
     Raises ``ValueError`` on a type outside :data:`HARD_DELETABLE_TYPES`: a
     misspelt one would match no row and strand them all without a word.

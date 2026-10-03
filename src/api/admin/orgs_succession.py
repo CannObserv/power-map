@@ -24,7 +24,7 @@ from src.api.admin.deps import (
     with_flash,
 )
 from src.api.admin.org_dups import fetch_duplicate_pairs, invalidate_dup_count_cache
-from src.core.db import generate_id
+from src.core.db import generate_id, linked_entity_vanished
 from src.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -133,7 +133,8 @@ async def _apply_link(db, user, pred_id: str, succ_id: str, succession_date: str
     """Validate and write the succession event.
 
     Returns ``(ok, body, fallback_key)`` — ``ok`` False means a reject with a
-    warning body; hard errors (self-link, missing org) raise instead.
+    warning body; hard errors (self-link, missing org) raise instead. A successor
+    deleted between that check and the insert is a reject, not a raise (#608).
     """
     if pred_id == succ_id:
         raise HTTPException(status_code=400, detail="Cannot link an organization to itself")
@@ -166,18 +167,26 @@ async def _apply_link(db, user, pred_id: str, succ_id: str, succession_date: str
         return False, body, "exists"
 
     try:
-        await db.execute(
-            """INSERT INTO entity_events
-                   (id, entity_type, entity_id, event_type_id,
-                    event_year, event_month, event_day,
-                    linked_entity_type, linked_entity_id)
-               SELECT $1, 'organization', $2, t.id, $4, $5, $6, 'organization', $3
-               FROM entity_event_types t WHERE t.slug = 'succeeded_by'""",
-            generate_id(),
-            pred_id,
-            succ_id,
-            *date_parts,
-        )
+        # Own (sub)transaction: a failed insert must not abort the caller's.
+        async with db.transaction():
+            await db.execute(
+                """INSERT INTO entity_events
+                       (id, entity_type, entity_id, event_type_id,
+                        event_year, event_month, event_day,
+                        linked_entity_type, linked_entity_id)
+                   SELECT $1, 'organization', $2, t.id, $4, $5, $6, 'organization', $3
+                   FROM entity_event_types t WHERE t.slug = 'succeeded_by'""",
+                generate_id(),
+                pred_id,
+                succ_id,
+                *date_parts,
+            )
+    except asyncpg.ForeignKeyViolationError as exc:
+        # #608: the successor was deleted after the existence check above. A
+        # warning, not a 404 — the modal's hx-post has no error handler.
+        if not linked_entity_vanished(exc):
+            raise
+        return False, f"<strong>{escape(names[succ_id])}</strong> no longer exists.", "invalid"
     except asyncpg.UniqueViolationError:
         # uq_entity_events_succession_edge: a concurrent request won the race
         # between our chain check and this insert — same outcome as the check.

@@ -1,8 +1,10 @@
 """Shared lookups for the polymorphic linked-entity reference (person | organization).
 
-`entity_events.linked_entity_id` is a polymorphic FK with no DB-level constraint,
-so existence and type must be checked in the application. These helpers back both
-the admin entity-search typeahead and event linked-entity validation (#172).
+`entity_events.linked_entity_id` is polymorphic, so no real FK holds it. The schema
+trigger `trg_entity_events_linked_entity` enforces existence and type (#608); the
+application still checks first so a curator gets a form error, not a constraint
+failure. These helpers back the admin entity-search typeahead, event linked-entity
+validation (#172), and the hard-delete inbound-link guard (#608).
 """
 
 import asyncpg
@@ -90,3 +92,57 @@ async def resolve_entity_label(
     if query is None or not entity_id:
         return None
     return await db.fetchval(query, entity_id)
+
+
+_ENTITY_TABLES: dict[str, str] = {"person": "people", "organization": "organizations"}
+
+# Other entities' events naming this one, archived included — unarchiving one
+# would restore the link. The entity's own events are not inbound: they go
+# with it (#605), even one that links back to itself.
+_INBOUND_LINKS_QUERY = """
+    SELECT coalesce(pn.display_name, dn.display_name, ev.entity_id) AS label,
+           t.display_name AS event_type, count(*) AS n
+    FROM entity_events ev
+    JOIN entity_event_types t ON t.id = ev.event_type_id
+    LEFT JOIN v_person_display_names pn
+      ON ev.entity_type = 'person' AND pn.person_id = ev.entity_id
+    LEFT JOIN v_org_display_names dn
+      ON ev.entity_type = 'organization' AND dn.organization_id = ev.entity_id
+    WHERE ev.linked_entity_type = $1 AND ev.linked_entity_id = $2
+      AND NOT (ev.entity_type = $1 AND ev.entity_id = $2)
+    GROUP BY 1, 2
+    ORDER BY 1, 2
+"""
+
+#: How many linking (entity, event type) pairs a 409 detail names before summarising.
+_INBOUND_LINKS_SHOWN = 5
+
+
+async def inbound_link_conflict(
+    db: asyncpg.Connection, entity_type: str, entity_id: str
+) -> str | None:
+    """409 detail naming other entities' events that link to this one, or None (#608).
+
+    ``linked_entity_id`` has no FK, so a hard delete must refuse here what a real
+    FK reference would refuse. Call inside the delete's transaction, before any
+    write: the entity row is locked ``FOR UPDATE`` first, so a concurrent link —
+    whose schema trigger holds ``FOR KEY SHARE`` on that row — commits before the
+    check runs and is seen by it.
+    """
+    await db.execute(
+        f"SELECT 1 FROM {_ENTITY_TABLES[entity_type]} WHERE id = $1 FOR UPDATE", entity_id
+    )
+    rows = await db.fetch(_INBOUND_LINKS_QUERY, entity_type, entity_id)
+    if not rows:
+        return None
+    named = [
+        f"{r['event_type']} on {r['label']}" + (f" ({r['n']} events)" if r["n"] > 1 else "")
+        for r in rows[:_INBOUND_LINKS_SHOWN]
+    ]
+    if len(rows) > _INBOUND_LINKS_SHOWN:
+        named.append(f"and {len(rows) - _INBOUND_LINKS_SHOWN} more")
+    return (
+        "Cannot delete: other entities' events still link here — "
+        + "; ".join(named)
+        + ". Archive and delete those events first."
+    )

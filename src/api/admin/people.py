@@ -17,7 +17,7 @@ from src.api.admin.deps import (
     resolve_query_flash,
     with_flash,
 )
-from src.api.admin.entity_lookup import search_entities
+from src.api.admin.entity_lookup import inbound_link_conflict, search_entities
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.api.admin.people_assignments import fetch_person_assignments
 from src.api.admin.people_embeddings import fetch_person_embeddings
@@ -388,6 +388,11 @@ async def person_delete(
         raise HTTPException(status_code=409, detail="Person must be archived before deletion")
     try:
         async with db.transaction():
+            # #608: another entity's event linking here blocks the delete, as an
+            # FK reference would — the event is not this entity's to drop.
+            conflict = await inbound_link_conflict(db, "person", person_id)
+            if conflict:
+                raise HTTPException(status_code=409, detail=conflict)
             # #605: identifiers/links/etc. have no FK — drop them (and the names'
             # citations) first.
             await delete_entity_ancillary(db, "person", person_id)
