@@ -1835,7 +1835,14 @@ async def write_entity_events(
     """
     results: list[EventResult] = []
     for ev in events:
-        result = await _apply_one_event(conn, entity_id, entity_type, key_id, ev)
+        try:
+            result = await _apply_one_event(conn, entity_id, entity_type, key_id, ev)
+        except asyncpg.ForeignKeyViolationError as exc:
+            # #608: the linked entity was deleted after _linked_entity_exists —
+            # the pre-check's slug, not the route's blanket constraint answer.
+            if not linked_entity_vanished(exc):
+                raise
+            raise ObservationRejected(EventRejectReason.LINKED_ENTITY_UNRESOLVED) from exc
         if result.disposition is EventDisposition.REJECTED:
             raise ObservationRejected(result.reason)
         results.append(result)

@@ -665,6 +665,46 @@ async def test_succeeded_by_unresolved_successor_rejected(client, evt_write_key,
     assert body["reason"] == "linked_entity_unresolved"
 
 
+async def test_embedded_link_vanishing_mid_write_is_unresolved(
+    client, evt_write_key, db, monkeypatch
+):
+    """#608, embedded transport: same slug as a successor missing at the pre-check.
+
+    The link trigger's violation must not escape to the route's blanket
+    ``db_constraint_violation`` answer.
+    """
+    raw, _ = evt_write_key
+    successor = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", successor)
+
+    async def _exists_then_vanish(conn, linked_type, linked_id):
+        await conn.execute("DELETE FROM organizations WHERE id = $1", linked_id)
+        return True
+
+    monkeypatch.setattr("src.core.observation._linked_entity_exists", _exists_then_vanish)
+
+    r = await _post_orgs(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": _unique_id(),
+            "events": [
+                {
+                    "event_type_slug": "succeeded_by",
+                    "linked_entity_type": "organization",
+                    "linked_entity_id": successor,
+                }
+            ],
+        },
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "linked_entity_unresolved"
+
+
 async def test_succeeded_by_resolved_successor_creates(client, evt_write_key, db):
     """succeeded_by with an anchored successor → event created on the predecessor."""
     raw, _ = evt_write_key
