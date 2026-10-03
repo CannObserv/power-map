@@ -96,20 +96,6 @@ async def resolve_entity_label(
 
 _ENTITY_TABLES: dict[str, str] = {"person": "people", "organization": "organizations"}
 
-#: The constraint name the schema's link trigger raises ``foreign_key_violation`` under.
-LINKED_ENTITY_GUARD = "trg_entity_events_linked_entity"
-
-
-def linked_entity_vanished(exc: asyncpg.ForeignKeyViolationError) -> bool:
-    """True when an event write failed because its linked entity is gone (#608).
-
-    A writer validates the link, then writes later; a delete landing in between
-    trips the schema trigger. Distinct from the event's real FKs (its place
-    address, its type), which keep their own handling.
-    """
-    return exc.constraint_name == LINKED_ENTITY_GUARD
-
-
 # Other entities' events naming this one, archived included — unarchiving one
 # would restore the link. The entity's own events are not inbound: they go
 # with it (#605), even one that links back to itself.

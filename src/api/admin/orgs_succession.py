@@ -23,9 +23,8 @@ from src.api.admin.deps import (
     is_htmx,
     with_flash,
 )
-from src.api.admin.entity_lookup import linked_entity_vanished
 from src.api.admin.org_dups import fetch_duplicate_pairs, invalidate_dup_count_cache
-from src.core.db import generate_id
+from src.core.db import generate_id, linked_entity_vanished
 from src.core.logging import get_logger
 
 logger = get_logger(__name__)

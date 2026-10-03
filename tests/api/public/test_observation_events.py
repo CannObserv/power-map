@@ -726,6 +726,44 @@ async def _make_org(client, raw, db):
     return r.json()["entity_id"]
 
 
+async def test_org_events_link_vanishing_mid_write_is_unresolved_not_invalid(
+    client, evt_write_key, db, monkeypatch
+):
+    """#608: a successor deleted after the pre-check trips the link trigger.
+
+    Same cause as a successor missing at the pre-check, so the same transient
+    slug — not the blanket ``invalid`` the other per-event constraint errors get.
+    """
+    raw, _ = evt_write_key
+    org_id = await _make_org(client, raw, db)
+    successor = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", successor)
+
+    async def _exists_then_vanish(conn, linked_type, linked_id):
+        await conn.execute("DELETE FROM organizations WHERE id = $1", linked_id)
+        return True
+
+    monkeypatch.setattr("src.core.observation._linked_entity_exists", _exists_then_vanish)
+
+    r = await _post_org_events(
+        client,
+        raw,
+        org_id,
+        [
+            {
+                "event_type_slug": "succeeded_by",
+                "linked_entity_type": "organization",
+                "linked_entity_id": successor,
+            }
+        ],
+    )
+
+    assert r.status_code == 200, r.text
+    [result] = r.json()["results"]
+    assert result["disposition"] == "rejected"
+    assert result["reason"] == "linked_entity_unresolved"
+
+
 async def test_org_events_observations_partial_success(client, evt_write_key, db):
     """A batch of [good, bad] → good commits, bad reported, no rollback of good."""
     raw, _ = evt_write_key

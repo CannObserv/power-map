@@ -18,15 +18,10 @@ from src.api.admin.deps import (
     provision_app_user,
     with_flash,
 )
-from src.api.admin.entity_lookup import (
-    ENTITY_TYPES,
-    entity_exists,
-    linked_entity_vanished,
-    resolve_entity_label,
-)
+from src.api.admin.entity_lookup import ENTITY_TYPES, entity_exists, resolve_entity_label
 from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
 from src.core.ancillary_migrate import delete_citations
-from src.core.db import generate_id
+from src.core.db import generate_id, linked_entity_vanished
 from src.core.types import EVENT_PLACE_PRECISIONS
 
 templates = Jinja2Templates(directory="src/templates")
