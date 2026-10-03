@@ -146,3 +146,17 @@ async def test_a_new_link_holds_key_share_on_the_linked_row(db_pool):
 
 class _Rollback(Exception):
     """Unwinds the writer's transaction once the lock has been observed."""
+
+
+async def test_an_unknown_link_type_is_not_looked_up_as_a_person(conn):
+    """A type the trigger has no branch for fails as such, not as a missing person.
+
+    Unreachable while the column's CHECK admits only person | organization, so
+    the CHECK is dropped inside this rolled-back transaction to get past it.
+    """
+    owner, other = await _org(conn), await _org(conn)
+    await conn.execute(
+        "ALTER TABLE entity_events DROP CONSTRAINT entity_events_linked_entity_type_check"
+    )
+    with pytest.raises(asyncpg.CheckViolationError, match="unsupported linked_entity_type"):
+        await _link(conn, "organization", owner, "other", "role", other)

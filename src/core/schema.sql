@@ -2621,8 +2621,13 @@ BEGIN
     END IF;
     IF NEW.linked_entity_type = 'organization' THEN
         PERFORM 1 FROM organizations WHERE id = NEW.linked_entity_id FOR KEY SHARE;
-    ELSE
+    ELSIF NEW.linked_entity_type = 'person' THEN
         PERFORM 1 FROM people WHERE id = NEW.linked_entity_id FOR KEY SHARE;
+    ELSE
+        -- Unreachable under the column CHECK; a type admitted there later needs
+        -- its own branch here, not a silent lookup in people.
+        RAISE EXCEPTION 'unsupported linked_entity_type %', NEW.linked_entity_type
+            USING ERRCODE = 'check_violation';
     END IF;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'entity_events.linked_entity_id % names no %',
