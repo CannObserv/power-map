@@ -311,7 +311,7 @@ async def test_event_edit_whose_new_link_vanishes_shows_the_form_error(client, d
     assert await db.fetchval("SELECT linked_entity_id FROM entity_events WHERE id = $1", ev) is None
 
 
-async def test_succession_link_whose_successor_vanishes_is_a_404(client, db, monkeypatch):
+async def test_succession_link_whose_successor_vanishes_flashes_a_warning(client, db, monkeypatch):
     pred = await _entity(db, "organization", archived=False)
     succ = await _entity(db, "organization", archived=False)
 
@@ -323,5 +323,9 @@ async def test_succession_link_whose_successor_vanishes_is_a_404(client, db, mon
 
     r = await client.post(f"/admin/orgs/{pred}/link-successor/{succ}/", headers=HTMX_HEADERS)
 
-    assert r.status_code == 404, r.text
+    # A warning flash, not a bare 404: the modal's hx-post has no error handler,
+    # so a 4xx would leave the curator a dead button.
+    assert r.status_code == 200, r.text
+    assert "warning" in r.headers.get("HX-Trigger", "")
+    assert "no longer exists" in r.headers.get("HX-Trigger", "")
     assert not await db.fetchval("SELECT 1 FROM entity_events WHERE entity_id = $1", pred)

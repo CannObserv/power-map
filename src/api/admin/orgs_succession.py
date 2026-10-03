@@ -134,7 +134,8 @@ async def _apply_link(db, user, pred_id: str, succ_id: str, succession_date: str
     """Validate and write the succession event.
 
     Returns ``(ok, body, fallback_key)`` — ``ok`` False means a reject with a
-    warning body; hard errors (self-link, missing org) raise instead.
+    warning body; hard errors (self-link, missing org) raise instead. A successor
+    deleted between that check and the insert is a reject, not a raise (#608).
     """
     if pred_id == succ_id:
         raise HTTPException(status_code=400, detail="Cannot link an organization to itself")
@@ -182,10 +183,11 @@ async def _apply_link(db, user, pred_id: str, succ_id: str, succession_date: str
                 *date_parts,
             )
     except asyncpg.ForeignKeyViolationError as exc:
-        # #608: the successor was deleted after the existence check above.
+        # #608: the successor was deleted after the existence check above. A
+        # warning, not a 404 — the modal's hx-post has no error handler.
         if not linked_entity_vanished(exc):
             raise
-        raise HTTPException(status_code=404)
+        return False, f"<strong>{escape(names[succ_id])}</strong> no longer exists.", "invalid"
     except asyncpg.UniqueViolationError:
         # uq_entity_events_succession_edge: a concurrent request won the race
         # between our chain check and this insert — same outcome as the check.
