@@ -20,7 +20,7 @@ declares ``responses=DETAIL_RESPONSES``.
 """
 
 from types import MappingProxyType
-from typing import Final, NoReturn
+from typing import Final
 
 import asyncpg
 from fastapi import HTTPException
@@ -49,8 +49,12 @@ DETAIL_RESPONSES: Final = MappingProxyType(
 
 async def not_found_or_gone(
     db: asyncpg.Connection, entity_type: str, entity_id: str, detail: str
-) -> JSONResponse | NoReturn:
-    """Return the ``410`` for a tombstoned id, or raise the route's ``404``."""
+) -> JSONResponse:
+    """Return the ``410`` for a tombstoned id.
+
+    Raises:
+        HTTPException: ``404`` with *detail* when PM has no tombstone for the id.
+    """
     tombstone = await fetch_tombstone(db, entity_type, entity_id)
     if tombstone is None:
         raise HTTPException(status_code=404, detail=detail)
