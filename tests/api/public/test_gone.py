@@ -215,6 +215,18 @@ async def test_live_row_wins_over_a_stale_tombstone(client, db, api_key, entity_
 
 
 @pytest.mark.integration
+async def test_deleted_jurisdiction_is_gone_by_ulid_but_not_by_slug(client, db, api_key):
+    """Tombstones are keyed by id, so the slug a deleted jurisdiction had resolves to nothing."""
+    jid = await _live(db, "jurisdiction")
+    slug = await db.fetchval("SELECT slug FROM jurisdictions WHERE id = $1", jid)
+    await db.execute("DELETE FROM jurisdictions WHERE id = $1", jid)
+    await _tombstone(db, "jurisdiction", jid, None)
+
+    assert (await _get(client, api_key, "jurisdiction", jid)).status_code == 410
+    assert (await _get(client, api_key, "jurisdiction", slug)).status_code == 404
+
+
+@pytest.mark.integration
 async def test_if_none_match_does_not_change_a_410(client, db, api_key):
     winner = await _live(db, "organization")
     loser = generate_id()
