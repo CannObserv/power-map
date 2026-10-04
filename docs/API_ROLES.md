@@ -15,7 +15,7 @@ implicit rules this collection follows. Auth, pagination and conditional request
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/v1/roles` | API key | Paginated list of roles, optionally filtered by org. |
-| `GET` | `/api/v1/roles/{id}` | API key | Full role record (links, contact methods, addresses) with ETag caching. |
+| `GET` | `/api/v1/roles/{id}` | API key | Full role record (links, contact methods, addresses) with ETag caching. Merged/deleted id → `410` + `merged_into` (`docs/PUBLIC_API.md` § Retired ids). |
 | `GET` | `/api/v1/role-types` | API key | Full (unpaginated) catalog of role-type classifiers — the structural-match vocabulary. ETag caching (content hash) — see [Conditional requests](PUBLIC_API.md#conditional-requests). |
 | `POST` | `/api/v1/roles/observations` | `observations:write` scope | Submit a role observation (match-or-create). |
 

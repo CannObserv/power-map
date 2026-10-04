@@ -17,7 +17,7 @@ resources share are in `docs/OBSERVATIONS.md`.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/v1/assignments` | API key | Paginated list of role assignments, optionally filtered. |
-| `GET` | `/api/v1/assignments/{id}` | API key | Full assignment record (links, contact methods, addresses) with ETag caching. |
+| `GET` | `/api/v1/assignments/{id}` | API key | Full assignment record (links, contact methods, addresses) with ETag caching. Merged/deleted id → `410` + `merged_into` (`docs/PUBLIC_API.md` § Retired ids). |
 | `POST` | `/api/v1/assignments/observations` | `observations:write` scope | Submit an assignment observation (match-or-create, id-addressed update, or `op="retract"`). |
 
 ### List — `GET /api/v1/assignments`

@@ -15,7 +15,7 @@ implicit rules this collection follows. Auth, pagination and conditional request
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/v1/orgs/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `jurisdiction` (slug or ULID — filters to orgs with a `governing` affiliation for that jurisdiction), `include_archived`, `limit`, `offset`. |
-| `GET` | `/api/v1/orgs/{id}` | API key | Detail by ULID. Returns names, acronyms, identifiers, jurisdiction affiliations, `active`, `created_at`, and `updated_at`. ETag caching — see `docs/PUBLIC_API.md` § Caching — detail endpoints. |
+| `GET` | `/api/v1/orgs/{id}` | API key | Detail by ULID. Returns names, acronyms, identifiers, jurisdiction affiliations, `active`, `created_at`, and `updated_at`. ETag caching — see `docs/PUBLIC_API.md` § Caching — detail endpoints. Merged/deleted id → `410` + `merged_into` (§ Retired ids). |
 | `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. ETag caching — see the events response-shape section. |
 | `POST` | `/api/v1/orgs/observations` | `observations:write` scope | Submit an organization identity observation. |
 
