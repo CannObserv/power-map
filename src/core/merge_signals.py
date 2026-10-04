@@ -103,8 +103,8 @@ async def mirror_subscriptions(db: asyncpg.Connection, pairs: list[tuple[str, st
     therefore erase the audience for the loser's own tombstone — the subscriber
     holding the retired anchor is the only party that needs it, and it would be the
     one party guaranteed not to receive it. The loser row stays until the consumer
-    retires it; the ``deleted_entities`` TTL prunes the tombstone on the usual
-    90-day clock either way.
+    retires it. The tombstone itself is never pruned (#607): it also backs the
+    detail GETs' ``410`` + ``merged_into``.
 
     ``entity_type`` is copied from the loser's own subscription row rather than
     passed in: the two ends of a merge are always the same type, and reading it

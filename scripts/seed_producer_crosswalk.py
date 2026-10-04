@@ -17,10 +17,9 @@ PM's duplicate audit archived the producer's span and kept a deepened one under 
 new ULID, the report names the live sibling — that re-point is a triage decision
 (#501), never the seed's to make.
 
-Note the asymmetry a dry run cannot fix: `deleted_entities` is pruned at 90 days
-(`scripts/prune_outbox.py`), so an anchor broken by an older merge resolves as
-``missing`` rather than ``merged``. ``missing`` therefore means "PM cannot say",
-never "it never existed".
+Merge tombstones are never pruned (#607), so a merge resolves ``merged`` at any
+age. A merge pruned before #607 resolves ``missing``, as does an id PM never
+recorded: ``missing`` therefore means "PM cannot say", never "it never existed".
 
 Usage:
     # dry run:
