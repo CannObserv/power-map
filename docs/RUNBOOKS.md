@@ -335,6 +335,9 @@ merge history the seed can no longer see — the anchor resolves `missing`
 2026-06-17, so the hold protects what is left rather than recovering what is
 gone. Revert to the default once the triage pass (#501) is done. The consumer
 contract is unaffected: 90 days is a floor, and a longer window only helps.
+Since #607 the prune never deletes a merge tombstone, so merge history no longer
+depends on this hold. Reverting it now ages out only bare deletes, the outbox
+and the request log.
 
 `scripts/prune_outbox.py` deletes rows past the retention window (default 90 days)
 from **three** append-only tables: `entity_changes` (the change-feed outbox),
