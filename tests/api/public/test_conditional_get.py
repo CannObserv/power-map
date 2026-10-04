@@ -352,14 +352,18 @@ async def test_stale_etag_still_returns_200(client, api_key, person_id):
 # ---------------------------------------------------------------------------
 
 
+_DECLARES_304 = ("NOT_MODIFIED", "DETAIL_RESPONSES")
+
+
 def _routes_calling_conditional_response(tree: ast.AST) -> list[tuple[str, bool]]:
     """``(handler_name, declares_304)`` for each ``@router.get`` handler using the helper.
 
     Source-level, so no path→function mapping is needed: the decorator and the
     body sit in the same node. ``responses=NOT_MODIFIED`` is matched by source
     text rather than by resolving the name — the constant is imported under that
-    one name at all 14 sites, and a rename would surface as a failure here
-    rather than pass silently.
+    one name everywhere, and a rename would surface as a failure here rather
+    than pass silently. ``DETAIL_RESPONSES`` (#607, ``src/api/public/gone.py``)
+    spreads ``NOT_MODIFIED`` and adds the detail routes' 410, so it counts too.
     """
     out = []
     for node in ast.walk(tree):
@@ -378,7 +382,7 @@ def _routes_calling_conditional_response(tree: ast.AST) -> list[tuple[str, bool]
         if "conditional_response" not in body:
             continue
         declares = any(
-            kw.arg == "responses" and ast.unparse(kw.value) == "NOT_MODIFIED"
+            kw.arg == "responses" and ast.unparse(kw.value) in _DECLARES_304
             for d in gets
             for kw in d.keywords
         )

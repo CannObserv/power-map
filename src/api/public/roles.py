@@ -3,7 +3,7 @@
 from typing import Any
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from src.api.deps import get_db
 from src.api.public.deps import (
@@ -12,7 +12,8 @@ from src.api.public.deps import (
     require_scope,
     stamped_transaction,
 )
-from src.api.public.etag import NOT_MODIFIED, conditional_response, make_etag
+from src.api.public.etag import conditional_response, make_etag
+from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
 from src.api.public.schemas import (
     ObservationResponse,
     RoleDetail,
@@ -137,7 +138,7 @@ async def _fetch_role_arrays(role_id: str, db: Any) -> tuple:
     "/{role_id}",
     response_model=RoleDetail,
     operation_id="getRole",
-    responses=NOT_MODIFIED,
+    responses=DETAIL_RESPONSES,
 )
 async def get_role(
     role_id: str,
@@ -161,7 +162,7 @@ async def get_role(
         role_id,
     )
     if not row:
-        raise HTTPException(status_code=404, detail="Role not found")
+        return await not_found_or_gone(db, "role", role_id, "Role not found")
 
     etag = make_etag(row["id"], row["updated_at"])
     cached = conditional_response(request, response, etag, row["updated_at"])

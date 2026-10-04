@@ -19,6 +19,7 @@ from src.api.public.etag import (
     conditional_response,
     make_etag,
 )
+from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
 from src.api.public.schemas import (
     JurisdictionLineageResponse,
     JurisdictionListResponse,
@@ -216,7 +217,7 @@ async def list_jurisdictions(
     "/{jurisdiction_id}",
     response_model=JurisdictionResponse,
     operation_id="getJurisdiction",
-    responses=NOT_MODIFIED,
+    responses=DETAIL_RESPONSES,
 )
 async def get_jurisdiction(
     jurisdiction_id: str,
@@ -231,7 +232,9 @@ async def get_jurisdiction(
         jurisdiction_id,
     )
     if not row:
-        raise HTTPException(status_code=404, detail="Jurisdiction not found")
+        return await not_found_or_gone(
+            db, "jurisdiction", jurisdiction_id, "Jurisdiction not found"
+        )
 
     etag = make_etag(row["id"], row["updated_at"])
     cached = conditional_response(request, response, etag, row["updated_at"])
