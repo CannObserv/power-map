@@ -18,13 +18,12 @@ Two jobs live here:
 * **Resolving** each PM id through merge history. `deleted_entities.merged_into`
   names *that row's* survivor (see :mod:`src.core.merge_signals`), so the walk
   is a chain, not a lookup. Two outcomes never resolve: a tombstone with no
-  successor, and an id PM has no record of at all — the latter including every
-  merge older than the 90-day tombstone TTL (`scripts/prune_outbox.py`).
-  Both belong on the blocking report; guessing is how a seed mints duplicates.
+  successor, and an id PM has no record of at all. Both belong on the blocking
+  report; guessing is how a seed mints duplicates. The walk itself lives in
+  :mod:`src.core.merge_history`, shared with the public read path (#607).
 * **Re-pointing** after a merge (#514). The table stores the walk's answer, so a
   merge that retires a row must write the new answer or every anchor naming the
-  row keeps pointing at nothing — and the walk that could recover it forgets once
-  the tombstone is pruned.
+  row keeps pointing at nothing.
 """
 
 import csv
@@ -37,6 +36,7 @@ from datetime import datetime
 import asyncpg
 
 from src.core.db import generate_id
+from src.core.merge_history import Resolution, walk_merge_history
 
 __all__ = [
     "ANCHOR_HEADER",
@@ -126,19 +126,6 @@ class Anchor:
     def key(self) -> str:
         """The key the dataset uses for this anchor — what the crosswalk keys on."""
         return self.span_key or self.producer_id
-
-
-@dataclass(frozen=True)
-class Resolution:
-    """Where an anchor's PM id leads, and whether that is somewhere writable.
-
-    ``status`` is one of ``live``, ``archived``, ``merged``, ``deleted_no_successor``,
-    ``missing`` or ``cycle``. ``pm_id`` is the row to use, and is ``None``
-    exactly when the anchor is unresolvable.
-    """
-
-    status: str
-    pm_id: str | None
 
 
 def _is_ulid(value: str) -> bool:
@@ -242,36 +229,7 @@ async def resolve_anchor(db: asyncpg.Connection, kind: str, pm_id: str) -> Resol
     """Walk ``pm_id`` through merge history to the row an applier may write to."""
     if kind not in ANCHOR_KINDS:
         raise ValueError(f"unknown anchor kind: {kind!r}")
-    table = _ENTITY_TABLE[kind]
-    tombstone_type = TOMBSTONE_TYPE[kind]
-
-    # `seen` both detects a cycle and bounds the walk: ids are finite and each
-    # hop consumes one, so no separate hop limit is needed — and a hop limit
-    # could only ever fire by reporting a merely long chain as a cycle.
-    seen: set[str] = set()
-    current = pm_id
-    while True:
-        if current in seen:
-            return Resolution("cycle", None)
-        seen.add(current)
-
-        row = await db.fetchrow(f"SELECT archived_at FROM {table} WHERE id = $1", current)  # noqa: S608
-        if row is not None:
-            status = "archived" if row["archived_at"] is not None else "live"
-            if current != pm_id and status == "live":
-                status = "merged"
-            return Resolution(status, current)
-
-        tombstone = await db.fetchrow(
-            "SELECT merged_into FROM deleted_entities WHERE entity_type = $1 AND entity_id = $2",
-            tombstone_type,
-            current,
-        )
-        if tombstone is None:
-            return Resolution("missing", None)
-        if tombstone["merged_into"] is None:
-            return Resolution("deleted_no_successor", None)
-        current = tombstone["merged_into"]
+    return await walk_merge_history(db, TOMBSTONE_TYPE[kind], pm_id)
 
 
 @dataclass(frozen=True)
