@@ -46,12 +46,13 @@ async def _insert_change(conn, entity_id, *, days_old):
     )
 
 
-async def _insert_tombstone(conn, entity_id, *, days_old):
+async def _insert_tombstone(conn, entity_id, *, days_old, merged_into=None):
     await conn.execute(
-        "INSERT INTO deleted_entities (entity_type, entity_id, deleted_at) "
-        "VALUES ('organization', $1, NOW() - make_interval(days => $2::int))",
+        "INSERT INTO deleted_entities (entity_type, entity_id, deleted_at, merged_into) "
+        "VALUES ('organization', $1, NOW() - make_interval(days => $2::int), $3)",
         entity_id,
         days_old,
+        merged_into,
     )
 
 
@@ -125,6 +126,22 @@ async def test_prune_deletes_stale_keeps_fresh(db):
     tombstones = await _tombstone_ids(db)
     assert "de-stale" not in tombstones
     assert "de-fresh" in tombstones
+
+
+async def test_prune_keeps_merge_tombstones_at_any_age(db):
+    """A merge tombstone is the read path's answer to "where did this id go" (#607).
+
+    Pruning it turns the loser's ``410 merged_into`` back into a bare ``404``, so
+    only bare-delete tombstones age out. Count and delete share the predicate.
+    """
+    await _insert_tombstone(db, "de-merged-old", days_old=400, merged_into="winner")
+    await _insert_tombstone(db, "de-bare-old", days_old=400)
+
+    eligible = await count_prunable(db, retention_days=90)
+    result = await prune_outbox(db, retention_days=90)
+
+    assert eligible.deleted_entities == result.deleted_entities == 1
+    assert await _tombstone_ids(db) == {"de-merged-old"}
 
 
 async def test_prune_respects_retention_days(db):
