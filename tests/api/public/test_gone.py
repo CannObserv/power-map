@@ -140,6 +140,7 @@ async def test_merged_id_answers_410_with_its_winner(client, db, api_key, entity
     }
     assert body["deleted_at"].endswith("Z")  # #440 wire format
     assert r.headers["cache-control"] == "no-cache"
+    assert r.headers["vary"] == "X-API-Key"  # keyed per key, like every detail response
     assert "etag" not in r.headers
 
 

@@ -12,7 +12,8 @@ answers ``200`` even if a tombstone was left behind. A tombstoned id has no row,
 so no ETag: the ``410`` never goes through :func:`conditional_response` and is
 the same with or without ``If-None-Match``. ``Cache-Control: no-cache`` keeps an
 intermediary from heuristically caching the ``410`` (RFC 9110 lets it), since a
-restore can bring the id back.
+restore can bring the id back; ``Vary: X-API-Key`` keys it per key, as
+:func:`cache_headers` does for every other detail response.
 
 ``tests/api/public/test_gone.py`` sweeps that every route calling the helper
 declares ``responses=DETAIL_RESPONSES``.
@@ -69,5 +70,5 @@ async def not_found_or_gone(
     return JSONResponse(
         status_code=410,
         content=body.model_dump(mode="json"),
-        headers={"Cache-Control": "no-cache"},
+        headers={"Cache-Control": "no-cache", "Vary": "X-API-Key"},
     )
