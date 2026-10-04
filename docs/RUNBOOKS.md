@@ -309,8 +309,8 @@ Five refusals, each deliberate:
   it; the real run rolls back whole with a traceback instead of a report.
 
 `missing` in the report means PM has no record of the id at all, which includes
-every merge older than the 90-day tombstone TTL below. It is never evidence that
-the row never existed.
+every merge pruned before #607 made merge tombstones permanent. It is never
+evidence that the row never existed.
 
 ---
 
@@ -335,12 +335,18 @@ merge history the seed can no longer see — the anchor resolves `missing`
 2026-06-17, so the hold protects what is left rather than recovering what is
 gone. Revert to the default once the triage pass (#501) is done. The consumer
 contract is unaffected: 90 days is a floor, and a longer window only helps.
+Since #607 the prune never deletes a merge tombstone, so merge history no longer
+depends on this hold. Reverting it now ages out only bare deletes, the outbox
+and the request log.
 
 `scripts/prune_outbox.py` deletes rows past the retention window (default 90 days)
 from **three** append-only tables: `entity_changes` (the change-feed outbox),
 `deleted_entities` (deletion tombstones), and `api_request_log` (the public-API
-request log, issue #260). All three TTLs stay aligned so the public change feed,
-the 404-fallback signal, and the request-observability window expire together.
+request log, issue #260). **Merge tombstones (`merged_into` set) are exempt
+(#607):** they drive the detail GETs' `410` + `merged_into`, so a merge stays
+followable for good. One row per merge, so the table stays small. Bare-delete
+tombstones keep the TTL, then answer `404`. The other TTLs stay aligned, so the
+change feed and the request-observability window expire together.
 Sibling services must poll at least once per window or full-reconcile (see
 `docs/PUBLIC_API.md` § change feed).
 

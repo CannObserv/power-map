@@ -1178,6 +1178,35 @@ class ChangeFeedResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Tombstoned detail reads (#607)
+# ---------------------------------------------------------------------------
+
+
+class EntityGone(BaseModel):
+    """Body of a detail GET's ``410 Gone``: the id was merged away or deleted (#607).
+
+    Read from the ``deleted_entities`` tombstone. ``merged_into`` is the live end
+    of the merge chain — the id to re-anchor to — or ``null`` when the id (or the
+    chain it leads down) was genuinely deleted. A merge tombstone never expires.
+    """
+
+    id: str
+    entity_type: EntityType
+    deleted_at: datetime
+    merged_into: str | None = Field(
+        description=(
+            "Where the id went: the current id of the row it was merged into, "
+            "following later merges to the end of the chain. null for a genuine "
+            "delete. May name an archived row, which its own GET still answers."
+        ),
+    )
+
+    @field_serializer("deleted_at")
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
+        return fmt_ts(v)
+
+
+# ---------------------------------------------------------------------------
 # Subscription schemas (#203)
 # ---------------------------------------------------------------------------
 

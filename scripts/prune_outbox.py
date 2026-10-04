@@ -4,7 +4,9 @@ Issue #204. The ``entity_changes`` outbox grows on every INSERT/UPDATE of the
 five entity tables (plus a tombstone per delete/merge); ``deleted_entities``
 grows one row per removal. Neither self-limits. This job deletes rows older than
 the retention window (default 90 days) and is wired to a daily systemd timer
-(``infra/power-map-prune.timer`` — see ``docs/COMMANDS.md``).
+(``infra/power-map-prune.timer`` — see ``docs/COMMANDS.md``). Merge tombstones
+(``merged_into`` set) are exempt at any age (#607): they back the detail GETs'
+``410`` + ``merged_into``. ``api_request_log`` is pruned on the same window.
 
 Retention is the consumer contract: the feed is a recent-changes window, not a
 permanent event store. See ``docs/PUBLIC_API.md``.

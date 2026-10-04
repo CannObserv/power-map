@@ -2,9 +2,10 @@
 
 The ``entity_changes`` outbox (issue #203) accretes a row on every INSERT/UPDATE
 of the five entity tables, and a tombstone row on every hard delete / merge.
-``deleted_entities`` accretes one row per removal. ``api_request_log`` (issue
-#260) accretes one row per ``/api/v1/*`` request. None is self-limiting, so all
-are pruned to a fixed retention window by a scheduled job
+``deleted_entities`` accretes one row per removal; its merge rows are exempt
+(#607 — see ``_PRUNABLE_TOMBSTONE``). ``api_request_log`` (issue #260) accretes
+one row per ``/api/v1/*`` request. None is self-limiting, so all are pruned to a
+fixed retention window by a scheduled job
 (``scripts/prune_outbox.py`` under a systemd timer — see ``docs/COMMANDS.md``).
 
 Retention is the consumer-facing contract: the change feed is a *recent-changes*
@@ -37,7 +38,13 @@ def _expired(col: str) -> str:
 
 
 _COUNT_CHANGES_SQL = f"SELECT COUNT(*) FROM entity_changes WHERE {_expired('changed_at')}"
-_COUNT_TOMBSTONES_SQL = f"SELECT COUNT(*) FROM deleted_entities WHERE {_expired('deleted_at')}"
+# Merge tombstones (``merged_into`` set) never expire: they are the public detail
+# GETs' answer to "where did this id go" (#607), and pruning one turns the loser's
+# ``410`` + ``merged_into`` back into an indistinguishable ``404``. One row per
+# merge, so the table stays small. Bare-delete tombstones keep the TTL.
+_PRUNABLE_TOMBSTONE = f"merged_into IS NULL AND {_expired('deleted_at')}"
+
+_COUNT_TOMBSTONES_SQL = f"SELECT COUNT(*) FROM deleted_entities WHERE {_PRUNABLE_TOMBSTONE}"
 _COUNT_REQUEST_LOG_SQL = f"SELECT COUNT(*) FROM api_request_log WHERE {_expired('occurred_at')}"
 
 # Batched DELETE via ``ctid IN (… LIMIT $2)`` (ctid is the physical row id, so no
@@ -56,7 +63,7 @@ _PRUNE_TOMBSTONES_SQL = f"""
 DELETE FROM deleted_entities
 WHERE ctid IN (
     SELECT ctid FROM deleted_entities
-    WHERE {_expired("deleted_at")}
+    WHERE {_PRUNABLE_TOMBSTONE}
     LIMIT $2
 )
 """

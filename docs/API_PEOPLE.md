@@ -15,7 +15,7 @@ implicit rules this collection follows. Auth, pagination and conditional request
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/v1/people/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `include_archived`, `limit`, `offset`. |
-| `GET` | `/api/v1/people/{id}` | API key | Detail by ULID. Returns public name variants, identifiers, `voice_embeddings_count`, `created_at`, and `updated_at`. ETag caching — see `docs/PUBLIC_API.md` § Caching — detail endpoints. |
+| `GET` | `/api/v1/people/{id}` | API key | Detail by ULID. Returns public name variants, identifiers, `voice_embeddings_count`, `created_at`, and `updated_at`. ETag caching — see `docs/PUBLIC_API.md` § Caching — detail endpoints. Merged/deleted id → `410` + `merged_into` (§ Retired ids). |
 | `GET` | `/api/v1/people/{id}/events` | API key | Paginated lifecycle events for a person. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. ETag caching — see the events response-shape section. |
 | `POST` | `/api/v1/people/observations` | `observations:write` scope | Submit a person identity observation. |
 | `POST` | `/api/v1/people/identify` | `voice_embeddings:read` scope | Identify a person by voice embedding similarity (open-set, global top-k). Returns top-k matches ordered by cosine similarity. Body: `{model_id, embedding, top_k?}`. Unknown model → empty matches; dimension mismatch or invalid embedding (zero vector, non-finite values) → 422. |

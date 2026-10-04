@@ -19,6 +19,7 @@ from src.api.public.events import (
     events_collection_validator,
     row_to_event,
 )
+from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
 from src.api.public.schemas import (
     CitationObservationResult,
     EntityEventsResponse,
@@ -469,7 +470,7 @@ async def _search_by_jurisdiction(
     "/{org_id}",
     response_model=OrgDetail,
     operation_id="getOrg",
-    responses=NOT_MODIFIED,
+    responses=DETAIL_RESPONSES,
 )
 async def get_org(
     org_id: str,
@@ -498,7 +499,7 @@ async def get_org(
         org_id,
     )
     if not row:
-        raise HTTPException(status_code=404, detail="Organization not found")
+        return await not_found_or_gone(db, "organization", org_id, "Organization not found")
 
     etag = make_etag(row["id"], row["updated_at"])
     cached = conditional_response(request, response, etag, row["updated_at"])

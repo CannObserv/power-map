@@ -19,6 +19,7 @@ from src.api.public.events import (
     events_collection_validator,
     row_to_event,
 )
+from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
 from src.api.public.schemas import (
     CitationObservationResult,
     EntityEventsResponse,
@@ -241,7 +242,7 @@ async def search_people(
     "/{person_id}",
     response_model=PersonDetail,
     operation_id="getPerson",
-    responses=NOT_MODIFIED,
+    responses=DETAIL_RESPONSES,
 )
 async def get_person(
     person_id: str,
@@ -262,7 +263,7 @@ async def get_person(
         person_id,
     )
     if not row:
-        raise HTTPException(status_code=404, detail="Person not found")
+        return await not_found_or_gone(db, "person", person_id, "Person not found")
 
     etag = make_etag(row["id"], row["updated_at"])
     cached = conditional_response(request, response, etag, row["updated_at"])

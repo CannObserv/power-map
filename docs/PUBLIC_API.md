@@ -112,6 +112,16 @@ Detail endpoints (`GET /api/v1/orgs/{id}`, `GET /api/v1/people/{id}`, `GET /api/
 
 Send `If-None-Match: <etag>` to receive `304 Not Modified` when the record is unchanged. `Vary: X-API-Key` means shared proxy caches store a separate entry per key — if multiple services share one key they share a cache entry.
 
+### Retired ids — `410 Gone` (#607)
+
+An id that was **merged away or hard-deleted** answers `410` on the same five detail endpoints, never `404`. The body is `EntityGone`: `{id, entity_type, deleted_at, merged_into}`.
+
+- `merged_into` is the id to re-anchor to: the **live end** of the merge chain, so A→B→C answers C. It may name an archived row, which still answers `200` on its own GET. It is `null` for a genuine delete, including a chain that ends in one.
+- `404` means only that PM has no record of the id. Merge tombstones never expire. Bare-delete tombstones age out with the prune window (RUNBOOKS § prune), after which that id answers `404`.
+- The live row is read first, so a restored id (#467) answers `200` again.
+- A `410` carries no `ETag`, sends `Cache-Control: no-cache` + `Vary: X-API-Key`, and is the same with or without `If-None-Match`.
+- Sub-resources (`/orgs/{id}/events`, …) still answer `404` for a retired id.
+
 ---
 
 ## Conditional requests
