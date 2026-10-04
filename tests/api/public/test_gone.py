@@ -21,6 +21,7 @@ import pytest_asyncio
 
 from src.api.main import app
 from src.core.db import generate_id
+from src.core.merge_history import ENTITY_TABLE
 
 PUBLIC_DIR = Path(__file__).resolve().parents[3] / "src" / "api" / "public"
 
@@ -280,3 +281,29 @@ def test_every_tombstone_aware_route_declares_410():
     assert not undeclared, f"410-capable GET without responses=DETAIL_RESPONSES: {undeclared}"
     # Pins the count, so a detail route that drops the helper is noticed too.
     assert len(found) == len(_DETAIL_PATHS), f"expected {len(_DETAIL_PATHS)}, found {found}"
+
+
+def _types_passed_to_not_found_or_gone() -> set[str]:
+    """The ``entity_type`` literal of every ``not_found_or_gone(db, "<type>", …)`` call."""
+    found = set()
+    for path in sorted(PUBLIC_DIR.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "not_found_or_gone"
+            ):
+                arg = node.args[1]
+                assert isinstance(arg, ast.Constant), f"{path.name}: entity_type must be a literal"
+                found.add(arg.value)
+    return found
+
+
+def test_every_walkable_type_has_a_tombstone_aware_detail_route():
+    """``ENTITY_TABLE`` is the set of types a detail GET can be asked about.
+
+    The declaration sweep above only sees routes that already call the helper; a
+    type added to the walk without a route calling it — or a detail route left
+    raising a bare 404 — would lose the read-path merge signal unnoticed.
+    """
+    assert _types_passed_to_not_found_or_gone() == set(ENTITY_TABLE)
