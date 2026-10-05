@@ -538,7 +538,11 @@ async def _live_entity_id(conn, entity_type: str, entity_id: str) -> str | None:
 
 
 async def _create_entity(conn, entity_type: str, *, create_data: dict | None = None) -> str:
-    """Insert a minimal entity row and return its id."""
+    """Insert a minimal entity row and return its id.
+
+    Covers exactly ``_CREATABLE_ENTITY_TYPES``; ``resolve_entity`` rejects any
+    other type before calling, so the trailing ``ValueError`` is unreachable (#604).
+    """
     entity_id = generate_id()
     if entity_type == "person":
         await conn.execute("INSERT INTO people (id) VALUES ($1)", entity_id)
@@ -559,8 +563,6 @@ async def _create_entity(conn, entity_type: str, *, create_data: dict | None = N
             create_data.get("valid_until"),
             create_data.get("notes"),
         )
-    elif entity_type == "role_assignment":
-        raise ValueError("Cannot create bare role_assignment entity from observation")
     else:
         raise ValueError(f"Unknown entity_type: {entity_type!r}")
     return entity_id
