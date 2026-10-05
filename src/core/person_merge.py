@@ -9,12 +9,12 @@ producer's merge tombstone (#514), beside the admin routes and
 from datetime import UTC, datetime
 
 from src.core.ancillary_migrate import (
-    delete_event_citations_for_owner,
     migrate_citations,
     rehome_assignment_relationships,
     rehome_citations,
     rehome_conflicting_assignment_ancillary,
     rehome_curation_overlay,
+    rehome_entity_events,
 )
 from src.core.merge_signals import mirror_subscriptions, record_merge_tombstones
 from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, heal_person_canonical
@@ -460,9 +460,9 @@ async def merge_person_into(
     # Citations (#319) on the loser person move to the winner before the delete
     # (whole-entity + field citations; NULL-safe dedup, self-emitting trigger).
     await rehome_citations(db, "person", [(loser_id, winner_id)])
-    # The loser's entity_events aren't re-pointed by merge (they dangle when the
-    # person is deleted), so their citations would orphan — drop them (#319).
-    await delete_event_citations_for_owner(db, "person", loser_id)
+    # #611: events the loser owns, and other events' links to it, move to the
+    # winner (citations and all) — left behind, both would name a deleted id.
+    await rehome_entity_events(db, "person", [(loser_id, winner_id)])
 
     await db.execute("DELETE FROM people WHERE id=$1", loser_id)
     # #467: a key watching the loser also watches the winner; its own subscription
