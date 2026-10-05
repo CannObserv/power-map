@@ -622,7 +622,12 @@ async def rehome_entity_events(
 ) -> tuple[int, int, int]:
     """Re-point every event naming each loser onto its survivor.
 
-    Call before a person or org merge hard-deletes its losers. Both kinds of
+    Call before a person or org merge hard-deletes its losers, with each loser
+    row already locked ``FOR UPDATE`` (both merges take it first): a new or
+    changed link takes ``FOR KEY SHARE`` on its target
+    (``trg_entity_events_linked_entity``, #608), so the lock makes a concurrent
+    link commit before the events are read here, or fail once the loser is
+    gone, rather than dangle. Both kinds of
     reference move: the loser's own events (with their citations and ULIDs, so
     a producer's ``pm_event_id`` still resolves) and other events' links to it.
     Archived rows move too, or they would name a deleted id. A re-point can
