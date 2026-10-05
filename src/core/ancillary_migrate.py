@@ -525,16 +525,19 @@ async def delete_event_citations_for_owner(
 EVENT_ENTITY_TYPES = frozenset({"person", "organization"})
 
 # Every event naming the loser, as owner or as link target. Oldest first, so
-# that when two loser-side rows collapse, the earlier one stands.
+# that when two loser-side rows collapse, the earlier one stands. `OF ev`: a
+# bare FOR UPDATE would lock the seeded event-type rows through the join too.
 _LOSER_EVENTS_SQL = (
-    "SELECT id, entity_type, entity_id, event_type_id, linked_entity_type, linked_entity_id,"
-    "       event_year, event_month, event_day, event_hour, event_minute, event_second,"
-    "       archived_at, created_at"
-    "  FROM entity_events"
-    " WHERE (entity_type = $1 AND entity_id = $2)"
-    "    OR (linked_entity_type = $1 AND linked_entity_id = $2)"
-    " ORDER BY created_at, id"
-    " FOR UPDATE"
+    "SELECT ev.id, ev.entity_type, ev.entity_id, ev.event_type_id,"
+    "       ev.linked_entity_type, ev.linked_entity_id,"
+    "       ev.event_year, ev.event_month, ev.event_day,"
+    "       ev.event_hour, ev.event_minute, ev.event_second,"
+    "       ev.archived_at, ev.created_at, t.slug = 'succeeded_by' AS is_succession"
+    "  FROM entity_events ev JOIN entity_event_types t ON t.id = ev.event_type_id"
+    " WHERE (ev.entity_type = $1 AND ev.entity_id = $2)"
+    "    OR (ev.linked_entity_type = $1 AND ev.linked_entity_id = $2)"
+    " ORDER BY ev.created_at, ev.id"
+    " FOR UPDATE OF ev"
 )
 # Observation's create-path content-dedup key (`_create_event`), archived rows
 # included: a re-point must not leave two rows observation could attach to.
@@ -554,7 +557,6 @@ _ACTIVE_SUCCESSION_EDGE_SQL = (
     " WHERE ev.entity_id = $1 AND ev.linked_entity_id = $2 AND ev.archived_at IS NULL"
     "   AND ev.id <> $3"
 )
-_IS_SUCCESSION_SQL = "SELECT slug = 'succeeded_by' FROM entity_event_types WHERE id = $1"
 
 
 async def _rehome_one_event(
@@ -595,7 +597,7 @@ async def _rehome_one_event(
     if row["archived_at"] is None:
         if row["linked_entity_type"] == row["entity_type"] and linked == owner:
             archive = True  # a self-link says nothing; keep it as history only
-        elif await db.fetchval(_IS_SUCCESSION_SQL, row["event_type_id"]):
+        elif row["is_succession"]:
             edge = await db.fetchrow(_ACTIVE_SUCCESSION_EDGE_SQL, owner, linked, row["id"])
             # One active edge per pair: the later of the two goes, the index's own
             # reconciliation rule. It goes first, as the index is checked per row.
