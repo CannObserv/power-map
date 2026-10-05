@@ -1227,8 +1227,18 @@ async def write_role_assignments(
     honours a retract too. Its own dedup keys on the *open* tenure, which an
     archived row no longer matches — without the explicit archived-twin skip a
     re-emit would mint a fresh active twin and defeat the retract.
+
+    Role liveness (#602): rejects ``role_not_found`` on an unknown or archived
+    role, as :func:`resolve_assignment` does — the FK alone admits an archived
+    role. Raised, so the caller's transaction rolls the observation back.
     """
     for ra in role_assignments:
+        role_live = await conn.fetchval(
+            "SELECT 1 FROM roles WHERE id=$1 AND archived_at IS NULL", ra.role_id
+        )
+        if not role_live:
+            logger.warning("write_role_assignments: unknown role_id=%r", ra.role_id)
+            raise ObservationRejected(f"role_not_found: {ra.role_id!r}")
         open_existing = await conn.fetchrow(
             "SELECT id FROM role_assignments"
             " WHERE person_id=$1 AND role_id=$2 AND end_date IS NULL"

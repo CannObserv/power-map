@@ -1513,6 +1513,20 @@ async def test_write_role_assignments_open_noop(db, person_id, role_id, api_key_
     assert len(rows) == 1
 
 
+async def test_write_role_assignments_rejects_archived_role(db, person_id, role_id, api_key_id):
+    """The embedded door checks role liveness like resolve_assignment does (#602).
+
+    The FK only proves the role exists, so without the check a tenure was
+    written onto an archived role and reported as an ordinary success.
+    """
+    await db.execute("UPDATE roles SET archived_at=NOW() WHERE id=$1", role_id)
+    ra = ObservationRoleAssignment(role_id=role_id, start_date="2024-01-01")
+    with pytest.raises(ObservationRejected, match=f"^role_not_found: {role_id!r}$"):
+        await write_role_assignments(db, person_id, api_key_id, [ra])
+    count = await db.fetchval("SELECT count(*) FROM role_assignments WHERE role_id=$1", role_id)
+    assert count == 0
+
+
 # ---------------------------------------------------------------------------
 # update_assignment_fields (#289 backfill → #311 authoritative update)
 # ---------------------------------------------------------------------------

@@ -592,6 +592,46 @@ async def test_unseen_role_assignment_identifier_rejected(client, ppl_write_key,
     assert written == 0
 
 
+async def test_role_assignment_embedded_on_archived_role_rejected(
+    client, ppl_write_key, ppl_role_id, db
+):
+    """#602: the embedded door checks role liveness, as POST /assignments/observations does.
+
+    The FK only proves the role exists, so a tenure used to be written onto an
+    archived role and reported as success. The rejection rolls back the whole
+    observation, including the person resolve_entity just created.
+    """
+    raw, _ = ppl_write_key
+    value = _unique_id()
+    await db.execute("UPDATE roles SET archived_at=NOW() WHERE id=$1", ppl_role_id)
+
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": value,
+            "role_assignments": [{"role_id": ppl_role_id}],
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == f"role_not_found: {ppl_role_id!r}"
+
+    written = await db.fetchval(
+        "SELECT count(*) FROM role_assignments WHERE role_id=$1", ppl_role_id
+    )
+    assert written == 0
+    person = await db.fetchval(
+        """SELECT count(*) FROM identifiers i
+           JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+           WHERE t.slug = 'person_wa_pdc' AND i.value = $1""",
+        value,
+    )
+    assert person == 0, "rejected observation left the resolve-stage person behind"
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
