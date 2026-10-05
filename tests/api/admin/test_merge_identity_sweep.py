@@ -18,9 +18,14 @@ paths, so they are enforced structurally instead:
    a survivor, it re-homes the loser's `curation_overlay` rows too. Both tables
    are keyed on an id with no FK, and an override left on a merged-away id stops
    applying without a word — the mapping layer joins it on the surviving pm_id.
+4. **Event ratchet (#611).** Wherever a merge path hard-deletes a person or an
+   org, it re-homes the events naming the loser first. ``entity_events`` names
+   an entity as owner and as link target, neither with an FK, so a merge that
+   skips the step leaves both kinds of row naming a deleted id.
 """
 
 import ast
+import re
 from pathlib import Path
 
 SRC_DIR = Path(__file__).resolve().parents[3] / "src"
@@ -117,4 +122,27 @@ def test_every_subscription_mirror_carries_the_curation_overlay():
         f"{offenders} (mirror_subscriptions calls, rehome_curation_overlay calls) differ."
         " Each merge step that mirrors a subscription must re-home the loser's"
         " curation_overlay rows beside it (#514)."
+    )
+
+
+#: A hard delete of an entity that `entity_events` can own or link.
+_EVENT_ENTITY_DELETE = re.compile(r"DELETE FROM (people|organizations)\b")
+
+
+def test_every_person_or_org_merge_delete_rehomes_its_events():
+    """#611: a merged-away person or org takes no event reference with it."""
+    offenders = {
+        name: (deletes, rehomes)
+        for name in MERGE_MODULES
+        if (
+            deletes := sum(
+                len(_EVENT_ENTITY_DELETE.findall(s)) for s in _string_constants(SRC_DIR / name)
+            )
+        )
+        > (rehomes := _calls(SRC_DIR / name, "rehome_entity_events"))
+    }
+    assert not offenders, (
+        f"{offenders} (person/org DELETEs, rehome_entity_events calls): a merge that"
+        " hard-deletes a person or org must re-home the events naming it first, or"
+        " they name a deleted id (#611)."
     )

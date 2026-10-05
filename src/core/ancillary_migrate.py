@@ -33,6 +33,10 @@ touches only triggered tables, so it emits nothing manually at all.
 entity type the producer crosswalk scopes (person / organization / role /
 assignment): :func:`rehome_curation_overlay` carries a loser's overrides to its
 survivor, the survivor's own override winning a field clash.
+
+**Entity events (#611).** A person or org merge re-points every event naming the
+loser, as owner or as link target, onto the survivor
+(:func:`rehome_entity_events`).
 """
 
 from collections import defaultdict
@@ -494,9 +498,9 @@ async def delete_event_citations_for_owner(
 ) -> None:
     """Delete citations on ``entity_event`` rows owned by a parent about to be removed.
 
-    Merges do **not** re-point ``entity_events`` (they dangle when the parent org/
-    person is deleted), so their citations would orphan. Called before the parent
-    DELETE in ``person_merge`` / ``orgs_merge``.
+    For a hard delete (:func:`delete_entity_ancillary`), which drops the parent's
+    events with it. A merge re-homes the events instead, citations and all
+    (:func:`rehome_entity_events`, #611).
     """
     await db.execute(
         "DELETE FROM citations WHERE entity_type='entity_event' AND entity_id IN"
@@ -504,6 +508,163 @@ async def delete_event_citations_for_owner(
         owner_type,
         owner_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# Entity events (#611)
+#
+# `entity_events` names a person or org two ways, neither with an FK: as the
+# event's owner (`entity_type`, `entity_id`) and as its link target
+# (`linked_entity_type`, `linked_entity_id`, e.g. a predecessor's `succeeded_by`).
+# A merge hard-deletes the loser, so it re-points both onto the survivor. The
+# touch trigger bumps the owner and both the old and new linked org on every
+# re-point, so no manual signal is needed.
+# ---------------------------------------------------------------------------
+
+#: The entity types `entity_events` can own or link (its two CHECKs).
+EVENT_ENTITY_TYPES = frozenset({"person", "organization"})
+
+# Every event naming the loser, as owner or as link target. Oldest first, so
+# that when two loser-side rows collapse, the earlier one stands. `OF ev`: a
+# bare FOR UPDATE would lock the seeded event-type rows through the join too.
+_LOSER_EVENTS_SQL = (
+    "SELECT ev.id, ev.entity_type, ev.entity_id, ev.event_type_id,"
+    "       ev.linked_entity_type, ev.linked_entity_id,"
+    "       ev.event_year, ev.event_month, ev.event_day,"
+    "       ev.event_hour, ev.event_minute, ev.event_second,"
+    "       ev.archived_at, ev.created_at, t.slug = 'succeeded_by' AS is_succession"
+    "  FROM entity_events ev JOIN entity_event_types t ON t.id = ev.event_type_id"
+    " WHERE (ev.entity_type = $1 AND ev.entity_id = $2)"
+    "    OR (ev.linked_entity_type = $1 AND ev.linked_entity_id = $2)"
+    " ORDER BY ev.created_at, ev.id"
+    " FOR UPDATE OF ev"
+)
+# Observation's create-path content-dedup key (`_create_event`), archived rows
+# included: a re-point must not leave two rows observation could attach to.
+_EVENT_TWIN_SQL = (
+    "SELECT id FROM entity_events"
+    " WHERE entity_type = $1 AND entity_id = $2 AND event_type_id = $3"
+    "   AND event_year IS NOT DISTINCT FROM $4 AND event_month IS NOT DISTINCT FROM $5"
+    "   AND event_day IS NOT DISTINCT FROM $6 AND event_hour IS NOT DISTINCT FROM $7"
+    "   AND event_minute IS NOT DISTINCT FROM $8 AND event_second IS NOT DISTINCT FROM $9"
+    "   AND linked_entity_id IS NOT DISTINCT FROM $10 AND id <> $11"
+    " ORDER BY created_at, id LIMIT 1"
+)
+# The active edge `uq_entity_events_succession_edge` would hold against the row.
+_ACTIVE_SUCCESSION_EDGE_SQL = (
+    "SELECT ev.id, ev.created_at FROM entity_events ev"
+    " JOIN entity_event_types t ON t.id = ev.event_type_id AND t.slug = 'succeeded_by'"
+    " WHERE ev.entity_id = $1 AND ev.linked_entity_id = $2 AND ev.archived_at IS NULL"
+    "   AND ev.id <> $3"
+)
+
+
+async def _rehome_one_event(
+    db: asyncpg.Connection, row: asyncpg.Record, entity_type: str, loser_id: str, winner_id: str
+) -> int | None:
+    """Re-point one event naming ``loser_id``; return how many rows it archived.
+
+    ``None`` means the event was a content twin and is gone.
+    """
+    owner = row["entity_id"]
+    if row["entity_type"] == entity_type and owner == loser_id:
+        owner = winner_id
+    linked = row["linked_entity_id"]
+    if row["linked_entity_type"] == entity_type and linked == loser_id:
+        linked = winner_id
+
+    twin = await db.fetchval(
+        _EVENT_TWIN_SQL,
+        row["entity_type"],
+        owner,
+        row["event_type_id"],
+        row["event_year"],
+        row["event_month"],
+        row["event_day"],
+        row["event_hour"],
+        row["event_minute"],
+        row["event_second"],
+        linked,
+        row["id"],
+    )
+    if twin:
+        await migrate_citations(db, "entity_event", row["id"], twin)
+        await db.execute("DELETE FROM entity_events WHERE id=$1", row["id"])
+        return None
+
+    archive = False
+    archived = 0
+    if row["archived_at"] is None:
+        if row["linked_entity_type"] == row["entity_type"] and linked == owner:
+            archive = True  # a self-link says nothing; keep it as history only
+        elif row["is_succession"]:
+            edge = await db.fetchrow(_ACTIVE_SUCCESSION_EDGE_SQL, owner, linked, row["id"])
+            # One active edge per pair: the later of the two goes, the index's own
+            # reconciliation rule. It goes first, as the index is checked per row.
+            if edge and (edge["created_at"], edge["id"]) < (row["created_at"], row["id"]):
+                archive = True
+            elif edge:
+                await db.execute(
+                    "UPDATE entity_events SET archived_at = NOW() WHERE id=$1", edge["id"]
+                )
+                archived += 1
+    await db.execute(
+        "UPDATE entity_events SET entity_id=$2, linked_entity_id=$3,"
+        " archived_at = CASE WHEN $4 THEN NOW() ELSE archived_at END WHERE id=$1",
+        row["id"],
+        owner,
+        linked,
+        archive,
+    )
+    return archived + int(archive)
+
+
+async def rehome_entity_events(
+    db: asyncpg.Connection, entity_type: str, pairs: list[tuple[str, str]]
+) -> tuple[int, int, int]:
+    """Re-point every event naming each loser onto its survivor.
+
+    Call before a person or org merge hard-deletes its losers, with each loser
+    row already locked ``FOR UPDATE`` (both merges take it first): a new or
+    changed link takes ``FOR KEY SHARE`` on its target
+    (``trg_entity_events_linked_entity``, #608), so the lock makes a concurrent
+    link commit before the events are read here, or fail once the loser is
+    gone, rather than dangle. Both kinds of
+    reference move: the loser's own events (with their citations and ULIDs, so
+    a producer's ``pm_event_id`` still resolves) and other events' links to it.
+    Archived rows move too, or they would name a deleted id. A re-point can
+    collide three ways:
+
+    - **content twin** — the re-pointed row matches another event on the same
+      owner by observation's content-dedup key. The row already naming the
+      survivor stands, archived or not (a retraction there is authoritative);
+      the moving row's citations join it and the moving row is deleted.
+    - **self-link** — the event would link its owner to itself; it is
+      re-pointed and archived.
+    - **succession edge** — two active ``succeeded_by`` edges on one pair
+      (``uq_entity_events_succession_edge``); the later by ``(created_at, id)``
+      is archived, whichever side it came from.
+
+    Returns ``(moved, deduped, archived)``: ``moved`` counts the rows
+    re-pointed, ``deduped`` the twins deleted, and ``archived`` the active rows
+    the merge archived, re-pointed or standing — a re-pointed row it archives
+    counts in both.
+    """
+    if entity_type not in EVENT_ENTITY_TYPES:
+        raise ValueError(
+            f"not an entity_events entity type: {entity_type!r}"
+            f" (one of {', '.join(sorted(EVENT_ENTITY_TYPES))})"
+        )
+    moved = deduped = archived = 0
+    for loser_id, winner_id in pairs:
+        for row in await db.fetch(_LOSER_EVENTS_SQL, entity_type, loser_id):
+            n_archived = await _rehome_one_event(db, row, entity_type, loser_id, winner_id)
+            if n_archived is None:
+                deduped += 1
+            else:
+                moved += 1
+                archived += n_archived
+    return moved, deduped, archived
 
 
 async def count_orphaned_citations(db: asyncpg.Connection) -> dict[str, int]:

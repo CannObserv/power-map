@@ -89,6 +89,36 @@ async def test_a_missing_loser_raises_before_writing(db):
         await merge_person_into(db, winner_id=winner, loser_id=generate_id(), actor_email=ACTOR)
 
 
+async def test_events_naming_the_loser_follow_it_to_the_winner(db):
+    """#611: the loser's own events and other people's links to it both re-point."""
+    winner, loser = await _person(db, "Merge Events A"), await _person(db, "Merge Events B")
+    spouse = await _person(db, "Merge Events C")
+    owned, inbound = generate_id(), generate_id()
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
+        " SELECT $1, 'person', $2, t.id, 1970 FROM entity_event_types t WHERE t.slug='birth'",
+        owned,
+        loser,
+    )
+    await db.execute(
+        "INSERT INTO entity_events"
+        " (id, entity_type, entity_id, event_type_id, linked_entity_type, linked_entity_id)"
+        " SELECT $1, 'person', $2, t.id, 'person', $3"
+        " FROM entity_event_types t WHERE t.slug='marriage'",
+        inbound,
+        spouse,
+        loser,
+    )
+
+    await merge_person_into(db, winner_id=winner, loser_id=loser, actor_email=ACTOR)
+
+    assert await db.fetchval("SELECT entity_id FROM entity_events WHERE id=$1", owned) == winner
+    assert (
+        await db.fetchval("SELECT linked_entity_id FROM entity_events WHERE id=$1", inbound)
+        == winner
+    )
+
+
 # --- preview_person_merge: what the merge will do, stated before it does it ------
 
 _IDTYPE_ROSTER = "person_wa_legislature_roster"

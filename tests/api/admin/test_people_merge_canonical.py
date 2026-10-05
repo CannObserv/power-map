@@ -493,8 +493,8 @@ async def test_merge_drops_citation_on_curated_dropped_name(conn):
     assert await conn.fetchval("SELECT count(*) FROM citations WHERE id=$1", cid) == 0
 
 
-async def test_merge_drops_loser_event_citations(conn):
-    """The loser's entity_events dangle on merge; their citations are dropped, not orphaned."""
+async def test_merge_keeps_loser_event_citations(conn):
+    """#611: the loser's events move to the winner, so their citations stay with them."""
     winner, loser = await _person(conn), await _person(conn)
     await _name(conn, winner, "W", is_canonical=True)
     await _name(conn, loser, "L", is_canonical=True)
@@ -514,4 +514,5 @@ async def test_merge_drops_loser_event_citations(conn):
         eid,
     )
     await _merge(conn, winner, loser)
-    assert await conn.fetchval("SELECT count(*) FROM citations WHERE id=$1", cid) == 0
+    assert await conn.fetchval("SELECT entity_id FROM citations WHERE id=$1", cid) == eid
+    assert await conn.fetchval("SELECT entity_id FROM entity_events WHERE id=$1", eid) == winner
