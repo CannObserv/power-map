@@ -155,8 +155,11 @@ survivor, which takes the moving row's citations; a **self-link** is archived; a
 second active **succession edge** on one pair archives the later by
 `(created_at, id)`, the `uq_entity_events_succession_edge` rule. The touch trigger
 bumps every org whose owned or linked event moved, so ETags and the change feed move
-without a manual emit. Guard: `test_merge_identity_sweep.py` fails a merge module with
-more person/org DELETEs than `rehome_entity_events` calls.
+without a manual emit. A producer still naming the loser in an event refine or
+retract's `linked_entity` is now refused `identity_immutable` (the stored link names
+the survivor), and a collapsed twin's `pm_event_id` answers `event_not_found`; the
+loser's 410 `merged_into` is the id to follow. Guard: `test_merge_identity_sweep.py`
+fails a merge module with more person/org DELETEs than `rehome_entity_events` calls.
 
 ---
 
