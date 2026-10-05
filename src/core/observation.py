@@ -1235,12 +1235,10 @@ async def write_role_assignments(
     role. Raised, so the caller's transaction rolls the observation back.
     """
     for ra in role_assignments:
-        role_live = await conn.fetchval(
-            "SELECT 1 FROM roles WHERE id=$1 AND archived_at IS NULL", ra.role_id
-        )
-        if not role_live:
+        role_rejection = await _role_liveness_rejection(conn, ra.role_id)
+        if role_rejection is not None:
             logger.warning("write_role_assignments: unknown role_id=%r", ra.role_id)
-            raise ObservationRejected(f"role_not_found: {ra.role_id!r}")
+            raise ObservationRejected(role_rejection)
         open_existing = await conn.fetchrow(
             "SELECT id FROM role_assignments"
             " WHERE person_id=$1 AND role_id=$2 AND end_date IS NULL"
@@ -1924,6 +1922,19 @@ async def apply_event_observations(
     return results
 
 
+async def _role_liveness_rejection(conn, role_id: str) -> str | None:
+    """Return ``role_not_found: '<id>'`` if the role is unknown or archived, else None.
+
+    Shared by both create doors — :func:`resolve_assignment` and
+    :func:`write_role_assignments` — for the reason
+    :func:`_find_archived_assignment_twin` is: the embedded door once lacked
+    this check entirely and wrote tenures onto archived roles (#602). The FK
+    alone admits an archived role.
+    """
+    live = await conn.fetchval("SELECT 1 FROM roles WHERE id=$1 AND archived_at IS NULL", role_id)
+    return None if live else f"role_not_found: {role_id!r}"
+
+
 async def _find_archived_assignment_twin(
     conn, person_id: str, role_id: str, start_date: date | None
 ) -> asyncpg.Record | None:
@@ -1989,12 +2000,10 @@ async def resolve_assignment(
         logger.warning("resolve_assignment: unknown person_id=%r", person_id)
         return AssignmentResolution("", Disposition.REJECTED, f"person_not_found: {person_id!r}")
 
-    role_exists = await conn.fetchval(
-        "SELECT 1 FROM roles WHERE id=$1 AND archived_at IS NULL", role_id
-    )
-    if not role_exists:
+    role_rejection = await _role_liveness_rejection(conn, role_id)
+    if role_rejection is not None:
         logger.warning("resolve_assignment: unknown role_id=%r", role_id)
-        return AssignmentResolution("", Disposition.REJECTED, f"role_not_found: {role_id!r}")
+        return AssignmentResolution("", Disposition.REJECTED, role_rejection)
 
     existing = await conn.fetchrow(
         "SELECT id, end_date, is_current, source_key_id FROM role_assignments"
