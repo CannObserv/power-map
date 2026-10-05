@@ -370,8 +370,10 @@ async def resolve_entity(
       - AUTO_ATTACHED  if an existing identifier row was found on a live entity
       - NEW            if a new entity + identifier row were created
       - REJECTED       if the identifier_type_slug is unknown, if the identifier
-                       resolves to an archived entity (#481), or if the entity
-                       type requires create_data for NEW and none was provided
+                       resolves to an archived entity (#481), if the entity type
+                       cannot be created from an observation (#604), or if the
+                       entity type requires create_data for NEW and none was
+                       provided
 
     reason is a human-readable string on REJECTED, None otherwise.
     Raises nothing — REJECTED is returned, not raised.
@@ -418,6 +420,17 @@ async def resolve_entity(
             )
             return "", "", Disposition.REJECTED, f"{entity_type}_archived: {entity_id!r}"
         return entity_id, entity_type, Disposition.AUTO_ATTACHED, None
+
+    if entity_type not in _CREATABLE_ENTITY_TYPES:
+        # #604: an external type can name an entity type with no bare create
+        # (a role_assignment identifier). Never NEW, as the pm_* branch.
+        logger.warning(
+            "external resolve: unseen %s identifier_type=%r cannot create; value=%r",
+            entity_type,
+            identifier_type_slug,
+            identifier_value,
+        )
+        return "", "", Disposition.REJECTED, f"entity_type_not_creatable: {entity_type!r}"
 
     if entity_type == "jurisdiction":
         if not create_data:
@@ -499,6 +512,9 @@ _ENTITY_TABLE = {
     "jurisdiction": "jurisdictions",
     "role_assignment": "role_assignments",
 }
+
+# The entity types _create_entity can mint bare from an observation.
+_CREATABLE_ENTITY_TYPES = frozenset({"person", "organization", "jurisdiction"})
 
 
 async def _live_entity_id(conn, entity_type: str, entity_id: str) -> str | None:

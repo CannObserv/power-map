@@ -641,3 +641,27 @@ async def test_entity_type_mismatch_creates_no_person(client, jur_write_key, db)
         value,
     )
     assert stray == 0, "entity_type_mismatch left a stray person behind"
+
+
+async def test_unseen_role_assignment_identifier_rejected(client, jur_write_key, db):
+    """An unseen ``role_wa_pdc`` value is rejected, not a 500 (#604).
+
+    The type is external and its entity type is ``role_assignment``, which an
+    observation cannot create bare; the NEW path used to raise ``ValueError``.
+    """
+    raw, _ = jur_write_key
+    value = "jur_pdc_" + os.urandom(6).hex()
+
+    r = await _post(client, raw, {"identifier_type": "role_wa_pdc", "identifier_value": value})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "entity_type_not_creatable: 'role_assignment'"
+
+    written = await db.fetchval(
+        """SELECT count(*) FROM identifiers i
+           JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+           WHERE t.slug = 'role_wa_pdc' AND i.value = $1""",
+        value,
+    )
+    assert written == 0

@@ -32,6 +32,8 @@ citation hung off the fork.
   unknown one (`new`). A known value on an **archived** entity is rejected
   `<entity_type>_archived: '<id>'` and nothing is written (#481): archiving keeps the
   identifiers, so the producer's fix is an admin unarchive, not a new identifier.
+  An unknown value whose entity type cannot be created bare (`role_wa_pdc` →
+  `role_assignment`) is rejected `entity_type_not_creatable: '<type>'`, never `new` (#604).
 
 **Value conventions.** The catalog has no value-format column, so these stay here — the
 ones worth knowing before minting:
