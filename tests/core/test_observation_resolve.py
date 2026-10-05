@@ -164,6 +164,45 @@ async def test_unseen_external_role_assignment_identifier_rejected(db):
     assert written == 0
 
 
+async def test_known_external_role_assignment_identifier_auto_attached(db):
+    """A *known* role_wa_pdc value still attaches: the #604 gate runs after the lookup.
+
+    Moving it above the lookup would turn the route's ``entity_type_mismatch``
+    (and an archived tenure's ``role_assignment_archived``) into
+    ``entity_type_not_creatable``.
+    """
+    person_id, org_id, role_id, asgn_id = (generate_id() for _ in range(4))
+    await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,$3)",
+        role_id,
+        org_id,
+        "PDC Test Role",
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1,$2,$3)",
+        asgn_id,
+        person_id,
+        role_id,
+    )
+    eit_id = await db.fetchval("SELECT id FROM entity_identifier_types WHERE slug='role_wa_pdc'")
+    value = "pdc-known-" + asgn_id
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        asgn_id,
+        eit_id,
+        value,
+    )
+
+    entity_id, entity_type, disposition, _ = await resolve_entity(db, "role_wa_pdc", value)
+
+    assert disposition == Disposition.AUTO_ATTACHED
+    assert (entity_id, entity_type) == (asgn_id, "role_assignment")
+
+
 async def test_idempotent_second_call_returns_auto_attached(db):
     """Two calls with same inputs → second call returns AUTO_ATTACHED with same entity_id."""
     first_id, first_type, first_disp, _ = await resolve_entity(
