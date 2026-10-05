@@ -724,7 +724,10 @@ class ObservationAddress(BaseModel):
 
 
 class ObservationRoleAssignment(BaseModel):
-    """A role assignment claim — references an existing role by its power-map ID."""
+    """A role assignment claim — references an existing, unarchived role by its power-map ID.
+
+    An unknown or archived role rejects the whole observation (``role_not_found``).
+    """
 
     role_id: str  # power-map ULID
     start_date: str | None = None  # ISO 8601 date string, YYYY-MM-DD
