@@ -143,6 +143,21 @@ live column is, and one left naming its own org is archived (#498). Guard: `test
 merge module whose `mirror_subscriptions` and `rehome_curation_overlay` call counts
 differ.
 
+**Events follow the entity too (#611).** `entity_events` names a person or org
+twice, neither with an FK: as an event's owner and as another event's link target
+(a predecessor's `succeeded_by`). Before the person/org DELETE, both paths call
+[`rehome_entity_events`](../src/core/ancillary_migrate.py): the loser's own events
+move to the survivor with their ids and citations, and every link naming the loser
+re-points to it. Archived rows move too. Three collisions are settled in the same pass:
+a **content twin** (same owner, type, partial date and link, the observation
+dedup key, archived rows included) collapses into the row already naming the
+survivor, which takes the moving row's citations; a **self-link** is archived; a
+second active **succession edge** on one pair archives the later by
+`(created_at, id)`, the `uq_entity_events_succession_edge` rule. The touch trigger
+bumps every org whose owned or linked event moved, so ETags and the change feed move
+without a manual emit. Guard: `test_merge_identity_sweep.py` fails a merge module with
+more person/org DELETEs than `rehome_entity_events` calls.
+
 ---
 
 ## Merge Bar Pattern
