@@ -19,6 +19,7 @@ both, in one place:
 The result is cached on ``app.openapi_schema`` exactly as FastAPI caches its own.
 """
 
+import copy
 from typing import Any
 
 from fastapi import FastAPI
@@ -59,7 +60,7 @@ def _add_if_none_match(schema: dict[str, Any]) -> None:
             params = operation.setdefault("parameters", [])
             declared = {(p.get("in"), p.get("name")) for p in params}
             if ("header", "If-None-Match") not in declared:
-                params.append(dict(_IF_NONE_MATCH))
+                params.append(copy.deepcopy(_IF_NONE_MATCH))
 
 
 def install_public_openapi(app: FastAPI) -> None:

@@ -209,3 +209,14 @@ def test_identify_similarity_is_a_required_number():
     match = app.openapi()["components"]["schemas"]["IdentifyMatch"]
     assert "similarity" in match["required"]
     assert match["properties"]["similarity"]["type"] == "number"
+
+
+def test_if_none_match_parameters_share_no_objects():
+    """Each operation owns its parameter: an edit to one must not edit all."""
+    params = [
+        p
+        for _, op in _public_operations()
+        for p in op.get("parameters", [])
+        if p["name"] == "If-None-Match"
+    ]
+    assert len({id(p["schema"]) for p in params}) == len(params)
