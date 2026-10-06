@@ -131,3 +131,9 @@ def test_long_lists_are_capped_with_a_count():
     line = differences(live, {**_COMMITTED, "paths": {}})[0]
     assert line.startswith("paths only live: /p00, /p01,")
     assert line.endswith("/p09 (+15 more)")
+
+
+def test_main_exits_1_when_a_body_is_not_a_json_object(monkeypatch, tmp_path, capsys):
+    """A proxy error page can be valid JSON and still not a schema."""
+    assert _run(monkeypatch, tmp_path, _opener("Bad Gateway")) == 1
+    assert "not a JSON object" in capsys.readouterr().out

@@ -109,6 +109,14 @@ def main(opener=urlopen) -> None:
     except (OSError, urllib.error.URLError, ValueError) as exc:
         logger.error("openapi parity: could not fetch or read a schema — %s", exc)
         sys.exit(1)
+    for label, document in (("live", live), ("committed", committed)):
+        if not isinstance(document, dict):
+            logger.error(
+                "openapi parity: the %s schema is not a JSON object (%s)",
+                label,
+                type(document).__name__,
+            )
+            sys.exit(1)
 
     found = differences(live, committed)
     if not found:
