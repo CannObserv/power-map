@@ -106,3 +106,43 @@ Written by the admin (#498) and merges; read only via `scripts/export_pm_tables.
 - `docs/SCHEMA_VALIDITY.md` — org name effective dates (#239), address validity
   windows (#181), jurisdiction graph broadcast (#275)
 - `docs/NAMES.md` — the org auto-promote invariant and last-identity guard
+
+---
+
+## Guards (#398)
+
+The guards on `scripts/apply-schema.sh`, which applies `src/core/schema.sql`; when to run it is in `docs/COMMANDS.md` § Deploy.
+
+The bare invocation writes to **production**. Guards, all skipped by `--yes`:
+
+| Shape | Behaviour |
+|---|---|
+| Linked git worktree | **refuses**, exit 2 — nothing applied; points at `--test` |
+| Interactive (TTY) | prompts for the database name before applying (or the word `production`, when the DSN yields no database name) |
+| Tracked modifications / branch ≠ `main` | WARNING only — never blocks a restart (untracked files are ignored) |
+
+Every run echoes its target first — `target: user@host:port/db (PRODUCTION)` plus the checkout,
+branch and SHA — so a mistaken run is visible in scrollback and in the journal. The echo is
+best-effort by design: a DSN that is not a parseable URL is reported as
+`(unparsed DSN — cannot redact)` and never printed, since it would carry the password, and a
+missing `python3` degrades the same way rather than failing the run.
+
+The guards read the checkout that owns the script, not the caller's cwd — the script `cd`s to its
+own repo root first, so the tree it reports is the tree whose `schema.sql` it applies. A git that
+cannot report its worktree layout (or a directory that is not a checkout) announces the guard as
+unavailable and proceeds, rather than ending a restart on an environmental quirk.
+
+| Flag | Effect |
+|---|---|
+| `--test` | target `TEST_DATABASE_URL` instead; allowed anywhere, never prompts |
+| `--yes`, `-y` | skip the production guards. `ExecStartPre` never passes this — the unit's invocation satisfies the guards instead of skipping them |
+| `--dry-run` | run the guards, echo the target, stop without applying |
+| `--help`, `-h` | usage on stdout, exit 0 |
+
+Exit codes: `0` applied (or dry run), `1` usage/configuration error, `2` guard refusal.
+
+Never add a guard that the systemd shape (main checkout, no TTY, no flags) can trip:
+`apply-schema.sh` is `ExecStartPre`, so a non-zero exit means the service does not start. That
+covers the diagnostics too — the target echo must degrade rather than abort.
+
+`scripts/sync-schema-to-do.sh` delegates its test-database apply to `apply-schema.sh --test`.

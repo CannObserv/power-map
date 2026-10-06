@@ -317,6 +317,41 @@ Files that do NOT need this block:
 
 ---
 
+## Worktree test parity (#450, #482, #554)
+
+Why `scripts/worktree-setup.sh` provisions what it does; the command and its list are in
+`docs/COMMANDS.md` § Worktree setup. Besides its own `.venv` and the SocratiCode settings, it
+initialises the `skills-vendor/` submodules, symlinks `data/cannabis_observer`, and installs `node_modules`.
+
+The rest exist so a worktree's first test run matches the main checkout's (#482).
+`git worktree add` populates tracked files only: the submodule directories arrive empty, so
+`tests/test_vendor_skills.py`'s vendored-driver guards fail, and `data/cannabis_observer`
+is absent, so `test_seed_jurisdictions.py::test_load_seed_file_actual_wa_file` skips — a
+pass fewer than main on an identical tree. All three are non-fatal warnings when the source
+is unreachable, because a briefed baseline count is only useful if the provisioning is not
+the variable.
+
+`node_modules` is the JS half of the same argument, and it fails harder (#554): `vitest`,
+`bats`, `eslint` and `prettier` are all devDependencies resolved through
+`node_modules/.bin`, so an unprovisioned worktree does not report a skip — its first
+`git commit` is **refused**, `vitest: not found`, exit 127, after the work is done and the
+suite is green. (`eslint` and `prettier` are gated on `\.js$`, so a JS-touching commit is
+refused before `vitest` is reached at all.) A worktree under
+`<main>/.worktrees/` can look exempt because `npm run` prepends `node_modules/.bin` for
+every *ancestor* directory and borrows the main checkout's; that is the shared-mutable-
+environment trap below in another costume, and it disappears the moment `WORKTREE_ROOT`
+points outside the repo. `npm ci` rather than `npm install` for the reason `uv sync` beats
+`uv run`: lockfile-exact, not re-resolved.
+
+`worktree-create.sh` (vendored skill) links a new worktree's `.venv` at the main checkout's —
+and the main checkout is production's working directory. Nine `power-map*` units run `uv run`
+there, `power-map-ready` every two minutes; `uv run` reinstalls the project, so a shared venv
+gets its version metadata restamped to main's mid-suite, and `power-map.service`'s
+`ExecStartPre=uv sync` prunes the opt-in groups outright (#450). With a warm uv cache the
+per-worktree sync takes under a second and hardlinks into `~/.cache/uv`, so the link never
+paid for the shared mutable state. It also means a worktree's dependency changes can no
+longer mutate the environment the live uvicorn workers import from.
+
 ## Ship gate
 
 `shipping-work-python-fastapi` Step 1 resolves `scripts/<name>.sh` from the repo

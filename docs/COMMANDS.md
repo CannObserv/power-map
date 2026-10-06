@@ -263,39 +263,9 @@ reads the same file directly, so `/etc/power-map/.env` must be present.
 
 ### Guards (#398)
 
-The bare invocation writes to **production**. Guards, all skipped by `--yes`:
-
-| Shape | Behaviour |
-|---|---|
-| Linked git worktree | **refuses**, exit 2 — nothing applied; points at `--test` |
-| Interactive (TTY) | prompts for the database name before applying (or the word `production`, when the DSN yields no database name) |
-| Tracked modifications / branch ≠ `main` | WARNING only — never blocks a restart (untracked files are ignored) |
-
-Every run echoes its target first — `target: user@host:port/db (PRODUCTION)` plus the checkout,
-branch and SHA — so a mistaken run is visible in scrollback and in the journal. The echo is
-best-effort by design: a DSN that is not a parseable URL is reported as
-`(unparsed DSN — cannot redact)` and never printed, since it would carry the password, and a
-missing `python3` degrades the same way rather than failing the run.
-
-The guards read the checkout that owns the script, not the caller's cwd — the script `cd`s to its
-own repo root first, so the tree it reports is the tree whose `schema.sql` it applies. A git that
-cannot report its worktree layout (or a directory that is not a checkout) announces the guard as
-unavailable and proceeds, rather than ending a restart on an environmental quirk.
-
-| Flag | Effect |
-|---|---|
-| `--test` | target `TEST_DATABASE_URL` instead; allowed anywhere, never prompts |
-| `--yes`, `-y` | skip the production guards. `ExecStartPre` never passes this — the unit's invocation satisfies the guards instead of skipping them |
-| `--dry-run` | run the guards, echo the target, stop without applying |
-| `--help`, `-h` | usage on stdout, exit 0 |
-
-Exit codes: `0` applied (or dry run), `1` usage/configuration error, `2` guard refusal.
-
-Never add a guard that the systemd shape (main checkout, no TTY, no flags) can trip:
-`apply-schema.sh` is `ExecStartPre`, so a non-zero exit means the service does not start. That
-covers the diagnostics too — the target echo must degrade rather than abort.
-
-`scripts/sync-schema-to-do.sh` delegates its test-database apply to `apply-schema.sh --test`.
+The bare invocation writes to **production**. The guards (worktree refusal, TTY prompt, branch
+warning), the target echo, the flags (`--test`, `--yes`, `--dry-run`) and the exit codes →
+[SCHEMA.md § Guards (#398)](SCHEMA.md#guards-398).
 
 ---
 
@@ -323,34 +293,8 @@ and watcher would write the worktree's branch into them: a worktree searches, on
 checkout writes. An explicit `codebase_index` from a worktree is still a write; don't. Nothing
 is written unless git ignores the path — the key is shared by every cohort VM.
 
-The rest exist so a worktree's first test run matches the main checkout's (#482).
-`git worktree add` populates tracked files only: the submodule directories arrive empty, so
-`tests/test_vendor_skills.py`'s vendored-driver guards fail, and `data/cannabis_observer`
-is absent, so `test_seed_jurisdictions.py::test_load_seed_file_actual_wa_file` skips — a
-pass fewer than main on an identical tree. All three are non-fatal warnings when the source
-is unreachable, because a briefed baseline count is only useful if the provisioning is not
-the variable.
-
-`node_modules` is the JS half of the same argument, and it fails harder (#554): `vitest`,
-`bats`, `eslint` and `prettier` are all devDependencies resolved through
-`node_modules/.bin`, so an unprovisioned worktree does not report a skip — its first
-`git commit` is **refused**, `vitest: not found`, exit 127, after the work is done and the
-suite is green. (`eslint` and `prettier` are gated on `\.js$`, so a JS-touching commit is
-refused before `vitest` is reached at all.) A worktree under
-`<main>/.worktrees/` can look exempt because `npm run` prepends `node_modules/.bin` for
-every *ancestor* directory and borrows the main checkout's; that is the shared-mutable-
-environment trap below in another costume, and it disappears the moment `WORKTREE_ROOT`
-points outside the repo. `npm ci` rather than `npm install` for the reason `uv sync` beats
-`uv run`: lockfile-exact, not re-resolved.
-
-`worktree-create.sh` (vendored skill) links a new worktree's `.venv` at the main checkout's —
-and the main checkout is production's working directory. Nine `power-map*` units run `uv run`
-there, `power-map-ready` every two minutes; `uv run` reinstalls the project, so a shared venv
-gets its version metadata restamped to main's mid-suite, and `power-map.service`'s
-`ExecStartPre=uv sync` prunes the opt-in groups outright (#450). With a warm uv cache the
-per-worktree sync takes under a second and hardlinks into `~/.cache/uv`, so the link never
-paid for the shared mutable state. It also means a worktree's dependency changes can no
-longer mutate the environment the live uvicorn workers import from.
+Why each piece exists (first-run test parity, the JS toolchain, the shared-venv trap) →
+[TESTING.md § Worktree test parity](TESTING.md#worktree-test-parity-450-482-554).
 
 ```bash
 # Build --env-file flags (see § Environment)
@@ -546,4 +490,4 @@ Scripts that write are dry run by default and gate the write behind `--execute`;
 every script that connects echoes a labelled target first. The rules, the
 resolver and the no-allowlist AST sweep that enforces them →
 [RUNBOOKS.md](RUNBOOKS.md) §"Operational scripts". `apply-schema.sh`'s own
-guards are in § Deploy → Guards (#398) above.
+guards are in [SCHEMA.md § Guards (#398)](SCHEMA.md#guards-398).
