@@ -55,5 +55,11 @@ def test_the_scan_sees_the_generated_tree():
 
 
 def test_an_import_is_matched_to_its_distribution_name():
-    """``dateutil`` is imported, ``python-dateutil`` is declared: one dependency."""
-    assert _distributions({"dateutil", "httpx"}) == {"python_dateutil", "httpx"}
+    """``yaml`` is imported, ``PyYAML`` is declared: one dependency.
+
+    The canary is a runtime dependency of power-map, so it is installed in every
+    venv. ``dateutil`` was the first choice, but only the opt-in ``mapping``
+    group pulls it in: production's bare ``uv sync`` prunes it, and the canary
+    then failed every commit made in the main checkout (#545's trap).
+    """
+    assert _distributions({"yaml", "httpx"}) == {"pyyaml", "httpx"}
