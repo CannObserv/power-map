@@ -8,6 +8,7 @@ scripts.regenerate_client`` has been run and its diff committed with the change.
 In-process: no network, no DB.
 """
 
+import json
 import tomllib
 from pathlib import Path
 
@@ -57,4 +58,8 @@ def test_client_version_is_the_app_version():
 
 
 def test_snapshot_carries_the_app_version():
-    assert app.openapi()["info"]["version"] == APP_VERSION
+    """After a bump, say *why* the snapshot test fails: the version moved."""
+    committed = json.loads(SNAPSHOT.read_text())["info"]["version"]
+    assert committed == APP_VERSION, (
+        f"snapshot is at {committed}, the app at {APP_VERSION}: run `{REGEN}`"
+    )
