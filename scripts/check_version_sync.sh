@@ -26,5 +26,8 @@ fi
 
 if [ "$py" != "$js" ] || [ "$py" != "$client" ]; then
   echo "Version mismatch: pyproject.toml=$py  package.json=$js  $client_pyproject=$client"
+  if [ "$py" = "$js" ]; then
+    echo "The client's version is stamped, not edited: run uv run python -m scripts.regenerate_client"
+  fi
   exit 1
 fi

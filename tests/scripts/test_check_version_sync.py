@@ -73,6 +73,14 @@ def test_mismatched_client_version_fails(tmp_path):
     assert result.returncode == 1
     assert "Version mismatch" in result.stdout
     assert "clients/python/pyproject.toml=1.2.2" in result.stdout
+    # Stamped by a script, not edited by hand: the message names the script.
+    assert "uv run python -m scripts.regenerate_client" in result.stdout
+
+
+def test_app_mismatch_does_not_suggest_regeneration(tmp_path):
+    result = _run(tmp_path, "1.2.3", "1.2.4", client_version="1.2.3")
+    assert result.returncode == 1
+    assert "regenerate_client" not in result.stdout
 
 
 def test_missing_client_version_fails(tmp_path):
