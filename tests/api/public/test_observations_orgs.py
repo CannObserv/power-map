@@ -990,6 +990,33 @@ async def test_rejected_unknown_additional_identifier_includes_reason(client, or
     assert "zzz_bad_slug" in body["reason"]
 
 
+async def test_additional_identifier_of_another_entity_type_is_rejected(client, org_write_key, db):
+    """A person_wa_pdc in an org's additional_identifiers rejects and writes nothing (#617)."""
+    raw, _ = org_write_key
+    value = _unique_id()
+    pdc = "pdc_" + value
+
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": value,
+            "additional_identifiers": [
+                {"identifier_type_slug": "person_wa_pdc", "identifier_value": pdc}
+            ],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "identifier_type_mismatch: 'person_wa_pdc'"
+    written = await db.fetchval(
+        "SELECT count(*) FROM identifiers WHERE value = ANY($1)", [value, pdc]
+    )
+    assert written == 0
+
+
 # ---------------------------------------------------------------------------
 # #240 — active flag via the observation paradigm (orgs-only)
 # ---------------------------------------------------------------------------

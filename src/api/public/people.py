@@ -92,7 +92,9 @@ async def submit_people_observation(
             await write_role_assignments(db, entity_id, auth.key_id, request.role_assignments)
             if request.personal_pronouns:
                 await write_pronouns(db, entity_id, request.personal_pronouns)
-            await write_additional_identifiers(db, entity_id, request.additional_identifiers)
+            await write_additional_identifiers(
+                db, entity_id, entity_type, request.additional_identifiers
+            )
             event_results = await write_entity_events(
                 db, entity_id, entity_type, auth.key_id, request.events
             )

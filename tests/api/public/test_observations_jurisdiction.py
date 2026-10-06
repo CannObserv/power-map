@@ -327,6 +327,34 @@ async def test_additional_identifier_attached(client, jur_write_key, db):
     assert count == 1
 
 
+async def test_additional_identifier_of_another_entity_type_is_rejected(client, jur_write_key, db):
+    """An org_ubi in a jurisdiction's additional_identifiers rejects and writes nothing (#617)."""
+    raw, _ = jur_write_key
+    suffix = os.urandom(4).hex()
+    payload = _new_ocd(suffix)
+    ubi = f"ubi_{suffix}"
+
+    r = await _post(
+        client,
+        raw,
+        {
+            **payload,
+            "additional_identifiers": [
+                {"identifier_type_slug": "org_ubi", "identifier_value": ubi}
+            ],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "identifier_type_mismatch: 'org_ubi'"
+    written = await db.fetchval(
+        "SELECT count(*) FROM identifiers WHERE value = ANY($1)",
+        [payload["identifier_value"], ubi],
+    )
+    assert written == 0
+
+
 # ---------------------------------------------------------------------------
 # Links
 # ---------------------------------------------------------------------------

@@ -453,7 +453,9 @@ async def submit_jurisdiction_observation(
             await write_links(db, entity_id, entity_type, request.links)
             await write_contact_methods(db, entity_id, entity_type, request.contact_methods)
             await write_addresses(db, entity_id, entity_type, request.addresses)
-            await write_additional_identifiers(db, entity_id, request.additional_identifiers)
+            await write_additional_identifiers(
+                db, entity_id, entity_type, request.additional_identifiers
+            )
     except ObservationRejected as exc:
         return ObservationResponse(disposition="rejected", reason=exc.detail)
     except IdentifierConflict as exc:
