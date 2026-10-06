@@ -1433,14 +1433,12 @@ source = { editable = "clients/python" }
 dependencies = [
     { name = "attrs" },
     { name = "httpx" },
-    { name = "python-dateutil" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "attrs", specifier = ">=24" },
     { name = "httpx", specifier = ">=0.28.0,<1" },
-    { name = "python-dateutil", specifier = ">=2.9" },
 ]
 
 [[package]]
