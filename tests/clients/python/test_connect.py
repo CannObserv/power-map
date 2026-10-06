@@ -10,7 +10,9 @@ from importlib.metadata import version
 
 import httpx
 import power_map_client
+import pytest
 from power_map_client import AuthenticatedClient, connect
+from power_map_client.generated import errors
 from power_map_client.generated.api.health import get_health
 
 
@@ -39,8 +41,19 @@ def test_connect_returns_an_authenticated_client():
 
 
 def test_connect_passes_options_through():
-    client = connect("http://pm.test", "pm_secret", timeout=httpx.Timeout(3.0))
-    assert client._timeout == httpx.Timeout(3.0)
+    """Observed through behaviour, not the generated client's private fields."""
+
+    def teapot(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(418)
+
+    client = connect(
+        "http://pm.test",
+        "pm_secret",
+        raise_on_unexpected_status=True,
+        httpx_args={"transport": httpx.MockTransport(teapot)},
+    )
+    with pytest.raises(errors.UnexpectedStatus):
+        get_health.sync_detailed(client=client)
 
 
 def test_version_is_the_distribution_version():
