@@ -241,6 +241,9 @@ sudo systemctl restart power-map     # applies schema then starts server
 sudo journalctl -u power-map -f      # watch startup; schema errors surface here
 ```
 
+Then tag the release, which is the pin for `power-map-client` consumers (#618):
+`git tag v<version> && git push origin v<version>`, at the deployed `main`.
+
 If `infra/power-map.service` changed in the pull, reinstall the unit first (see § Service Management —
 "Install (first time or after updating infra/power-map.service)") before restarting. Likewise the
 host files (`infra/system.slice.d/`, `infra/sysctl.d/`, `infra/tailscaled.service.d/`,
@@ -399,6 +402,13 @@ bash scripts/apply-schema.sh --test
 Uses `TEST_DATABASE_URL`, the same DB the integration suite applies the schema to
 (`tests/conftest.py`). Production picks the change up on the next `systemctl restart` after merge.
 
+### Python client (#618)
+
+`clients/python/` is generated from the published schema. After a version bump or any change
+to the public schema, run `uv run python -m scripts.regenerate_client` and commit its diff.
+The drift test blocks the commit until you do. Never edit `generated/` by hand. Details:
+[`clients/python/README.md`](../clients/python/README.md) § Development.
+
 ---
 
 ## JS Linting & Formatting
@@ -512,6 +522,7 @@ row names**; this is a roster, not a reference.
 | `power-map-schema-parity` | daily | `audit_schema_constraint_parity.py` — prod vs reference DDL | [AUDITS.md](AUDITS.md) |
 | `power-map-ancillary-orphans` | daily | `audit_ancillary_orphans.py` — no-FK polymorphic orphans | [AUDITS.md](AUDITS.md) |
 | `power-map-assignment-rel-windows` | daily | `audit_assignment_relationship_windows.py` — drifted RA→RA edge windows | [AUDITS.md](AUDITS.md) |
+| `power-map-openapi-parity` | daily | `check_openapi_parity.py` — live `/openapi.json` vs `clients/python/openapi.json` | [AUDITS.md](AUDITS.md) |
 | `power-map-a11y` | Sun 04:00 UTC | `run-a11y-sweep.sh` — both a11y tiers against the test DB | [TESTING.md](TESTING.md) |
 
 An audit timer exits **3** on a finding, which is what puts it in

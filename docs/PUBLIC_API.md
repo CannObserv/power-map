@@ -2,6 +2,8 @@
 
 **Schema and endpoint inventory:** `/docs` (Swagger UI, both dev and prod) is the authoritative reference for request parameters, response shapes, and per-endpoint descriptions. This document covers the meta-level contracts, auth model, and implicit behaviors that the OpenAPI spec does not capture.
 
+**Python client (#618):** `clients/python` (`power-map-client`) is generated from `/openapi.json`, which lists `/api/v1/*` and `/health` only, and is pinned by tag `v<version>`. Install, `connect()` and versioning are in `clients/python/README.md`.
+
 Meta-level contracts: auth, scopes, rate limits, pagination, conditional requests and
 shared observation-write behaviour. The change feed and subscriptions are in
 `docs/CHANGE_FEED.md`; per-resource endpoint detail in `docs/API_ENTITIES.md`.
@@ -258,7 +260,7 @@ Identity uses `NULLS NOT DISTINCT`: at most one URL-less citation per `(entity, 
 Unauthenticated probes live at root level, outside `/api/v1` (#343) — not part of the keyed API surface, exempt from rate limits and request logging:
 
 - `GET /health` — liveness: `{"status": "ok", "build": "<version>"}`; no external calls.
-- `GET /ready` — readiness: bounded DB pool check; `200 {"status": "ok"}` or `503 {"status": "unavailable", "reason": "no_pool" | "pool_timeout" | "db_error"}`.
+- `GET /ready` — readiness: bounded DB pool check; `200 {"status": "ok"}` or `503 {"status": "unavailable", "reason": "no_pool" | "pool_timeout" | "db_error"}`. It is the operator's probe and is left out of `/openapi.json` (#618). A consumer checks `/health`, comparing its `build` with its pinned client version.
 
 ---
 

@@ -9,7 +9,9 @@ Four run on a systemd timer — assignment-relationship windows (#301), per-key 
 anomaly (#294), schema parity (#315/#331) and ancillary orphans (#324/#326/#319).
 Those four exit 3 on findings, so a run surfaces in `systemctl --failed` (#363),
 and each carries its own install block below. The org-lifecycle (#307) and
-duplicate-assignment (#311) audits are on-demand: no timer, no exit-3.
+duplicate-assignment (#311) audits are on-demand: no timer, no exit-3. Three
+guards at the end carry timers too: readiness (#347), egress IP (#410) and
+OpenAPI parity (#618).
 
 The importer, the idempotent seeds and the TTL prune are in `docs/RUNBOOKS.md`;
 incident triage for an unreachable database is in `docs/RUNBOOK_DB_TRIAGE.md`.
@@ -341,3 +343,32 @@ sudo journalctl -u power-map-egress-ip -f
 ```
 
 Hatches: `EGRESS_CHECK_NO_GH=1`, `EGRESS_CHECK_FORCE_FAIL=1`.
+
+## OpenAPI parity guard (issue #618)
+
+Not a data audit: a contract guard. It carries a timer and surfaces the same
+way as the others, so its detail is kept here.
+
+The gate for the published schema is in the unit tier.
+`tests/clients/python/test_drift.py` fails when `app.openapi()` differs from the
+committed `clients/python/openapi.json`, or when the generated client differs
+from what that snapshot generates. The fix is
+`uv run python -m scripts.regenerate_client`, with its diff reviewed in the same
+PR (`clients/python/README.md`).
+
+That gate checks the code. `scripts/check_openapi_parity.py` checks what the
+production workers actually serve: once a day it fetches
+`localhost:8000/openapi.json` and compares it with the snapshot in the main
+checkout, which is the deployed commit. A difference exits 3, and the journal
+names what differs: `info.version`, paths and `components.schemas`, each list
+capped at ten names. It catches a schema that depends on runtime configuration,
+a deploy that skipped the gate, and a pull with no restart (the versions then
+differ). A fetch failure exits 1, because `/ready`'s guard owns liveness. It is
+read-only and opens no GitHub issue; #566's alerting will carry it once that
+lands.
+
+```bash
+uv run python -m scripts.check_openapi_parity                 # compare once, now
+uv run python -m scripts.check_openapi_parity --url http://localhost:8001/openapi.json
+sudo journalctl -u power-map-openapi-parity -f
+```

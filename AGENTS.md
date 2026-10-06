@@ -146,7 +146,7 @@ Entry points only: call `configure_logging()` once.
 - All UTC
 - ISO 8601 on the API wire (#440 guards it; JSON logs use `+00:00`): `YYYY-MM-DDTHH:MM:SS.ffffffZ`, `YYYY-MM-DD` dates
 
-**Version bumps:** update `pyproject.toml` and `package.json` together — the `check-version-sync` pre-commit hook enforces this.
+**Version bumps & public-schema changes:** bump `pyproject.toml` + `package.json` together, then `uv run python -m scripts.regenerate_client` — the client's `generated/` tree is never hand-edited (#618). `check-version-sync` + the drift test enforce both.
 
 **General:**
 - Imports explicit and at file top — never inline in a function
