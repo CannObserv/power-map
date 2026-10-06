@@ -137,3 +137,11 @@ def test_main_exits_1_when_a_body_is_not_a_json_object(monkeypatch, tmp_path, ca
     """A proxy error page can be valid JSON and still not a schema."""
     assert _run(monkeypatch, tmp_path, _opener("Bad Gateway")) == 1
     assert "not a JSON object" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("timeout", ["0", "-5"])
+def test_main_rejects_a_non_positive_timeout(monkeypatch, timeout):
+    monkeypatch.setattr(sys, "argv", ["check_openapi_parity", "--timeout", timeout])
+    with pytest.raises(SystemExit) as exc:
+        main(opener=_unreachable)
+    assert exc.value.code == 2

@@ -101,6 +101,9 @@ def main(opener=urlopen) -> None:
     )
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="seconds")
     args = parser.parse_args()
+    # urlopen raises ValueError on these, which would read as "could not fetch".
+    if args.timeout <= 0:
+        parser.error(f"--timeout must be greater than 0 (got {args.timeout})")
 
     try:
         with opener(args.url, timeout=args.timeout) as response:
