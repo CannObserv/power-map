@@ -8,6 +8,7 @@ against the code rather than maintained by hand.
 """
 
 import ast
+import importlib.metadata
 import re
 import sys
 import tomllib
@@ -28,15 +29,31 @@ def _third_party_imports() -> set[str]:
     return found - set(sys.stdlib_module_names) - {"power_map_client", "__future__"}
 
 
+def _normalize(name: str) -> str:
+    return re.sub(r"[-_.]+", "_", name).lower()
+
+
+def _distributions(imports: set[str]) -> set[str]:
+    """The distributions that provide ``imports``: an import name is not a
+    distribution name (``dateutil`` comes from ``python-dateutil``)."""
+    providers = importlib.metadata.packages_distributions()
+    return {_normalize(dist) for name in imports for dist in providers.get(name, [name])}
+
+
 def _declared() -> set[str]:
     deps = tomllib.loads((SDK_DIR / "pyproject.toml").read_text())["project"]["dependencies"]
-    return {re.split(r"[<>=!~\[; ]", d, maxsplit=1)[0].lower().replace("-", "_") for d in deps}
+    return {_normalize(re.split(r"[<>=!~\[; ]", d, maxsplit=1)[0]) for d in deps}
 
 
 def test_declared_dependencies_are_exactly_the_imports():
-    assert _declared() == _third_party_imports()
+    assert _declared() == _distributions(_third_party_imports())
 
 
 def test_the_scan_sees_the_generated_tree():
     """Guards the scan itself: an empty walk would make the equality vacuous."""
     assert {"attrs", "httpx"} <= _third_party_imports()
+
+
+def test_an_import_is_matched_to_its_distribution_name():
+    """``dateutil`` is imported, ``python-dateutil`` is declared: one dependency."""
+    assert _distributions({"dateutil", "httpx"}) == {"python_dateutil", "httpx"}
