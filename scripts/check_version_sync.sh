@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# Fails if pyproject.toml and package.json declare different versions.
+# Fails if pyproject.toml, package.json and clients/python/pyproject.toml declare
+# different versions. The generated client ships at the app's version (#618);
+# `uv run python -m scripts.regenerate_client` stamps it.
 set -euo pipefail
+
+client_pyproject=clients/python/pyproject.toml
 
 py=$(grep -m1 '^version' pyproject.toml | sed 's/.*= *"//;s/"//' || true)
 if [ -z "$py" ]; then
@@ -14,7 +18,13 @@ if [ -z "$js" ] || [ "$js" = "null" ]; then
   exit 1
 fi
 
-if [ "$py" != "$js" ]; then
-  echo "Version mismatch: pyproject.toml=$py  package.json=$js"
+client=$(grep -m1 '^version' "$client_pyproject" | sed 's/.*= *"//;s/"//' || true)
+if [ -z "$client" ]; then
+  echo "check_version_sync: no version field found in $client_pyproject"
+  exit 1
+fi
+
+if [ "$py" != "$js" ] || [ "$py" != "$client" ]; then
+  echo "Version mismatch: pyproject.toml=$py  package.json=$js  $client_pyproject=$client"
   exit 1
 fi

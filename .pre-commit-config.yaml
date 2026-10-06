@@ -64,11 +64,11 @@ repos:
         exclude: ^\.claude/hooks/(context-budget-guard|skills-submodule-update|socraticode-reminder)\.sh$
 
       - id: check-version-sync
-        name: version sync (pyproject.toml == package.json)
+        name: version sync (pyproject.toml == package.json == clients/python)
         language: system
         entry: scripts/check_version_sync.sh
         pass_filenames: false
-        files: ^(pyproject\.toml|package\.json)$
+        files: ^(pyproject\.toml|package\.json|clients/python/pyproject\.toml)$
 
       - id: terraform-fmt
         name: terraform fmt (check)
