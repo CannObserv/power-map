@@ -109,9 +109,19 @@ def _declared_statuses_by_endpoint() -> dict:
     return out
 
 
-def _raised_statuses(func) -> set[str]:
-    """Statuses a handler answers with directly: a literal ``HTTPException``
-    status, plus 404 and 410 when it calls ``not_found_or_gone``."""
+def _raised_statuses(func, seen: set | None = None) -> set[str]:
+    """Statuses a handler answers with: a literal ``HTTPException`` status, plus
+    404 and 410 when it calls ``not_found_or_gone``, followed into every helper
+    defined in the handler's own module that it calls (#618 CR 5).
+
+    A ratchet, not a proof: a helper imported from another module (a dep, a
+    ``src.core`` function) is not followed, and a status held in a variable is
+    not read. Every such raise today is a 401/403/422/429 that the router or
+    FastAPI already declares.
+    """
+    seen = set() if seen is None else seen
+    seen.add(func)
+    module = inspect.getmodule(func)
     tree = ast.parse(textwrap.dedent(inspect.getsource(func)))
     found: set[str] = set()
     for node in ast.walk(tree):
@@ -124,6 +134,14 @@ def _raised_statuses(func) -> set[str]:
                     found.add(str(kw.value.value))
         elif name == "not_found_or_gone":
             found |= {"404", "410"}
+        elif isinstance(node.func, ast.Name):
+            helper = getattr(module, node.func.id, None)
+            if (
+                inspect.isfunction(helper)
+                and helper.__module__ == module.__name__
+                and helper not in seen
+            ):
+                found |= _raised_statuses(helper, seen)
     return found
 
 
@@ -145,6 +163,8 @@ def test_sweep_sees_raise_sites():
     }
     assert {"404", "410"} <= raised["GET /api/v1/orgs/{org_id}"]
     assert {"404", "409", "422"} <= raised["POST /api/v1/people/{person_id}/embeddings"]
+    # Raised in a same-module helper the handler calls, not in the handler body.
+    assert "422" in raised["GET /api/v1/citations/{entity_type}/{entity_id}"]
 
 
 def test_not_found_and_conflict_bodies_are_typed():
