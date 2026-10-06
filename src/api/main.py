@@ -52,7 +52,8 @@ async def lifespan(app: FastAPI):
 
 
 # Version derived from package metadata (#343) — never hardcode a third copy;
-# check-version-sync only guards pyproject.toml <-> package.json.
+# check-version-sync guards the declared sites (pyproject.toml, package.json,
+# clients/python/pyproject.toml), never a copy in code.
 app = FastAPI(title="power-map", version=APP_VERSION, lifespan=lifespan)
 # /openapi.json is the contract clients/python is generated from (#618).
 install_public_openapi(app)
