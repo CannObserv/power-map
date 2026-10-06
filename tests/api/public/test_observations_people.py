@@ -499,6 +499,33 @@ async def test_additional_identifier_conflict_is_rejected(client, ppl_write_key,
     assert body["reason"] == f"identifier_conflict: {slug!r}"
 
 
+async def test_additional_identifier_of_another_entity_type_is_rejected(client, ppl_write_key, db):
+    """An org_ubi in a person's additional_identifiers rejects and writes nothing (#617)."""
+    raw, _ = ppl_write_key
+    value = _unique_id()
+    ubi = "ubi_" + value
+
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": value,
+            "additional_identifiers": [
+                {"identifier_type_slug": "org_ubi", "identifier_value": ubi}
+            ],
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "identifier_type_mismatch: 'org_ubi'"
+    written = await db.fetchval(
+        "SELECT count(*) FROM identifiers WHERE value = ANY($1)", [value, ubi]
+    )
+    assert written == 0
+
+
 async def test_rejected_observation_creates_no_person(client, ppl_write_key, db):
     """A payload-stage rejection must roll back the person resolve_entity just created.
 

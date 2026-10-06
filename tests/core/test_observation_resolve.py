@@ -464,4 +464,4 @@ async def test_write_additional_identifiers_rejects_internal_type(db):
         identifier_value = generate_id()
 
     with pytest.raises(ObservationRejected, match="[Ii]nternal"):
-        await write_additional_identifiers(db, org_id, [_Item()])
+        await write_additional_identifiers(db, org_id, "organization", [_Item()])

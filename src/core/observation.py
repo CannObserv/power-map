@@ -1472,7 +1472,9 @@ async def lookup_org_parent_by_acronym(conn, acronym: str) -> str:
     return rows[0]["id"]
 
 
-async def write_additional_identifiers(conn, entity_id: str, additional_identifiers: list) -> None:
+async def write_additional_identifiers(
+    conn, entity_id: str, entity_type: str, additional_identifiers: list
+) -> None:
     """Write additional identifier claims.
 
     Each item must expose ``.identifier_type_slug`` and ``.identifier_value``.
@@ -1481,13 +1483,14 @@ async def write_additional_identifiers(conn, entity_id: str, additional_identifi
       - Same type + same value on entity → no-op
       - Same type + different value on entity → raise IdentifierConflict
       - Unknown type slug → raise ObservationRejected
+      - Type for another entity type → raise ObservationRejected (#617)
       - New type → insert
     """
     for item in additional_identifiers:
         slug = item.identifier_type_slug
         value = item.identifier_value
         eit = await conn.fetchrow(
-            "SELECT id, is_internal FROM entity_identifier_types WHERE slug=$1", slug
+            "SELECT id, entity_type, is_internal FROM entity_identifier_types WHERE slug=$1", slug
         )
         if eit is None:
             raise ObservationRejected(f"Unknown identifier_type_slug: {slug!r}")
@@ -1495,6 +1498,11 @@ async def write_additional_identifiers(conn, entity_id: str, additional_identifi
             raise ObservationRejected(
                 f"Internal identifier type {slug!r} cannot be assigned via observations"
             )
+        if eit["entity_type"] != entity_type:
+            # #617: identifiers is polymorphic with no guard, so an org_ubi would
+            # land on a person; resolve_entity then checks liveness against the
+            # *type's* table and mislabels the UBI's lookup organization_archived.
+            raise ObservationRejected(f"identifier_type_mismatch: {slug!r}")
         eit_id = eit["id"]
         existing = await conn.fetchrow(
             "SELECT value FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",

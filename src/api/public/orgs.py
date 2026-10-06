@@ -114,7 +114,9 @@ async def submit_org_observation(
                     authoritative=request.identifier_type == "pm_org_id",
                 )
 
-            await write_additional_identifiers(db, entity_id, request.additional_identifiers)
+            await write_additional_identifiers(
+                db, entity_id, entity_type, request.additional_identifiers
+            )
             event_results = await write_entity_events(
                 db, entity_id, entity_type, auth.key_id, request.events
             )

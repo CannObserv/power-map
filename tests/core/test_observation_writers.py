@@ -2008,7 +2008,7 @@ async def test_write_additional_identifiers_new_type(db, person_id):
     item = ObservationAdditionalIdentifier(
         identifier_type_slug="person_ssn", identifier_value="123-45-6789"
     )
-    await write_additional_identifiers(db, person_id, [item])
+    await write_additional_identifiers(db, person_id, "person", [item])
     eit = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE slug='person_ssn'")
     row = await db.fetchrow(
         "SELECT value FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",
@@ -2023,8 +2023,8 @@ async def test_write_additional_identifiers_same_value_noop(db, person_id):
     item = ObservationAdditionalIdentifier(
         identifier_type_slug="person_ssn", identifier_value="123-45-6789"
     )
-    await write_additional_identifiers(db, person_id, [item])
-    await write_additional_identifiers(db, person_id, [item])
+    await write_additional_identifiers(db, person_id, "person", [item])
+    await write_additional_identifiers(db, person_id, "person", [item])
     eit = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE slug='person_ssn'")
     rows = await db.fetch(
         "SELECT id FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",
@@ -2038,10 +2038,23 @@ async def test_write_additional_identifiers_conflict_raises(db, person_id):
     mk = lambda v: [  # noqa: E731
         ObservationAdditionalIdentifier(identifier_type_slug="person_ssn", identifier_value=v)
     ]
-    await write_additional_identifiers(db, person_id, mk("123"))
+    await write_additional_identifiers(db, person_id, "person", mk("123"))
     with pytest.raises(IdentifierConflict) as exc:
-        await write_additional_identifiers(db, person_id, mk("999"))
+        await write_additional_identifiers(db, person_id, "person", mk("999"))
     assert exc.value.identifier_type_slug == "person_ssn"
+
+
+async def test_write_additional_identifiers_rejects_other_entity_types_slug(db, person_id):
+    """An org_ubi on a person is refused before any write (#617).
+
+    ``identifiers`` is polymorphic with no guard, so the row would land; the
+    UBI's later org lookup then finds a person id and reports it archived.
+    """
+    item = ObservationAdditionalIdentifier(identifier_type_slug="org_ubi", identifier_value="X617")
+    with pytest.raises(ObservationRejected) as exc:
+        await write_additional_identifiers(db, person_id, "person", [item])
+    assert exc.value.detail == "identifier_type_mismatch: 'org_ubi'"
+    assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", person_id) == 0
 
 
 # --- CR round 3: identity-based eligibility + display-aware promotion --------

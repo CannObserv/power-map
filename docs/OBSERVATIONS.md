@@ -34,6 +34,8 @@ citation hung off the fork.
   identifiers, so the producer's fix is an admin unarchive, not a new identifier.
   An unknown value whose entity type cannot be created bare (`role_wa_pdc` →
   `role_assignment`) is rejected `entity_type_not_creatable: '<type>'`, never `new` (#604).
+  In `additional_identifiers`, an external type for another entity type (an `org_ubi`
+  on a person) is rejected `identifier_type_mismatch: '<slug>'` (#617).
 
 **Value conventions.** The catalog has no value-format column, so these stay here — the
 ones worth knowing before minting:
