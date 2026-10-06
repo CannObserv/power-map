@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "power-map",
-    "version": "0.58.2"
+    "version": "0.59.0"
   },
   "paths": {
     "/health": {
