@@ -46,14 +46,25 @@ def render_schema(schema: dict[str, Any]) -> str:
     return json.dumps(schema, indent=2, ensure_ascii=False) + "\n"
 
 
+class GenerationError(RuntimeError):
+    """The generator failed, or warned. Carries what it printed."""
+
+
 def generate(snapshot: Path, out: Path) -> None:
     """Run ``openapi-python-client`` on ``snapshot``, writing the package to ``out``.
 
+    ``--fail-on-warning``: on a construct it cannot model, the generator warns,
+    leaves that endpoint or model out, and still exits 0. A route would then
+    vanish from the client with every gate green, so a warning is a failure here.
+
     The generator's post-hooks call ``ruff`` from ``PATH``; this environment's
     ``bin`` goes first so they use the locked ruff, however this was launched.
+
+    Raises:
+        GenerationError: the generator exited non-zero; its output is the message.
     """
     path = os.pathsep.join([str(GENERATOR.parent), os.environ.get("PATH", "")])
-    subprocess.run(
+    result = subprocess.run(
         [
             str(GENERATOR),
             "generate",
@@ -66,12 +77,16 @@ def generate(snapshot: Path, out: Path) -> None:
             "--output-path",
             str(out),
             "--overwrite",
+            "--fail-on-warning",
         ],
-        check=True,
         capture_output=True,
         text=True,
         env={**os.environ, "PATH": path},
     )
+    if result.returncode != 0:
+        raise GenerationError(
+            f"openapi-python-client exited {result.returncode}:\n{result.stdout}{result.stderr}"
+        )
 
 
 def stamp_version(pyproject: Path, version: str) -> None:
