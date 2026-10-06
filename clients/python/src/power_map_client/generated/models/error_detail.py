@@ -11,11 +11,11 @@ T = TypeVar("T", bound="ErrorDetail")
 
 @_attrs_define
 class ErrorDetail:
-    """Body of every error a route raises itself: 401, 403, 404, 409, 429.
+    """Body of a 401, 403, 404, 409 or 429: ``HTTPException(status, detail="...")``.
 
-    FastAPI renders ``HTTPException(status, detail="...")`` as this shape.
     Declared so a generated client types those responses instead of handing
-    back raw bytes.
+    back raw bytes. A route's own 422 has the same shape but is published under
+    ``HTTPValidationError``, whose ``detail`` admits a string (``src/api/openapi.py``).
 
         Attributes:
             detail (str):
