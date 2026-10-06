@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, require_scope
 from src.api.public.ratelimit import BUCKET_EXTRA_KEY
+from src.api.public.responses import CONFLICT, NOT_FOUND
 from src.api.public.schemas import (
     EmbeddingArchiveResponse,
     EmbeddingBatchArchiveResponse,
@@ -334,6 +335,7 @@ async def query_embedding_presence(
     "/{person_id}/embeddings",
     response_model=EmbeddingWriteResponse,
     operation_id="writePersonEmbedding",
+    responses={**NOT_FOUND, **CONFLICT},
 )
 async def write_person_embedding(
     person_id: str,
@@ -457,6 +459,7 @@ def _require_model(model_id: str, registry: EmbeddingRegistry) -> ModelMeta:
     "/{person_id}/embeddings/{embedding_id}",
     response_model=EmbeddingPatchResponse,
     operation_id="patchPersonEmbedding",
+    responses={**NOT_FOUND, **CONFLICT},
 )
 async def patch_person_embedding(
     person_id: str,
@@ -536,6 +539,7 @@ async def patch_person_embedding(
     "/{person_id}/embeddings/{embedding_id}",
     response_model=EmbeddingArchiveResponse,
     operation_id="softDeletePersonEmbedding",
+    responses=NOT_FOUND,
 )
 async def soft_delete_embedding(
     person_id: str,
@@ -576,6 +580,7 @@ async def soft_delete_embedding(
     "/{person_id}/embeddings",
     response_model=EmbeddingBatchArchiveResponse,
     operation_id="batchSoftDeletePersonEmbeddings",
+    responses=NOT_FOUND,
 )
 async def batch_soft_delete_embeddings(
     person_id: str,
@@ -616,6 +621,7 @@ async def batch_soft_delete_embeddings(
     "/{person_id}/embeddings/{embedding_id}/restore",
     response_model=EmbeddingArchiveResponse,
     operation_id="restorePersonEmbedding",
+    responses={**NOT_FOUND, **CONFLICT},
 )
 async def restore_embedding(
     person_id: str,
@@ -654,6 +660,7 @@ async def restore_embedding(
     "/{person_id}/embeddings",
     response_model=EmbeddingListResponse,
     operation_id="listPersonEmbeddings",
+    responses=NOT_FOUND,
 )
 async def list_person_embeddings(
     person_id: str,

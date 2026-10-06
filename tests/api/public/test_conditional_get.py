@@ -352,7 +352,7 @@ async def test_stale_etag_still_returns_200(client, api_key, person_id):
 # ---------------------------------------------------------------------------
 
 
-_DECLARES_304 = ("NOT_MODIFIED", "DETAIL_RESPONSES")
+_DECLARES_304 = ("NOT_MODIFIED", "DETAIL_RESPONSES", "NOT_MODIFIED_OR_NOT_FOUND")
 
 
 def _routes_calling_conditional_response(tree: ast.AST) -> list[tuple[str, bool]]:
@@ -363,7 +363,8 @@ def _routes_calling_conditional_response(tree: ast.AST) -> list[tuple[str, bool]
     text rather than by resolving the name — the constant is imported under that
     one name everywhere, and a rename would surface as a failure here rather
     than pass silently. ``DETAIL_RESPONSES`` (#607, ``src/api/public/gone.py``)
-    spreads ``NOT_MODIFIED`` and adds the detail routes' 410, so it counts too.
+    spreads ``NOT_MODIFIED`` and adds the detail routes' 410, so it counts too, as
+    does ``NOT_MODIFIED_OR_NOT_FOUND`` (#618, ``src/api/public/responses.py``).
     """
     out = []
     for node in ast.walk(tree):

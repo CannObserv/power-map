@@ -1,0 +1,13 @@
+# openapi-python-client settings for clients/python (#618).
+#
+# The generator's default post-hooks run `ruff check --fix` and `ruff format`
+# under whatever ruff config encloses the output directory. Generation happens in
+# a temporary staging directory outside the repo, so that would format with ruff's
+# defaults there and with this repo's config anywhere else. `--isolated` ignores
+# every config file, so the committed tree depends only on the snapshot, the
+# generator and the ruff version locked in uv.lock. A ruff bump that reformats
+# the output makes the drift test fail, and the fix is a regeneration. The tree
+# is excluded from the repo's own ruff runs (root pyproject.toml).
+post_hooks:
+  - "ruff check --isolated --no-cache --fix-only --select F401,I --quiet ."
+  - "ruff format --isolated --no-cache --line-length 100 --quiet ."

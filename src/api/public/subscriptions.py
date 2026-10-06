@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from src.api.deps import get_db
 from src.api.public.deps import AuthedKey, require_key, require_scope, stamped_transaction
+from src.api.public.responses import NOT_FOUND
 from src.api.public.schemas import (
     DiscoveryItem,
     DiscoveryMeta,
@@ -261,6 +262,7 @@ async def _traverse(db, root_type: str, root_id: str, steps: list[str]) -> tuple
     "/subscriptions/discover",
     response_model=DiscoveryResponse,
     operation_id="discoverSubscriptions",
+    responses=NOT_FOUND,
 )
 async def discover_subscriptions(
     root_type: Annotated[RootType, Query(description="Entity type of the traversal root")],
@@ -482,6 +484,7 @@ async def register_subscriptions(
     "/subscriptions/{entity_id}",
     status_code=204,
     operation_id="deleteSubscription",
+    responses=NOT_FOUND,
 )
 async def delete_subscription(
     entity_id: str,

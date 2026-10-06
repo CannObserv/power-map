@@ -1210,6 +1210,29 @@ class EntityGone(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Error bodies and the API root (#618)
+# ---------------------------------------------------------------------------
+
+
+class ErrorDetail(BaseModel):
+    """Body of a 401, 403, 404, 409 or 429: ``HTTPException(status, detail="...")``.
+
+    Declared so a generated client types those responses instead of handing
+    back raw bytes. A route's own 422 has the same shape but is published under
+    ``HTTPValidationError``, whose ``detail`` admits a string (``src/api/openapi.py``).
+    """
+
+    detail: str
+
+
+class ApiRootResponse(BaseModel):
+    """``GET /api/v1/``: the key is valid and the API version it reached."""
+
+    status: str
+    version: str
+
+
+# ---------------------------------------------------------------------------
 # Subscription schemas (#203)
 # ---------------------------------------------------------------------------
 
