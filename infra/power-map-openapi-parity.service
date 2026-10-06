@@ -1,0 +1,20 @@
+[Unit]
+Description=power-map daily OpenAPI parity check (live /openapi.json vs committed snapshot) (issue #618)
+After=network.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+EnvironmentFile=/etc/power-map/.env
+EnvironmentFile=-/home/exedev/power-map/.env
+# Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
+# Fetches GET /openapi.json from the production workers on localhost and
+# compares it with clients/python/openapi.json in this checkout, the deployed
+# commit. Exit 3 on a difference, naming what differs in the journal, so the
+# unit lands in `systemctl --failed`. That catches a schema that depends on
+# runtime configuration, a deploy that skipped the snapshot gate, and a pull
+# with no restart. Exit 1 when the schema cannot be fetched.
+# Read-only: HTTP only, no DB, no writes, no GitHub issue (alerting is #566).
+ExecStart=uv run python -m scripts.check_openapi_parity
+TimeoutStartSec=120
