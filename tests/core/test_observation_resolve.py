@@ -9,6 +9,7 @@ Uses seeded entity_identifier_types from schema.sql:
   - 'pm_person_id'                     (entity_type=person, is_internal=True)
   - 'pm_jur_id'                        (entity_type=jurisdiction, is_internal=True)
   - 'pm_assignment_id'                 (entity_type=role_assignment, is_internal=True)
+  - 'role_wa_pdc'                      (entity_type=role_assignment, external)
 """
 
 import pytest
@@ -139,6 +140,67 @@ async def test_rejected_unknown_slug(db):
     assert disposition == Disposition.REJECTED
     assert entity_id == ""
     assert entity_type == ""
+
+
+async def test_unseen_external_role_assignment_identifier_rejected(db):
+    """An unseen external identifier whose entity type has no bare create → REJECTED (#604).
+
+    ``role_wa_pdc`` is external with ``entity_type='role_assignment'``; the NEW
+    path used to reach ``_create_entity`` and raise ``ValueError`` (a 500).
+    """
+    value = "pdc-unseen-" + generate_id()
+
+    entity_id, entity_type, disposition, reason = await resolve_entity(db, "role_wa_pdc", value)
+
+    assert disposition == Disposition.REJECTED
+    assert reason == "entity_type_not_creatable: 'role_assignment'"
+    assert (entity_id, entity_type) == ("", "")
+    written = await db.fetchval(
+        "SELECT count(*) FROM identifiers i"
+        " JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id"
+        " WHERE t.slug = 'role_wa_pdc' AND i.value = $1",
+        value,
+    )
+    assert written == 0
+
+
+async def test_known_external_role_assignment_identifier_auto_attached(db):
+    """A *known* role_wa_pdc value still attaches: the #604 gate runs after the lookup.
+
+    Moving it above the lookup would turn the route's ``entity_type_mismatch``
+    (and an archived tenure's ``role_assignment_archived``) into
+    ``entity_type_not_creatable``.
+    """
+    person_id, org_id, role_id, asgn_id = (generate_id() for _ in range(4))
+    await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,$3)",
+        role_id,
+        org_id,
+        "PDC Test Role",
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1,$2,$3)",
+        asgn_id,
+        person_id,
+        role_id,
+    )
+    eit_id = await db.fetchval("SELECT id FROM entity_identifier_types WHERE slug='role_wa_pdc'")
+    value = "pdc-known-" + asgn_id
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        asgn_id,
+        eit_id,
+        value,
+    )
+
+    entity_id, entity_type, disposition, _ = await resolve_entity(db, "role_wa_pdc", value)
+
+    assert disposition == Disposition.AUTO_ATTACHED
+    assert (entity_id, entity_type) == (asgn_id, "role_assignment")
 
 
 async def test_idempotent_second_call_returns_auto_attached(db):

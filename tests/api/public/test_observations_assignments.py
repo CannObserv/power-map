@@ -281,14 +281,17 @@ async def test_rejected_on_unknown_person(client, write_key, obs_entities):
 
 
 async def test_rejected_on_unknown_role(client, write_key, obs_entities):
+    """Same reason the embedded people-observation door gives (#602)."""
     raw, _ = write_key
+    role_id = generate_id()
     r = await _post(
         client,
         raw,
-        {"person_id": obs_entities["person_id"], "role_id": generate_id()},
+        {"person_id": obs_entities["person_id"], "role_id": role_id},
     )
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
+    assert r.json()["reason"] == f"role_not_found: {role_id!r}"
 
 
 # ---------------------------------------------------------------------------

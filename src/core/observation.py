@@ -370,8 +370,10 @@ async def resolve_entity(
       - AUTO_ATTACHED  if an existing identifier row was found on a live entity
       - NEW            if a new entity + identifier row were created
       - REJECTED       if the identifier_type_slug is unknown, if the identifier
-                       resolves to an archived entity (#481), or if the entity
-                       type requires create_data for NEW and none was provided
+                       resolves to an archived entity (#481), if the entity type
+                       cannot be created from an observation (#604), or if the
+                       entity type requires create_data for NEW and none was
+                       provided
 
     reason is a human-readable string on REJECTED, None otherwise.
     Raises nothing — REJECTED is returned, not raised.
@@ -418,6 +420,17 @@ async def resolve_entity(
             )
             return "", "", Disposition.REJECTED, f"{entity_type}_archived: {entity_id!r}"
         return entity_id, entity_type, Disposition.AUTO_ATTACHED, None
+
+    if entity_type not in _CREATABLE_ENTITY_TYPES:
+        # #604: an external type can name an entity type with no bare create
+        # (a role_assignment identifier). Never NEW, as the pm_* branch.
+        logger.warning(
+            "external resolve: unseen %s identifier_type=%r cannot create; value=%r",
+            entity_type,
+            identifier_type_slug,
+            identifier_value,
+        )
+        return "", "", Disposition.REJECTED, f"entity_type_not_creatable: {entity_type!r}"
 
     if entity_type == "jurisdiction":
         if not create_data:
@@ -500,6 +513,9 @@ _ENTITY_TABLE = {
     "role_assignment": "role_assignments",
 }
 
+# The entity types _create_entity can mint bare from an observation.
+_CREATABLE_ENTITY_TYPES = frozenset({"person", "organization", "jurisdiction"})
+
 
 async def _live_entity_id(conn, entity_type: str, entity_id: str) -> str | None:
     """Return entity_id if the row exists and is not archived, else None.
@@ -522,7 +538,11 @@ async def _live_entity_id(conn, entity_type: str, entity_id: str) -> str | None:
 
 
 async def _create_entity(conn, entity_type: str, *, create_data: dict | None = None) -> str:
-    """Insert a minimal entity row and return its id."""
+    """Insert a minimal entity row and return its id.
+
+    Covers exactly ``_CREATABLE_ENTITY_TYPES``; ``resolve_entity`` rejects any
+    other type before calling, so the trailing ``ValueError`` is unreachable (#604).
+    """
     entity_id = generate_id()
     if entity_type == "person":
         await conn.execute("INSERT INTO people (id) VALUES ($1)", entity_id)
@@ -543,8 +563,6 @@ async def _create_entity(conn, entity_type: str, *, create_data: dict | None = N
             create_data.get("valid_until"),
             create_data.get("notes"),
         )
-    elif entity_type == "role_assignment":
-        raise ValueError("Cannot create bare role_assignment entity from observation")
     else:
         raise ValueError(f"Unknown entity_type: {entity_type!r}")
     return entity_id
@@ -1211,8 +1229,16 @@ async def write_role_assignments(
     honours a retract too. Its own dedup keys on the *open* tenure, which an
     archived row no longer matches — without the explicit archived-twin skip a
     re-emit would mint a fresh active twin and defeat the retract.
+
+    Role liveness (#602): rejects ``role_not_found`` on an unknown or archived
+    role, as :func:`resolve_assignment` does — the FK alone admits an archived
+    role. Raised, so the caller's transaction rolls the observation back.
     """
     for ra in role_assignments:
+        role_rejection = await _role_liveness_rejection(conn, ra.role_id)
+        if role_rejection is not None:
+            logger.warning("write_role_assignments: unknown or archived role_id=%r", ra.role_id)
+            raise ObservationRejected(role_rejection)
         open_existing = await conn.fetchrow(
             "SELECT id FROM role_assignments"
             " WHERE person_id=$1 AND role_id=$2 AND end_date IS NULL"
@@ -1896,6 +1922,19 @@ async def apply_event_observations(
     return results
 
 
+async def _role_liveness_rejection(conn, role_id: str) -> str | None:
+    """Return ``role_not_found: '<id>'`` if the role is unknown or archived, else None.
+
+    Shared by both create doors — :func:`resolve_assignment` and
+    :func:`write_role_assignments` — for the reason
+    :func:`_find_archived_assignment_twin` is: the embedded door once lacked
+    this check entirely and wrote tenures onto archived roles (#602). The FK
+    alone admits an archived role.
+    """
+    live = await conn.fetchval("SELECT 1 FROM roles WHERE id=$1 AND archived_at IS NULL", role_id)
+    return None if live else f"role_not_found: {role_id!r}"
+
+
 async def _find_archived_assignment_twin(
     conn, person_id: str, role_id: str, start_date: date | None
 ) -> asyncpg.Record | None:
@@ -1961,12 +2000,10 @@ async def resolve_assignment(
         logger.warning("resolve_assignment: unknown person_id=%r", person_id)
         return AssignmentResolution("", Disposition.REJECTED, f"person_not_found: {person_id!r}")
 
-    role_exists = await conn.fetchval(
-        "SELECT 1 FROM roles WHERE id=$1 AND archived_at IS NULL", role_id
-    )
-    if not role_exists:
-        logger.warning("resolve_assignment: unknown role_id=%r", role_id)
-        return AssignmentResolution("", Disposition.REJECTED, f"role_not_found: {role_id!r}")
+    role_rejection = await _role_liveness_rejection(conn, role_id)
+    if role_rejection is not None:
+        logger.warning("resolve_assignment: unknown or archived role_id=%r", role_id)
+        return AssignmentResolution("", Disposition.REJECTED, role_rejection)
 
     existing = await conn.fetchrow(
         "SELECT id, end_date, is_current, source_key_id FROM role_assignments"
