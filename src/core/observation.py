@@ -1237,7 +1237,7 @@ async def write_role_assignments(
     for ra in role_assignments:
         role_rejection = await _role_liveness_rejection(conn, ra.role_id)
         if role_rejection is not None:
-            logger.warning("write_role_assignments: unknown role_id=%r", ra.role_id)
+            logger.warning("write_role_assignments: unknown or archived role_id=%r", ra.role_id)
             raise ObservationRejected(role_rejection)
         open_existing = await conn.fetchrow(
             "SELECT id FROM role_assignments"
@@ -2002,7 +2002,7 @@ async def resolve_assignment(
 
     role_rejection = await _role_liveness_rejection(conn, role_id)
     if role_rejection is not None:
-        logger.warning("resolve_assignment: unknown role_id=%r", role_id)
+        logger.warning("resolve_assignment: unknown or archived role_id=%r", role_id)
         return AssignmentResolution("", Disposition.REJECTED, role_rejection)
 
     existing = await conn.fetchrow(
