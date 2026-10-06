@@ -13,13 +13,13 @@ from src.api.public.deps import (
     stamped_transaction,
 )
 from src.api.public.etag import (
-    NOT_MODIFIED,
     catalog_validator,
     collection_etag,
     conditional_response,
     make_etag,
 )
 from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
+from src.api.public.responses import NOT_FOUND, NOT_MODIFIED_OR_NOT_FOUND
 from src.api.public.schemas import (
     JurisdictionLineageResponse,
     JurisdictionListResponse,
@@ -120,6 +120,7 @@ async def _fetch_identifiers(jurisdiction_id: str, db: Any) -> list[dict]:
     "/resolve",
     response_model=JurisdictionResponse,
     operation_id="resolveJurisdiction",
+    responses=NOT_FOUND,
 )
 async def resolve_jurisdiction(
     slug: str | None = Query(default=None),
@@ -268,7 +269,7 @@ _REL_VERSION_SQL = """
     "/{jurisdiction_id}/relationships",
     response_model=JurisdictionRelationshipsResponse,
     operation_id="listJurisdictionRelationships",
-    responses=NOT_MODIFIED,
+    responses=NOT_MODIFIED_OR_NOT_FOUND,
 )
 async def list_jurisdiction_relationships(
     jurisdiction_id: str,
@@ -359,7 +360,7 @@ async def list_jurisdiction_relationships(
     "/{jurisdiction_id}/lineage",
     response_model=JurisdictionLineageResponse,
     operation_id="getJurisdictionLineage",
-    responses=NOT_MODIFIED,
+    responses=NOT_MODIFIED_OR_NOT_FOUND,
 )
 async def get_jurisdiction_lineage(
     jurisdiction_id: str,

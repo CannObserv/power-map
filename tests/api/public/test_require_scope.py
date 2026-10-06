@@ -14,8 +14,14 @@ from src.core.db import generate_id
 pytestmark = pytest.mark.integration
 
 
-# At module level, after imports — registered once per process
-@app.get("/api/v1/_test/require_scope", dependencies=[Depends(require_scope("observations:write"))])
+# At module level, after imports — registered once per process. Kept out of the
+# schema: the snapshot gate (#618) compares app.openapi() with the published
+# contract, and this scaffolding route shares the app with it.
+@app.get(
+    "/api/v1/_test/require_scope",
+    dependencies=[Depends(require_scope("observations:write"))],
+    include_in_schema=False,
+)
 async def _test_scope_endpoint():
     return {"ok": True}
 

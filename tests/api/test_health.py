@@ -57,7 +57,9 @@ def test_probe_operation_ids_are_verb_first():
     """
     schema = app.openapi()
     assert schema["paths"]["/health"]["get"]["operationId"] == "getHealth"
-    assert schema["paths"]["/ready"]["get"]["operationId"] == "getReadiness"
+    # /ready is unpublished (#618) but keeps its id for when it is listed again.
+    ready = next(r for r in app.routes if getattr(r, "path", None) == "/ready")
+    assert ready.operation_id == "getReadiness"
 
 
 # ---------------------------------------------------------------------------

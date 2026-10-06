@@ -20,6 +20,7 @@ from src.api.admin.assets import (
 )
 from src.api.admin.router import admin_router
 from src.api.health import APP_VERSION, health_router
+from src.api.openapi import install_public_openapi
 from src.api.public import ratelimit
 from src.api.public.middleware import RequestLogMiddleware, drain_pending_writes
 from src.api.public.router import router as public_router
@@ -53,6 +54,8 @@ async def lifespan(app: FastAPI):
 # Version derived from package metadata (#343) — never hardcode a third copy;
 # check-version-sync only guards pyproject.toml <-> package.json.
 app = FastAPI(title="power-map", version=APP_VERSION, lifespan=lifespan)
+# /openapi.json is the contract clients/python is generated from (#618).
+install_public_openapi(app)
 
 
 def _sanitize_nonfinite(obj: object) -> object:
@@ -85,7 +88,10 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
 app.add_middleware(RequestLogMiddleware)
 
 app.include_router(health_router)
-app.include_router(admin_router)
+# The admin dashboard is served but unpublished (#618): /openapi.json is the
+# public contract a generated client is built from, so it lists /api/v1/* and
+# /health only.
+app.include_router(admin_router, include_in_schema=False)
 app.include_router(public_router)
 
 # Install the read-semantic POST path set for the rate limiter (#310): derived

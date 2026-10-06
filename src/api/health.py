@@ -58,6 +58,9 @@ async def health() -> HealthResponse:
     "/ready",
     response_model=ReadyResponse,
     operation_id="getReadiness",
+    # The operator's probe for the uptime guards (#343/#347), not a consumer
+    # contract: its reasons describe PM's DB pool. Served, but unpublished (#618).
+    include_in_schema=False,
     responses={503: {"model": NotReadyResponse, "description": "Dependency not ready"}},
 )
 async def ready() -> ReadyResponse | JSONResponse:

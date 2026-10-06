@@ -1210,6 +1210,29 @@ class EntityGone(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Error bodies and the API root (#618)
+# ---------------------------------------------------------------------------
+
+
+class ErrorDetail(BaseModel):
+    """Body of every error a route raises itself: 401, 403, 404, 409, 429.
+
+    FastAPI renders ``HTTPException(status, detail="...")`` as this shape.
+    Declared so a generated client types those responses instead of handing
+    back raw bytes.
+    """
+
+    detail: str
+
+
+class ApiRootResponse(BaseModel):
+    """``GET /api/v1/``: the key is valid and the API version it reached."""
+
+    status: str
+    version: str
+
+
+# ---------------------------------------------------------------------------
 # Subscription schemas (#203)
 # ---------------------------------------------------------------------------
 

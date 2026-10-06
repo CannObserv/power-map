@@ -14,12 +14,13 @@ from src.api.public.deps import (
     require_scope,
     stamped_transaction,
 )
-from src.api.public.etag import NOT_MODIFIED, conditional_response, make_etag
+from src.api.public.etag import conditional_response, make_etag
 from src.api.public.events import (
     events_collection_validator,
     row_to_event,
 )
 from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
+from src.api.public.responses import NOT_MODIFIED_OR_NOT_FOUND
 from src.api.public.schemas import (
     CitationObservationResult,
     EntityEventsResponse,
@@ -288,7 +289,7 @@ async def get_person(
     "/{person_id}/events",
     response_model=EntityEventsResponse,
     operation_id="listPersonEvents",
-    responses=NOT_MODIFIED,
+    responses=NOT_MODIFIED_OR_NOT_FOUND,
 )
 async def list_person_events(
     person_id: str,

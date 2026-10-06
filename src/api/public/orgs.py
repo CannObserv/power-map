@@ -14,12 +14,13 @@ from src.api.public.deps import (
     require_scope,
     stamped_transaction,
 )
-from src.api.public.etag import NOT_MODIFIED, conditional_response, make_etag
+from src.api.public.etag import conditional_response, make_etag
 from src.api.public.events import (
     events_collection_validator,
     row_to_event,
 )
 from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
+from src.api.public.responses import NOT_FOUND, NOT_MODIFIED_OR_NOT_FOUND
 from src.api.public.schemas import (
     CitationObservationResult,
     EntityEventsResponse,
@@ -168,6 +169,7 @@ async def submit_org_observation(
     "/{org_id}/events/observations",
     response_model=EventObservationsResponse,
     operation_id="submitOrgEventObservations",
+    responses=NOT_FOUND,
 )
 async def submit_org_event_observations(
     org_id: str,
@@ -539,7 +541,7 @@ async def get_org(
     "/{org_id}/events",
     response_model=EntityEventsResponse,
     operation_id="listOrgEvents",
-    responses=NOT_MODIFIED,
+    responses=NOT_MODIFIED_OR_NOT_FOUND,
 )
 async def list_org_events(
     org_id: str,

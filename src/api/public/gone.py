@@ -27,15 +27,18 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from src.api.public.etag import NOT_MODIFIED
+from src.api.public.responses import NOT_FOUND
 from src.api.public.schemas import EntityGone
 from src.core.merge_history import fetch_tombstone, walk_merge_history
 
-# OpenAPI declaration for a tombstone-aware detail GET: its 304 plus the typed
-# 410, so a generated client models a merged id as a response, not an error.
-# Immutable for the same reason as NOT_MODIFIED — every detail route shares it.
+# OpenAPI declaration for a tombstone-aware detail GET: its 304, the typed 404
+# for an id PM never had (#618), and the typed 410, so a generated client models
+# a merged id as a response, not an error. Immutable for the same reason as
+# NOT_MODIFIED — every detail route shares it.
 DETAIL_RESPONSES: Final = MappingProxyType(
     {
         **NOT_MODIFIED,
+        **NOT_FOUND,
         410: {
             "model": EntityGone,
             "description": (
