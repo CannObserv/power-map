@@ -2007,6 +2007,11 @@ async def resolve_assignment(
       the producer can stop retrying and escalate to a pm-native id-addressed
       update (``update_assignment_fields``).
 
+    A clean attach writes nothing and **claims nothing** (#486): unlike the
+    id-addressed #478 claim, a natural-key match never stamps ``source_key_id``
+    onto an unowned row by agreement — the server resolved the tuple, the
+    producer never named the row.
+
     ``is_current=None`` means omitted (tri-state, #311); NEW inserts treat it
     as FALSE. ``notes`` is create-only and never reported unapplied.
     """
