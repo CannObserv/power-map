@@ -1558,7 +1558,16 @@ async def _validate_event_place(conn, place_addr_id: str | None) -> None:
 
 
 async def _linked_entity_exists(conn, linked_type: str, linked_id: str) -> bool:
-    """True if a linked entity id resolves to a live PM entity of the given kind."""
+    """True if a PM entity of the given kind *exists* with this id — archived included.
+
+    Deliberately no ``archived_at`` filter (#603): the write lands on the live
+    subject and the linked entity is only referenced, so a historical link to a
+    since-archived org or person is legitimate. Rejecting it would also be
+    wrong-shaped: a miss is ``linked_entity_unresolved``, documented as
+    transient, and an archived target never heals. Same predicate as the
+    ``trg_entity_events_linked_entity`` trigger (#608) and the admin
+    ``entity_exists``.
+    """
     table = "organizations" if linked_type == "organization" else "people"
     return bool(await conn.fetchval(f"SELECT 1 FROM {table} WHERE id=$1", linked_id))
 

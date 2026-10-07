@@ -744,6 +744,85 @@ async def test_succeeded_by_resolved_successor_creates(client, evt_write_key, db
     assert row["linked_entity_id"] == successor_id
 
 
+async def test_succeeded_by_archived_successor_is_accepted_and_reads_render(
+    client, evt_write_key, db
+):
+    """#603 (option A): a link to an archived org lands, and reads expose it.
+
+    The write lands on the live subject; the archived org is only referenced,
+    and a historical link to a since-archived successor is legitimate. A miss
+    here would be ``linked_entity_unresolved`` — documented transient — which an
+    archived target never heals, so the producer would retry forever.
+    """
+    raw, _ = evt_write_key
+    rs = await _post_orgs(
+        client, raw, {"identifier_type": "org_ubi", "identifier_value": _unique_id()}
+    )
+    successor_id = rs.json()["entity_id"]
+    await db.execute("UPDATE organizations SET archived_at = now() WHERE id = $1", successor_id)
+
+    r = await _post_orgs(
+        client,
+        raw,
+        {
+            "identifier_type": "org_ubi",
+            "identifier_value": _unique_id(),
+            "events": [
+                {
+                    "event_type_slug": "succeeded_by",
+                    "linked_entity_type": "organization",
+                    "linked_entity_id": successor_id,
+                }
+            ],
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["events"][0]["disposition"] == "new"
+    pred_id = body["entity_id"]
+
+    headers = {"X-API-Key": raw}
+    events = (await client.get(f"/api/v1/orgs/{pred_id}/events", headers=headers)).json()["data"]
+    assert [(e["linked_entity_type"], e["linked_entity_id"]) for e in events] == [
+        ("organization", successor_id)
+    ]
+    pred = (await client.get(f"/api/v1/orgs/{pred_id}", headers=headers)).json()
+    assert pred["succeeded_by"] == successor_id
+    # The id a reader follows still resolves: archived is 200 + archived_at, not 404.
+    r_succ = await client.get(f"/api/v1/orgs/{successor_id}", headers=headers)
+    assert r_succ.status_code == 200
+    assert r_succ.json()["archived_at"] is not None
+    assert r_succ.json()["succeeds"] == pred_id
+
+
+async def test_marriage_to_archived_person_is_accepted(client, evt_write_key, db):
+    """#603: the people branch of the link check also admits an archived target."""
+    raw, _ = evt_write_key
+    rs = await _post_people(
+        client, raw, {"identifier_type": "person_wa_pdc", "identifier_value": _unique_id()}
+    )
+    spouse_id = rs.json()["entity_id"]
+    await db.execute("UPDATE people SET archived_at = now() WHERE id = $1", spouse_id)
+
+    r = await _post_people(
+        client,
+        raw,
+        {
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": _unique_id(),
+            "events": [
+                {
+                    "event_type_slug": "marriage",
+                    "linked_entity_type": "person",
+                    "linked_entity_id": spouse_id,
+                }
+            ],
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["events"][0]["disposition"] == "new"
+
+
 # ---------------------------------------------------------------------------
 # #321 — thin POST /orgs/{org_id}/events/observations (partial-success)
 # ---------------------------------------------------------------------------

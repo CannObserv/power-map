@@ -32,7 +32,7 @@ Standard paginated envelope, newest first — ordered by event date (year, month
 | `event_place_text` | string\|null | Freeform place name |
 | `event_place_address` | object\|null | Structured address linked to the event place: `{id, city, region, standardized, precision}`. Null when no address is linked. |
 | `linked_entity_type` | string\|null | `person` or `organization` |
-| `linked_entity_id` | string\|null | ULID of related entity |
+| `linked_entity_id` | string\|null | ULID of related entity. May name an **archived** entity (#603) — `GET /orgs/{id}` / `GET /people/{id}` still resolve it, `200` with `archived_at` set |
 | `notes` | string\|null | |
 | `visibility` | string | Always `public` in list responses (other tiers filtered out) |
 | `verified_at` | string\|null | ISO 8601 Z |
@@ -55,7 +55,7 @@ When submitting a `POST /people/observations` or `POST /orgs/observations`, an o
 | `event_place_text` | optional | Freeform place string (e.g. `Berlin, Germany`) |
 | `event_place_address_id` | optional | ULID of a linked `addresses` row. Must have city, postal, or street precision. Addresses with NULL precision (pre-geocoding records) are also accepted. Rejected if the ID does not exist or the precision is `country` or `region`. |
 | `linked_entity_type` | depends | Required when `requires_linked_entity: true` (e.g. `marriage`, `merged_with`). `person` or `organization` |
-| `linked_entity_id` | depends | ULID of linked entity; required alongside `linked_entity_type` |
+| `linked_entity_id` | depends | ULID of linked entity; required alongside `linked_entity_type`. Must **exist**; an archived entity is accepted (#603) — a historical link to a since-archived org or person is legitimate |
 | `notes` | optional | Free text |
 | `visibility` | optional | `public` (default), `legal_only`, or `hidden` |
 
