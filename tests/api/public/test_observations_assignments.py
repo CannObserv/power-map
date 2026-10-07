@@ -1686,3 +1686,39 @@ async def test_pm_native_differing_foreign_row_still_rejects(
     assert body["disposition"] == "rejected"
     assert body["reason"] == "source_key_mismatch"
     assert body["provenance_claimed"] is None
+
+
+# ---------------------------------------------------------------------------
+# #486 - a natural-key attach does not claim provenance (asymmetry with #478)
+# ---------------------------------------------------------------------------
+
+
+async def test_natural_key_identical_attach_claims_nothing(client, write_key, obs_entities, db):
+    """A complete, matching natural-key assertion leaves an unowned row unowned.
+
+    #478 claims on agreement because a ``pm_assignment_id`` proves the producer
+    meant that row. A ``(person, role, start_date)`` tuple proves no such thing -
+    the server resolved it - and unowned rows are mostly curator-created, so a
+    key must not acquire them by re-emitting a tuple. Even the strongest form
+    (both bounds supplied and equal to stored) claims nothing and writes nothing.
+    """
+    raw, _ = write_key
+    payload = {"start_date": "2015-01-12", "end_date": "2017-01-08", "is_current": False}
+    asgn_id, role_id = await _seed_assignment(client, raw, db, obs_entities, **payload)
+    await db.execute("UPDATE role_assignments SET source_key_id=NULL WHERE id=$1", asgn_id)
+    outbox_before = await _outbox_count(db, asgn_id)
+
+    r = await _post(
+        client,
+        raw,
+        {"person_id": obs_entities["person_id"], "role_id": role_id, **payload},
+    )
+
+    body = r.json()
+    assert body["disposition"] == "auto-attached"
+    assert body["entity_id"] == asgn_id
+    assert body["provenance_claimed"] is None
+    assert body.get("unapplied") in (None, [])
+    owner = await db.fetchval("SELECT source_key_id FROM role_assignments WHERE id=$1", asgn_id)
+    assert owner is None
+    assert await _outbox_count(db, asgn_id) == outbox_before
