@@ -219,7 +219,8 @@ async def test_identifiers_org_emits_exactly_once_no_double(client, db):
     emits exactly once, not twice (guards against a stray second app-layer emit)."""
     entity_id, entity_type, url = await _make_entity(db, "organization")
     type_id = await db.fetchval(
-        "SELECT id FROM entity_identifier_types WHERE entity_type='organization' LIMIT 1"
+        "SELECT id FROM entity_identifier_types"
+        " WHERE entity_type='organization' AND NOT is_internal ORDER BY slug LIMIT 1"
     )
 
     before = await _change_count(db, entity_type, entity_id)

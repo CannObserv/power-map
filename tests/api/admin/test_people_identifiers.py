@@ -52,7 +52,8 @@ async def person_id_and_type(db):
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
 
     row = await db.fetchrow(
-        "SELECT id FROM entity_identifier_types WHERE entity_type='person' LIMIT 1"
+        "SELECT id FROM entity_identifier_types"
+        " WHERE entity_type='person' AND NOT is_internal ORDER BY slug LIMIT 1"
     )
     if not row:
         pytest.skip("No person identifier types seeded")
@@ -174,3 +175,49 @@ async def test_identifiers_delete_returns_info_flash(client, person_and_identifi
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "success"
+
+
+# ---------------------------------------------------------------------------
+# #617 CR — the form's type must belong to this entity type and be external
+# ---------------------------------------------------------------------------
+
+
+async def _type_id(db, slug: str) -> str:
+    return await db.fetchval("SELECT id FROM entity_identifier_types WHERE slug=$1", slug)
+
+
+@pytest.mark.parametrize("slug", ["org_ubi", "pm_person_id"])
+async def test_identifiers_create_refuses_foreign_or_internal_type(
+    client, db, person_id_and_type, slug
+):
+    """A posted type the picker never offers is refused before any write.
+
+    get_db opens no transaction, so a write followed by the read-back 404 left
+    the row behind (#617 CR): an org_ubi on a person, or an internal pm_* type.
+    """
+    pid, _ = person_id_and_type
+    r = await client.post(
+        f"/admin/people/{pid}/identifiers/",
+        headers=HTMX_HEADERS,
+        data={"entity_identifier_type_id": await _type_id(db, slug), "value": "CR617"},
+    )
+    assert r.status_code == 400
+    assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", pid) == 0
+
+
+@pytest.mark.parametrize("slug", ["org_ubi", "pm_person_id"])
+async def test_identifiers_update_refuses_foreign_or_internal_type(
+    client, db, person_and_identifier, slug
+):
+    """An edit cannot retype a person's identifier to another entity's or a pm_* type."""
+    pid, iid, type_id = person_and_identifier
+    r = await client.post(
+        f"/admin/people/{pid}/identifiers/{iid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"entity_identifier_type_id": await _type_id(db, slug), "value": "CR617"},
+    )
+    assert r.status_code == 400
+    row = await db.fetchrow(
+        "SELECT entity_identifier_type_id, value FROM identifiers WHERE id=$1", iid
+    )
+    assert (row["entity_identifier_type_id"], row["value"]) == (type_id, "TEST-123")

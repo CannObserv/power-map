@@ -35,7 +35,8 @@ citation hung off the fork.
   An unknown value whose entity type cannot be created bare (`role_wa_pdc` →
   `role_assignment`) is rejected `entity_type_not_creatable: '<type>'`, never `new` (#604).
   In `additional_identifiers`, an external type for another entity type (an `org_ubi`
-  on a person) is rejected `identifier_type_mismatch: '<slug>'` (#617).
+  on a person) is rejected `identifier_type_mismatch: '<slug>'` (#617). The admin identifier
+  panels refuse the same posts (another entity type's, or any `pm_*`) with a 400.
 
 **Value conventions.** The catalog has no value-format column, so these stay here — the
 ones worth knowing before minting:

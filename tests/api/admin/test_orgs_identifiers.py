@@ -51,7 +51,8 @@ async def org_id_and_type(db):
 
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
     row = await db.fetchrow(
-        "SELECT id FROM entity_identifier_types WHERE entity_type='organization' LIMIT 1"
+        "SELECT id FROM entity_identifier_types"
+        " WHERE entity_type='organization' AND NOT is_internal ORDER BY slug LIMIT 1"
     )
     if not row:
         pytest.skip("No organization identifier types seeded")

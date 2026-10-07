@@ -79,6 +79,21 @@ def make_identifiers_router(
             raise HTTPException(status_code=404)
         return row
 
+    async def _require_attachable_type(type_id: str, db) -> None:
+        """400 unless the type is one the picker offers: this entity type, external.
+
+        The form is the only filter, and get_db opens no transaction, so a stale or
+        crafted post would write before the read-back 404 (#617 CR).
+        """
+        ok = await db.fetchval(
+            "SELECT 1 FROM entity_identifier_types"
+            " WHERE id=$1 AND entity_type=$2 AND NOT is_internal",
+            type_id,
+            entity_type,
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail="Unknown identifier type")
+
     def _ctx(entity_id: str, **extra) -> dict:
         """Build template context with the correct entity-id key."""
         return {entity_id_key: entity_id, **extra}
@@ -116,6 +131,7 @@ def make_identifiers_router(
     ):
         """Create a new identifier."""
         await _get_entity_or_404(entity_id, db)
+        await _require_attachable_type(entity_identifier_type_id, db)
         iid = generate_id()
         await db.execute(
             "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
@@ -180,6 +196,7 @@ def make_identifiers_router(
     ):
         """Update an identifier."""
         await _get_identifier_or_404(ident_id, entity_id, db)
+        await _require_attachable_type(entity_identifier_type_id, db)
         await db.execute(
             "UPDATE identifiers SET entity_identifier_type_id=$1, value=$2 WHERE id=$3",
             entity_identifier_type_id,
