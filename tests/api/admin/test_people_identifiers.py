@@ -221,3 +221,55 @@ async def test_identifiers_update_refuses_foreign_or_internal_type(
         "SELECT entity_identifier_type_id, value FROM identifiers WHERE id=$1", iid
     )
     assert (row["entity_identifier_type_id"], row["value"]) == (type_id, "TEST-123")
+
+
+# --- #622: the person vanishes between the route's check and its write ---
+
+
+async def _vanish_as_the_write_begins(db, pid: str) -> None:
+    """Delete ``pid`` from inside the identifier write, after the route's check.
+
+    A ``BEFORE`` trigger that sorts ahead of ``trg_identifiers_entity`` stands in
+    for a hard delete committing in between; both roll back with the test.
+    """
+    await db.execute(
+        "CREATE FUNCTION pg_temp.t622_vanish() RETURNS TRIGGER LANGUAGE plpgsql AS"
+        f" $$ BEGIN DELETE FROM people WHERE id = '{pid}'; RETURN NEW; END $$"
+    )
+    await db.execute(
+        "CREATE TRIGGER a_t622_vanish BEFORE INSERT OR UPDATE ON identifiers"
+        " FOR EACH ROW EXECUTE FUNCTION pg_temp.t622_vanish()"
+    )
+
+
+async def test_identifiers_create_on_a_vanished_person_is_404(client, db, person_id_and_type):
+    """The schema guard (#622) refuses the write; the curator gets the 404, not a 500."""
+    pid, type_id = person_id_and_type
+    await _vanish_as_the_write_begins(db, pid)
+
+    r = await client.post(
+        f"/admin/people/{pid}/identifiers/",
+        headers=HTMX_HEADERS,
+        data={"entity_identifier_type_id": type_id, "value": "CR622"},
+    )
+
+    assert r.status_code == 404, r.text
+    assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", pid) == 0
+
+
+async def test_identifiers_update_on_a_vanished_person_is_404(client, db, person_and_identifier):
+    """Retyping rechecks the entity; a vanished one is the 404, and the row is unchanged."""
+    pid, iid, type_id = person_and_identifier
+    await _vanish_as_the_write_begins(db, pid)
+
+    r = await client.post(
+        f"/admin/people/{pid}/identifiers/{iid}/edit-row/",
+        headers=HTMX_HEADERS,
+        data={"entity_identifier_type_id": await _type_id(db, "person_wa_pdc"), "value": "CR622"},
+    )
+
+    assert r.status_code == 404, r.text
+    row = await db.fetchrow(
+        "SELECT entity_identifier_type_id, value FROM identifiers WHERE id=$1", iid
+    )
+    assert (row["entity_identifier_type_id"], row["value"]) == (type_id, "TEST-123")

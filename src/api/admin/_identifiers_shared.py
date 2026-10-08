@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -15,7 +16,7 @@ from src.api.admin.deps import (
     is_htmx,
     with_flash,
 )
-from src.core.db import generate_id
+from src.core.db import generate_id, identifier_entity_vanished
 
 templates = Jinja2Templates(directory="src/templates")
 
@@ -79,6 +80,19 @@ def make_identifiers_router(
             raise HTTPException(status_code=404)
         return row
 
+    async def _write_or_404(db, sql: str, *args) -> None:
+        """Run an identifier write; 404 when the entity vanished since its check (#622).
+
+        Its own (sub)transaction, so the refused write leaves the connection usable.
+        """
+        try:
+            async with db.transaction():
+                await db.execute(sql, *args)
+        except asyncpg.ForeignKeyViolationError as exc:
+            if not identifier_entity_vanished(exc):
+                raise
+            raise HTTPException(status_code=404, detail=entity_not_found_msg) from exc
+
     async def _require_attachable_type(type_id: str, db) -> None:
         """400 unless the type is one the picker offers: this entity type, external.
 
@@ -133,7 +147,8 @@ def make_identifiers_router(
         await _get_entity_or_404(entity_id, db)
         await _require_attachable_type(entity_identifier_type_id, db)
         iid = generate_id()
-        await db.execute(
+        await _write_or_404(
+            db,
             "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
             " VALUES ($1, $2, $3, $4)",
             iid,
@@ -197,7 +212,8 @@ def make_identifiers_router(
         """Update an identifier."""
         await _get_identifier_or_404(ident_id, entity_id, db)
         await _require_attachable_type(entity_identifier_type_id, db)
-        await db.execute(
+        await _write_or_404(
+            db,
             "UPDATE identifiers SET entity_identifier_type_id=$1, value=$2 WHERE id=$3",
             entity_identifier_type_id,
             value.strip(),

@@ -1651,6 +1651,59 @@ CREATE OR REPLACE TRIGGER trg_touch_entity_on_identifier_change
     AFTER INSERT OR UPDATE OR DELETE ON identifiers
     FOR EACH ROW EXECUTE FUNCTION touch_parent_on_identifier_change();
 
+-- #622: identifiers.entity_id is polymorphic — its table is the one its type's
+-- entity_type names — so no real FK can hold it; this stands in, as
+-- lock_event_linked_entity does for event links (#608). A new row, or one whose
+-- entity or type changes, takes FOR KEY SHARE on its entity (archived included)
+-- and raises foreign_key_violation when the type's table has no such row: a
+-- missing entity, or another type's. A plain read would pass a row an
+-- uncommitted delete still holds; the lock waits for that delete and then sees
+-- the row gone. An unchanged reference is not rechecked, and an unknown type id
+-- is left to the column's real FK.
+CREATE OR REPLACE FUNCTION lock_identifier_entity()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_entity_type TEXT;
+BEGIN
+    IF TG_OP = 'UPDATE'
+       AND NEW.entity_id IS NOT DISTINCT FROM OLD.entity_id
+       AND NEW.entity_identifier_type_id IS NOT DISTINCT FROM OLD.entity_identifier_type_id THEN
+        RETURN NEW;
+    END IF;
+    SELECT entity_type INTO v_entity_type
+    FROM entity_identifier_types
+    WHERE id = NEW.entity_identifier_type_id;
+    IF NOT FOUND THEN
+        RETURN NEW;
+    END IF;
+    IF v_entity_type = 'organization' THEN
+        PERFORM 1 FROM organizations WHERE id = NEW.entity_id FOR KEY SHARE;
+    ELSIF v_entity_type = 'person' THEN
+        PERFORM 1 FROM people WHERE id = NEW.entity_id FOR KEY SHARE;
+    ELSIF v_entity_type = 'role_assignment' THEN
+        PERFORM 1 FROM role_assignments WHERE id = NEW.entity_id FOR KEY SHARE;
+    ELSIF v_entity_type = 'jurisdiction' THEN
+        PERFORM 1 FROM jurisdictions WHERE id = NEW.entity_id FOR KEY SHARE;
+    ELSE
+        -- Unreachable under the catalog's CHECK; a type admitted there later
+        -- needs its own branch here, not a silent lookup in people.
+        RAISE EXCEPTION 'unsupported entity_type % for identifier type %',
+            v_entity_type, NEW.entity_identifier_type_id
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'identifiers.entity_id % names no %', NEW.entity_id, v_entity_type
+            USING ERRCODE = 'foreign_key_violation',
+                  CONSTRAINT = 'trg_identifiers_entity';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_identifiers_entity
+    BEFORE INSERT OR UPDATE OF entity_id, entity_identifier_type_id ON identifiers
+    FOR EACH ROW EXECUTE FUNCTION lock_identifier_entity();
+
 -- entity_addresses is polymorphic: dispatch the touch on entity_type (#181).
 -- Cascades into the entity_changes outbox via each parent's
 -- fn_record_entity_change AFTER UPDATE trigger.
