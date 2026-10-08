@@ -81,7 +81,7 @@ def make_identifiers_router(
         return row
 
     async def _write_or_404(db, sql: str, *args) -> None:
-        """Run an identifier write; 404 when the entity vanished since its check (#622).
+        """Run an identifier insert; 404 when the entity vanished since its check (#622).
 
         Its own (sub)transaction, so the refused write leaves the connection usable.
         """
@@ -212,8 +212,7 @@ def make_identifiers_router(
         """Update an identifier."""
         await _get_identifier_or_404(ident_id, entity_id, db)
         await _require_attachable_type(entity_identifier_type_id, db)
-        await _write_or_404(
-            db,
+        await db.execute(
             "UPDATE identifiers SET entity_identifier_type_id=$1, value=$2 WHERE id=$3",
             entity_identifier_type_id,
             value.strip(),

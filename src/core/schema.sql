@@ -1658,12 +1658,17 @@ CREATE OR REPLACE TRIGGER trg_touch_entity_on_identifier_change
 -- and raises foreign_key_violation when the type's table has no such row: a
 -- missing entity, or another type's. A plain read would pass a row an
 -- uncommitted delete still holds; the lock waits for that delete and then sees
--- the row gone. An unchanged reference is not rechecked, and an unknown type id
--- is left to the column's real FK.
+-- the row gone. An unknown type id is left to the column's real FK.
+-- An unchanged reference is not rechecked. The reference is (the type's
+-- entity_type, entity_id): a retype within one entity_type leaves it alone, and
+-- so does reconcile_seeded_slugs' re-id, whose old type row is renamed in the
+-- same statement and so may not be found here. Rechecking those would let one
+-- orphaned identifier abort apply_schema — and with it the service start.
 CREATE OR REPLACE FUNCTION lock_identifier_entity()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 DECLARE
     v_entity_type TEXT;
+    v_old_type    TEXT;
 BEGIN
     IF TG_OP = 'UPDATE'
        AND NEW.entity_id IS NOT DISTINCT FROM OLD.entity_id
@@ -1675,6 +1680,14 @@ BEGIN
     WHERE id = NEW.entity_identifier_type_id;
     IF NOT FOUND THEN
         RETURN NEW;
+    END IF;
+    IF TG_OP = 'UPDATE' AND NEW.entity_id IS NOT DISTINCT FROM OLD.entity_id THEN
+        SELECT entity_type INTO v_old_type
+        FROM entity_identifier_types
+        WHERE id = OLD.entity_identifier_type_id;
+        IF NOT FOUND OR v_old_type = v_entity_type THEN
+            RETURN NEW;
+        END IF;
     END IF;
     IF v_entity_type = 'organization' THEN
         PERFORM 1 FROM organizations WHERE id = NEW.entity_id FOR KEY SHARE;

@@ -131,6 +131,30 @@ async def test_moving_an_identifier_to_a_same_type_entity_is_accepted(conn):
     assert await conn.fetchval("SELECT entity_id FROM identifiers WHERE id = $1", iid) == winner
 
 
+async def test_retyping_within_one_entity_type_does_not_recheck(conn):
+    """The reference is (entity_type, entity_id); another person type changes neither.
+
+    Seed reconciliation re-ids an operator-created type this way inside
+    ``apply_schema``; an orphan under it must not abort the apply.
+    """
+    person = await archived_entity(conn, "person")
+    iid = await _insert(conn, "person", person)
+    await conn.execute("DELETE FROM people WHERE id = $1", person)  # no FK: dangles
+
+    other_person_type = await conn.fetchval(
+        "SELECT id FROM entity_identifier_types WHERE slug = 'person_wa_pdc'"
+    )
+    await conn.execute(
+        "UPDATE identifiers SET entity_identifier_type_id = $1 WHERE id = $2",
+        other_person_type,
+        iid,
+    )
+    assert (
+        await conn.fetchval("SELECT entity_identifier_type_id FROM identifiers WHERE id = $1", iid)
+        == other_person_type
+    )
+
+
 async def test_an_unchanged_reference_does_not_recheck(conn):
     """Rewriting a row whose entity already vanished stays possible.
 

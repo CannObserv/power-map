@@ -237,7 +237,7 @@ async def _vanish_as_the_write_begins(db, pid: str) -> None:
         f" $$ BEGIN DELETE FROM people WHERE id = '{pid}'; RETURN NEW; END $$"
     )
     await db.execute(
-        "CREATE TRIGGER a_t622_vanish BEFORE INSERT OR UPDATE ON identifiers"
+        "CREATE TRIGGER a_t622_vanish BEFORE INSERT ON identifiers"
         " FOR EACH ROW EXECUTE FUNCTION pg_temp.t622_vanish()"
     )
 
@@ -255,21 +255,3 @@ async def test_identifiers_create_on_a_vanished_person_is_404(client, db, person
 
     assert r.status_code == 404, r.text
     assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", pid) == 0
-
-
-async def test_identifiers_update_on_a_vanished_person_is_404(client, db, person_and_identifier):
-    """Retyping rechecks the entity; a vanished one is the 404, and the row is unchanged."""
-    pid, iid, type_id = person_and_identifier
-    await _vanish_as_the_write_begins(db, pid)
-
-    r = await client.post(
-        f"/admin/people/{pid}/identifiers/{iid}/edit-row/",
-        headers=HTMX_HEADERS,
-        data={"entity_identifier_type_id": await _type_id(db, "person_wa_pdc"), "value": "CR622"},
-    )
-
-    assert r.status_code == 404, r.text
-    row = await db.fetchrow(
-        "SELECT entity_identifier_type_id, value FROM identifiers WHERE id=$1", iid
-    )
-    assert (row["entity_identifier_type_id"], row["value"]) == (type_id, "TEST-123")
