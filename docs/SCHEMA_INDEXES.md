@@ -98,9 +98,13 @@ reserved *yet*.
 
 Re-pointing a child row fires that table's touch trigger (#327), so a
 reconciliation emits `entity_changes` for the affected parents — expected, and
-confined to the deploy that reconciles. The `RAISE WARNING` for a parked slug
-goes to the Postgres log, which `apply-schema.sh` does not echo; the parked row
-is visible in admin Settings under its `_superseded_` slug.
+confined to the deploy that reconciles. It also fires any guard trigger on the
+child: `trg_identifiers_entity` (#622) treats the re-id as no reference change,
+since the entity type stays, so an orphaned identifier rides along rather than
+aborting the apply. A new guard on a child table needs the same exemption.
+The `RAISE WARNING` for a parked slug goes to the Postgres log, which
+`apply-schema.sh` does not echo; the parked row is visible in admin Settings
+under its `_superseded_` slug.
 
 Guards: `tests/core/test_schema_seed_reconciliation.py` (live-PG, both
 outcomes, child data survival) and `test_schema_seed_reconciliation_sweep.py`

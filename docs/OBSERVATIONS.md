@@ -36,7 +36,13 @@ citation hung off the fork.
   `role_assignment`) is rejected `entity_type_not_creatable: '<type>'`, never `new` (#604).
   In `additional_identifiers`, an external type for another entity type (an `org_ubi`
   on a person) is rejected `identifier_type_mismatch: '<slug>'` (#617). The admin identifier
-  panels refuse the same posts (another entity type's, or any `pm_*`) with a 400.
+  panels refuse the same posts (another entity type's, or any `pm_*`) with a 400. Every
+  writer, the importer and `scripts/` included, meets `trg_identifiers_entity` (#622): a row
+  whose `entity_id` is not in its type's table (archived counts) raises
+  `foreign_key_violation`. It checks on insert and when the reference — entity id, or the
+  type's `entity_type` — changes; a retype within one entity type is not a change, so seed
+  reconciliation's re-id never aborts `apply_schema` on an orphan. Guard:
+  `tests/core/test_schema_identifier_entity.py`.
 
 **Value conventions.** The catalog has no value-format column, so these stay here — the
 ones worth knowing before minting:
