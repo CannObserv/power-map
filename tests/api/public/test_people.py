@@ -6,6 +6,7 @@ import os
 import pytest
 import pytest_asyncio
 
+from src.core.ancillary_migrate import delete_entity_ancillary
 from src.core.db import generate_id
 
 pytestmark = pytest.mark.integration
@@ -118,8 +119,9 @@ async def person_fixture(db):
         "eid_id": eid_id,
         "eid_type_id": eid_type_id,
     }
-    # Committing fixture: clean up committed rows to avoid cross-test leakage.
-    await db.execute("DELETE FROM identifiers WHERE id=$1", eid_id)
+    # Committing fixture: clean up committed rows to avoid cross-test leakage —
+    # including the events tests add, which the orphan audit would flag (#609).
+    await delete_entity_ancillary(db, "person", person_id)
     await db.execute("DELETE FROM person_names WHERE person_id=$1", person_id)
     await db.execute("DELETE FROM people WHERE id=$1", person_id)
 
