@@ -2643,6 +2643,42 @@ CREATE OR REPLACE TRIGGER trg_entity_events_linked_entity
     BEFORE INSERT OR UPDATE OF linked_entity_type, linked_entity_id ON entity_events
     FOR EACH ROW EXECUTE FUNCTION lock_event_linked_entity();
 
+-- #615: the referenced half of #608's FK. Deleting a person or organization
+-- that another entity's event links to — archived events included, since
+-- unarchiving would restore the link — raises foreign_key_violation, naming
+-- the trigger as its constraint. The entity's own events, a self-link included,
+-- are not inbound (inbound_link_conflict's rule): hard delete drops them and
+-- merge re-homes them. A BEFORE ROW trigger fires once the row is locked, so a
+-- link that committed while the delete waited on its FOR KEY SHARE is seen.
+-- The admin hard delete refuses first with a named 409, and merges re-point
+-- every link first (#611); this is the backstop for every other path.
+CREATE OR REPLACE FUNCTION refuse_delete_while_linked()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_type TEXT := TG_ARGV[0];
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM entity_events
+        WHERE linked_entity_type = v_type
+          AND linked_entity_id = OLD.id
+          AND NOT (entity_type = v_type AND entity_id = OLD.id)
+    ) THEN
+        RAISE EXCEPTION '% % is still linked from entity_events', v_type, OLD.id
+            USING ERRCODE = 'foreign_key_violation',
+                  CONSTRAINT = TG_NAME;
+    END IF;
+    RETURN OLD;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_people_inbound_event_links
+    BEFORE DELETE ON people
+    FOR EACH ROW EXECUTE FUNCTION refuse_delete_while_linked('person');
+
+CREATE OR REPLACE TRIGGER trg_organizations_inbound_event_links
+    BEFORE DELETE ON organizations
+    FOR EACH ROW EXECUTE FUNCTION refuse_delete_while_linked('organization');
+
 -- #307 CR rounds 1–2: reconcile entity_events CHECKs on pre-existing DBs.
 -- CREATE TABLE IF NOT EXISTS no-ops on an existing table, so constraints added
 -- inline to the CREATE never reach a DB whose table predates them — prod was

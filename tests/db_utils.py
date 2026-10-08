@@ -8,7 +8,10 @@ dedicated test DB with the same ``reset_data_tables`` call the pool applies at
 session start.
 """
 
+import asyncio
+
 import asyncpg
+import pytest
 
 # Reference/lookup tables whose seed rows must survive a data reset.
 REFERENCE_TABLES = frozenset(
@@ -43,3 +46,23 @@ async def reset_data_tables(conn: asyncpg.Connection) -> None:
     if to_truncate:
         quoted = ", ".join(f'"{t}"' for t in to_truncate)
         await conn.execute(f"TRUNCATE {quoted} RESTART IDENTITY CASCADE")
+
+
+async def until_lock_waiting(conn: asyncpg.Connection, pid: int, timeout: float = 10.0) -> None:
+    """Return once backend ``pid`` is blocked on a lock; fail after ``timeout``.
+
+    ``pg_stat_activity`` is snapshotted per transaction, and ``conn`` may be
+    inside one, so each poll clears the snapshot first (the test pool has no
+    spare connection to poll from).
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        await conn.execute("SELECT pg_stat_clear_snapshot()")
+        waiting = await conn.fetchval(
+            "SELECT wait_event_type = 'Lock' FROM pg_stat_activity WHERE pid = $1", pid
+        )
+        if waiting:
+            return
+        await asyncio.sleep(0.05)
+    pytest.fail(f"backend {pid} never blocked on a lock")
