@@ -108,7 +108,7 @@ async def test_ignores_an_import_error_rows_placeholder_id(db):
     batch_id = generate_id()
     await db.execute(
         "INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count,"
-        " error_count) VALUES ($1, 'bad.csv', 'h', 1, 0, 1)",
+        " error_count) VALUES ($1, 'bad.csv', $1, 1, 0, 1)",
         batch_id,
     )
     await db.execute(

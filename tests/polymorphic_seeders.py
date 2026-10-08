@@ -193,7 +193,7 @@ async def seed_import_provenance(db, et, eid):
     batch_id, i = generate_id(), generate_id()
     await db.execute(
         "INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count,"
-        " error_count) VALUES ($1, 'gone.csv', 'h', 1, 1, 0)",
+        " error_count) VALUES ($1, 'gone.csv', $1, 1, 1, 0)",
         batch_id,
     )
     await db.execute(

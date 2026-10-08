@@ -5,11 +5,19 @@ redundant-link purge, manual fallback) and that ``--execute`` re-homes/purges
 while leaving manual rows untouched.
 """
 
+from collections import Counter
+
 import pytest
 import pytest_asyncio
 
-from scripts.cleanup_role_assignment_ancillary_orphans import apply_cleanup, plan_cleanup
+from scripts.cleanup_role_assignment_ancillary_orphans import (
+    ORPHAN_TABLES,
+    apply_cleanup,
+    plan_cleanup,
+)
+from src.core.ancillary_migrate import count_orphaned_polymorphic_rows
 from src.core.db import generate_id
+from tests.polymorphic_seeders import SEEDERS, archived_entity, seed_every_table
 
 pytestmark = [pytest.mark.integration]
 
@@ -195,16 +203,12 @@ async def test_ambiguous_name_not_rehomed(db):
     assert grp.target_id is None  # ambiguous → refuse to auto-rehome
 
 
-async def test_import_error_placeholder_is_not_an_orphan(db):
-    """#609 CR 2: an importer-rejected row names a placeholder id no assignment ever had.
-
-    The daily audit skips it; the cleanup must agree, or it reports a row the
-    audit calls clean as one awaiting manual triage.
-    """
+async def _import_error_row(db) -> str:
+    """An importer-rejected RA row; returns the placeholder id it names."""
     batch_id, placeholder = generate_id(), generate_id()
     await db.execute(
         "INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count,"
-        " error_count) VALUES ($1, 'bad.csv', 'h', 1, 0, 1)",
+        " error_count) VALUES ($1, 'bad.csv', $1, 1, 0, 1)",
         batch_id,
     )
     await db.execute(
@@ -214,5 +218,38 @@ async def test_import_error_placeholder_is_not_an_orphan(db):
         batch_id,
         placeholder,
     )
+    return placeholder
+
+
+async def test_import_error_placeholder_is_not_an_orphan(db):
+    """#609 CR 2: an importer-rejected row names a placeholder id no assignment ever had.
+
+    The daily audit skips it; the cleanup must agree, or it reports a row the
+    audit calls clean as one awaiting manual triage.
+    """
+    placeholder = await _import_error_row(db)
 
     assert placeholder not in {g.dead_id for g in await plan_cleanup(db)}
+
+
+async def test_plan_and_audit_count_the_same_orphans(db):
+    """#609 CR 7: two SQL spellings of "RA orphan" — the plan must match the audit's count.
+
+    Seeds an orphan in every table the cleanup reads, plus an import-error row
+    neither should see, then compares the plan's rows per table with the audit's
+    ``role_assignment.<table>`` counts over the same state.
+    """
+    ra = await archived_entity(db, "role_assignment")
+    seeded = await seed_every_table(
+        db, "role_assignment", ra, skip=frozenset(SEEDERS) - ORPHAN_TABLES
+    )
+    assert {table for table, _ in seeded} == ORPHAN_TABLES
+    await _import_error_row(db)
+    await db.execute("DELETE FROM role_assignments WHERE id = $1", ra)
+
+    planned = Counter(row.table for group in await plan_cleanup(db) for row in group.rows)
+    counted = await count_orphaned_polymorphic_rows(db)
+
+    assert {t: planned[t] for t in ORPHAN_TABLES} == {
+        t: counted[f"role_assignment.{t}"] for t in ORPHAN_TABLES
+    }
