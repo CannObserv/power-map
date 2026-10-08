@@ -7,6 +7,8 @@ ratchets it against every ``entity_id`` table, so the orphan counter's test can
 trust it as the full table set.
 """
 
+import asyncpg
+
 from src.core.db import generate_id
 
 #: Polymorphic tables whose rows outlive their entity on purpose.
@@ -234,6 +236,27 @@ SEEDERS = {
     "import_provenance": seed_import_provenance,
     "curation_overlay": seed_curation_overlay,
 }
+
+
+async def seed_every_table(
+    db, entity_type: str, entity_id: str, *, skip: frozenset[str] = frozenset()
+) -> list[tuple[str, str]]:
+    """Run every seeder not in ``skip`` that ``entity_type`` admits; the rows seeded.
+
+    Only the table's ``<table>_entity_type_check`` means "not admitted". Any other
+    CHECK is a broken seeder and raises, so a test cannot lose a cell in silence.
+    """
+    seeded: list[tuple[str, str]] = []
+    for table, seed in SEEDERS.items():
+        if table in skip:
+            continue
+        try:
+            async with db.transaction():
+                seeded += await seed(db, entity_type, entity_id)
+        except asyncpg.CheckViolationError as e:
+            if not (e.constraint_name or "").endswith("_entity_type_check"):
+                raise
+    return seeded
 
 
 async def polymorphic_tables(db) -> set[str]:
