@@ -74,7 +74,8 @@ async def test_counts_every_row_a_raw_delete_strands(db, entity_type):
 
 
 @pytest.mark.parametrize("entity_type", sorted(HARD_DELETABLE_TYPES))
-async def test_ignores_a_live_entitys_rows(db, entity_type):
+async def test_ignores_rows_of_an_archived_entity(db, entity_type):
+    """Archived is not deleted: the entity row still exists, so nothing is orphaned."""
     before = await count_orphaned_polymorphic_rows(db)
     await _seed_all(db, entity_type, await archived_entity(db, entity_type))
 
