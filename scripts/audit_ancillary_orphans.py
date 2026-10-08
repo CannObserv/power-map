@@ -32,10 +32,14 @@ import sys
 import asyncpg
 
 from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
+from scripts.cleanup_role_assignment_ancillary_orphans import ORPHAN_TABLES as CLEANUP_TABLES
 from src.core.ancillary_migrate import count_orphaned_citations, count_orphaned_polymorphic_rows
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
+
+#: Keys the cleanup script can recover; every other orphan is manual triage.
+_CLEANABLE = frozenset(f"role_assignment.{t}" for t in CLEANUP_TABLES)
 
 
 async def audit(conn: asyncpg.Connection) -> int:
@@ -50,13 +54,21 @@ async def audit(conn: asyncpg.Connection) -> int:
         logger.info("polymorphic ancillary orphan audit: clean (0 orphans)")
         return 0
 
-    breakdown = ", ".join(f"{key}={n}" for key, n in counts.items() if n)
+    found = [key for key, n in counts.items() if n]
+    cleanable = [key for key in found if key in _CLEANABLE]
+    manual = [key for key in found if key not in _CLEANABLE]
+    hints = []
+    if cleanable:
+        hints.append(
+            f"run scripts.cleanup_role_assignment_ancillary_orphans for {', '.join(cleanable)}"
+        )
+    if manual:
+        hints.append(f"triage {', '.join(manual)} manually (docs/AUDITS.md)")
     logger.warning(
-        "ancillary orphans detected: %d total (%s) — "
-        "run scripts.cleanup_role_assignment_ancillary_orphans (role_assignment scope) "
-        "or triage the rest manually (docs/AUDITS.md)",
+        "ancillary orphans detected: %d total (%s) — %s",
         total,
-        breakdown,
+        ", ".join(f"{key}={counts[key]}" for key in found),
+        "; ".join(hints),
     )
     return 3
 

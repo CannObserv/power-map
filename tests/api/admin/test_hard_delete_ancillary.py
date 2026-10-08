@@ -12,7 +12,6 @@ polymorphic table its entity type admits; the ratchet below fails when a new
 polymorphic table appears without a seeder or a stated reason to survive.
 """
 
-import asyncpg
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -28,6 +27,7 @@ from tests.polymorphic_seeders import (
     polymorphic_tables,
     seed_entity_addresses,
     seed_entity_events,
+    seed_every_table,
 )
 
 pytestmark = [pytest.mark.integration]
@@ -83,13 +83,7 @@ async def test_every_polymorphic_table_is_seeded_or_survives(db):
 @pytest.mark.parametrize("entity_type", sorted(ROUTES))
 async def test_hard_delete_leaves_no_polymorphic_row(client, db, entity_type):
     eid = await archived_entity(db, entity_type)
-    seeded: list[tuple[str, str]] = []
-    for seed in SEEDERS.values():
-        try:
-            async with db.transaction():
-                seeded += await seed(db, entity_type, eid)
-        except asyncpg.CheckViolationError:
-            pass  # the table's CHECK does not admit this entity type
+    seeded = await seed_every_table(db, entity_type, eid)
     if entity_type != "role":  # #605's case: the identifier must actually be there
         assert "identifiers" in {t for t, _ in seeded}
 

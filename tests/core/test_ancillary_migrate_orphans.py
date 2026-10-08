@@ -17,13 +17,18 @@ from src.core.ancillary_migrate import (
     count_orphaned_polymorphic_rows,
 )
 from src.core.db import generate_id
-from tests.polymorphic_seeders import SEEDERS, archived_entity, seed_entity_events
+from tests.polymorphic_seeders import (
+    SEEDERS,
+    archived_entity,
+    seed_entity_events,
+    seed_every_table,
+)
 
 pytestmark = [pytest.mark.integration]
 
 #: Seeded rows the counter does not own: citations are counted per type by
 #: ``count_orphaned_citations``; ``addresses`` is not polymorphic.
-_COUNTED_ELSEWHERE = {"citations", "addresses"}
+_COUNTED_ELSEWHERE = frozenset({"citations", "addresses"})
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -39,15 +44,7 @@ async def db(db_pool):
 
 async def _seed_all(db, entity_type: str, entity_id: str) -> set[str]:
     """One row in every polymorphic table admitting ``entity_type``; the tables seeded."""
-    seeded: list[tuple[str, str]] = []
-    for table, seed in SEEDERS.items():
-        if table in _COUNTED_ELSEWHERE:
-            continue
-        try:
-            async with db.transaction():
-                seeded += await seed(db, entity_type, entity_id)
-        except asyncpg.CheckViolationError:
-            pass  # the table's CHECK does not admit this entity type
+    seeded = await seed_every_table(db, entity_type, entity_id, skip=_COUNTED_ELSEWHERE)
     return {table for table, _ in seeded} - _COUNTED_ELSEWHERE
 
 
@@ -77,7 +74,8 @@ async def test_counts_every_row_a_raw_delete_strands(db, entity_type):
 
 
 @pytest.mark.parametrize("entity_type", sorted(HARD_DELETABLE_TYPES))
-async def test_ignores_a_live_entitys_rows(db, entity_type):
+async def test_ignores_rows_of_an_archived_entity(db, entity_type):
+    """Archived is not deleted: the entity row still exists, so nothing is orphaned."""
     before = await count_orphaned_polymorphic_rows(db)
     await _seed_all(db, entity_type, await archived_entity(db, entity_type))
 
@@ -110,7 +108,7 @@ async def test_ignores_an_import_error_rows_placeholder_id(db):
     batch_id = generate_id()
     await db.execute(
         "INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count,"
-        " error_count) VALUES ($1, 'bad.csv', 'h', 1, 0, 1)",
+        " error_count) VALUES ($1, 'bad.csv', $1, 1, 0, 1)",
         batch_id,
     )
     await db.execute(
@@ -122,3 +120,21 @@ async def test_ignores_an_import_error_rows_placeholder_id(db):
     )
 
     assert _grown(before, await count_orphaned_polymorphic_rows(db)) == {}
+
+
+async def test_seeding_surfaces_a_check_other_than_the_entity_type(db, monkeypatch):
+    """CR 1: only the entity-type CHECK means "not admitted"; any other is a broken seeder."""
+
+    async def _bad_contact(db, et, eid):
+        await db.execute(
+            "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
+            " VALUES ($1, $2, $3, 'carrier_pigeon', 'coo')",
+            generate_id(),
+            et,
+            eid,
+        )
+        return []
+
+    monkeypatch.setitem(SEEDERS, "contact_methods", _bad_contact)
+    with pytest.raises(asyncpg.CheckViolationError, match="contact_type"):
+        await seed_every_table(db, "organization", await archived_entity(db, "organization"))
