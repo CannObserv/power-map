@@ -1,5 +1,5 @@
 [Unit]
-Description=power-map daily role / role_assignment ancillary orphan audit (issues #324, #326)
+Description=power-map daily polymorphic ancillary orphan audit (issues #324, #326, #609)
 After=network.target
 
 [Service]
@@ -9,10 +9,11 @@ WorkingDirectory=/home/exedev/power-map
 EnvironmentFile=/etc/power-map/.env
 EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
-# Counts links / contact_methods / field_confidence / identifiers rows that key
-# on (entity_type='role_assignment', entity_id) but point at a role_assignment id
-# that no longer exists — the no-FK orphan class a merge dedup can strand (#324).
-# The merge paths now re-home before deleting; this is the continuous backstop.
+# Counts polymorphic rows (links, contact_methods, identifiers, entity_events, …)
+# keyed on (entity_type, entity_id) that name an entity id no longer present, for
+# every hard-deletable type, plus citations — the no-FK orphan class a merge, a
+# script or raw SQL can strand (#324, #605, #609). The delete/merge paths drop or
+# re-home first; this is the continuous backstop.
 # Exits 3 when any orphan exists, so the unit shows as failed in
 # `systemctl --failed` and can drive OnFailure= later. Read-only.
 ExecStart=uv run python -m scripts.audit_ancillary_orphans

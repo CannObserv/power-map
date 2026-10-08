@@ -135,34 +135,6 @@ _SPECS: tuple[_AncillarySpec, ...] = (
 )
 
 
-async def count_orphaned_role_assignment_ancillary(
-    db: asyncpg.Connection,
-) -> dict[str, int]:
-    """Count ancillary rows pointing at a role_assignment id that no longer exists.
-
-    The polymorphic ancillary has no FK, so a merge (or any direct DELETE) that
-    drops an assignment can strand these rows undetected. Returns ``{table: n}``
-    for every spec; the daily guard (#324) warns when any count is non-zero.
-    """
-    counts: dict[str, int] = {}
-    for spec in _SPECS:
-        if spec.name == "identifiers":
-            sql = (
-                "SELECT count(*) FROM identifiers i"
-                " JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id"
-                " WHERE t.entity_type='role_assignment'"
-                " AND NOT EXISTS (SELECT 1 FROM role_assignments ra WHERE ra.id = i.entity_id)"
-            )
-        else:
-            sql = (
-                f"SELECT count(*) FROM {spec.name} x"
-                " WHERE x.entity_type='role_assignment'"
-                " AND NOT EXISTS (SELECT 1 FROM role_assignments ra WHERE ra.id = x.entity_id)"
-            )
-        counts[spec.name] = await db.fetchval(sql)
-    return counts
-
-
 async def _migrate_specs(
     db: asyncpg.Connection,
     specs: tuple[_AncillarySpec, ...],
@@ -376,24 +348,6 @@ _ROLE_SPECS: tuple[_AncillarySpec, ...] = (
         key_fields=("contact_type", "value"),
     ),
 )
-
-
-async def count_orphaned_role_ancillary(db: asyncpg.Connection) -> dict[str, int]:
-    """Count contacts/links pointing at a role id that no longer exists.
-
-    The role-level polymorphic ancillary has no FK, so a merge or direct DELETE
-    that drops a role can strand these rows undetected — the role analogue of
-    :func:`count_orphaned_role_assignment_ancillary`. Returns ``{table: n}`` for
-    each role spec; the daily guard (#326) warns when any count is non-zero.
-    """
-    counts: dict[str, int] = {}
-    for spec in _ROLE_SPECS:
-        counts[spec.name] = await db.fetchval(
-            f"SELECT count(*) FROM {spec.name} x"
-            " WHERE x.entity_type='role'"
-            " AND NOT EXISTS (SELECT 1 FROM roles r WHERE r.id = x.entity_id)"
-        )
-    return counts
 
 
 async def rehome_role_ancillary(
@@ -852,9 +806,91 @@ async def delete_entity_ancillary(db: asyncpg.Connection, entity_type: str, enti
         " AND NOT EXISTS (SELECT 1 FROM entity_events ev WHERE ev.event_place_address_id = a.id)",
         address_ids,
     )
-    overlay_type = "assignment" if entity_type == "role_assignment" else entity_type
     await db.execute(
         "DELETE FROM curation_overlay WHERE entity_type=$1 AND entity_id=$2",
-        overlay_type,
+        _overlay_type(entity_type),
         entity_id,
     )
+
+
+def _overlay_type(entity_type: str) -> str:
+    """How ``curation_overlay`` spells a type: the producer crosswalk's ``assignment``."""
+    return "assignment" if entity_type == "role_assignment" else entity_type
+
+
+# ---------------------------------------------------------------------------
+# Orphan audit (#609)
+#
+# The daily backstop behind #605: the route guards only the admin delete, so a
+# script, raw SQL or a merge regression that drops the entity alone strands its
+# rows. Every polymorphic table the #605 ratchet seeds is counted here, for
+# every type its CHECK admits; `tests/core/test_ancillary_migrate_orphans.py`
+# fails when a table or type goes uncounted. Citations keep their own per-type
+# counter (count_orphaned_citations), which also covers person_name/entity_event.
+# ---------------------------------------------------------------------------
+
+#: The table each hard-deletable type lives in.
+ENTITY_TABLES = {t: CITABLE_ENTITY_TABLES[t] for t in sorted(HARD_DELETABLE_TYPES)}
+
+_EVERY_TYPE = tuple(ENTITY_TABLES)
+_NO_ROLE = tuple(t for t in _EVERY_TYPE if t != "role")
+
+
+class _OrphanScope(NamedTuple):
+    """Where a polymorphic table names an entity: its type, its id, and which rows count."""
+
+    types: tuple[str, ...]  # the hard-deletable types the table's CHECK admits
+    source: str  # FROM clause; the row is aliased ``x``
+    type_column: str = "x.entity_type"
+    id_column: str = "x.entity_id"
+    where: str = "TRUE"
+
+
+#: Keyed as the audit reports them, ``<entity_type>.<key>``.
+_ORPHAN_SCOPES: dict[str, _OrphanScope] = {
+    "links": _OrphanScope(_EVERY_TYPE, "links x"),
+    "contact_methods": _OrphanScope(_EVERY_TYPE, "contact_methods x"),
+    "entity_addresses": _OrphanScope(_EVERY_TYPE, "entity_addresses x"),
+    "field_confidence": _OrphanScope(_NO_ROLE, "field_confidence x"),
+    # A row the importer rejected carries a fresh placeholder id no entity ever had.
+    "import_provenance": _OrphanScope(_NO_ROLE, "import_provenance x", where="x.action <> 'error'"),
+    # The type is the identifier type's (#617): a row on the wrong kind of entity
+    # names an id missing from its type's table, so it counts here too.
+    "identifiers": _OrphanScope(
+        _NO_ROLE,
+        "identifiers x JOIN entity_identifier_types t ON t.id = x.entity_identifier_type_id",
+        type_column="t.entity_type",
+    ),
+    "curation_overlay": _OrphanScope(
+        ("person", "organization", "role", "role_assignment"), "curation_overlay x"
+    ),
+    # #611's two kinds: an entity's own events, and another's event linking to it.
+    "entity_events": _OrphanScope(("person", "organization"), "entity_events x"),
+    "entity_events_linked": _OrphanScope(
+        ("person", "organization"),
+        "entity_events x",
+        type_column="x.linked_entity_type",
+        id_column="x.linked_entity_id",
+    ),
+}
+
+
+async def count_orphaned_polymorphic_rows(db: asyncpg.Connection) -> dict[str, int]:
+    """Count polymorphic rows naming an entity id that no longer exists.
+
+    Returns ``{"<entity_type>.<table>": n}`` for every table × type in
+    :data:`_ORPHAN_SCOPES`, archived entities counting as present. Read-only;
+    the daily ``audit_ancillary_orphans`` guard exits 3 on any non-zero count.
+    """
+    counts: dict[str, int] = {}
+    for key, scope in _ORPHAN_SCOPES.items():
+        for entity_type in scope.types:
+            spelt = _overlay_type(entity_type) if key == "curation_overlay" else entity_type
+            counts[f"{entity_type}.{key}"] = await db.fetchval(
+                f"SELECT count(*) FROM {scope.source}"
+                f" WHERE {scope.type_column} = $1 AND {scope.where}"
+                f" AND NOT EXISTS (SELECT 1 FROM {ENTITY_TABLES[entity_type]} e"
+                f" WHERE e.id = {scope.id_column})",
+                spelt,
+            )
+    return counts
