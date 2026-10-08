@@ -98,8 +98,10 @@ _ORPHAN_QUERIES: tuple[tuple[str, str], ...] = (
     ),
     (
         "import_provenance",
+        # An importer-rejected row names a placeholder id no assignment ever had —
+        # not an orphan, as the daily audit agrees (#609).
         "SELECT id, entity_id AS dead_id, action AS label FROM import_provenance x"
-        " WHERE x.entity_type='role_assignment'"
+        " WHERE x.entity_type='role_assignment' AND x.action <> 'error'"
         " AND NOT EXISTS (SELECT 1 FROM role_assignments ra WHERE ra.id = x.entity_id)",
     ),
 )

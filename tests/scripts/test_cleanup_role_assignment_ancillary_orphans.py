@@ -193,3 +193,26 @@ async def test_ambiguous_name_not_rehomed(db):
     groups = await plan_cleanup(db)
     grp = next(g for g in groups if g.dead_id == dead)
     assert grp.target_id is None  # ambiguous → refuse to auto-rehome
+
+
+async def test_import_error_placeholder_is_not_an_orphan(db):
+    """#609 CR 2: an importer-rejected row names a placeholder id no assignment ever had.
+
+    The daily audit skips it; the cleanup must agree, or it reports a row the
+    audit calls clean as one awaiting manual triage.
+    """
+    batch_id, placeholder = generate_id(), generate_id()
+    await db.execute(
+        "INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count,"
+        " error_count) VALUES ($1, 'bad.csv', 'h', 1, 0, 1)",
+        batch_id,
+    )
+    await db.execute(
+        "INSERT INTO import_provenance (id, batch_id, source_row, entity_type, entity_id,"
+        " action, raw_data) VALUES ($1, $2, 2, 'role_assignment', $3, 'error', '{}')",
+        generate_id(),
+        batch_id,
+        placeholder,
+    )
+
+    assert placeholder not in {g.dead_id for g in await plan_cleanup(db)}
