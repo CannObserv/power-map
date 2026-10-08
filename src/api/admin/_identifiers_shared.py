@@ -80,7 +80,7 @@ def make_identifiers_router(
             raise HTTPException(status_code=404)
         return row
 
-    async def _write_or_404(db, sql: str, *args) -> None:
+    async def _insert_or_404(db, sql: str, *args) -> None:
         """Run an identifier insert; 404 when the entity vanished since its check (#622).
 
         Its own (sub)transaction, so the refused write leaves the connection usable.
@@ -147,7 +147,7 @@ def make_identifiers_router(
         await _get_entity_or_404(entity_id, db)
         await _require_attachable_type(entity_identifier_type_id, db)
         iid = generate_id()
-        await _write_or_404(
+        await _insert_or_404(
             db,
             "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
             " VALUES ($1, $2, $3, $4)",
