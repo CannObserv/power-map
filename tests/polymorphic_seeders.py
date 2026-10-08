@@ -9,6 +9,7 @@ trust it as the full table set.
 
 import asyncpg
 
+from src.core.ancillary_migrate import ENTITY_TABLES
 from src.core.db import generate_id
 
 #: Polymorphic tables whose rows outlive their entity on purpose.
@@ -51,14 +52,9 @@ async def archived_entity(db, entity_type: str) -> str:
         )
     else:
         target = {"organization": oid, "person": pid, "role": rid}[entity_type]
-    table = {
-        "person": "people",
-        "organization": "organizations",
-        "jurisdiction": "jurisdictions",
-        "role": "roles",
-        "role_assignment": "role_assignments",
-    }[entity_type]
-    await db.execute(f"UPDATE {table} SET archived_at = now() WHERE id = $1", target)
+    await db.execute(
+        f"UPDATE {ENTITY_TABLES[entity_type]} SET archived_at = now() WHERE id = $1", target
+    )
     return target
 
 

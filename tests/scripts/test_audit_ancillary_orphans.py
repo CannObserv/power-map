@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 
 from scripts.audit_ancillary_orphans import audit
+from src.core.ancillary_migrate import ENTITY_TABLES
 from src.core.db import generate_id
 from tests.polymorphic_seeders import archived_entity, seed_citations, seed_identifiers
 
@@ -29,8 +30,7 @@ async def test_flags_an_identifier_off_a_deleted_entity(db, caplog, entity_type)
     eid = await archived_entity(db, entity_type)
     await seed_identifiers(db, entity_type, eid)
     await seed_citations(db, "organization", generate_id())  # the citation scope stays
-    table = {"person": "people", "organization": "organizations"}.get(entity_type, "jurisdictions")
-    await db.execute(f"DELETE FROM {table} WHERE id = $1", eid)
+    await db.execute(f"DELETE FROM {ENTITY_TABLES[entity_type]} WHERE id = $1", eid)
 
     with caplog.at_level(logging.WARNING):
         assert await audit(db) == 3
