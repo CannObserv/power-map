@@ -15,13 +15,13 @@ import asyncpg
 import pytest
 import pytest_asyncio
 
-from src.core.db import generate_id
+from src.core.db import IDENTIFIER_ENTITY_GUARD, generate_id
 from tests.db_utils import until_lock_waiting
 from tests.polymorphic_seeders import archived_entity
 
 pytestmark = [pytest.mark.integration]
 
-GUARD = "trg_identifiers_entity"
+GUARD = IDENTIFIER_ENTITY_GUARD
 #: One identifier type slug per entity type the catalog admits.
 TYPE_SLUGS = {
     "person": "person_ssn",
