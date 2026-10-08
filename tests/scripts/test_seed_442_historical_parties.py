@@ -298,10 +298,10 @@ async def test_existing_party_org_is_never_duplicated(db):
 # --------------------------------------------------------------------------
 #
 # ``identifiers`` has no FK to ``organizations`` and ``idx_identifiers_lookup``
-# is a plain, non-unique index. ``org_delete`` removes an Org's names and
-# acronyms but leaves its identifiers behind, and the ancillary-orphans audit
-# sweeps only ``role`` / ``role_assignment`` scopes — so a hard-deleted party Org
-# leaves a live-looking ``org_wa_party`` row pointing at nothing. Treating that as
+# is a plain, non-unique index. ``org_delete`` drops an Org's identifiers (#605)
+# and the ancillary-orphans audit reports any another path strands (#609), but
+# reports only — so a party Org deleted that way leaves a live-looking
+# ``org_wa_party`` row pointing at nothing until triage. Treating that as
 # "already present" would silently skip the party, which is the exact failure
 # class #442 exists to eliminate.
 

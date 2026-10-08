@@ -11,8 +11,6 @@ import pytest
 import pytest_asyncio
 
 from src.core.ancillary_migrate import (
-    count_orphaned_role_ancillary,
-    count_orphaned_role_assignment_ancillary,
     delete_entity_ancillary,
     migrate_role_assignment_ancillary,
     rehome_conflicting_assignment_ancillary,
@@ -317,41 +315,6 @@ async def test_batch_contact_move_emits_exactly_one_no_double(db):
     assert await _ra_signals(db, winner) == before + 1  # trigger only, not doubled
 
 
-# ── count_orphaned_role_assignment_ancillary (guard) ────────────────────────
-
-
-async def test_guard_counts_orphans_after_raw_delete(db):
-    aid = await _assignment(db)
-    await _add_link(db, aid, "https://orphan.example/x")
-    await _add_contact(db, aid, "orphan@leg.wa.gov")
-    await _add_fc(db, aid, "url", "orphanhash")
-    await _add_identifier(db, aid, "PDC-ORPH")
-    await _add_import_prov(db, aid, "matched")
-
-    before = await count_orphaned_role_assignment_ancillary(db)
-    # Hard-delete the assignment out from under the ancillary (the #324 hazard).
-    await db.execute("DELETE FROM role_assignments WHERE id=$1", aid)
-    after = await count_orphaned_role_assignment_ancillary(db)
-
-    assert after["links"] == before["links"] + 1
-    assert after["contact_methods"] == before["contact_methods"] + 1
-    assert after["field_confidence"] == before["field_confidence"] + 1
-    assert after["identifiers"] == before["identifiers"] + 1
-    assert after["import_provenance"] == before["import_provenance"] + 1
-
-
-async def test_guard_ignores_live_assignment_ancillary(db):
-    aid = await _assignment(db)
-    await _add_link(db, aid, "https://live.example/x")
-    await _add_identifier(db, aid, "PDC-LIVE")
-
-    before = await count_orphaned_role_assignment_ancillary(db)
-    # No delete — the assignment is live, so nothing should be flagged.
-    after = await count_orphaned_role_assignment_ancillary(db)
-
-    assert after == before
-
-
 # ── role-level ancillary (#326) ─────────────────────────────────────────────
 
 
@@ -460,19 +423,6 @@ async def test_delete_entity_ancillary_rejects_an_unknown_type(db, entity_type):
     """#605 CR: a misspelt type would match no row and strand them all, silently."""
     with pytest.raises(ValueError, match="hard-deletable"):
         await delete_entity_ancillary(db, entity_type, generate_id())
-
-
-async def test_role_guard_counts_orphans_after_raw_delete(db):
-    rid = await _role(db)
-    await _add_role_link(db, rid, "https://orphan.example/r")
-    await _add_role_contact(db, rid, "orphan@example.org")
-
-    before = await count_orphaned_role_ancillary(db)
-    await db.execute("DELETE FROM roles WHERE id=$1", rid)
-    after = await count_orphaned_role_ancillary(db)
-
-    assert after["links"] == before["links"] + 1
-    assert after["contact_methods"] == before["contact_methods"] + 1
 
 
 # --- curation_overlay (#514): a curator's override follows a merged entity ---------

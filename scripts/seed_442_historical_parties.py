@@ -257,11 +257,11 @@ PARTIES: tuple[HistoricalParty, ...] = (
 # The JOIN onto organizations is load-bearing, not decorative. ``identifiers``
 # has no FK to ``organizations`` (it is polymorphic — the entity type lives on
 # ``entity_identifier_types``), ``idx_identifiers_lookup`` is a plain index rather
-# than a unique one, and ``org_delete`` deletes an Org's names and acronyms but
-# leaves its identifiers behind. ``audit_ancillary_orphans`` sweeps only the
-# ``role`` / ``role_assignment`` scopes, so nothing reaps a dangling org
-# identifier. Selecting ``i.entity_id`` alone would therefore report a
-# hard-deleted party as "already present" and skip it in silence.
+# than a unique one. ``org_delete`` drops an Org's identifiers (#605) and the
+# daily ``audit_ancillary_orphans`` counts any another path strands (#609), but
+# it only reports them: a dangling org identifier lives until triage. Selecting
+# ``i.entity_id`` alone would report a hard-deleted party as "already present"
+# and skip it in silence.
 _FIND_BY_PARTY_VALUE_SQL = """
 SELECT o.id
 FROM identifiers i

@@ -234,21 +234,18 @@ sudo journalctl -u power-map-schema-parity -f          # drift report on failure
 
 ---
 
-## role / role_assignment / citation ancillary orphan audit & cleanup (issues #324, #326, #319)
+## Polymorphic ancillary orphan audit & cleanup (issues #324, #326, #319, #609)
 
 
-Polymorphic ancillary keyed on `(entity_type, entity_id)` with no FK — for
-`role_assignment` (`links` / `contact_methods` / `field_confidence` /
-`identifiers`, #324), for `role` (`links` / `contact_methods`, #326), and for
-`citations` (all seven citable entity types, #319) — could be orphaned when a merge
-or delete drops the parent. The merge/delete paths now re-home (or drop) before
-deleting; `scripts/audit_ancillary_orphans.py` is the continuous guard over **all
-three** scopes (breakdown namespaced `role.*` / `role_assignment.*` /
-`citation.*`). The one-time recovery script stays role_assignment-only (its
-heuristics are assignment-specific; role/citation orphans should not occur now that
-the write paths are fixed, so any that appear go to manual triage). See
-`docs/ANCILLARY.md` §"Merge dedup — role_assignment ancillary re-homing" and
-`docs/OBSERVATIONS.md` §"Citations — write semantics".
+Polymorphic rows keyed on `(entity_type, entity_id)` with no FK are stranded when
+any path drops the entity alone. The merge/delete paths re-home (or drop) them
+first; `scripts/audit_ancillary_orphans.py` is the continuous guard: every
+polymorphic table × each hard-deletable type it admits (`<type>.<table>`, plus
+`<type>.entity_events_linked` for another entity's event linking the id, #611),
+and citations on all seven citable types (`citation.*`). Coverage and the
+`import_provenance` `action='error'` exclusion → `docs/ANCILLARY.md` §"Hard delete".
+The recovery script stays role_assignment-only (its heuristics are
+assignment-specific); anything else goes to manual triage.
 
 ```bash
 # Build --env-file flags (see § Environment)

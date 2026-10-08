@@ -1,16 +1,20 @@
-"""Daily guard: polymorphic ancillary orphaned off deleted roles/role_assignments.
+"""Daily guard: polymorphic rows orphaned off a deleted entity.
 
-Two entity types keep ancillary rows with **no FK**, so a merge dedup — or any
-direct DELETE — that drops the parent can strand them undetected: they point at an
-id that no longer exists, invisible to every UI and to the change feed, and are
-never pruned.
+The polymorphic tables key a row on ``(entity_type, entity_id)`` with **no FK**,
+so any path that drops the entity alone — a merge dedup, a script, raw SQL —
+strands its rows undetected: they point at an id that no longer exists,
+invisible to every UI and to the change feed, and are never pruned.
 
-- **role_assignment (#324):** ``links`` / ``contact_methods`` / ``field_confidence``
-  / ``identifiers`` keyed on ``entity_type='role_assignment'``.
-- **role (#326):** ``links`` / ``contact_methods`` keyed on ``entity_type='role'``.
+- **Every hard-deletable type (#324, #326, #609):** each polymorphic table × each
+  type its CHECK admits — ``links`` / ``contact_methods`` / ``entity_addresses`` /
+  ``field_confidence`` / ``import_provenance`` / ``identifiers`` (by identifier
+  type, so a cross-type row counts too, #617) / ``curation_overlay`` /
+  ``entity_events``, plus another entity's event still linking to the id (#611).
+  Namespaced ``<entity_type>.<table>``; ``entity_events_linked`` is the inbound kind.
+- **Citations (#319):** every citable type, namespaced ``citation.<entity_type>``.
 
-The merge/delete paths now re-home (or drop) ancillary before deleting (see
-``src.core.ancillary_migrate``), but this guard is a continuous backstop against
+The merge/delete paths re-home (or drop) these rows before deleting (see
+``src.core.ancillary_migrate``); this guard is the continuous backstop against
 any path that doesn't — mirrors the schema-parity audit (#315). Read-only.
 
 Exits 3 when any table has orphans (so the systemd unit shows as failed, visible
@@ -28,45 +32,41 @@ import sys
 import asyncpg
 
 from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
-from src.core.ancillary_migrate import (
-    count_orphaned_citations,
-    count_orphaned_role_ancillary,
-    count_orphaned_role_assignment_ancillary,
-)
+from src.core.ancillary_migrate import count_orphaned_citations, count_orphaned_polymorphic_rows
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
 
 
-async def _run(database_url: str) -> int:
-    conn = await asyncpg.connect(database_url)
-    try:
-        ra_counts = await count_orphaned_role_assignment_ancillary(conn)
-        role_counts = await count_orphaned_role_ancillary(conn)
-        citation_counts = await count_orphaned_citations(conn)
-    finally:
-        await conn.close()
-
-    # Namespace by scope so a table name shared across scopes stays distinct.
+async def audit(conn: asyncpg.Connection) -> int:
+    """Count every orphan scope, log the result, and return the exit code (0 or 3)."""
+    citation_counts = await count_orphaned_citations(conn)
     counts = {
-        **{f"role_assignment.{t}": n for t, n in ra_counts.items()},
-        **{f"role.{t}": n for t, n in role_counts.items()},
+        **await count_orphaned_polymorphic_rows(conn),
         **{f"citation.{t}": n for t, n in citation_counts.items()},
     }
     total = sum(counts.values())
     if total == 0:
-        logger.info("role/role_assignment/citation ancillary orphan audit: clean (0 orphans)")
+        logger.info("polymorphic ancillary orphan audit: clean (0 orphans)")
         return 0
 
-    breakdown = ", ".join(f"{table}={n}" for table, n in counts.items() if n)
+    breakdown = ", ".join(f"{key}={n}" for key, n in counts.items() if n)
     logger.warning(
         "ancillary orphans detected: %d total (%s) — "
         "run scripts.cleanup_role_assignment_ancillary_orphans (role_assignment scope) "
-        "or triage citation.* / role.* manually",
+        "or triage the rest manually (docs/AUDITS.md)",
         total,
         breakdown,
     )
     return 3
+
+
+async def _run(database_url: str) -> int:
+    conn = await asyncpg.connect(database_url)
+    try:
+        return await audit(conn)
+    finally:
+        await conn.close()
 
 
 def main() -> None:
