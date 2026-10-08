@@ -107,6 +107,10 @@ _ORPHAN_QUERIES: tuple[tuple[str, str], ...] = (
 )
 
 
+#: The tables this script recovers — the daily audit names it only for these (#609).
+ORPHAN_TABLES = frozenset(table for table, _ in _ORPHAN_QUERIES)
+
+
 async def _fetch_orphans(conn: asyncpg.Connection) -> list[OrphanRow]:
     orphans: list[OrphanRow] = []
     for table, sql in _ORPHAN_QUERIES:

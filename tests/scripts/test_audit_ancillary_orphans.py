@@ -55,3 +55,35 @@ async def test_clean_counts_exit_zero(monkeypatch, caplog):
         assert await audit(None) == 0
 
     assert "clean (0 orphans)" in caplog.text
+
+
+def _patch_counts(monkeypatch, rows: dict[str, int]) -> None:
+    async def _rows(conn):
+        return rows
+
+    async def _no_citations(conn):
+        return {"organization": 0}
+
+    monkeypatch.setattr(audit_module, "count_orphaned_polymorphic_rows", _rows)
+    monkeypatch.setattr(audit_module, "count_orphaned_citations", _no_citations)
+
+
+async def test_points_at_the_cleanup_only_for_tables_it_covers(monkeypatch, caplog):
+    """CR 6: the cleanup script reads five RA tables; the rest go to manual triage."""
+    _patch_counts(monkeypatch, {"role_assignment.links": 1, "role_assignment.curation_overlay": 2})
+
+    with caplog.at_level(logging.WARNING):
+        assert await audit(None) == 3
+
+    assert "cleanup_role_assignment_ancillary_orphans for role_assignment.links" in caplog.text
+    assert "triage role_assignment.curation_overlay manually" in caplog.text
+
+
+async def test_does_not_point_at_the_cleanup_for_tables_it_skips(monkeypatch, caplog):
+    _patch_counts(monkeypatch, {"role_assignment.entity_addresses": 1, "person.links": 1})
+
+    with caplog.at_level(logging.WARNING):
+        assert await audit(None) == 3
+
+    assert "cleanup_role_assignment_ancillary_orphans" not in caplog.text
+    assert "triage role_assignment.entity_addresses, person.links manually" in caplog.text
