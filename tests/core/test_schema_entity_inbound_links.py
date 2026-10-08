@@ -17,7 +17,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
-from tests.db_utils import until_lock_waiting
+from tests.db_utils import trigger_disabled, until_lock_waiting
 
 pytestmark = [pytest.mark.integration]
 
@@ -130,8 +130,8 @@ async def test_a_link_naming_another_type_does_not_block(conn):
     # A person-typed link to the org's id — dangling, but not a reference to the
     # org. The #608 trigger refuses it, so it is planted with that trigger off,
     # inside this rolled-back transaction.
-    await conn.execute("ALTER TABLE entity_events DISABLE TRIGGER trg_entity_events_linked_entity")
-    await _link(conn, "person", person, "person", org)
+    async with trigger_disabled(conn, "entity_events", "trg_entity_events_linked_entity"):
+        await _link(conn, "person", person, "person", org)
 
     await _delete(conn, "organization", org)
     assert not await _exists(conn, "organization", org)

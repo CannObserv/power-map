@@ -13,6 +13,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from tests.db_utils import trigger_disabled
 
 pytestmark = [pytest.mark.integration]
 
@@ -94,7 +95,9 @@ async def test_an_unchanged_link_does_not_recheck(conn):
     """
     pred, succ = await _org(conn), await _org(conn)
     eid = await _link(conn, "organization", pred, "succeeded_by", "organization", succ)
-    await conn.execute("DELETE FROM organizations WHERE id = $1", succ)  # no FK: dangles
+    # Dangles only as legacy data or a guard-bypassing path leaves it (#615).
+    async with trigger_disabled(conn, "organizations", "trg_organizations_inbound_event_links"):
+        await conn.execute("DELETE FROM organizations WHERE id = $1", succ)
 
     await conn.execute(
         "UPDATE entity_events SET notes = 'fixed', linked_entity_type = 'organization',"

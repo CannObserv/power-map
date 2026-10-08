@@ -125,7 +125,9 @@ async def test_pdc_filer_rehome(db):
         pid,
         _FILER_IDTYPE,
     )
-    dead = generate_id()
+    # A write must name a live assignment (#622): strand the identifier the way
+    # it still happens — the assignment raw-deleted out from under it.
+    dead = await archived_entity(db, "role_assignment")
     iid = generate_id()
     await db.execute(
         "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
@@ -135,6 +137,7 @@ async def test_pdc_filer_rehome(db):
         _RA_PDC_IDTYPE,
         "https://www.pdc.wa.gov/browse/campaign-explorer/candidate?filer_id=CALDM%20%20366",
     )
+    await db.execute("DELETE FROM role_assignments WHERE id = $1", dead)
 
     groups = await plan_cleanup(db)
     grp = next(g for g in groups if g.dead_id == dead)

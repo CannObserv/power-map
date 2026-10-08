@@ -17,6 +17,7 @@ from src.core.ancillary_migrate import (
     count_orphaned_polymorphic_rows,
 )
 from src.core.db import generate_id
+from tests.db_utils import trigger_disabled
 from tests.polymorphic_seeders import (
     SEEDERS,
     archived_entity,
@@ -46,6 +47,13 @@ async def _seed_all(db, entity_type: str, entity_id: str) -> set[str]:
     """One row in every polymorphic table admitting ``entity_type``; the tables seeded."""
     seeded = await seed_every_table(db, entity_type, entity_id, skip=_COUNTED_ELSEWHERE)
     return {table for table, _ in seeded} - _COUNTED_ELSEWHERE
+
+
+#: The #615 delete guard on each table an event can link to.
+_INBOUND_GUARDS = {
+    "person": "trg_people_inbound_event_links",
+    "organization": "trg_organizations_inbound_event_links",
+}
 
 
 async def _raw_delete(db, entity_type: str, entity_id: str) -> None:
@@ -96,7 +104,9 @@ async def test_counts_another_entitys_event_linking_a_missing_entity(db, entity_
     )
 
     before = await count_orphaned_polymorphic_rows(db)
-    await _raw_delete(db, entity_type, gone)
+    # #615 refuses this delete; the audit still counts what a bypass leaves.
+    async with trigger_disabled(db, ENTITY_TABLES[entity_type], _INBOUND_GUARDS[entity_type]):
+        await _raw_delete(db, entity_type, gone)
     after = await count_orphaned_polymorphic_rows(db)
 
     assert _grown(before, after) == {f"{entity_type}.entity_events_linked": 1}

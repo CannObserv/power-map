@@ -9,6 +9,7 @@ session start.
 """
 
 import asyncio
+import contextlib
 
 import asyncpg
 import pytest
@@ -66,3 +67,16 @@ async def until_lock_waiting(conn: asyncpg.Connection, pid: int, timeout: float 
             return
         await asyncio.sleep(0.05)
     pytest.fail(f"backend {pid} never blocked on a lock")
+
+
+@contextlib.asynccontextmanager
+async def trigger_disabled(conn: asyncpg.Connection, table: str, trigger: str):
+    """Plant a row a schema guard now refuses, as legacy data or a bypassing path left it.
+
+    ``ALTER TABLE`` holds an ACCESS EXCLUSIVE lock to the end of the caller's
+    transaction, so use this only inside a rolled-back test transaction — which
+    also restores the trigger should the body fail before re-enabling it.
+    """
+    await conn.execute(f"ALTER TABLE {table} DISABLE TRIGGER {trigger}")
+    yield
+    await conn.execute(f"ALTER TABLE {table} ENABLE TRIGGER {trigger}")

@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
+from tests.db_utils import trigger_disabled
 
 pytestmark = [
     pytest.mark.integration,
@@ -644,8 +645,9 @@ async def test_event_edit_unchanged_dangling_link_still_saves(client, person_and
     """
     pid, etid = person_and_event_type
     eid = generate_id()
-    # A link can only be made to a live row (#608's trigger), so dangle it the
-    # way it happens: link, then remove the target out from under it.
+    # A link can only be made to a live row (#608's trigger) and its target
+    # cannot then be deleted (#615's), so dangle it as legacy data or a
+    # guard-bypassing path would: link, then remove the target with #615 off.
     await db.execute("INSERT INTO organizations (id) VALUES ('org_ghost_deleted')")
     await db.execute(
         "INSERT INTO entity_events"
@@ -656,7 +658,8 @@ async def test_event_edit_unchanged_dangling_link_still_saves(client, person_and
         pid,
         etid,
     )
-    await db.execute("DELETE FROM organizations WHERE id = 'org_ghost_deleted'")
+    async with trigger_disabled(db, "organizations", "trg_organizations_inbound_event_links"):
+        await db.execute("DELETE FROM organizations WHERE id = 'org_ghost_deleted'")
     r = await client.post(
         f"/admin/people/{pid}/events/{eid}/edit-row/",
         headers=HTMX_HEADERS,
