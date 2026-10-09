@@ -393,3 +393,22 @@ def test_a_broken_annotated_tag_skips_the_check(monkeypatch, tmp_path, capsys, t
     out = capsys.readouterr().out
     assert "release tag not checked" in out
     assert "is not tagged" not in out
+
+
+def test_a_tagged_snapshot_that_is_not_json_is_a_mis_tag(monkeypatch, tmp_path, capsys):
+    """GitHub served the file; its content is wrong, so the tag is the finding."""
+    raw = _raw_url()
+
+    def opener(url, timeout):
+        if url == raw:
+            return io.BytesIO(b"<<<<<<< conflict")
+        return _opener(_COMMITTED)(url, timeout)
+
+    assert _run(monkeypatch, tmp_path, opener) == 4
+    assert "differs from the served schema" in capsys.readouterr().out
+
+
+def test_an_unreachable_tagged_snapshot_skips_the_check(monkeypatch, tmp_path, capsys):
+    github = {_ref_url(): _lightweight(), _raw_url(): urllib.error.URLError("reset")}
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 0
+    assert "release tag not checked" in capsys.readouterr().out
