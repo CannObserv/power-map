@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -63,6 +64,7 @@ _INCIDENT_TRIGGERS = {
     TriggerKey(table="organizations", name="trg_organizations_inbound_event_links"): "t3",
 }
 _PEOPLE_PK = ConstraintKey(table="people", name="people_pkey")
+_DAY = date(2026, 10, 9)
 
 
 class _Ver:
@@ -142,9 +144,11 @@ def state_path(tmp_path):
 
 @pytest.fixture
 def run_audit(state_path):
-    """``audit.run`` with this test's state file and, by default, ``_DEPLOYED``."""
+    """``audit.run`` with this test's state file and, by default, ``_DEPLOYED`` on ``_DAY``."""
 
-    def _run(reference_url=_REF, target_url=_PROD, *, deployed=_DEPLOYED, escalate_after=3):
+    def _run(
+        reference_url=_REF, target_url=_PROD, *, deployed=_DEPLOYED, escalate_after=3, today=_DAY
+    ):
         return asyncio.run(
             audit.run(
                 reference_url=reference_url,
@@ -152,6 +156,7 @@ def run_audit(state_path):
                 deployed=deployed,
                 state_path=state_path,
                 escalate_after=escalate_after,
+                today=today,
             )
         )
 
@@ -370,6 +375,26 @@ def test_main_passes_the_deployed_schema_and_state(monkeypatch, tmp_path):
     assert seen["escalate_after"] == 5
 
 
+def test_main_exits_3_on_a_missing_deployed_schema(monkeypatch, tmp_path):
+    """An unreadable deployed schema is a misconfiguration (3), not a traceback (1)."""
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "audit",
+            "--target-url",
+            _PROD,
+            "--reference-url",
+            _REF,
+            "--deployed-schema",
+            str(tmp_path / "absent.sql"),
+        ],
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        audit.main()
+    assert excinfo.value.code == 3
+
+
 def test_main_defaults_to_this_checkouts_schema_sql():
     """The unit runs from the main checkout, so its schema.sql is the deployed one."""
     assert audit.DEFAULT_DEPLOYED_SCHEMA == audit.SCHEMA_PATH
@@ -442,45 +467,64 @@ def test_same_objects_once_deployed_but_missing_are_drift(stub_dbs, run_audit):
     assert result.exit_code == 3
 
 
+def _runs(state_path, label="function.lock_identifier_entity()"):
+    return json.loads(state_path.read_text())["streaks"][label]["runs"]
+
+
+def _streak(runs, day=_DAY):
+    return {"runs": runs, "last_day": day.isoformat()}
+
+
 def test_reference_ahead_escalates_after_three_consecutive_runs(
     stub_dbs, run_audit, state_path, caplog
 ):
-    """Runs 1–3 warn; the 4th consecutive run with the same object ahead fails —
-    the reference carries an abandoned branch's schema, not a pending deploy."""
+    """Days 1–3 warn; the 4th consecutive daily run with the same object ahead
+    fails — a long-lived or abandoned branch, not a deploy that is due."""
     _incident_dbs(stub_dbs)
-    for _ in range(3):
-        assert run_audit(deployed=_PRE_629_DEPLOYED).exit_code == 4
+    for day in range(3):
+        assert run_audit(deployed=_PRE_629_DEPLOYED, today=_DAY + timedelta(day)).exit_code == 4
     with caplog.at_level(logging.WARNING):
-        result = run_audit(deployed=_PRE_629_DEPLOYED)
+        result = run_audit(deployed=_PRE_629_DEPLOYED, today=_DAY + timedelta(3))
     assert result.exit_code == 3
     assert result.escalated == result.ahead
     assert "ESCALATED" in caplog.text
-    assert json.loads(state_path.read_text())["streaks"]["function.lock_identifier_entity()"] == 4
+    assert "not a failure" not in caplog.text
+    assert _runs(state_path) == 4
+
+
+def test_manual_reruns_the_same_day_do_not_advance_the_streak(stub_dbs, run_audit, state_path):
+    """``systemctl start`` by hand on a day the timer already ran is not another run."""
+    _incident_dbs(stub_dbs)
+    for _ in range(5):
+        assert run_audit(deployed=_PRE_629_DEPLOYED).exit_code == 4
+    assert _runs(state_path) == 1
 
 
 def test_escalate_after_is_configurable(stub_dbs, run_audit):
     _incident_dbs(stub_dbs)
     assert run_audit(deployed=_PRE_629_DEPLOYED, escalate_after=1).exit_code == 4
-    assert run_audit(deployed=_PRE_629_DEPLOYED, escalate_after=1).exit_code == 3
+    tomorrow = _DAY + timedelta(1)
+    assert run_audit(deployed=_PRE_629_DEPLOYED, escalate_after=1, today=tomorrow).exit_code == 3
 
 
 def test_a_cleared_object_restarts_its_streak(stub_dbs, run_audit, state_path):
     """A deploy that lands clears the object; if it returns, it counts from 1 again."""
     _incident_dbs(stub_dbs)
-    for _ in range(3):
-        run_audit(deployed=_PRE_629_DEPLOYED)
+    for day in range(3):
+        run_audit(deployed=_PRE_629_DEPLOYED, today=_DAY + timedelta(day))
     stub_dbs({_REF: _snap(constraint={_CK: _SET_NULL}), _PROD: _snap(constraint={_CK: _SET_NULL})})
-    assert run_audit().exit_code == 0
+    assert run_audit(today=_DAY + timedelta(3)).exit_code == 0
     assert json.loads(state_path.read_text())["streaks"] == {}
     _incident_dbs(stub_dbs)
-    assert run_audit(deployed=_PRE_629_DEPLOYED).exit_code == 4
+    assert run_audit(deployed=_PRE_629_DEPLOYED, today=_DAY + timedelta(4)).exit_code == 4
+    assert _runs(state_path) == 1
 
 
 def test_a_new_object_does_not_inherit_another_objects_streak(stub_dbs, run_audit, state_path):
     """Streaks are per object: a fresh pending deploy beside an old one warns."""
     stale = "function.abandoned()"
     state_path.parent.mkdir(parents=True)
-    state_path.write_text(json.dumps({"streaks": {stale: 3}}))
+    state_path.write_text(json.dumps({"streaks": {stale: _streak(3, _DAY - timedelta(1))}}))
     _incident_dbs(stub_dbs)
     result = run_audit(deployed=_PRE_629_DEPLOYED)
     assert result.exit_code == 4
@@ -490,23 +534,37 @@ def test_a_new_object_does_not_inherit_another_objects_streak(stub_dbs, run_audi
 def test_skipped_kinds_keep_their_streaks(stub_dbs, run_audit, state_path):
     """A PG-major skip neither advances nor clears a function/trigger streak."""
     state_path.parent.mkdir(parents=True)
-    state_path.write_text(json.dumps({"streaks": {"function.f()": 2, "constraint.t.c": 2}}))
+    state_path.write_text(
+        json.dumps({"streaks": {"function.f()": _streak(2), "constraint.t.c": _streak(2)}})
+    )
     stub_dbs(
         {_REF: _snap(constraint={_CK: _SET_NULL}), _PROD: _snap(constraint={_CK: _SET_NULL})},
         major_map={_REF: 16, _PROD: 15},
     )
     assert run_audit().exit_code == 0
-    assert json.loads(state_path.read_text())["streaks"] == {"function.f()": 2}
+    assert json.loads(state_path.read_text())["streaks"] == {"function.f()": _streak(2)}
 
 
-def test_a_corrupt_state_file_restarts_the_streaks(stub_dbs, run_audit, state_path, caplog):
+@pytest.mark.parametrize(
+    "content",
+    [
+        "{not json",
+        json.dumps({"streaks": {"function.f()": 2}}),  # a bare count, not a streak
+        json.dumps({"streaks": {"function.f()": {"runs": True, "last_day": "2026-10-09"}}}),
+        json.dumps({"streaks": {"function.f()": {"runs": 1, "last_day": 20261009}}}),
+        json.dumps({"streaks": []}),
+    ],
+)
+def test_a_corrupt_state_file_restarts_the_streaks(
+    stub_dbs, run_audit, state_path, caplog, content
+):
     state_path.parent.mkdir(parents=True)
-    state_path.write_text("{not json")
+    state_path.write_text(content)
     _incident_dbs(stub_dbs)
     with caplog.at_level(logging.WARNING):
         assert run_audit(deployed=_PRE_629_DEPLOYED).exit_code == 4
     assert "unreadable" in caplog.text
-    assert json.loads(state_path.read_text())["streaks"]["function.lock_identifier_entity()"] == 1
+    assert _runs(state_path) == 1
 
 
 def test_an_unwritable_state_file_fails(stub_dbs, run_audit, state_path, caplog):
@@ -521,13 +579,51 @@ def test_an_unwritable_state_file_fails(stub_dbs, run_audit, state_path, caplog)
     assert "MISCONFIGURED" in caplog.text
 
 
+def test_an_unwritable_state_file_is_harmless_with_nothing_to_track(
+    stub_dbs, run_audit, state_path
+):
+    """Nothing ahead now or before: there is nothing to write, so nothing to fail on —
+    e.g. a ``data/schema_parity/`` a manual ``sudo`` run left root-owned."""
+    state_path.parent.mkdir(parents=True)
+    state_path.parent.chmod(0o500)
+    try:
+        stub_dbs(
+            {_REF: _snap(constraint={_CK: _SET_NULL}), _PROD: _snap(constraint={_CK: _SET_NULL})}
+        )
+        assert run_audit().exit_code == 0
+        assert not state_path.exists()
+    finally:
+        state_path.parent.chmod(0o700)
+
+
+def test_a_corrupt_state_file_is_rewritten_with_nothing_ahead(stub_dbs, run_audit, state_path):
+    """The read failed, so the file is replaced even with nothing to track; the
+    "unreadable" warning does not repeat every day until something is ahead."""
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text("{not json")
+    stub_dbs({_REF: _snap(constraint={_CK: _SET_NULL}), _PROD: _snap(constraint={_CK: _SET_NULL})})
+    assert run_audit().exit_code == 0
+    assert json.loads(state_path.read_text()) == {"streaks": {}}
+
+
+def test_an_empty_deployed_schema_is_a_misconfiguration(stub_dbs, run_audit, caplog):
+    """A blank deployed schema would read every missing object as ahead — drift
+    passing as a pending deploy — so it fails like an empty reference."""
+    stub_dbs({_REF: _snap(constraint={_PEOPLE_PK: "PRIMARY KEY (id)"}), _PROD: _snap()})
+    with caplog.at_level(logging.WARNING):
+        result = run_audit(deployed=DeployedSchema.from_sql(""))
+    assert result.misconfigured
+    assert result.exit_code == 3
+    assert "MISCONFIGURED" in caplog.text
+
+
 def test_misconfiguration_leaves_the_state_alone(stub_dbs, run_audit, state_path):
     """A run that never diffed has no evidence either way: streaks stay as they were."""
     state_path.parent.mkdir(parents=True)
-    state_path.write_text(json.dumps({"streaks": {"function.f()": 2}}))
+    state_path.write_text(json.dumps({"streaks": {"function.f()": _streak(2)}}))
     stub_dbs({_REF: _snap(), _PROD: _snap()})
     assert run_audit().misconfigured
-    assert json.loads(state_path.read_text())["streaks"] == {"function.f()": 2}
+    assert json.loads(state_path.read_text())["streaks"] == {"function.f()": _streak(2)}
 
 
 def test_unit_counts_reference_ahead_as_success():

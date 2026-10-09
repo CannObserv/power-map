@@ -202,19 +202,23 @@ checkout's, which the unit runs from; `--deployed-schema` overrides):
 
 Matching is by name. Functions and triggers: `CREATE [OR REPLACE] FUNCTION|TRIGGER
 name`. Constraints: most never appear in `schema.sql` (Postgres names an inline
-`PRIMARY KEY` / `REFERENCES` / `CHECK` / `UNIQUE` itself), so one counts as declared when its name is written there, or when it has
-the implicit shape `<table>_<columns>_<pkey|fkey|key|check|excl|not_null>[N]` on
-a created table whose column words all appear. Ambiguity reads as declared, i.e.
-as drift. Changed bodies (mismatches) are not classified: a branch that rewrites a
-function still fails the run until it deploys, so **restart promptly after merging
-a schema change**.
+`PRIMARY KEY` / `REFERENCES` / `CHECK` / `UNIQUE` itself), so one counts as
+declared when its name is written there, or when it has the implicit shape
+`<table>_<columns>_<pkey|fkey|key|check|excl|not_null>[N]` on a created table
+whose column words all appear (`--` comments stripped; the column test is
+schema-wide, so a new constraint on an existing table usually still reads as
+drift until it deploys). Ambiguity reads as declared, i.e. as drift; an empty or
+unreadable deployed schema fails as misconfigured. Changed bodies (mismatches)
+are not classified: a branch that rewrites a function still fails the run until
+it deploys, so **restart promptly after merging a schema change**.
 
-An object ahead for more than 3 consecutive runs (`--escalate-after`) fails with
-`ESCALATED`: no deploy is coming, so the reference carries an abandoned branch's
-schema. `apply-schema.sh --test` from main is additive and will not remove it;
-drop the named objects from the reference, or rebuild it from empty. Per-object
-counts live in `data/schema_parity/reference_ahead.json` (`--state-file`); a run
-that cannot write it fails.
+An object ahead for more than 3 consecutive runs (`--escalate-after`; at most one
+run counts per UTC day) fails with `ESCALATED`: a long-lived or abandoned branch,
+not a deploy that is due. `apply-schema.sh --test` from main is additive and will
+not remove it: ship the branch, or drop the named objects from the reference once
+no worktree needs them, or rebuild it from empty. Per-object streaks live in
+`data/schema_parity/reference_ahead.json` (`--state-file`); a run with a streak to
+keep that cannot write it fails.
 
 Function/trigger defs are PG-version-formatted, so on a **PG major mismatch**
 between reference and target those two kinds are skipped (loud WARNING) rather

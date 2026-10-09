@@ -47,10 +47,14 @@ constraints never appear in ``schema.sql`` at all — Postgres names an inline
 ``PRIMARY KEY`` / ``REFERENCES`` / ``CHECK`` / ``UNIQUE`` itself — so a constraint
 counts as declared when its name is written there, or when it has Postgres'
 implicit shape (``<table>_<columns>_<pkey|fkey|key|check|excl|not_null>[N]``) on
-a created table whose column words all appear. Every ambiguity resolves to
-"declared": misreading drift as a pending deploy is the error that hides
-something, so it is the one the rule avoids. Mismatched definitions are not
-classified — a branch that changes a body still reads as drift until it deploys.
+a created table whose column words all appear. ``--`` comments are stripped
+first, so a name only mentioned in one is not declared. The column test is
+schema-wide, not per table, so a new constraint on an existing column (or on a
+new column whose name is used elsewhere) still reads as drift until it deploys.
+Every ambiguity resolves to "declared": misreading drift as a pending deploy is
+the error that hides something, so it is the one the rule avoids. Mismatched
+definitions are not classified — a branch that changes a body still reads as
+drift until it deploys.
 
 PG-version note: ``pg_get_functiondef`` / ``pg_get_triggerdef`` are deterministic
 on a *given* server version but their formatting can legitimately differ across
@@ -73,6 +77,7 @@ subset independently of any live reference.
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
+from datetime import date
 from typing import NamedTuple
 
 import asyncpg
@@ -263,7 +268,8 @@ def diff_defs(
 
 #: ``CREATE [OR REPLACE] FUNCTION [public.]name(`` — the name a function is declared by.
 _CREATE_FUNCTION_RE = re.compile(
-    r'\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?"?(\w+)"?\s*\(', re.IGNORECASE
+    r'\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:"?public"?\.)?"?(\w+)"?\s*\(',
+    re.IGNORECASE,
 )
 #: ``CREATE [OR REPLACE] [CONSTRAINT] TRIGGER name``, top level or inside a ``DO`` block.
 _CREATE_TRIGGER_RE = re.compile(
@@ -271,15 +277,23 @@ _CREATE_TRIGGER_RE = re.compile(
 )
 #: ``CREATE [UNLOGGED] TABLE [IF NOT EXISTS] [public.]name``.
 _CREATE_TABLE_RE = re.compile(
-    r'\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?"?(\w+)"?',
+    r'\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?public"?\.)?"?(\w+)"?',
     re.IGNORECASE,
 )
 _WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+#: A single-quoted literal (group 1, kept) or a ``--`` comment (dropped), scanned
+#: left to right so ``'--execute'`` stays a string and ``-- don't`` stays a comment.
+_STRING_OR_COMMENT_RE = re.compile(r"('(?:[^']|'')*')|--[^\n]*")
 #: Suffixes Postgres gives a constraint it names itself, before any collision number.
 _IMPLICIT_SUFFIXES = ("pkey", "fkey", "key", "check", "excl", "not_null")
 #: Postgres truncates identifiers to NAMEDATALEN - 1 bytes; a name this long may have
 #: lost its suffix or column words to truncation, so its shape cannot be read.
 _MAX_IDENTIFIER_BYTES = 63
+
+
+def strip_line_comments(sql: str) -> str:
+    """``sql`` without its ``--`` comments; a ``--`` inside a string literal stays."""
+    return _STRING_OR_COMMENT_RE.sub(lambda m: m.group(1) or "", sql)
 
 
 def _segments_into_words(parts: list[str], words: frozenset[str]) -> bool:
@@ -315,7 +329,14 @@ class DeployedSchema:
 
     @classmethod
     def from_sql(cls, sql: str) -> "DeployedSchema":
-        """Index the function, trigger and table names ``sql`` creates, and its words."""
+        """Index the function, trigger and table names ``sql`` creates, and its words.
+
+        ``--`` comments go first: a name a comment mentions is not one the schema
+        declares. The strip is quote-aware, since cutting a line at a ``--`` inside
+        a string would lose its later words — and a lost column word reads a
+        declared constraint as ahead, the direction that hides drift.
+        """
+        sql = strip_line_comments(sql)
 
         def names(pattern: re.Pattern[str]) -> frozenset[str]:
             return frozenset(m.lower() for m in pattern.findall(sql))
@@ -326,6 +347,11 @@ class DeployedSchema:
             tables=names(_CREATE_TABLE_RE),
             words=names(_WORD_RE),
         )
+
+    @property
+    def is_empty(self) -> bool:
+        """True when no table is created: a blank or wrong file, not a schema."""
+        return not self.tables
 
     def declares(self, kind: str, key: NamedTuple) -> bool:
         """True when the deployed schema creates the object ``key`` names."""
@@ -364,13 +390,25 @@ def classify_missing(drift: SchemaObjectDrift, deployed: DeployedSchema) -> Sche
     return replace(drift, missing_in_target=missing, reference_ahead=ahead)
 
 
-def advance_streaks(previous: Mapping[str, int], ahead: Iterable[str]) -> dict[str, int]:
-    """Consecutive-run counts for the labels ahead this run, from the last run's counts.
+def advance_streaks(
+    previous: Mapping[str, Mapping], ahead: Iterable[str], *, today: date
+) -> dict[str, dict]:
+    """Consecutive-run streaks for the labels ahead this run, from the last run's.
 
-    A label still ahead gains a run, a new one starts at 1, and a label no longer
-    ahead drops out, so its count restarts if it ever comes back.
+    A streak is ``{"runs": n, "last_day": "YYYY-MM-DD"}``. A label still ahead
+    gains a run, a new one starts at 1, and a label no longer ahead drops out, so
+    it restarts if it ever comes back. At most one run counts per UTC day: the
+    timer is daily, and a manual re-run must not hurry an escalation along.
     """
-    return {label: previous.get(label, 0) + 1 for label in ahead}
+    day = today.isoformat()
+    streaks = {}
+    for label in ahead:
+        last = previous.get(label)
+        if last is not None and last["last_day"] == day:
+            streaks[label] = dict(last)
+        else:
+            streaks[label] = {"runs": (last["runs"] if last else 0) + 1, "last_day": day}
+    return streaks
 
 
 #: Column where the ``reference:`` / ``target:`` def values start (6-space bullet

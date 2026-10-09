@@ -20,8 +20,8 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # surfaces in `systemctl --failed` and can drive OnFailure= later.
 # A reference-only object the deployed src/core/schema.sql (this checkout's) does
 # not declare is the reference running ahead of a deploy (#632): exit 4, a journal
-# WARNING, success here. Past 3 consecutive runs it escalates to exit 3; the
-# per-object run counts live in data/schema_parity/reference_ahead.json.
+# WARNING, success here. Past 3 consecutive daily runs it escalates to exit 3;
+# the per-object streaks live in data/schema_parity/reference_ahead.json.
 # Read-only on both databases; the state file is its only write.
 ExecStart=uv run python -m scripts.audit_schema_constraint_parity
 SuccessExitStatus=4

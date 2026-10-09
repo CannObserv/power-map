@@ -36,13 +36,14 @@ WARNING naming the objects, not a failure. Matching rules (name-level, with
 Postgres' implicit constraint names) are in ``src.core.schema_parity``.
 
 An object that stays ahead for more than ``--escalate-after`` consecutive runs
-(default 3) escalates to a failure: no deploy is coming for it, so the reference
-carries an abandoned branch's schema. ``apply-schema.sh --test`` from main does
-not remove it (the apply is additive), so drop the named objects from the
-reference or rebuild it from an empty schema. The per-object run counts persist
-in ``--state-file`` (default ``data/schema_parity/reference_ahead.json``); a run
-that never reaches the diff leaves them alone, and one that cannot write them
-fails, since the escalation would otherwise never fire.
+(default 3; at most one run counts per UTC day) escalates to a failure: the
+reference carries a long-lived or abandoned branch's schema, not a deploy that
+is due. ``apply-schema.sh --test`` from main does not remove it (the apply is
+additive): ship the branch, or drop the named objects from the reference or
+rebuild it from an empty schema. The per-object streaks persist in
+``--state-file`` (default ``data/schema_parity/reference_ahead.json``); a run
+that never reaches the diff leaves them alone, and one that has a streak to keep
+but cannot write it fails, since the escalation would otherwise never fire.
 
 Mismatched definitions are not classified: a branch that changes a function body
 still reads as drift until it deploys.
@@ -51,10 +52,11 @@ Exit codes:
     0  parity
     3  drift, an escalated reference-ahead object, or misconfiguration (an
        empty reference, a reference that is the same DB as the target, an
-       unwritable state file) — so the systemd unit shows as failed (visible in
-       ``systemctl --failed``; a hook for future ``OnFailure=`` alerting) —
-       mirrors ``scripts/check_api_anomalies.py``. 3, not 2, stays distinct
-       from argparse usage errors.
+       empty or unreadable deployed schema, an unwritable state file) — so the
+       systemd unit shows as failed (visible in ``systemctl --failed``; a hook
+       for future ``OnFailure=`` alerting) — mirrors
+       ``scripts/check_api_anomalies.py``. 3, not 2, stays distinct from
+       argparse usage errors.
     4  reference ahead only; the unit's ``SuccessExitStatus=4`` counts it as
        success, so it stays in the journal without turning the unit red.
 
@@ -71,6 +73,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -173,17 +176,26 @@ def _db_identity(url: str) -> tuple[str | None, int, str]:
     return (p.hostname, p.port or 5432, p.path.lstrip("/"))
 
 
-def _read_streaks(path: Path) -> dict[str, int]:
-    """The last run's per-object counts; none when the file is absent or unreadable.
+def _is_streak(value: object) -> bool:
+    """``{"runs": int, "last_day": str}`` — a JSON ``true`` is not a run count."""
+    return (
+        isinstance(value, dict)
+        and type(value.get("runs")) is int
+        and isinstance(value.get("last_day"), str)
+    )
+
+
+def _read_streaks(path: Path) -> dict[str, dict] | None:
+    """The last run's per-object streaks: ``{}`` when absent, None when unreadable.
 
     An unreadable file restarts every streak, delaying an escalation by at most
-    ``--escalate-after`` runs; the next write replaces it.
+    ``--escalate-after`` runs; the caller rewrites it.
     """
     try:
         streaks = json.loads(path.read_text())["streaks"]
-        if isinstance(streaks, dict) and all(isinstance(v, int) for v in streaks.values()):
+        if isinstance(streaks, dict) and all(_is_streak(v) for v in streaks.values()):
             return streaks
-        raise ValueError("streaks is not a {label: int} map")
+        raise ValueError('streaks is not a {label: {"runs", "last_day"}} map')
     except FileNotFoundError:
         return {}
     except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -192,11 +204,11 @@ def _read_streaks(path: Path) -> dict[str, int]:
             path,
             exc,
         )
-        return {}
+        return None
 
 
-def _write_streaks(path: Path, streaks: dict[str, int]) -> bool:
-    """Persist this run's counts; False (logged) when the file cannot be written."""
+def _write_streaks(path: Path, streaks: dict[str, dict]) -> bool:
+    """Persist this run's streaks; False (logged) when the file cannot be written."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"streaks": streaks}, indent=2, sort_keys=True) + "\n")
@@ -218,6 +230,7 @@ async def run(
     deployed: DeployedSchema,
     state_path: Path,
     escalate_after: int,
+    today: date | None = None,
 ) -> AuditResult:
     """Snapshot both DBs across all kinds, diff, classify, log; return the outcome.
 
@@ -225,11 +238,12 @@ async def run(
     functions, and triggers (``target_only`` is logged but excluded, matching
     ``SchemaObjectDrift.has_drift``), after ``classify_missing`` moves the
     objects ``deployed`` does not declare to ``ahead``. Each ahead object's
-    consecutive-run count is advanced in ``state_path``; one past
-    ``escalate_after`` is ``escalated``. A misconfigured audit — an empty
-    reference or a reference that is the same DB as the target — is reported as
-    such, so the monitor fails loudly rather than passing vacuously (the
-    silent-no-op class #315 targets).
+    consecutive-run streak is advanced in ``state_path`` (one run per UTC day,
+    ``today`` defaulting to now); one past ``escalate_after`` is ``escalated``.
+    A misconfigured audit — an empty reference, a reference that is the same DB
+    as the target, or an empty deployed schema, which would pass every missing
+    object off as ahead — is reported as such, so the monitor fails loudly rather
+    than passing vacuously (the silent-no-op class #315 targets).
 
     Version-sensitive kinds (functions, triggers) are skipped with a WARNING when
     reference and target run different PG majors — their ``pg_get_*def``
@@ -249,6 +263,14 @@ async def run(
             "drift. Set PARITY_REFERENCE_URL (or --reference-url) to a distinct "
             "reference DB.",
             tgt_label,
+        )
+        return AuditResult(misconfigured=True)
+
+    if deployed.is_empty:
+        logger.warning(
+            "Schema parity audit MISCONFIGURED — the deployed schema creates no "
+            "table (blank or wrong --deployed-schema); every object missing in the "
+            "target would read as a pending deploy instead of drift."
         )
         return AuditResult(misconfigured=True)
 
@@ -338,28 +360,33 @@ async def run(
             total_drift += drift.drift_count
         else:
             logger.warning(
-                "Schema %s REFERENCE AHEAD — not drift, not a failure:\n%s", kind, report
+                "Schema %s REFERENCE AHEAD — not drift (pending deploy?):\n%s", kind, report
             )
 
     # Skipped kinds were not looked at, so their streaks carry over untouched.
-    previous = _read_streaks(state_path)
+    read = _read_streaks(state_path)
+    previous = read if read is not None else {}
     streaks = {label: n for label, n in previous.items() if label.split(".", 1)[0] in skipped_kinds}
-    streaks |= advance_streaks(previous, ahead)
-    if not _write_streaks(state_path, streaks):
+    streaks |= advance_streaks(previous, ahead, today=today or datetime.now(UTC).date())
+    # Nothing tracked before or now, and a sound file: skip the write, so a state
+    # file only breaks the run when there is a streak to keep.
+    needs_write = bool(previous or streaks) or read is None
+    if needs_write and not _write_streaks(state_path, streaks):
         return AuditResult(drift_count=total_drift, ahead=tuple(ahead), misconfigured=True)
 
-    escalated = tuple(label for label in ahead if streaks[label] > escalate_after)
+    escalated = tuple(label for label in ahead if streaks[label]["runs"] > escalate_after)
     if escalated:
         logger.warning(
-            "Schema parity ESCALATED — %d object(s) ahead of the deployed schema.sql for "
-            "more than %d consecutive runs, so no deploy is coming for them: the "
-            "reference %s carries an abandoned branch's schema. Drop them from the "
+            "Schema parity ESCALATED — %d object(s) ahead of the deployed schema.sql on "
+            "more than %d consecutive daily runs: the reference %s carries a "
+            "long-lived or abandoned branch's schema, not a deploy that is due. Ship "
+            "the branch, or, once no worktree needs them, drop the objects from the "
             "reference or rebuild it from an empty schema (apply-schema.sh --test is "
             "additive and keeps them):\n%s",
             len(escalated),
             escalate_after,
             ref_label,
-            "\n".join(f"  - {label} ({streaks[label]} runs)" for label in escalated),
+            "\n".join(f"  - {label} ({streaks[label]['runs']} runs)" for label in escalated),
         )
     return AuditResult(drift_count=total_drift, ahead=tuple(ahead), escalated=escalated)
 
@@ -422,11 +449,20 @@ def main() -> None:
     echo_target(args.target_url, role="target")
     echo_target(args.reference_url, role="reference")
 
+    try:
+        deployed = DeployedSchema.from_sql(args.deployed_schema.read_text())
+    except (OSError, UnicodeDecodeError) as exc:
+        logger.warning(
+            "Schema parity audit MISCONFIGURED — cannot read the deployed schema %s (%s).",
+            args.deployed_schema,
+            exc,
+        )
+        sys.exit(EXIT_FAILURE)
     result = asyncio.run(
         run(
             reference_url=args.reference_url,
             target_url=args.target_url,
-            deployed=DeployedSchema.from_sql(args.deployed_schema.read_text()),
+            deployed=deployed,
             state_path=args.state_file,
             escalate_after=args.escalate_after,
         )

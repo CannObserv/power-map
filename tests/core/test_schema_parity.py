@@ -10,6 +10,9 @@ text. Integration tests exercise the live constraint/function/trigger snapshot
 queries against the test DB.
 """
 
+import re
+from datetime import date
+
 import pytest
 
 from src.core.db import SCHEMA_PATH
@@ -25,6 +28,7 @@ from src.core.schema_parity import (
     snapshot_constraints,
     snapshot_functions,
     snapshot_triggers,
+    strip_line_comments,
 )
 
 
@@ -142,6 +146,9 @@ CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$ BEGIN RETURN N
     LANGUAGE plpgsql;
 CREATE FUNCTION public.fn_qualified(a int) RETURNS int AS $$ SELECT a $$ LANGUAGE sql;
 -- refuse_delete_while_linked() is planned; only mentioned here, never created.
+-- A nickname column is planned too: a word in a comment is not a column.
+CREATE FUNCTION "public"."fn_quoted"() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql;
+CREATE TABLE "public".widgets (id TEXT PRIMARY KEY);
 CREATE OR REPLACE TRIGGER trg_updated_at_people
     BEFORE UPDATE ON people FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 DO $$ BEGIN
@@ -158,10 +165,11 @@ def deployed():
 
 @pytest.mark.parametrize(
     "signature",
-    ["set_updated_at()", "fn_qualified(integer)", "SET_UPDATED_AT()"],
+    ["set_updated_at()", "fn_qualified(integer)", "fn_quoted()", "SET_UPDATED_AT()"],
 )
 def test_deployed_declares_created_functions(deployed, signature):
-    """``CREATE [OR REPLACE] FUNCTION [public.]name(`` declares it, any overload."""
+    """``CREATE [OR REPLACE] FUNCTION [public.]name(`` declares it, any overload,
+    quoted or not."""
     assert deployed.declares("function", FunctionKey(signature=signature))
 
 
@@ -174,6 +182,12 @@ def test_deployed_ignores_a_function_only_mentioned(deployed):
 def test_deployed_declares_created_triggers(deployed, name):
     """Top-level ``CREATE OR REPLACE TRIGGER`` and a guarded ``DO``-block ``CREATE TRIGGER``."""
     assert deployed.declares("trigger", TriggerKey(table="people", name=name))
+
+
+def test_deployed_declares_a_quoted_schema_qualified_table(deployed):
+    """``CREATE TABLE "public".widgets`` creates ``widgets``, not ``public``."""
+    assert deployed.declares("constraint", ConstraintKey(table="widgets", name="widgets_pkey"))
+    assert "public" not in deployed.tables
 
 
 def test_deployed_does_not_declare_an_absent_trigger(deployed):
@@ -207,12 +221,64 @@ def test_deployed_declares_named_and_implicit_constraints(deployed, name):
     ("table", "name"),
     [
         ("people", "chk_people_adult"),  # explicit name, absent
-        ("people", "people_nickname_check"),  # implicit shape, column absent
+        ("people", "people_nickname_check"),  # implicit shape, column only in a comment
         ("aliases", "aliases_pkey"),  # table never created
     ],
 )
 def test_deployed_does_not_declare_absent_constraints(deployed, table, name):
     assert not deployed.declares("constraint", ConstraintKey(table=table, name=name))
+
+
+def test_an_empty_deployed_schema_is_empty():
+    """No tables means a blank or wrong file — the audit treats it as misconfigured."""
+    assert DeployedSchema.from_sql("-- nothing here\n").is_empty
+    assert not DeployedSchema.from_sql(_DEPLOYED_SQL).is_empty
+
+
+def test_a_comment_inside_a_string_literal_keeps_the_rest_of_the_line():
+    """``'--execute'`` in a message is not a comment: the words after it on the same
+    line survive, since a lost column word would read a declared constraint as ahead."""
+    deployed = DeployedSchema.from_sql(
+        "CREATE TABLE IF NOT EXISTS t (id TEXT PRIMARY KEY);\n"
+        "RAISE 'run --execute'; ALTER TABLE t ADD COLUMN zebra TEXT; -- trailing comment"
+    )
+    assert deployed.declares("constraint", ConstraintKey(table="t", name="t_zebra_check"))
+    assert "trailing" not in deployed.words
+
+
+#: A ``CREATE FUNCTION|TRIGGER|TABLE`` inside a quoted literal: ``'…'`` or a named
+#: ``$tag$…$tag$`` (an anonymous ``$$`` is a function or ``DO`` body, read as text).
+_DYNAMIC_DDL_RE = re.compile(
+    r"('(?:[^']|'')*'|\$\w+\$.*?\$\w+\$)",
+    re.DOTALL,
+)
+_CREATE_DDL_RE = re.compile(
+    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:CONSTRAINT\s+)?(?:UNLOGGED\s+)?"
+    r"(?:FUNCTION|TRIGGER|TABLE)\b",
+    re.IGNORECASE,
+)
+
+
+def test_schema_sql_creates_no_object_through_dynamic_sql():
+    """``DeployedSchema`` reads names from ``CREATE`` text, so a quoted string that an
+    ``EXECUTE`` turns into a function, trigger or table would hide its name and read
+    a deployed object as ahead. Keep such DDL out of schema.sql, or teach the reader."""
+    sql = strip_line_comments(SCHEMA_PATH.read_text())
+    literals = [m.group(1) for m in _DYNAMIC_DDL_RE.finditer(sql)]
+    assert [lit for lit in literals if _CREATE_DDL_RE.search(lit)] == []
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "EXECUTE format('CREATE TRIGGER %I BEFORE INSERT ON t', 'trg');",
+        "v := 'CREATE OR REPLACE FUNCTION f() RETURNS int'; EXECUTE v;",
+        "EXECUTE format($f$CREATE TABLE %I (id int)$f$, 'x');",
+    ],
+)
+def test_dynamic_ddl_detector(sql):
+    literals = [m.group(1) for m in _DYNAMIC_DDL_RE.finditer(sql)]
+    assert any(_CREATE_DDL_RE.search(lit) for lit in literals)
 
 
 def test_deployed_rejects_an_unknown_kind(deployed):
@@ -267,17 +333,29 @@ def test_format_report_names_reference_ahead_as_pending_deploy(deployed):
     assert "MISSING" not in report
 
 
-def test_advance_streaks_counts_consecutive_runs_per_object():
-    """A label still ahead gains a run; a new one starts at 1; a cleared one drops."""
-    previous = {"function.a()": 2, "trigger.t.gone": 5}
-    assert advance_streaks(previous, ["function.a()", "function.b()"]) == {
-        "function.a()": 3,
-        "function.b()": 1,
+_D1, _D2 = date(2026, 10, 9), date(2026, 10, 10)
+
+
+def test_advance_streaks_counts_consecutive_run_days_per_object():
+    """A label still ahead gains a run, a new one starts at 1, a cleared one drops."""
+    previous = {
+        "function.a()": {"runs": 2, "last_day": "2026-10-09"},
+        "trigger.t.gone": {"runs": 5, "last_day": "2026-10-09"},
+    }
+    assert advance_streaks(previous, ["function.a()", "function.b()"], today=_D2) == {
+        "function.a()": {"runs": 3, "last_day": "2026-10-10"},
+        "function.b()": {"runs": 1, "last_day": "2026-10-10"},
     }
 
 
+def test_advance_streaks_counts_one_run_per_utc_day():
+    """A manual re-run the same day is not another run: the timer is daily."""
+    first = advance_streaks({}, ["function.a()"], today=_D1)
+    assert advance_streaks(first, ["function.a()"], today=_D1) == first
+
+
 def test_advance_streaks_from_nothing():
-    assert advance_streaks({}, []) == {}
+    assert advance_streaks({}, [], today=_D1) == {}
 
 
 def test_real_schema_sql_declares_the_2026_10_09_objects():
@@ -351,13 +429,23 @@ async def test_snapshot_triggers_captures_touch_triggers_and_excludes_internal(d
 
 
 @pytest.mark.integration
-async def test_schema_sql_declares_every_live_constraint(db_pool):
-    """The implicit-name rule holds on the real schema: of the test DB's constraints
-    (most named by Postgres, never written in schema.sql), none reads as ahead of
-    the schema.sql that built it. A failure names either a rule gap or a stray
-    branch's ``apply-schema.sh --test`` still on the shared test DB."""
+async def test_schema_sql_declares_every_live_object(db_pool):
+    """The matching rules hold on the real schema: of the test DB's constraints
+    (most named by Postgres, never written in schema.sql), functions and triggers,
+    none reads as ahead of the schema.sql that built it. A failure names either a
+    rule gap or a stray branch's ``apply-schema.sh --test`` still on the shared
+    test DB."""
     async with db_pool.acquire() as conn:
-        snap = await snapshot_constraints(conn)
+        snaps = {
+            "constraint": await snapshot_constraints(conn),
+            "function": await snapshot_functions(conn),
+            "trigger": await snapshot_triggers(conn),
+        }
     deployed = DeployedSchema.from_sql(SCHEMA_PATH.read_text())
-    ahead = sorted(k.label for k in snap if not deployed.declares("constraint", k))
+    ahead = sorted(
+        f"{kind}.{k.label}"
+        for kind, snap in snaps.items()
+        for k in snap
+        if not deployed.declares(kind, k)
+    )
     assert ahead == []
