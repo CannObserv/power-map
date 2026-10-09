@@ -473,6 +473,9 @@ async def test_an_identifier_written_during_a_hard_delete_goes_with_it(db_pool, 
 
             await delete
             assert not await writer.fetchval(
+                f"SELECT EXISTS (SELECT 1 FROM {table} WHERE id = $1)", entity
+            )
+            assert not await writer.fetchval(
                 "SELECT EXISTS (SELECT 1 FROM identifiers WHERE entity_id = $1)", entity
             )
         finally:
