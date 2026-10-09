@@ -186,7 +186,8 @@ def _tagged_commit(opener, tag: str, timeout: float) -> str | None:
 def release_tag_finding(live: dict[str, Any], opener, timeout: float) -> str | None:
     """Why ``v<live version>`` is not a correct pin, or None when it is.
 
-    Raises ``TagCheckSkipped`` when GitHub can't say either way.
+    *live* must carry ``info.version`` (``KeyError`` otherwise; the CLI checks
+    first). Raises ``TagCheckSkipped`` when GitHub can't say either way.
     """
     tag = f"v{live['info']['version']}"
     sha = _tagged_commit(opener, tag, timeout)
