@@ -20,16 +20,11 @@ import pytest_asyncio
 from src.core.ancillary_migrate import ENTITY_TABLES
 from src.core.db import IDENTIFIER_ENTITY_GUARD, generate_id
 from tests.db_utils import trigger_disabled, until_lock_waiting
-from tests.polymorphic_seeders import archived_entity
+from tests.polymorphic_seeders import IDENTIFIER_DELETE_GUARDS, archived_entity
 
 pytestmark = [pytest.mark.integration]
 
-GUARDS = {
-    "person": "trg_people_identifiers",
-    "organization": "trg_organizations_identifiers",
-    "role_assignment": "trg_role_assignments_identifiers",
-    "jurisdiction": "trg_jurisdictions_identifiers",
-}
+GUARDS = IDENTIFIER_DELETE_GUARDS
 #: One identifier type slug per entity type the catalog admits.
 TYPE_SLUGS = {
     "person": "person_ssn",
