@@ -364,8 +364,19 @@ differ). A fetch failure exits 1, because `/ready`'s guard owns liveness. It is
 read-only and opens no GitHub issue; #566's alerting will carry it once that
 lands.
 
+It also checks the release tag (#631), the pin consumers install from.
+`v<served info.version>` must exist on GitHub and point at a commit whose
+`clients/python/openapi.json` equals the served schema, so a tag at the wrong
+ref fails as well as a missing one. Either exits 4, and the journal names the
+fix (`git tag v<version> && git push origin v<version>` from the main checkout;
+`-f` on both to move a wrong one). Drift (3) outranks it. The repo is public,
+so the REST API is called without credentials. The check is skipped, with a log
+line and no effect on the exit, while `power-map.service` is under 2 h past
+`ActiveEnterTimestamp` (a deploy just before the daily run gets until the next
+one), and when GitHub is unreachable, rate-limited or answers oddly.
+
 ```bash
 uv run python -m scripts.check_openapi_parity                 # compare once, now
-uv run python -m scripts.check_openapi_parity --url http://localhost:8001/openapi.json
+uv run python -m scripts.check_openapi_parity --no-tag-check --url http://localhost:8001/openapi.json
 sudo journalctl -u power-map-openapi-parity -f
 ```

@@ -242,7 +242,9 @@ sudo journalctl -u power-map -f      # watch startup; schema errors surface here
 ```
 
 Then tag the release, which is the pin for `power-map-client` consumers (#618):
-`git tag v<version> && git push origin v<version>`, at the deployed `main`.
+`git tag v<version> && git push origin v<version>`, at the deployed `main`. The daily
+`power-map-openapi-parity` run checks it (#631): an untagged or mis-tagged deployed version
+exits 4, after a 2 h grace from the restart.
 
 If `infra/power-map.service` changed in the pull, reinstall the unit first (see § Service Management —
 "Install (first time or after updating infra/power-map.service)") before restarting. Likewise the
@@ -466,7 +468,7 @@ row names**; this is a roster, not a reference.
 | `power-map-schema-parity` | daily | `audit_schema_constraint_parity.py` — prod vs reference DDL | [AUDITS.md](AUDITS.md) |
 | `power-map-ancillary-orphans` | daily | `audit_ancillary_orphans.py` — no-FK polymorphic orphans | [AUDITS.md](AUDITS.md) |
 | `power-map-assignment-rel-windows` | daily | `audit_assignment_relationship_windows.py` — drifted RA→RA edge windows | [AUDITS.md](AUDITS.md) |
-| `power-map-openapi-parity` | daily | `check_openapi_parity.py` — live `/openapi.json` vs `clients/python/openapi.json` | [AUDITS.md](AUDITS.md) |
+| `power-map-openapi-parity` | daily | `check_openapi_parity.py` — live `/openapi.json` vs `clients/python/openapi.json`, and its `v<version>` tag | [AUDITS.md](AUDITS.md) |
 | `power-map-a11y` | Sun 04:00 UTC | `run-a11y-sweep.sh` — both a11y tiers against the test DB | [TESTING.md](TESTING.md) |
 
 An audit timer exits **3** on a finding, which is what puts it in
