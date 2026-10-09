@@ -102,6 +102,8 @@ confined to the deploy that reconciles. It also fires any guard trigger on the
 child: `trg_identifiers_entity` (#622) treats the re-id as no reference change,
 since the entity type stays, so an orphaned identifier rides along rather than
 aborting the apply. A new guard on a child table needs the same exemption.
+The referenced-side identifier guard (#630) fires only on an entity `DELETE`,
+which reconciliation never issues, so it needs none.
 The `RAISE WARNING` for a parked slug goes to the Postgres log, which
 `apply-schema.sh` does not echo; the parked row is visible in admin Settings
 under its `_superseded_` slug.

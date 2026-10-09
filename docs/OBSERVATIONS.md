@@ -41,8 +41,10 @@ citation hung off the fork.
   whose `entity_id` is not in its type's table (archived counts) raises
   `foreign_key_violation`. It checks on insert and when the reference — entity id, or the
   type's `entity_type` — changes; a retype within one entity type is not a change, so seed
-  reconciliation's re-id never aborts `apply_schema` on an orphan. Guard:
-  `tests/core/test_schema_identifier_entity.py`.
+  reconciliation's re-id never aborts `apply_schema` on an orphan. The referenced half
+  (#630): deleting a person, org, assignment or jurisdiction an identifier still names
+  raises the same, so a `scripts/` delete drops or re-homes identifiers first. Guards:
+  `tests/core/test_schema_identifier_entity.py`, `tests/core/test_schema_entity_identifiers.py`.
 
 **Value conventions.** The catalog has no value-format column, so these stay here — the
 ones worth knowing before minting:
