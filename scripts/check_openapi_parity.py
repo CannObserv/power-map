@@ -220,7 +220,11 @@ def release_tag_finding(live: dict[str, Any], opener, timeout: float) -> str | N
 
 
 def _check_release_tag(live: dict[str, Any], opener, timeout: float, started_at) -> str | None:
-    """Run the tag check unless it must be skipped; log every skip at INFO."""
+    """Run the tag check unless it must be skipped.
+
+    A skip by design (no version, inside the grace window) logs INFO; GitHub
+    trouble logs WARNING, since the check was wanted and did not happen.
+    """
     version = live.get("info", {}).get("version") if isinstance(live.get("info"), dict) else None
     if not version:
         logger.info("openapi parity: release tag not checked — the schema has no info.version")
