@@ -444,3 +444,18 @@ def test_a_protocol_error_on_the_live_schema_is_a_fetch_failure(monkeypatch, tmp
 
     assert _run(monkeypatch, tmp_path, opener) == 1
     assert "could not fetch" in capsys.readouterr().out
+
+
+def test_a_non_json_answer_from_github_is_not_called_unreachable(monkeypatch, tmp_path, capsys):
+    """GitHub answered; the journal must not send the operator chasing the network."""
+    ref = _ref_url()
+
+    def opener(url, timeout):
+        if url == ref:
+            return io.BytesIO(b"<html>unicorn</html>")
+        return _opener(_COMMITTED)(url, timeout)
+
+    assert _run(monkeypatch, tmp_path, opener) == 0
+    out = capsys.readouterr().out
+    assert "is not JSON" in out
+    assert "unreachable" not in out

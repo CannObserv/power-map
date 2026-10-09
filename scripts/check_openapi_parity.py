@@ -157,8 +157,10 @@ def _github_object(opener, url: str, timeout: float) -> dict[str, Any]:
         target = _fetch_json(opener, url, timeout)["object"]
     except urllib.error.HTTPError:
         raise
-    except (*FETCH_ERRORS, ValueError) as exc:
+    except FETCH_ERRORS as exc:
         raise TagCheckSkipped(f"GitHub unreachable — {exc}") from exc
+    except ValueError as exc:
+        raise TagCheckSkipped(f"GitHub's answer for {url} is not JSON") from exc
     except (KeyError, TypeError) as exc:
         raise TagCheckSkipped(f"GitHub's answer for {url} has no object") from exc
     if not isinstance(target, dict) or not isinstance(target.get("sha"), str):
