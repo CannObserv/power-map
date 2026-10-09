@@ -479,3 +479,16 @@ def test_the_tag_is_quoted_into_the_url(monkeypatch, tmp_path):
         main(opener=opener, started_at=_long_ago)
     assert exc.value.code == 4
     assert asked[1] == f"{_API}/ref/tags/v1.2%23rc"
+
+
+def test_a_tag_on_something_other_than_a_commit_skips_the_check(monkeypatch, tmp_path, capsys):
+    github = {_ref_url(): {"object": {"sha": _SHA, "type": "tree"}}}
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 0
+    assert "does not resolve to a commit" in capsys.readouterr().out
+
+
+def test_a_server_error_on_the_tagged_snapshot_skips_the_check(monkeypatch, tmp_path, capsys):
+    """Only a 404 there means the tagged commit lacks the snapshot."""
+    github = {_ref_url(): _lightweight(), _raw_url(): _http_error(_raw_url(), 503)}
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 0
+    assert "release tag not checked" in capsys.readouterr().out
