@@ -284,8 +284,11 @@ def test_an_unknown_start_time_still_checks_the_tag(monkeypatch, tmp_path):
     ids=["unreachable", "rate-limited", "unavailable", "timeout"],
 )
 def test_github_trouble_skips_only_the_tag_check(monkeypatch, tmp_path, capsys, failure):
+    """WARNING, not INFO: the check was wanted and did not happen."""
     assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, {_ref_url(): failure})) == 0
-    assert "release tag not checked" in capsys.readouterr().out
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    skip = [line for line in lines if "release tag not checked" in line["message"]]
+    assert [line["level"] for line in skip] == ["WARNING"]
 
 
 def test_github_trouble_does_not_hide_schema_drift(monkeypatch, tmp_path):
