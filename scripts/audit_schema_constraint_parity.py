@@ -43,7 +43,8 @@ additive): ship the branch, or drop the named objects from the reference or
 rebuild it from an empty schema. The per-object streaks persist in
 ``--state-file`` (default ``data/schema_parity/reference_ahead.json``); a run
 that never reaches the diff leaves them alone, and one that has a streak to keep
-but cannot write it fails, since the escalation would otherwise never fire.
+(or an unreadable file to replace) but cannot write it fails, since the
+escalation would otherwise never fire.
 
 Mismatched definitions are not classified: a branch that changes a function body
 still reads as drift until it deploys.
@@ -369,7 +370,7 @@ async def run(
     streaks = {label: n for label, n in previous.items() if label.split(".", 1)[0] in skipped_kinds}
     streaks |= advance_streaks(previous, ahead, today=today or datetime.now(UTC).date())
     # Nothing tracked before or now, and a sound file: skip the write, so a state
-    # file only breaks the run when there is a streak to keep.
+    # file only breaks the run when there is a streak to keep or a bad file to replace.
     needs_write = bool(previous or streaks) or read is None
     if needs_write and not _write_streaks(state_path, streaks):
         return AuditResult(drift_count=total_drift, ahead=tuple(ahead), misconfigured=True)

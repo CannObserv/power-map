@@ -218,7 +218,7 @@ not a deploy that is due. `apply-schema.sh --test` from main is additive and wil
 not remove it: ship the branch, or drop the named objects from the reference once
 no worktree needs them, or rebuild it from empty. Per-object streaks live in
 `data/schema_parity/reference_ahead.json` (`--state-file`); a run with a streak to
-keep that cannot write it fails.
+keep, or an unreadable file to replace, that cannot write it fails.
 
 Function/trigger defs are PG-version-formatted, so on a **PG major mismatch**
 between reference and target those two kinds are skipped (loud WARNING) rather

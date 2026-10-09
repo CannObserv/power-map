@@ -397,8 +397,8 @@ def advance_streaks(
 
     A streak is ``{"runs": n, "last_day": "YYYY-MM-DD"}``. A label still ahead
     gains a run, a new one starts at 1, and a label no longer ahead drops out, so
-    it restarts if it ever comes back. At most one run counts per UTC day: the
-    timer is daily, and a manual re-run must not hurry an escalation along.
+    it restarts if it ever comes back. At most one run counts per UTC day, the
+    timer's cadence, so a same-day re-run leaves the streak as it was.
     """
     day = today.isoformat()
     streaks = {}
