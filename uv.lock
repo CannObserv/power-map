@@ -1331,7 +1331,7 @@ wheels = [
 
 [[package]]
 name = "power-map"
-version = "0.59.3"
+version = "0.59.4"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
@@ -1428,7 +1428,7 @@ seed = [
 
 [[package]]
 name = "power-map-client"
-version = "0.59.3"
+version = "0.59.4"
 source = { editable = "clients/python" }
 dependencies = [
     { name = "attrs" },
