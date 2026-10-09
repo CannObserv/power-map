@@ -472,7 +472,7 @@ row names**; this is a roster, not a reference.
 | `power-map-a11y` | Sun 04:00 UTC | `run-a11y-sweep.sh` — both a11y tiers against the test DB | [TESTING.md](TESTING.md) |
 
 An audit timer exits **3** on a finding, which is what puts it in
-`systemctl --failed`; exit 1 is a real error. Installing or inspecting any of
+`systemctl --failed` (openapi-parity also exits 4 on a release-tag finding); exit 1 is a real error. Installing or inspecting any of
 them takes the same shape:
 
 ```bash
