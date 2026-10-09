@@ -97,9 +97,11 @@ def _long_ago():
     return datetime.now(UTC) - timedelta(days=3)
 
 
-def _run(monkeypatch, tmp_path, opener, started_at=_long_ago, extra=()) -> int:
+def _run(
+    monkeypatch, tmp_path, opener, started_at=_long_ago, extra=(), committed=_COMMITTED
+) -> int:
     snapshot = tmp_path / "openapi.json"
-    snapshot.write_text(json.dumps(_COMMITTED, indent=2))
+    snapshot.write_text(json.dumps(committed, indent=2))
     argv = ["check_openapi_parity", "--url", _LIVE_URL, *extra]
     monkeypatch.setattr(sys, "argv", [*argv, "--snapshot", str(snapshot)])
     with pytest.raises(SystemExit) as exc:
@@ -311,14 +313,7 @@ def test_a_served_schema_without_a_version_skips_the_tag_check(monkeypatch, tmp_
         assert url == _LIVE_URL, "no version, so GitHub is never asked"
         return io.BytesIO(json.dumps(unversioned).encode())
 
-    snapshot = tmp_path / "openapi.json"
-    snapshot.write_text(json.dumps(unversioned))
-    monkeypatch.setattr(
-        sys, "argv", ["check_openapi_parity", "--url", _LIVE_URL, "--snapshot", str(snapshot)]
-    )
-    with pytest.raises(SystemExit) as exc:
-        main(opener=opener, started_at=_long_ago)
-    assert exc.value.code == 0
+    assert _run(monkeypatch, tmp_path, opener, committed=unversioned) == 0
     assert "no info.version" in capsys.readouterr().out
 
 
@@ -470,14 +465,7 @@ def test_the_tag_is_quoted_into_the_url(monkeypatch, tmp_path):
         asked.append(url)
         return _opener(live, github={})(url, timeout)
 
-    snapshot = tmp_path / "openapi.json"
-    snapshot.write_text(json.dumps(live))
-    monkeypatch.setattr(
-        sys, "argv", ["check_openapi_parity", "--url", _LIVE_URL, "--snapshot", str(snapshot)]
-    )
-    with pytest.raises(SystemExit) as exc:
-        main(opener=opener, started_at=_long_ago)
-    assert exc.value.code == 4
+    assert _run(monkeypatch, tmp_path, opener, committed=live) == 4
     assert asked[1] == f"{_API}/ref/tags/v1.2%23rc"
 
 
