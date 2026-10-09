@@ -376,3 +376,20 @@ def test_service_started_at_is_none_without_systemctl(error):
 
 def test_grace_is_about_two_hours():
     assert GRACE == timedelta(hours=2)
+
+
+@pytest.mark.parametrize(
+    "tag_object",
+    [{"object": "not-a-mapping"}, _http_error(f"{_API}/tags/{_TAG_SHA}", 404)],
+    ids=["malformed", "missing"],
+)
+def test_a_broken_annotated_tag_skips_the_check(monkeypatch, tmp_path, capsys, tag_object):
+    """The ref exists, so a bad tag object is GitHub's oddity: never "not tagged", never a crash."""
+    github = {
+        _ref_url(): {"object": {"sha": _TAG_SHA, "type": "tag"}},
+        f"{_API}/tags/{_TAG_SHA}": tag_object,
+    }
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 0
+    out = capsys.readouterr().out
+    assert "release tag not checked" in out
+    assert "is not tagged" not in out

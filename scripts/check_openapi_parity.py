@@ -142,23 +142,43 @@ def _fetch_json(opener, url: str, timeout: float) -> Any:
         return json.loads(response.read())
 
 
+def _github_object(opener, url: str, timeout: float) -> dict[str, Any]:
+    """The ``object`` of a GitHub ref or annotated tag; raises HTTPError as fetched.
+
+    Every other failure, and any body without a well-formed ``object``, is
+    ``TagCheckSkipped``: GitHub's oddity, not a finding.
+    """
+    try:
+        target = _fetch_json(opener, url, timeout)["object"]
+    except urllib.error.HTTPError:
+        raise
+    except (OSError, urllib.error.URLError, ValueError) as exc:
+        raise TagCheckSkipped(f"GitHub unreachable — {exc}") from exc
+    except (KeyError, TypeError) as exc:
+        raise TagCheckSkipped(f"GitHub's answer for {url} has no object") from exc
+    if not isinstance(target, dict) or not isinstance(target.get("sha"), str):
+        raise TagCheckSkipped(f"GitHub's answer for {url} has no object")
+    return target
+
+
 def _tagged_commit(opener, tag: str, timeout: float) -> str | None:
-    """The commit *tag* names on GitHub, following an annotated tag; None if absent."""
+    """The commit *tag* names on GitHub, following an annotated tag; None if absent.
+
+    Only a 404 on the ref itself means absent: the ref exists once it answers.
+    """
     api = f"https://api.github.com/repos/{REPO}/git"
     try:
-        ref = _fetch_json(opener, f"{api}/ref/tags/{tag}", timeout)
-        target = ref["object"]
-        if target["type"] == "tag":
-            target = _fetch_json(opener, f"{api}/tags/{target['sha']}", timeout)["object"]
+        target = _github_object(opener, f"{api}/ref/tags/{tag}", timeout)
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return None
         raise TagCheckSkipped(f"GitHub answered {exc.code} for {tag}") from exc
-    except (OSError, urllib.error.URLError, ValueError) as exc:
-        raise TagCheckSkipped(f"GitHub unreachable — {exc}") from exc
-    except (KeyError, TypeError) as exc:
-        raise TagCheckSkipped(f"GitHub's answer for {tag} is not a ref") from exc
-    if target.get("type") != "commit" or not isinstance(target.get("sha"), str):
+    if target.get("type") == "tag":
+        try:
+            target = _github_object(opener, f"{api}/tags/{target['sha']}", timeout)
+        except urllib.error.HTTPError as exc:
+            raise TagCheckSkipped(f"GitHub answered {exc.code} for {tag}'s tag object") from exc
+    if target.get("type") != "commit":
         raise TagCheckSkipped(f"{tag} does not resolve to a commit")
     return target["sha"]
 
