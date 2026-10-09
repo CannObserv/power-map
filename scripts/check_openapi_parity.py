@@ -53,8 +53,9 @@ logger = get_logger(__name__)
 DEFAULT_URL = "http://localhost:8000/openapi.json"
 DEFAULT_SNAPSHOT = Path(__file__).resolve().parents[1] / "clients" / "python" / "openapi.json"
 DEFAULT_TIMEOUT = 10.0
-# A response that breaks off mid-read raises http.client.HTTPException, which
-# urllib leaves unwrapped and which is not an OSError: every fetch catches it.
+# What a failed fetch can raise. urllib wraps OSError only around sending: a
+# response that breaks off mid-read raises http.client.HTTPException, unwrapped.
+FETCH_ERRORS = (OSError, urllib.error.URLError, http.client.HTTPException)
 
 # Names listed per line before the rest is counted: a wholesale drift stays readable.
 MAX_NAMES = 10
@@ -156,7 +157,7 @@ def _github_object(opener, url: str, timeout: float) -> dict[str, Any]:
         target = _fetch_json(opener, url, timeout)["object"]
     except urllib.error.HTTPError:
         raise
-    except (OSError, http.client.HTTPException, urllib.error.URLError, ValueError) as exc:
+    except (*FETCH_ERRORS, ValueError) as exc:
         raise TagCheckSkipped(f"GitHub unreachable — {exc}") from exc
     except (KeyError, TypeError) as exc:
         raise TagCheckSkipped(f"GitHub's answer for {url} has no object") from exc
@@ -213,7 +214,7 @@ def release_tag_finding(live: dict[str, Any], opener, timeout: float) -> str | N
         return f"{tag} points at {sha[:12]}, which has no {SNAPSHOT_PATH}; {move}"
     except ValueError:
         tagged = None
-    except (OSError, http.client.HTTPException, urllib.error.URLError) as exc:
+    except FETCH_ERRORS as exc:
         raise TagCheckSkipped(f"GitHub unreachable — {exc}") from exc
     if tagged != live:
         return (
@@ -277,7 +278,7 @@ def main(opener=urlopen, started_at: Callable[[], datetime | None] = service_sta
         with opener(args.url, timeout=args.timeout) as response:
             live = json.loads(response.read())
         committed = json.loads(args.snapshot.read_text())
-    except (OSError, http.client.HTTPException, urllib.error.URLError, ValueError) as exc:
+    except (*FETCH_ERRORS, ValueError) as exc:
         logger.error("openapi parity: could not fetch or read a schema — %s", exc)
         sys.exit(1)
     for label, document in (("live", live), ("committed", committed)):
