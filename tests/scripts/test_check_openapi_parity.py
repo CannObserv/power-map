@@ -459,3 +459,23 @@ def test_a_non_json_answer_from_github_is_not_called_unreachable(monkeypatch, tm
     out = capsys.readouterr().out
     assert "is not JSON" in out
     assert "unreachable" not in out
+
+
+def test_the_tag_is_quoted_into_the_url(monkeypatch, tmp_path):
+    """Unquoted, `1.2#rc` would ask GitHub about v1.2 — a tag nobody named."""
+    live = {**_COMMITTED, "info": {"title": "power-map", "version": "1.2#rc"}}
+    asked = []
+
+    def opener(url, timeout):
+        asked.append(url)
+        return _opener(live, github={})(url, timeout)
+
+    snapshot = tmp_path / "openapi.json"
+    snapshot.write_text(json.dumps(live))
+    monkeypatch.setattr(
+        sys, "argv", ["check_openapi_parity", "--url", _LIVE_URL, "--snapshot", str(snapshot)]
+    )
+    with pytest.raises(SystemExit) as exc:
+        main(opener=opener, started_at=_long_ago)
+    assert exc.value.code == 4
+    assert asked[1] == f"{_API}/ref/tags/v1.2%23rc"

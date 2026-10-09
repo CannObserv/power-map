@@ -43,6 +43,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 from urllib.request import urlopen
 
 from scripts._dsn import build_parser
@@ -175,7 +176,7 @@ def _tagged_commit(opener, tag: str, timeout: float) -> str | None:
     """
     api = f"https://api.github.com/repos/{REPO}/git"
     try:
-        target = _github_object(opener, f"{api}/ref/tags/{tag}", timeout)
+        target = _github_object(opener, f"{api}/ref/tags/{quote(tag, safe='')}", timeout)
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return None
