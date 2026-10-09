@@ -17,7 +17,7 @@ from scripts.cleanup_role_assignment_ancillary_orphans import (
 )
 from src.core.ancillary_migrate import count_orphaned_polymorphic_rows
 from src.core.db import generate_id
-from tests.polymorphic_seeders import SEEDERS, archived_entity, seed_every_table
+from tests.polymorphic_seeders import SEEDERS, archived_entity, raw_delete, seed_every_table
 
 pytestmark = [pytest.mark.integration]
 
@@ -125,8 +125,8 @@ async def test_pdc_filer_rehome(db):
         pid,
         _FILER_IDTYPE,
     )
-    # A write must name a live assignment (#622): strand the identifier the way
-    # it still happens — the assignment raw-deleted out from under it.
+    # A write must name a live assignment (#622), and a delete must not leave
+    # one behind (#630): strand it as a bypassing path did, guard off.
     dead = await archived_entity(db, "role_assignment")
     iid = generate_id()
     await db.execute(
@@ -137,7 +137,7 @@ async def test_pdc_filer_rehome(db):
         _RA_PDC_IDTYPE,
         "https://www.pdc.wa.gov/browse/campaign-explorer/candidate?filer_id=CALDM%20%20366",
     )
-    await db.execute("DELETE FROM role_assignments WHERE id = $1", dead)
+    await raw_delete(db, "role_assignment", dead)
 
     groups = await plan_cleanup(db)
     grp = next(g for g in groups if g.dead_id == dead)
@@ -248,7 +248,7 @@ async def test_plan_and_audit_count_the_same_orphans(db):
     )
     assert {table for table, _ in seeded} == ORPHAN_TABLES
     await _import_error_row(db)
-    await db.execute("DELETE FROM role_assignments WHERE id = $1", ra)
+    await raw_delete(db, "role_assignment", ra)
 
     planned = Counter(row.table for group in await plan_cleanup(db) for row in group.rows)
     counted = await count_orphaned_polymorphic_rows(db)

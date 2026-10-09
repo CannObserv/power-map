@@ -25,6 +25,7 @@ import pytest_asyncio
 
 from scripts import seed_442_historical_parties as seed
 from src.core.db import generate_id
+from tests.polymorphic_seeders import raw_delete
 
 pytestmark = [pytest.mark.integration]
 
@@ -323,13 +324,13 @@ async def _party_identifier(db, value, entity_id):
 async def _orphaned_party_identifier(db, value):
     """An ``org_wa_party`` row whose Org was deleted out from under it.
 
-    A write must name a live Org (#622), so strand it the way it still happens:
-    a raw delete of the Org that skips ``delete_entity_ancillary``.
+    A write must name a live Org (#622) and a delete must not strand one (#630),
+    so plant it as a bypassing path left it: a raw delete with that guard off.
     """
     org_id = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
     await _party_identifier(db, value, org_id)
-    await db.execute("DELETE FROM organizations WHERE id = $1", org_id)
+    await raw_delete(db, "organization", org_id)
 
 
 async def _live_org_count_for(db, value):

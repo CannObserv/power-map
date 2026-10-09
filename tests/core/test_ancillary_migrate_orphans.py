@@ -21,6 +21,7 @@ from tests.db_utils import trigger_disabled
 from tests.polymorphic_seeders import (
     SEEDERS,
     archived_entity,
+    raw_delete,
     seed_entity_events,
     seed_every_table,
 )
@@ -57,9 +58,12 @@ _INBOUND_GUARDS = {
 
 
 async def _raw_delete(db, entity_type: str, entity_id: str) -> None:
-    """Delete the entity alone, as a script would — no ``delete_entity_ancillary``."""
-    table = ENTITY_TABLES[entity_type]
-    await db.execute(f"DELETE FROM {table} WHERE id = $1", entity_id)
+    """Delete the entity alone, as a script would — no ``delete_entity_ancillary``.
+
+    #630 now refuses that while an identifier names it; the audit still counts
+    what a bypass leaves, so the guard is off for the statement.
+    """
+    await raw_delete(db, entity_type, entity_id)
 
 
 def _grown(before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
