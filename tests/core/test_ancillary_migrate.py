@@ -7,10 +7,13 @@ silently orphaned unless re-homed onto the surviving assignment first. These
 tests pin the re-point-or-dedup contract and the survivor outbox signal.
 """
 
+import asyncio
+
 import pytest
 import pytest_asyncio
 
 from src.core.ancillary_migrate import (
+    ENTITY_TABLES,
     delete_entity_ancillary,
     migrate_role_assignment_ancillary,
     rehome_conflicting_assignment_ancillary,
@@ -18,7 +21,8 @@ from src.core.ancillary_migrate import (
     rehome_role_ancillary,
 )
 from src.core.db import generate_id
-from tests.db_utils import trigger_disabled
+from tests.db_utils import trigger_disabled, until_lock_waiting
+from tests.polymorphic_seeders import archived_entity
 
 pytestmark = [pytest.mark.integration]
 
@@ -426,6 +430,58 @@ async def test_delete_entity_ancillary_rejects_an_unknown_type(db, entity_type):
     """#605 CR: a misspelt type would match no row and strand them all, silently."""
     with pytest.raises(ValueError, match="hard-deletable"):
         await delete_entity_ancillary(db, entity_type, generate_id())
+
+
+#: An identifier type slug per parent-less entity type, for the committed-data race.
+_RACE_TYPE_SLUGS = {"person": "person_ssn", "jurisdiction": "jur_fips"}
+
+
+@pytest.mark.parametrize("entity_type", sorted(_RACE_TYPE_SLUGS))
+async def test_an_identifier_written_during_a_hard_delete_goes_with_it(db_pool, entity_type):
+    """#630: the helper locks the entity first, so a mid-flight identifier is dropped.
+
+    Unlocked, the helper's read misses the uncommitted identifier, the entity
+    ``DELETE`` then waits on it, and once it commits the referenced-side trigger
+    refuses the delete — a 500 from a route whose own helper ran. ``FOR UPDATE``
+    first makes the identifier commit before the helper reads, so it goes too.
+    Role assignments share the code path; these two need no parent rows to clean.
+    """
+    table = ENTITY_TABLES[entity_type]
+    async with db_pool.acquire() as writer, db_pool.acquire() as deleter:
+        entity = await archived_entity(writer, entity_type)  # committed: deleter must see it
+        wtr = writer.transaction()
+        await wtr.start()
+        delete, committed = None, False
+
+        async def hard_delete():
+            async with deleter.transaction():
+                await delete_entity_ancillary(deleter, entity_type, entity)
+                await deleter.execute(f"DELETE FROM {table} WHERE id = $1", entity)
+
+        try:
+            await writer.execute(
+                "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+                " SELECT $1, $2, t.id, 'V-1' FROM entity_identifier_types t WHERE t.slug = $3",
+                generate_id(),
+                entity,
+                _RACE_TYPE_SLUGS[entity_type],
+            )
+            delete = asyncio.create_task(hard_delete())
+            await until_lock_waiting(writer, deleter.get_server_pid())
+            await wtr.commit()
+            committed = True
+
+            await delete
+            assert not await writer.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM identifiers WHERE entity_id = $1)", entity
+            )
+        finally:
+            if not committed:
+                await wtr.rollback()
+            if delete is not None and not delete.done():
+                await asyncio.wait([delete], timeout=5)
+            await writer.execute("DELETE FROM identifiers WHERE entity_id = $1", entity)
+            await writer.execute(f"DELETE FROM {table} WHERE id = $1", entity)
 
 
 # --- curation_overlay (#514): a curator's override follows a merged entity ---------
