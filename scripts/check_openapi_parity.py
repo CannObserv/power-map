@@ -120,7 +120,9 @@ def differences(live: dict[str, Any], committed: dict[str, Any]) -> list[str]:
     return found
 
 
-def service_started_at(run=subprocess.run) -> datetime | None:
+def service_started_at(
+    run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+) -> datetime | None:
     """When ``power-map.service`` last entered ``active``; None when unknown."""
     cmd = [
         "systemctl",
@@ -228,7 +230,12 @@ def release_tag_finding(live: dict[str, Any], opener, timeout: float) -> str | N
     return None
 
 
-def _check_release_tag(live: dict[str, Any], opener, timeout: float, started_at) -> str | None:
+def _check_release_tag(
+    live: dict[str, Any],
+    opener,
+    timeout: float,
+    started_at: Callable[[], datetime | None],
+) -> str | None:
     """Run the tag check unless it must be skipped.
 
     A skip by design (no version, inside the grace window) logs INFO; GitHub
