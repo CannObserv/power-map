@@ -1651,6 +1651,72 @@ CREATE OR REPLACE TRIGGER trg_touch_entity_on_identifier_change
     AFTER INSERT OR UPDATE OR DELETE ON identifiers
     FOR EACH ROW EXECUTE FUNCTION touch_parent_on_identifier_change();
 
+-- #622: identifiers.entity_id is polymorphic — its table is the one its type's
+-- entity_type names — so no real FK can hold it; this stands in, as
+-- lock_event_linked_entity does for event links (#608). A new row, or one whose
+-- entity or type changes, takes FOR KEY SHARE on its entity (archived included)
+-- and raises foreign_key_violation when the type's table has no such row: a
+-- missing entity, or another type's. A plain read would pass a row an
+-- uncommitted delete still holds; the lock waits for that delete and then sees
+-- the row gone. An unknown type id is left to the column's real FK.
+-- An unchanged reference is not rechecked. The reference is (the type's
+-- entity_type, entity_id): a retype within one entity_type leaves it alone, and
+-- so does reconcile_seeded_slugs' re-id, whose old type row is renamed in the
+-- same statement and so may not be found here. Rechecking those would let one
+-- orphaned identifier abort apply_schema — and with it the service start.
+CREATE OR REPLACE FUNCTION lock_identifier_entity()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_entity_type TEXT;
+    v_old_type    TEXT;
+BEGIN
+    IF TG_OP = 'UPDATE'
+       AND NEW.entity_id IS NOT DISTINCT FROM OLD.entity_id
+       AND NEW.entity_identifier_type_id IS NOT DISTINCT FROM OLD.entity_identifier_type_id THEN
+        RETURN NEW;
+    END IF;
+    SELECT entity_type INTO v_entity_type
+    FROM entity_identifier_types
+    WHERE id = NEW.entity_identifier_type_id;
+    IF NOT FOUND THEN
+        RETURN NEW;
+    END IF;
+    IF TG_OP = 'UPDATE' AND NEW.entity_id IS NOT DISTINCT FROM OLD.entity_id THEN
+        SELECT entity_type INTO v_old_type
+        FROM entity_identifier_types
+        WHERE id = OLD.entity_identifier_type_id;
+        IF NOT FOUND OR v_old_type = v_entity_type THEN
+            RETURN NEW;
+        END IF;
+    END IF;
+    IF v_entity_type = 'organization' THEN
+        PERFORM 1 FROM organizations WHERE id = NEW.entity_id FOR KEY SHARE;
+    ELSIF v_entity_type = 'person' THEN
+        PERFORM 1 FROM people WHERE id = NEW.entity_id FOR KEY SHARE;
+    ELSIF v_entity_type = 'role_assignment' THEN
+        PERFORM 1 FROM role_assignments WHERE id = NEW.entity_id FOR KEY SHARE;
+    ELSIF v_entity_type = 'jurisdiction' THEN
+        PERFORM 1 FROM jurisdictions WHERE id = NEW.entity_id FOR KEY SHARE;
+    ELSE
+        -- Unreachable under the catalog's CHECK; a type admitted there later
+        -- needs its own branch here, not a silent lookup in people.
+        RAISE EXCEPTION 'unsupported entity_type % for identifier type %',
+            v_entity_type, NEW.entity_identifier_type_id
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'identifiers.entity_id % names no %', NEW.entity_id, v_entity_type
+            USING ERRCODE = 'foreign_key_violation',
+                  CONSTRAINT = 'trg_identifiers_entity';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_identifiers_entity
+    BEFORE INSERT OR UPDATE OF entity_id, entity_identifier_type_id ON identifiers
+    FOR EACH ROW EXECUTE FUNCTION lock_identifier_entity();
+
 -- entity_addresses is polymorphic: dispatch the touch on entity_type (#181).
 -- Cascades into the entity_changes outbox via each parent's
 -- fn_record_entity_change AFTER UPDATE trigger.
@@ -2642,6 +2708,42 @@ $$;
 CREATE OR REPLACE TRIGGER trg_entity_events_linked_entity
     BEFORE INSERT OR UPDATE OF linked_entity_type, linked_entity_id ON entity_events
     FOR EACH ROW EXECUTE FUNCTION lock_event_linked_entity();
+
+-- #615: the referenced half of #608's FK. Deleting a person or organization
+-- that another entity's event links to — archived events included, since
+-- unarchiving would restore the link — raises foreign_key_violation, naming
+-- the trigger as its constraint. The entity's own events, a self-link included,
+-- are not inbound (inbound_link_conflict's rule): hard delete drops them and
+-- merge re-homes them. A BEFORE ROW trigger fires once the row is locked, so a
+-- link that committed while the delete waited on its FOR KEY SHARE is seen.
+-- The admin hard delete refuses first with a named 409, and merges re-point
+-- every link first (#611); this is the backstop for every other path.
+CREATE OR REPLACE FUNCTION refuse_delete_while_linked()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_type TEXT := TG_ARGV[0];
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM entity_events
+        WHERE linked_entity_type = v_type
+          AND linked_entity_id = OLD.id
+          AND NOT (entity_type = v_type AND entity_id = OLD.id)
+    ) THEN
+        RAISE EXCEPTION '% % is still linked from entity_events', v_type, OLD.id
+            USING ERRCODE = 'foreign_key_violation',
+                  CONSTRAINT = TG_NAME;
+    END IF;
+    RETURN OLD;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_people_inbound_event_links
+    BEFORE DELETE ON people
+    FOR EACH ROW EXECUTE FUNCTION refuse_delete_while_linked('person');
+
+CREATE OR REPLACE TRIGGER trg_organizations_inbound_event_links
+    BEFORE DELETE ON organizations
+    FOR EACH ROW EXECUTE FUNCTION refuse_delete_while_linked('organization');
 
 -- #307 CR rounds 1–2: reconcile entity_events CHECKs on pre-existing DBs.
 -- CREATE TABLE IF NOT EXISTS no-ops on an existing table, so constraints added

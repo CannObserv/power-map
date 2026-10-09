@@ -322,3 +322,17 @@ def linked_entity_vanished(exc: asyncpg.ForeignKeyViolationError) -> bool:
     address, its type), which keep their own handling.
     """
     return exc.constraint_name == LINKED_ENTITY_GUARD
+
+
+#: The constraint name ``trg_identifiers_entity`` raises
+#: ``foreign_key_violation`` under (#622).
+IDENTIFIER_ENTITY_GUARD = "trg_identifiers_entity"
+
+
+def identifier_entity_vanished(exc: asyncpg.ForeignKeyViolationError) -> bool:
+    """True when an identifier write failed because its entity is gone (#622).
+
+    A writer checks the entity, then writes; a delete landing in between trips
+    the schema trigger. Distinct from the row's real FK on its identifier type.
+    """
+    return exc.constraint_name == IDENTIFIER_ENTITY_GUARD

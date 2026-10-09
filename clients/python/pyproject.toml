@@ -2,7 +2,7 @@
 name = "power-map-client"
 # The app's version, stamped by `uv run python -m scripts.regenerate_client`
 # (#618): client X.Y.Z is generated from power-map X.Y.Z and pinned as tag vX.Y.Z.
-version = "0.59.2"
+version = "0.59.3"
 description = "Python client for the power-map public API, generated from its OpenAPI schema."
 readme = "README.md"
 requires-python = ">=3.12"

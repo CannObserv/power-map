@@ -18,6 +18,7 @@ from src.core.ancillary_migrate import (
     rehome_role_ancillary,
 )
 from src.core.db import generate_id
+from tests.db_utils import trigger_disabled
 
 pytestmark = [pytest.mark.integration]
 
@@ -200,13 +201,15 @@ async def test_identifier_scoped_to_role_assignment_type_only(db):
         "SELECT id FROM entity_identifier_types WHERE entity_type='person' LIMIT 1"
     )
     stray = generate_id()
-    await db.execute(
-        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
-        " VALUES ($1, $2, $3, 'STRAY')",
-        stray,
-        loser,
-        person_type,
-    )
+    # A cross-type row is legacy-only since #622's trigger; plant it with that off.
+    async with trigger_disabled(db, "identifiers", "trg_identifiers_entity"):
+        await db.execute(
+            "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+            " VALUES ($1, $2, $3, 'STRAY')",
+            stray,
+            loser,
+            person_type,
+        )
 
     counts = await migrate_role_assignment_ancillary(db, loser, winner)
 

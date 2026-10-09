@@ -60,6 +60,7 @@ async def test_apply_schema_reids_operator_created_slug(db_pool):
     """The operator's row is re-idd onto the seeded ULID; its data survives."""
     operator_id = generate_id()
     identifier_id = generate_id()
+    person_id = generate_id()
 
     async with db_pool.acquire() as conn:
         try:
@@ -67,7 +68,8 @@ async def test_apply_schema_reids_operator_created_slug(db_pool):
             # exist, and an operator hand-created the type to unblock a consumer.
             await conn.execute("DELETE FROM entity_identifier_types WHERE id = $1", SEEDED_ID)
             await conn.execute(_INSERT_TYPE, operator_id, SEEDED_SLUG)
-            await conn.execute(_INSERT_IDENTIFIER, identifier_id, generate_id(), operator_id)
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+            await conn.execute(_INSERT_IDENTIFIER, identifier_id, person_id, operator_id)
 
             await apply_schema(conn)
 
@@ -92,6 +94,7 @@ async def test_apply_schema_reids_operator_created_slug(db_pool):
             )
         finally:
             await conn.execute("DELETE FROM identifiers WHERE id = $1", identifier_id)
+            await conn.execute("DELETE FROM people WHERE id = $1", person_id)
             await conn.execute("DELETE FROM entity_identifier_types WHERE id = $1", operator_id)
             await conn.execute(_RESTORE_SEEDED, SEEDED_ID, SEEDED_SLUG)
 
@@ -106,6 +109,7 @@ async def test_apply_schema_parks_slug_when_seeded_id_is_taken(db_pool):
     """
     operator_id = generate_id()
     identifier_id = generate_id()
+    person_id = generate_id()
 
     async with db_pool.acquire() as conn:
         try:
@@ -115,7 +119,8 @@ async def test_apply_schema_parks_slug_when_seeded_id_is_taken(db_pool):
                 f"{SEEDED_SLUG}_pre_rename",
             )
             await conn.execute(_INSERT_TYPE, operator_id, SEEDED_SLUG)
-            await conn.execute(_INSERT_IDENTIFIER, identifier_id, generate_id(), operator_id)
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+            await conn.execute(_INSERT_IDENTIFIER, identifier_id, person_id, operator_id)
 
             await apply_schema(conn)
 
@@ -141,10 +146,55 @@ async def test_apply_schema_parks_slug_when_seeded_id_is_taken(db_pool):
             )
         finally:
             await conn.execute("DELETE FROM identifiers WHERE id = $1", identifier_id)
+            await conn.execute("DELETE FROM people WHERE id = $1", person_id)
             await conn.execute("DELETE FROM entity_identifier_types WHERE id = $1", operator_id)
             # apply_schema restores the seeded slug itself; this only matters
             # when the assertions above never got that far.
             await conn.execute(_RESTORE_SEEDED, SEEDED_ID, SEEDED_SLUG)
+
+
+async def test_reid_carries_an_orphaned_identifier_without_aborting(db_pool):
+    """The re-id re-points identifiers' type FK, and one may name a deleted entity.
+
+    A raw delete of its entity still strands an identifier, and the re-id moves
+    its type id without changing what it references — so ``trg_identifiers_entity``
+    (#622) must not recheck it: raising here aborts ``apply_schema``, and with it
+    the service start.
+    """
+    operator_id, seeded_id = generate_id(), generate_id()
+    person_id, identifier_id = generate_id(), generate_id()
+
+    async with db_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute(_INSERT_TYPE, operator_id, "zz_probe_622")
+            await conn.execute("INSERT INTO people (id) VALUES ($1)", person_id)
+            await conn.execute(_INSERT_IDENTIFIER, identifier_id, person_id, operator_id)
+            await conn.execute("DELETE FROM people WHERE id = $1", person_id)  # orphans it
+            await conn.execute(
+                "CREATE TEMP TABLE _probe_seed (LIKE entity_identifier_types INCLUDING ALL)"
+            )
+            await conn.execute(
+                "INSERT INTO _probe_seed (id, entity_type, slug, display_name, full_name)"
+                " VALUES ($1, 'person', 'zz_probe_622', 'Probe', 'Probe')",
+                seeded_id,
+            )
+
+            moved = await conn.fetchval(
+                "SELECT reconcile_seeded_slugs('entity_identifier_types', '_probe_seed')"
+            )
+
+            assert moved == 1
+            assert (
+                await conn.fetchval(
+                    "SELECT entity_identifier_type_id FROM identifiers WHERE id = $1",
+                    identifier_id,
+                )
+                == seeded_id
+            )
+        finally:
+            await tx.rollback()
 
 
 # Every seeded lookup that pairs a ULID PK with a UNIQUE slug, with the extra

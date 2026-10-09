@@ -320,6 +320,18 @@ async def _party_identifier(db, value, entity_id):
     )
 
 
+async def _orphaned_party_identifier(db, value):
+    """An ``org_wa_party`` row whose Org was deleted out from under it.
+
+    A write must name a live Org (#622), so strand it the way it still happens:
+    a raw delete of the Org that skips ``delete_entity_ancillary``.
+    """
+    org_id = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
+    await _party_identifier(db, value, org_id)
+    await db.execute("DELETE FROM organizations WHERE id = $1", org_id)
+
+
 async def _live_org_count_for(db, value):
     return await db.fetchval(
         """SELECT count(*)
@@ -333,7 +345,7 @@ async def _live_org_count_for(db, value):
 
 async def test_dangling_identifier_is_blocked_not_silently_skipped(db):
     """An identifier pointing at a deleted Org must not read as "already present"."""
-    await _party_identifier(db, "populist", generate_id())  # no organizations row
+    await _orphaned_party_identifier(db, "populist")
 
     actions = await seed.seed_parties(db, execute=True)
 
@@ -367,7 +379,7 @@ async def test_ambiguous_identifier_rows_are_blocked(db):
 
 async def test_blocked_party_is_not_created_on_a_later_run(db):
     """Blocking is not a transient state the next run papers over."""
-    await _party_identifier(db, "peoples", generate_id())
+    await _orphaned_party_identifier(db, "peoples")
 
     await seed.seed_parties(db, execute=True)
     actions = await seed.seed_parties(db, execute=True)
