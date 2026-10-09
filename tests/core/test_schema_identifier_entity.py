@@ -17,7 +17,7 @@ import pytest_asyncio
 
 from src.core.db import IDENTIFIER_ENTITY_GUARD, generate_id
 from tests.db_utils import until_lock_waiting
-from tests.polymorphic_seeders import archived_entity
+from tests.polymorphic_seeders import archived_entity, raw_delete
 
 pytestmark = [pytest.mark.integration]
 
@@ -139,7 +139,7 @@ async def test_retyping_within_one_entity_type_does_not_recheck(conn):
     """
     person = await archived_entity(conn, "person")
     iid = await _insert(conn, "person", person)
-    await conn.execute("DELETE FROM people WHERE id = $1", person)  # no FK: dangles
+    await raw_delete(conn, "person", person)  # #630 off: dangles
 
     other_person_type = await conn.fetchval(
         "SELECT id FROM entity_identifier_types WHERE slug = 'person_wa_pdc'"
@@ -163,7 +163,7 @@ async def test_an_unchanged_reference_does_not_recheck(conn):
     """
     person = await archived_entity(conn, "person")
     iid = await _insert(conn, "person", person)
-    await conn.execute("DELETE FROM people WHERE id = $1", person)  # no FK: dangles
+    await raw_delete(conn, "person", person)  # #630 off: dangles
 
     await conn.execute(
         "UPDATE identifiers SET value = 'V-2', entity_id = $1,"

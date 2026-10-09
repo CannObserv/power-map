@@ -7,9 +7,13 @@ import pytest_asyncio
 
 import scripts.audit_ancillary_orphans as audit_module
 from scripts.audit_ancillary_orphans import audit
-from src.core.ancillary_migrate import ENTITY_TABLES
 from src.core.db import generate_id
-from tests.polymorphic_seeders import archived_entity, seed_citations, seed_identifiers
+from tests.polymorphic_seeders import (
+    archived_entity,
+    raw_delete,
+    seed_citations,
+    seed_identifiers,
+)
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -30,7 +34,7 @@ async def test_flags_an_identifier_off_a_deleted_entity(db, caplog, entity_type)
     eid = await archived_entity(db, entity_type)
     await seed_identifiers(db, entity_type, eid)
     await seed_citations(db, "organization", generate_id())  # the citation scope stays
-    await db.execute(f"DELETE FROM {ENTITY_TABLES[entity_type]} WHERE id = $1", eid)
+    await raw_delete(db, entity_type, eid)  # #630 refuses it; a bypass still strands
 
     with caplog.at_level(logging.WARNING):
         assert await audit(db) == 3

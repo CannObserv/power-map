@@ -11,6 +11,7 @@ import asyncpg
 
 from src.core.ancillary_migrate import ENTITY_TABLES
 from src.core.db import generate_id
+from tests.db_utils import trigger_disabled
 
 #: Polymorphic tables whose rows outlive their entity on purpose.
 SURVIVORS = {
@@ -56,6 +57,32 @@ async def archived_entity(db, entity_type: str) -> str:
         f"UPDATE {ENTITY_TABLES[entity_type]} SET archived_at = now() WHERE id = $1", target
     )
     return target
+
+
+#: The #630 referenced-side identifier guard on each table an identifier can name.
+IDENTIFIER_DELETE_GUARDS = {
+    "person": "trg_people_identifiers",
+    "organization": "trg_organizations_identifiers",
+    "role_assignment": "trg_role_assignments_identifiers",
+    "jurisdiction": "trg_jurisdictions_identifiers",
+}
+
+
+async def raw_delete(db, entity_type: str, entity_id: str) -> None:
+    """Delete the entity alone, stranding its identifiers as a bypassing path once did.
+
+    #630 refuses that delete, so its guard is off for the statement; like
+    :func:`tests.db_utils.trigger_disabled`, call it only inside a rolled-back
+    transaction. Other guards (#615's inbound event links) stay on.
+    """
+    table = ENTITY_TABLES[entity_type]
+    sql = f"DELETE FROM {table} WHERE id = $1"
+    guard = IDENTIFIER_DELETE_GUARDS.get(entity_type)
+    if guard is None:  # role: identifiers cannot name one
+        await db.execute(sql, entity_id)
+        return
+    async with trigger_disabled(db, table, guard):
+        await db.execute(sql, entity_id)
 
 
 # --- Seeders: one row per polymorphic table, returning [(table, row_id), ...] ---

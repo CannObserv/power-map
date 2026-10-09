@@ -23,6 +23,7 @@ does. Each test restores the rows it moved.
 import pytest
 
 from src.core.db import apply_schema, generate_id
+from tests.polymorphic_seeders import raw_delete
 
 pytestmark = [
     pytest.mark.integration,
@@ -171,7 +172,7 @@ async def test_reid_carries_an_orphaned_identifier_without_aborting(db_pool):
             await conn.execute(_INSERT_TYPE, operator_id, "zz_probe_622")
             await conn.execute("INSERT INTO people (id) VALUES ($1)", person_id)
             await conn.execute(_INSERT_IDENTIFIER, identifier_id, person_id, operator_id)
-            await conn.execute("DELETE FROM people WHERE id = $1", person_id)  # orphans it
+            await raw_delete(conn, "person", person_id)  # orphans it (#630 off)
             await conn.execute(
                 "CREATE TEMP TABLE _probe_seed (LIKE entity_identifier_types INCLUDING ALL)"
             )

@@ -564,6 +564,7 @@ async def test_org_external_match_does_not_reparent(client, org_write_key, db):
         row = await db.fetchrow("SELECT parent_id FROM organizations WHERE id=$1", sub)
         assert row["parent_id"] == chamber  # write-if-null preserved
     finally:
+        await db.execute("DELETE FROM identifiers WHERE entity_id=$1", sub)  # #630
         await db.execute("DELETE FROM organizations WHERE id=$1", sub)
         await db.execute("DELETE FROM organizations WHERE id IN ($1,$2)", chamber, committee)
 
@@ -600,6 +601,7 @@ async def test_org_external_match_cycle_rejected_not_500(client, org_write_key, 
         assert row["parent_id"] is None  # unchanged
     finally:
         await db.execute("DELETE FROM organizations WHERE id=$1", child)
+        await db.execute("DELETE FROM identifiers WHERE entity_id=$1", parent)  # #630
         await db.execute("DELETE FROM organizations WHERE id=$1", parent)
 
 

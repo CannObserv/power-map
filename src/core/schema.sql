@@ -2745,6 +2745,53 @@ CREATE OR REPLACE TRIGGER trg_organizations_inbound_event_links
     BEFORE DELETE ON organizations
     FOR EACH ROW EXECUTE FUNCTION refuse_delete_while_linked('organization');
 
+-- #630: the referenced half of #622's FK. Deleting an entity an identifier
+-- still names — through its type's entity_type, so another type's identifier on
+-- the same id is no reference — raises foreign_key_violation, naming the
+-- trigger as its constraint (restrict, as #608/#615). A stranded identifier
+-- would answer <type>_archived for its value for good (#481). The admin hard
+-- delete drops identifiers first (delete_entity_ancillary, #605) and merges
+-- re-home them; this is the backstop for every other path. A BEFORE ROW
+-- trigger fires once the row is locked, so an identifier that committed while
+-- the delete waited on the writer's row locks (#622's FOR KEY SHARE, the touch
+-- trigger's UPDATE) is seen. Seed reconciliation re-ids
+-- identifier types and never deletes an entity, so it never reaches here.
+-- idx_identifiers_entity serves the lookup per type id of the entity_type.
+CREATE OR REPLACE FUNCTION refuse_delete_while_identified()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_type TEXT := TG_ARGV[0];
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM identifiers i
+        JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+        WHERE t.entity_type = v_type
+          AND i.entity_id = OLD.id
+    ) THEN
+        RAISE EXCEPTION '% % is still named by identifiers', v_type, OLD.id
+            USING ERRCODE = 'foreign_key_violation',
+                  CONSTRAINT = TG_NAME;
+    END IF;
+    RETURN OLD;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_people_identifiers
+    BEFORE DELETE ON people
+    FOR EACH ROW EXECUTE FUNCTION refuse_delete_while_identified('person');
+
+CREATE OR REPLACE TRIGGER trg_organizations_identifiers
+    BEFORE DELETE ON organizations
+    FOR EACH ROW EXECUTE FUNCTION refuse_delete_while_identified('organization');
+
+CREATE OR REPLACE TRIGGER trg_role_assignments_identifiers
+    BEFORE DELETE ON role_assignments
+    FOR EACH ROW EXECUTE FUNCTION refuse_delete_while_identified('role_assignment');
+
+CREATE OR REPLACE TRIGGER trg_jurisdictions_identifiers
+    BEFORE DELETE ON jurisdictions
+    FOR EACH ROW EXECUTE FUNCTION refuse_delete_while_identified('jurisdiction');
+
 -- #307 CR rounds 1–2: reconcile entity_events CHECKs on pre-existing DBs.
 -- CREATE TABLE IF NOT EXISTS no-ops on an existing table, so constraints added
 -- inline to the CREATE never reach a DB whose table predates them — prod was

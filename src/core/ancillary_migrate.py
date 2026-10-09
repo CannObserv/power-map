@@ -752,7 +752,9 @@ async def delete_entity_ancillary(db: asyncpg.Connection, entity_type: str, enti
     """Drop every polymorphic row an entity owns, before its hard ``DELETE``.
 
     Call inside the delete's transaction, ahead of the entity row and its FK
-    children (a person's names carry citations of their own). The route's
+    children (a person's names carry citations of their own). It locks the
+    entity row ``FOR UPDATE`` first, so no identifier can land between it and
+    the ``DELETE`` for ``refuse_delete_while_identified`` to refuse (#630). The route's
     'deleted' tombstone announces the removal, so no per-table signal is
     needed. Outliving the entity on purpose: ``deleted_entities`` and
     ``entity_changes`` (the tombstone and its outbox) and
@@ -769,6 +771,13 @@ async def delete_entity_ancillary(db: asyncpg.Connection, entity_type: str, enti
             f"not a hard-deletable entity type: {entity_type!r}"
             f" (one of {', '.join(sorted(HARD_DELETABLE_TYPES))})"
         )
+    # #630: lock the entity first. An identifier write in flight holds row locks
+    # on it (#622's FOR KEY SHARE, its touch trigger's UPDATE); waiting here lets
+    # that write commit before the reads below, so it goes with the rest instead
+    # of refusing the DELETE after.
+    await db.execute(
+        f"SELECT 1 FROM {ENTITY_TABLES[entity_type]} WHERE id=$1 FOR UPDATE", entity_id
+    )
     if entity_type == "person":
         await db.execute(
             "DELETE FROM citations WHERE entity_type='person_name' AND entity_id IN"
