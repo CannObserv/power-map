@@ -2753,7 +2753,8 @@ CREATE OR REPLACE TRIGGER trg_organizations_inbound_event_links
 -- delete drops identifiers first (delete_entity_ancillary, #605) and merges
 -- re-home them; this is the backstop for every other path. A BEFORE ROW
 -- trigger fires once the row is locked, so an identifier that committed while
--- the delete waited on its FOR KEY SHARE is seen. Seed reconciliation re-ids
+-- the delete waited on the writer's row locks (#622's FOR KEY SHARE, the touch
+-- trigger's UPDATE) is seen. Seed reconciliation re-ids
 -- identifier types and never deletes an entity, so it never reaches here.
 -- idx_identifiers_entity serves the lookup per type id of the entity_type.
 CREATE OR REPLACE FUNCTION refuse_delete_while_identified()

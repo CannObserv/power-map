@@ -771,9 +771,10 @@ async def delete_entity_ancillary(db: asyncpg.Connection, entity_type: str, enti
             f"not a hard-deletable entity type: {entity_type!r}"
             f" (one of {', '.join(sorted(HARD_DELETABLE_TYPES))})"
         )
-    # #630: lock the entity first. An identifier write in flight holds FOR KEY
-    # SHARE on it (#622); waiting here lets that write commit before the reads
-    # below, so it goes with the rest instead of refusing the DELETE after.
+    # #630: lock the entity first. An identifier write in flight holds row locks
+    # on it (#622's FOR KEY SHARE, its touch trigger's UPDATE); waiting here lets
+    # that write commit before the reads below, so it goes with the rest instead
+    # of refusing the DELETE after.
     await db.execute(
         f"SELECT 1 FROM {ENTITY_TABLES[entity_type]} WHERE id=$1 FOR UPDATE", entity_id
     )

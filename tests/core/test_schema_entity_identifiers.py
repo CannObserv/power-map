@@ -117,10 +117,12 @@ async def test_an_identifier_of_another_type_on_the_same_id_does_not_block(conn)
 
 
 async def test_an_identifier_committed_while_the_delete_waits_is_seen(db_pool):
-    """The delete waits on the identifier's ``FOR KEY SHARE`` (#622), then refuses.
+    """The delete waits on the identifier write's row locks, then refuses.
 
-    A ``BEFORE DELETE`` row trigger runs after the row lock is taken, so its
-    check sees an identifier that committed while the delete was blocked on it.
+    Those are #622's ``FOR KEY SHARE`` and the touch trigger's ``UPDATE`` of the
+    parent, so this proves the trigger's timing, not #622's lock. A ``BEFORE
+    DELETE`` row trigger runs after the row lock is taken, so its check sees an
+    identifier that committed while the delete was blocked on it.
     """
     async with db_pool.acquire() as writer, db_pool.acquire() as deleter:
         person = await archived_entity(writer, "person")  # committed: deleter must see it
