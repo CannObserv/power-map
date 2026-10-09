@@ -12,6 +12,7 @@ point at a commit whose snapshot equals the served schema. Exit 4 otherwise,
 unless the service started inside the grace window or GitHub can't be reached.
 """
 
+import http.client
 import io
 import json
 import subprocess
@@ -412,3 +413,31 @@ def test_an_unreachable_tagged_snapshot_skips_the_check(monkeypatch, tmp_path, c
     github = {_ref_url(): _lightweight(), _raw_url(): urllib.error.URLError("reset")}
     assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 0
     assert "release tag not checked" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "github",
+    [
+        {_ref_url(): http.client.BadStatusLine("HTTP/9 ???")},
+        {_ref_url(): _lightweight(), _raw_url(): http.client.IncompleteRead(b"", 10)},
+    ],
+    ids=["bad-status-on-ref", "truncated-snapshot"],
+)
+def test_a_protocol_error_from_github_skips_the_check(monkeypatch, tmp_path, capsys, github):
+    """urllib wraps OSError only around sending: a broken response arrives unwrapped."""
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 0
+    assert "release tag not checked" in capsys.readouterr().out
+
+
+def test_a_protocol_error_from_github_does_not_hide_drift(monkeypatch, tmp_path):
+    live = {**_COMMITTED, "openapi": "3.0.0"}
+    github = {_ref_url(): http.client.IncompleteRead(b"", 10)}
+    assert _run(monkeypatch, tmp_path, _opener(live, github)) == 3
+
+
+def test_a_protocol_error_on_the_live_schema_is_a_fetch_failure(monkeypatch, tmp_path, capsys):
+    def opener(url, timeout):
+        raise http.client.IncompleteRead(b"{", 100)
+
+    assert _run(monkeypatch, tmp_path, opener) == 1
+    assert "could not fetch" in capsys.readouterr().out
