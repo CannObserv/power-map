@@ -373,7 +373,9 @@ fix (`git tag v<version> && git push origin v<version>` from the main checkout;
 so the REST API is called without credentials. The check is skipped, with a log
 line and no effect on the exit, while `power-map.service` is under 2 h past
 `ActiveEnterTimestamp` (a deploy just before the daily run gets until the next
-one), and when GitHub is unreachable, rate-limited or answers oddly.
+one), and when GitHub is unreachable, rate-limited or answers oddly (WARNING).
+Any start opens the window, including the `Persistent=true` catch-up run after
+a reboot, so that day's tag check is skipped.
 
 ```bash
 uv run python -m scripts.check_openapi_parity                 # compare once, now
