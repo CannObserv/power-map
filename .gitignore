@@ -64,6 +64,7 @@ data/mapping.duckdb*
 data/.dbt-target
 # #499 applier: per-run reports and the ledger
 data/applier
+data/schema_parity
 src/core/ingestion/mapping/target
 src/core/ingestion/mapping/logs
 src/core/ingestion/mapping/dbt_packages

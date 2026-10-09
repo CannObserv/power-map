@@ -1,5 +1,5 @@
 [Unit]
-Description=power-map daily schema-parity audit (prod vs reference) (issues #315, #331)
+Description=power-map daily schema-parity audit (prod vs reference) (issues #315, #331, #632)
 After=network.target
 
 [Service]
@@ -18,5 +18,10 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # version-sensitive kinds skipped on a PG-major mismatch). Exit 3 (not 2) stays
 # distinct from argparse usage errors; the unit shows as failed, so drift
 # surfaces in `systemctl --failed` and can drive OnFailure= later.
-# Read-only: never writes to either database.
+# A reference-only object the deployed src/core/schema.sql (this checkout's) does
+# not declare is the reference running ahead of a deploy (#632): exit 4, a journal
+# WARNING, success here. Past 3 consecutive runs it escalates to exit 3; the
+# per-object run counts live in data/schema_parity/reference_ahead.json.
+# Read-only on both databases; the state file is its only write.
 ExecStart=uv run python -m scripts.audit_schema_constraint_parity
+SuccessExitStatus=4
