@@ -579,6 +579,26 @@ def test_an_unwritable_state_file_fails(stub_dbs, run_audit, state_path, caplog)
     assert "MISCONFIGURED" in caplog.text
 
 
+def test_a_failed_state_write_leaves_the_previous_file_intact(
+    stub_dbs, run_audit, state_path, monkeypatch
+):
+    """The write goes to a temp file and replaces the state in one step, so a run
+    killed or failing mid-write never leaves truncated JSON that restarts every
+    streak on the next run."""
+    state_path.parent.mkdir(parents=True)
+    before = json.dumps({"streaks": {"function.f()": _streak(2, _DAY - timedelta(1))}})
+    state_path.write_text(before)
+
+    def failing_replace(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(audit.os, "replace", failing_replace)
+    _incident_dbs(stub_dbs)
+    assert run_audit(deployed=_PRE_629_DEPLOYED).misconfigured
+    assert state_path.read_text() == before
+    assert sorted(p.name for p in state_path.parent.iterdir()) == [state_path.name]
+
+
 def test_an_unwritable_state_file_is_harmless_with_nothing_to_track(
     stub_dbs, run_audit, state_path
 ):

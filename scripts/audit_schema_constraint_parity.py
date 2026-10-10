@@ -70,6 +70,7 @@ Usage:
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import sys
@@ -209,11 +210,20 @@ def _read_streaks(path: Path) -> dict[str, dict] | None:
 
 
 def _write_streaks(path: Path, streaks: dict[str, dict]) -> bool:
-    """Persist this run's streaks; False (logged) when the file cannot be written."""
+    """Persist this run's streaks; False (logged) when the file cannot be written.
+
+    Written to a sibling temp file and moved into place, so a run killed or failing
+    mid-write leaves the previous file whole rather than truncated JSON that would
+    restart every streak.
+    """
+    tmp = path.with_name(f".{path.name}.tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"streaks": streaks}, indent=2, sort_keys=True) + "\n")
+        tmp.write_text(json.dumps({"streaks": streaks}, indent=2, sort_keys=True) + "\n")
+        os.replace(tmp, path)
     except OSError as exc:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
         logger.warning(
             "Schema parity audit MISCONFIGURED — cannot write state %s (%s); without "
             "it a reference-ahead object would never escalate.",
