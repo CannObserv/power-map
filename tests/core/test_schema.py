@@ -1177,7 +1177,7 @@ async def test_role_assignments_has_archived_at(db):
 # ---------------------------------------------------------------------------
 # roles: uq_role_org_title
 # These tests require the index to exist. apply_schema() skips index creation
-# if duplicate rows are present; run scripts/deduplicate_roles.py first.
+# if duplicate rows are present; merge the duplicate roles first.
 # ---------------------------------------------------------------------------
 
 
@@ -1188,7 +1188,7 @@ async def require_uq_role_org_title(db):
     if not exists:
         pytest.skip(
             "uq_role_org_title index not present — "
-            "run scripts/deduplicate_roles.py --execute then re-apply schema"
+            "merge the duplicate roles (admin role merge) then re-apply schema"
         )
 
 
