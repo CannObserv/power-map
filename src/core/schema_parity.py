@@ -387,8 +387,9 @@ def classify_missing(drift: SchemaObjectDrift, deployed: DeployedSchema) -> Sche
     running ahead of the deploy (see module docstring). Mismatches and
     target-only objects pass through unchanged.
     """
-    missing = [k for k in drift.missing_in_target if deployed.declares(drift.kind, k)]
-    ahead = [k for k in drift.missing_in_target if not deployed.declares(drift.kind, k)]
+    missing, ahead = [], []
+    for key in drift.missing_in_target:
+        (missing if deployed.declares(drift.kind, key) else ahead).append(key)
     return replace(drift, missing_in_target=missing, reference_ahead=ahead, classified=True)
 
 
