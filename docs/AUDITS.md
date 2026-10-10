@@ -317,8 +317,8 @@ holders (#302), so this audit is the only thing that notices.
 
 **It is a ratchet, not a zero gate.** `BASELINE` in the script is the count on
 production on 2026-10-10: **56** pairs (55 Senate, 1 House), each listed on usa-wa#489. The run exits 3 only
-when the count rises above it; a lower count passes and logs the value to lower
-`BASELINE` to, in a PR. Never raise it to clear a failure. What the 56 are:
+when the count rises above it; a lower count passes with a WARNING naming the
+value to lower `BASELINE` to, in a PR. Never raise it to clear a failure. What the 56 are:
 
 - **35** producer pairs, the same count usa-wa's own gate baselines (usa-wa#359,
   drained in usa-wa#360): mostly a successor arriving mid-term while the

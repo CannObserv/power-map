@@ -222,3 +222,11 @@ async def test_audit_fails_only_above_baseline_and_names_each_pair(conn, caplog)
     with caplog.at_level(logging.INFO, logger="scripts.audit_seat_occupancy"):
         assert await audit(conn, baseline=count - 1) == 3
     assert any(f"{count} pairs" in m and f"baseline {count - 1}" in m for m in caplog.messages)
+
+    # A stale baseline passes, but loudly: "fewer" must not read like routine INFO.
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="scripts.audit_seat_occupancy"):
+        assert await audit(conn, baseline=count + 1) == 0
+    stale = [r for r in caplog.records if "below baseline" in r.getMessage()]
+    assert [r.levelno for r in stale] == [logging.WARNING]
+    assert f"lower BASELINE to {count}" in stale[0].getMessage()

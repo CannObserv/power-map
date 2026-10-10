@@ -15,7 +15,7 @@ No span is invented: a row with an unknown start, or an unknown end that is not
 It is a **ratchet**, not a zero gate. ``BASELINE`` is the count measured on
 production on 2026-10-10 — 56 pairs, listed on usa-wa#489 and broken down in
 ``docs/AUDITS.md`` — and the run exits 3 only when the count rises above it. A lower
-count passes and logs the number to lower ``BASELINE`` to. Every pair is logged
+count passes with a WARNING naming the number to lower ``BASELINE`` to. Every pair is logged
 each run, so a day-over-day journal diff names the pair a failure added. A count
 cannot see a fix and a new defect landing together; the pair log can.
 Read-only. Exit 3 (not 2) stays distinct from argparse usage errors.
@@ -98,7 +98,9 @@ async def audit(conn: asyncpg.Connection, *, baseline: int = BASELINE) -> int:
             baseline,
         )
     elif count < baseline:
-        logger.info(
+        # Still exit 0, but a WARNING: a stale baseline is the ratchet's other signal,
+        # and at INFO it would drown in the pair log.
+        logger.warning(
             "seat occupancy: %d pairs, below baseline %d — lower BASELINE to %d",
             count,
             baseline,
