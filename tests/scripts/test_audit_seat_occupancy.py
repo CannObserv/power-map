@@ -26,8 +26,9 @@ INFRA = Path(__file__).resolve().parents[2] / "infra"
 # --------------------------------------------------------------------------- #
 
 
-def test_baseline_is_the_2026_10_10_measurement():
-    assert BASELINE == 56
+def test_baseline_only_ratchets_down_from_the_2026_10_10_measurement():
+    """Lowering it as triage lands is the point; raising it to clear a failure is not."""
+    assert 0 <= BASELINE <= 56
 
 
 def test_exit_code_at_baseline_is_zero():
