@@ -170,7 +170,7 @@ sudo journalctl -u power-map-anomaly -f          # WARNINGs per anomalous key
 
 ---
 
-## Schema-parity audit (issues #315, #331)
+## Schema-parity audit (issues #315, #331, #632)
 
 
 `scripts/audit_schema_constraint_parity.py` snapshots every **constraint**
@@ -188,16 +188,37 @@ Read-only; catches drift from any source (manual DDL, partial migration, a
 hand-applied hotfix, a deploy whose `apply_schema` no-op'd a new inline
 constraint).
 
-**Expected drift while a schema branch is in flight.** The default reference is
-`co_pm_db_test`, and the documented worktree loop applies a *branch's* schema to
-it (`bash scripts/apply-schema.sh --test`). From that moment the reference is
-ahead of prod and the timer exits 3 — correctly, on objects that do not exist in
-production yet. It clears on deploy (`sudo systemctl restart power-map`, whose
-`ExecStartPre` applies the schema), so the rule is: **restart promptly after
-merging a schema change**, and read a parity failure naming only objects your
-branch adds as this window rather than as drift. #458 hit it (the new
-`reconcile_seeded_slugs` function). To confirm which it is, run the audit
-manually and check whether the reported objects are all new in the branch.
+**Reference ahead of the deploy (#632).** The default reference is
+`co_pm_db_test`, and the worktree loop applies a *branch's* schema to it
+(`bash scripts/apply-schema.sh --test`) before the PR deploys. So each object
+missing in prod is classified against the **deployed** `schema.sql` (the main
+checkout's, which the unit runs from; `--deployed-schema` overrides):
+
+- **declared there** → real drift, exit 3;
+- **not declared** → the reference is ahead (a pending deploy or a stray branch
+  apply): a WARNING naming the objects, exit 4, which the unit's
+  `SuccessExitStatus=4` counts as success. #458 and the 2026-10-09 run (PR #629)
+  failed on exactly this before.
+
+Matching is by name. Functions and triggers: `CREATE [OR REPLACE] FUNCTION|TRIGGER
+name`. Constraints: most never appear in `schema.sql` (Postgres names an inline
+`PRIMARY KEY` / `REFERENCES` / `CHECK` / `UNIQUE` itself), so one counts as
+declared when its name is written there, or when it has the implicit shape
+`<table>_<columns>_<pkey|fkey|key|check|excl|not_null>[N]` on a created table
+whose column words all appear (`--` comments stripped; the column test is
+schema-wide, so a new constraint on an existing table usually still reads as
+drift until it deploys). Ambiguity reads as declared, i.e. as drift; an empty or
+unreadable deployed schema fails as misconfigured. Changed bodies (mismatches)
+are not classified: a branch that rewrites a function still fails the run until
+it deploys, so **restart promptly after merging a schema change**.
+
+An object ahead for more than 3 consecutive runs (`--escalate-after`; at most one
+run counts per UTC day) fails with `ESCALATED`: a long-lived or abandoned branch,
+not a deploy that is due. `apply-schema.sh --test` from main is additive and will
+not remove it: ship the branch, or drop the named objects from the reference once
+no worktree needs them, or rebuild it from empty. Per-object streaks live in
+`data/schema_parity/reference_ahead.json` (`--state-file`); a run with a streak to
+keep, or an unreadable file to replace, that cannot write it fails.
 
 Function/trigger defs are PG-version-formatted, so on a **PG major mismatch**
 between reference and target those two kinds are skipped (loud WARNING) rather
@@ -229,7 +250,7 @@ sudo systemctl enable --now power-map-schema-parity.timer
 # Inspect
 systemctl list-timers power-map-schema-parity.timer    # next/last run
 sudo systemctl start power-map-schema-parity.service   # run once, now
-sudo journalctl -u power-map-schema-parity -f          # drift report on failure
+sudo journalctl -u power-map-schema-parity -f          # drift / reference-ahead report
 ```
 
 ---

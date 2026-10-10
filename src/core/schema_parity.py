@@ -36,6 +36,26 @@ but is **not** a failure — it usually means the reference is stale or the targ
 carries a pending-removal leftover (or a hand-applied prod-only object worth
 seeing), none of which is the drift we guard.
 
+Reference ahead (#632): worktrees apply their schema to the shared test DB
+(``apply-schema.sh --test``), which is also the default reference, before their
+PR deploys. An object missing in the target is therefore classified against the
+**deployed** ``schema.sql`` (``DeployedSchema``): one it declares is real drift;
+one it does not is the reference running ahead of the deploy — a pending deploy
+or a stray branch's apply — reported but not failed on. Matching is by name:
+``CREATE [OR REPLACE] FUNCTION|TRIGGER name`` for functions and triggers. Most
+constraints never appear in ``schema.sql`` at all — Postgres names an inline
+``PRIMARY KEY`` / ``REFERENCES`` / ``CHECK`` / ``UNIQUE`` itself — so a constraint
+counts as declared when its name is written there, or when it has Postgres'
+implicit shape (``<table>_<columns>_<pkey|fkey|key|check|excl|not_null>[N]``) on
+a created table whose column words all appear. ``--`` comments are stripped
+first, so a name only mentioned in one is not declared. The column test is
+schema-wide, not per table, so a new constraint on an existing column (or on a
+new column whose name is used elsewhere) still reads as drift until it deploys.
+Every ambiguity resolves to "declared": misreading drift as a pending deploy is
+the error that hides something, so it is the one the rule avoids. Mismatched
+definitions are not classified — a branch that changes a body still reads as
+drift until it deploys.
+
 PG-version note: ``pg_get_functiondef`` / ``pg_get_triggerdef`` are deterministic
 on a *given* server version but their formatting can legitimately differ across
 majors. Two DBs applying the same ``schema.sql`` on the same major produce
@@ -54,7 +74,10 @@ invisible to a pairwise diff. The per-constraint drop-reapply harness
 subset independently of any live reference.
 """
 
-from dataclasses import dataclass, field
+import re
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field, replace
+from datetime import date
 from typing import NamedTuple
 
 import asyncpg
@@ -171,14 +194,19 @@ class SchemaObjectDrift:
     """Result of diffing a reference snapshot against a target, for one kind.
 
     ``missing_in_target`` and ``mismatched`` are the drift the guard fails on;
-    ``target_only`` is informational (see module docstring). ``kind`` namespaces
-    the report (``constraint`` / ``function`` / ``trigger``).
+    ``target_only`` is informational, and so is ``reference_ahead`` — reference
+    objects missing in the target that the deployed ``schema.sql`` does not
+    declare, filled only by ``classify_missing`` (see module docstring), which
+    also sets ``classified`` — the report then says the missing ones are declared.
+    ``kind`` namespaces the report (``constraint`` / ``function`` / ``trigger``).
     """
 
     kind: str
     missing_in_target: list = field(default_factory=list)
     mismatched: list = field(default_factory=list)
     target_only: list = field(default_factory=list)
+    reference_ahead: list = field(default_factory=list)
+    classified: bool = False
 
     @property
     def has_drift(self) -> bool:
@@ -240,6 +268,152 @@ def diff_defs(
     )
 
 
+#: ``CREATE [OR REPLACE] FUNCTION [public.]name(`` — the name a function is declared by.
+_CREATE_FUNCTION_RE = re.compile(
+    r'\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:"?public"?\.)?"?(\w+)"?\s*\(',
+    re.IGNORECASE,
+)
+#: ``CREATE [OR REPLACE] [CONSTRAINT] TRIGGER name``, top level or inside a ``DO`` block.
+_CREATE_TRIGGER_RE = re.compile(
+    r'\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:CONSTRAINT\s+)?TRIGGER\s+"?(\w+)"?', re.IGNORECASE
+)
+#: ``CREATE [UNLOGGED] TABLE [IF NOT EXISTS] [public.]name``.
+_CREATE_TABLE_RE = re.compile(
+    r'\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?public"?\.)?"?(\w+)"?',
+    re.IGNORECASE,
+)
+_WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+#: A single-quoted literal (group 1, kept) or a ``--`` comment (dropped), scanned
+#: left to right so ``'--execute'`` stays a string and ``-- don't`` stays a comment.
+_STRING_OR_COMMENT_RE = re.compile(r"('(?:[^']|'')*')|--[^\n]*")
+#: Suffixes Postgres gives a constraint it names itself, before any collision number.
+_IMPLICIT_SUFFIXES = ("pkey", "fkey", "key", "check", "excl", "not_null")
+#: Postgres truncates identifiers to NAMEDATALEN - 1 bytes; a name this long may have
+#: lost its suffix or column words to truncation, so its shape cannot be read.
+_MAX_IDENTIFIER_BYTES = 63
+
+
+def strip_line_comments(sql: str) -> str:
+    """``sql`` without its ``--`` comments; a ``--`` inside a string literal stays."""
+    return _STRING_OR_COMMENT_RE.sub(lambda m: m.group(1) or "", sql)
+
+
+def _segments_into_words(parts: list[str], words: frozenset[str]) -> bool:
+    """True when ``parts`` rejoin, ``_`` within each run, into a sequence of ``words``.
+
+    An implicit name joins its column names with ``_`` and a column name may hold
+    ``_`` itself, so ``first_name_last_name`` has to be read as some split of its
+    parts into known words — ``first_name`` + ``last_name`` here.
+    """
+    reachable = [True] + [False] * len(parts)
+    for start in range(len(parts)):
+        if not reachable[start]:
+            continue
+        for end in range(start + 1, len(parts) + 1):
+            if "_".join(parts[start:end]) in words:
+                reachable[end] = True
+    return reachable[-1]
+
+
+@dataclass(frozen=True)
+class DeployedSchema:
+    """What the deployed ``schema.sql`` declares, read from its text (#632).
+
+    Built with ``from_sql``; ``declares`` answers whether a snapshot key is one the
+    deployed schema creates. See the module docstring for the matching rules and
+    why every ambiguity reads as declared.
+    """
+
+    functions: frozenset[str]
+    triggers: frozenset[str]
+    tables: frozenset[str]
+    words: frozenset[str]
+
+    @classmethod
+    def from_sql(cls, sql: str) -> "DeployedSchema":
+        """Index the function, trigger and table names ``sql`` creates, and its words.
+
+        ``--`` comments go first: a name a comment mentions is not one the schema
+        declares. The strip is quote-aware, since cutting a line at a ``--`` inside
+        a string would lose its later words — and a lost column word reads a
+        declared constraint as ahead, the direction that hides drift.
+        """
+        sql = strip_line_comments(sql)
+
+        def names(pattern: re.Pattern[str]) -> frozenset[str]:
+            return frozenset(m.lower() for m in pattern.findall(sql))
+
+        return cls(
+            functions=names(_CREATE_FUNCTION_RE),
+            triggers=names(_CREATE_TRIGGER_RE),
+            tables=names(_CREATE_TABLE_RE),
+            words=names(_WORD_RE),
+        )
+
+    @property
+    def is_empty(self) -> bool:
+        """True when no table is created: a blank or wrong file, not a schema."""
+        return not self.tables
+
+    def declares(self, kind: str, key: NamedTuple) -> bool:
+        """True when the deployed schema creates the object ``key`` names."""
+        if kind == "function":
+            return key.signature.split("(", 1)[0].lower() in self.functions
+        if kind == "trigger":
+            return key.name.lower() in self.triggers
+        if kind == "constraint":
+            return self._declares_constraint(key.table.lower(), key.name.lower())
+        raise ValueError(f"unknown schema object kind: {kind!r}")
+
+    def _declares_constraint(self, table: str, name: str) -> bool:
+        if name in self.words:
+            return True
+        if table not in self.tables:
+            return False
+        if len(name.encode()) >= _MAX_IDENTIFIER_BYTES:
+            return True
+        suffixes = "|".join(_IMPLICIT_SUFFIXES)
+        shape = re.fullmatch(rf"{re.escape(table)}(?:_(.+?))?_(?:{suffixes})\d*", name)
+        if shape is None:
+            return False
+        columns = shape.group(1)
+        return columns is None or _segments_into_words(columns.split("_"), self.words)
+
+
+def classify_missing(drift: SchemaObjectDrift, deployed: DeployedSchema) -> SchemaObjectDrift:
+    """Move each missing object the deployed schema does not declare to ``reference_ahead``.
+
+    What stays in ``missing_in_target`` is real drift; what moves is the reference
+    running ahead of the deploy (see module docstring). Mismatches and
+    target-only objects pass through unchanged.
+    """
+    missing, ahead = [], []
+    for key in drift.missing_in_target:
+        (missing if deployed.declares(drift.kind, key) else ahead).append(key)
+    return replace(drift, missing_in_target=missing, reference_ahead=ahead, classified=True)
+
+
+def advance_streaks(
+    previous: Mapping[str, Mapping], ahead: Iterable[str], *, today: date
+) -> dict[str, dict]:
+    """Consecutive-run streaks for the labels ahead this run, from the last run's.
+
+    A streak is ``{"runs": n, "last_day": "YYYY-MM-DD"}``. A label still ahead
+    gains a run, a new one starts at 1, and a label no longer ahead drops out, so
+    it restarts if it ever comes back. At most one run counts per UTC day, the
+    timer's cadence, so a same-day re-run leaves the streak as it was.
+    """
+    day = today.isoformat()
+    streaks = {}
+    for label in ahead:
+        last = previous.get(label)
+        if last is not None and last["last_day"] == day:
+            streaks[label] = dict(last)
+        else:
+            streaks[label] = {"runs": (last["runs"] if last else 0) + 1, "last_day": day}
+    return streaks
+
+
 #: Column where the ``reference:`` / ``target:`` def values start (6-space bullet
 #: indent + the 11-char ``reference: `` / ``target:    `` label). Multi-line
 #: function/trigger bodies indent their continuation lines to here so they stay
@@ -265,7 +439,8 @@ def format_drift_report(drift: SchemaObjectDrift, *, reference: str, target: str
     if drift.missing_in_target:
         lines.append(
             f"{len(drift.missing_in_target)} {kind}(s) present in reference "
-            f"({reference}) but MISSING in target ({target}):"
+            f"({reference}) but MISSING in target ({target})"
+            + (", declared by the deployed schema.sql:" if drift.classified else ":")
         )
         lines += [f"  - {kind}.{k.label}" for k in drift.missing_in_target]
     if drift.mismatched:
@@ -276,6 +451,13 @@ def format_drift_report(drift: SchemaObjectDrift, *, reference: str, target: str
             lines.append(f"  - {kind}.{key.label}")
             lines.append(f"      reference: {_indent_def(ref_def)}")
             lines.append(f"      target:    {_indent_def(tgt_def)}")
+    if drift.reference_ahead:
+        lines.append(
+            f"note: {len(drift.reference_ahead)} {kind}(s) present in reference "
+            f"({reference}) but not in target ({target}) nor the deployed schema.sql — "
+            "reference ahead of the deployed schema (pending deploy?):"
+        )
+        lines += [f"  - {kind}.{k.label}" for k in drift.reference_ahead]
     if drift.target_only:
         lines.append(
             f"note: {len(drift.target_only)} {kind}(s) present only in target "

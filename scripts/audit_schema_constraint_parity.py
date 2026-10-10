@@ -1,4 +1,4 @@
-"""Daily schema-parity audit: prod vs a reference DB (issues #315, #331).
+"""Daily schema-parity audit: prod vs a reference DB (issues #315, #331, #632).
 
 Snapshots every **constraint** (``CHECK`` / ``FOREIGN KEY`` / ``UNIQUE`` / ``PK``,
 full ``pg_get_constraintdef``), **function** (``pg_get_functiondef``), and
@@ -25,29 +25,70 @@ a major mismatch between reference and target those two kinds are skipped (loud
 WARNING) rather than misreported as body drift. Constraints are version-stable
 and always diff.
 
-Exits 3 on drift — or on misconfiguration (an empty reference, or a reference
-that is the same DB as the target), which would otherwise let the audit pass
-vacuously — so the systemd unit shows as failed (visible in ``systemctl
---failed``; a hook for future ``OnFailure=`` alerting) — mirrors
-``scripts/check_api_anomalies.py``. Exit 3 (not 2) stays distinct from argparse
-usage errors. Read-only: never writes to either database.
+Reference ahead (#632): the default reference is the shared test DB, which
+worktrees apply their schema to (``apply-schema.sh --test``) before their PR
+deploys. Each object missing in the target is classified against the deployed
+``schema.sql`` (``--deployed-schema``, default this checkout's
+``src/core/schema.sql``; the unit runs from the main checkout, which is the
+deployed commit). Declared there → real drift. Not declared → the reference is
+ahead of the deploy: a pending deploy, or a stray branch's apply — logged as a
+WARNING naming the objects, not a failure. Matching rules (name-level, with
+Postgres' implicit constraint names) are in ``src.core.schema_parity``.
+
+An object that stays ahead for more than ``--escalate-after`` consecutive runs
+(default 3; at most one run counts per UTC day) escalates to a failure: the
+reference carries a long-lived or abandoned branch's schema, not a deploy that
+is due. ``apply-schema.sh --test`` from main does not remove it (the apply is
+additive): ship the branch, or drop the named objects from the reference or
+rebuild it from an empty schema. The per-object streaks persist in
+``--state-file`` (default ``data/schema_parity/reference_ahead.json``); a run
+that never reaches the diff leaves them alone, and one that has a streak to keep
+(or an unreadable file to replace) but cannot write it fails, since the
+escalation would otherwise never fire.
+
+Mismatched definitions are not classified: a branch that changes a function body
+still reads as drift until it deploys.
+
+Exit codes:
+    0  parity
+    3  drift, an escalated reference-ahead object, or misconfiguration (an
+       empty reference, a reference that is the same DB as the target, an
+       empty or unreadable deployed schema, an unwritable state file) — so the
+       systemd unit shows as failed (visible in ``systemctl --failed``; a hook
+       for future ``OnFailure=`` alerting) — mirrors
+       ``scripts/check_api_anomalies.py``. 3, not 2, stays distinct from
+       argparse usage errors.
+    4  reference ahead only; the unit's ``SuccessExitStatus=4`` counts it as
+       success, so it stays in the journal without turning the unit red.
+
+Read-only on both databases; the only write is the local state file.
 
 Usage:
     uv run python -m scripts.audit_schema_constraint_parity
     uv run python -m scripts.audit_schema_constraint_parity --reference-url "$TEST_DATABASE_URL"
 """
 
+import argparse
 import asyncio
+import contextlib
+import json
 import os
 import sys
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from pathlib import Path
 from urllib.parse import urlparse
 
 import asyncpg
 
 from scripts._dsn import build_parser, default_dsn, echo_target
+from src.core.db import SCHEMA_PATH
 from src.core.logging import configure_logging, get_logger
 from src.core.schema_parity import (
     VERSION_SENSITIVE_KINDS,
+    DeployedSchema,
+    advance_streaks,
+    classify_missing,
     diff_defs,
     format_drift_report,
     snapshot_constraints,
@@ -56,6 +97,39 @@ from src.core.schema_parity import (
 )
 
 logger = get_logger(__name__)
+
+#: The checkout this script runs from; the unit runs it from the deployed main checkout.
+DEFAULT_DEPLOYED_SCHEMA = SCHEMA_PATH
+DEFAULT_STATE_PATH = (
+    Path(__file__).resolve().parents[1] / "data" / "schema_parity" / "reference_ahead.json"
+)
+DEFAULT_ESCALATE_AFTER = 3
+EXIT_FAILURE = 3
+EXIT_REFERENCE_AHEAD = 4
+
+
+@dataclass(frozen=True)
+class AuditResult:
+    """One run's outcome; ``exit_code`` maps it onto the unit's contract.
+
+    ``ahead`` and ``escalated`` hold ``<kind>.<label>`` strings, the keys of the
+    persisted streaks.
+    """
+
+    drift_count: int = 0
+    ahead: tuple[str, ...] = ()
+    escalated: tuple[str, ...] = ()
+    misconfigured: bool = False
+
+    @property
+    def exit_code(self) -> int:
+        """3 on any failure, 4 when the reference is only ahead, else 0."""
+        if self.misconfigured or self.drift_count or self.escalated:
+            return EXIT_FAILURE
+        if self.ahead:
+            return EXIT_REFERENCE_AHEAD
+        return 0
+
 
 #: Report/diff order: constraints first (always diffed, version-stable), then the
 #: version-sensitive kinds. See ``_snapshot_all`` for why the snapshotters are
@@ -104,15 +178,83 @@ def _db_identity(url: str) -> tuple[str | None, int, str]:
     return (p.hostname, p.port or 5432, p.path.lstrip("/"))
 
 
-async def run(*, reference_url: str, target_url: str) -> int:
-    """Snapshot both DBs across all kinds, diff, log; return the total drift count.
+def _is_streak(value: object) -> bool:
+    """``{"runs": int, "last_day": str}`` — a JSON ``true`` is not a run count."""
+    return (
+        isinstance(value, dict)
+        and type(value.get("runs")) is int
+        and isinstance(value.get("last_day"), str)
+    )
+
+
+def _read_streaks(path: Path) -> dict[str, dict] | None:
+    """The last run's per-object streaks: ``{}`` when absent, None when unreadable.
+
+    An unreadable file restarts every streak, delaying an escalation by at most
+    ``--escalate-after`` runs; the caller rewrites it.
+    """
+    try:
+        streaks = json.loads(path.read_text())["streaks"]
+        if isinstance(streaks, dict) and all(_is_streak(v) for v in streaks.values()):
+            return streaks
+        raise ValueError('streaks is not a {label: {"runs", "last_day"}} map')
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.warning(
+            "Schema parity state %s unreadable (%s); reference-ahead streaks restart.",
+            path,
+            exc,
+        )
+        return None
+
+
+def _write_streaks(path: Path, streaks: dict[str, dict]) -> bool:
+    """Persist this run's streaks; False (logged) when the file cannot be written.
+
+    Written to a sibling temp file and moved into place, so a run killed or failing
+    mid-write leaves the previous file whole rather than truncated JSON that would
+    restart every streak.
+    """
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps({"streaks": streaks}, indent=2, sort_keys=True) + "\n")
+        os.replace(tmp, path)
+    except OSError as exc:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
+        logger.warning(
+            "Schema parity audit MISCONFIGURED — cannot write state %s (%s); without "
+            "it a reference-ahead object would never escalate.",
+            path,
+            exc,
+        )
+        return False
+    return True
+
+
+async def run(
+    *,
+    reference_url: str,
+    target_url: str,
+    deployed: DeployedSchema,
+    state_path: Path,
+    escalate_after: int,
+    today: date | None = None,
+) -> AuditResult:
+    """Snapshot both DBs across all kinds, diff, classify, log; return the outcome.
 
     Drift count = summed missing-in-target + mismatched across constraints,
     functions, and triggers (``target_only`` is logged but excluded, matching
-    ``SchemaObjectDrift.has_drift``). Returns a non-zero sentinel (1) instead of a
-    drift count when the audit is misconfigured — an empty reference or a
-    reference that is the same DB as the target — so the monitor fails loudly
-    rather than passing vacuously (the silent-no-op class #315 targets).
+    ``SchemaObjectDrift.has_drift``), after ``classify_missing`` moves the
+    objects ``deployed`` does not declare to ``ahead``. Each ahead object's
+    consecutive-run streak is advanced in ``state_path`` (one run per UTC day,
+    ``today`` defaulting to now); one past ``escalate_after`` is ``escalated``.
+    A misconfigured audit — an empty reference, a reference that is the same DB
+    as the target, or an empty deployed schema, which would pass every missing
+    object off as ahead — is reported as such, so the monitor fails loudly rather
+    than passing vacuously (the silent-no-op class #315 targets).
 
     Version-sensitive kinds (functions, triggers) are skipped with a WARNING when
     reference and target run different PG majors — their ``pg_get_*def``
@@ -133,7 +275,15 @@ async def run(*, reference_url: str, target_url: str) -> int:
             "reference DB.",
             tgt_label,
         )
-        return 1
+        return AuditResult(misconfigured=True)
+
+    if deployed.is_empty:
+        logger.warning(
+            "Schema parity audit MISCONFIGURED — the deployed schema creates no "
+            "table (blank or wrong --deployed-schema); every object missing in the "
+            "target would read as a pending deploy instead of drift."
+        )
+        return AuditResult(misconfigured=True)
 
     # Open both connections up front and read both server majors *before* any
     # snapshot, so a version-sensitive kind that will be skipped (PG-major
@@ -180,7 +330,7 @@ async def run(*, reference_url: str, target_url: str) -> int:
                     "against an empty reference.",
                     ref_label,
                 )
-                return 1
+                return AuditResult(misconfigured=True)
 
             target = await _snapshot_all(tgt_conn, diff_kinds)
         finally:
@@ -189,10 +339,14 @@ async def run(*, reference_url: str, target_url: str) -> int:
         await ref_conn.close()
 
     total_drift = 0
+    ahead: list[str] = []
     for kind in diff_kinds:
-        drift = diff_defs(kind=kind, reference=reference[kind], target=target[kind])
+        drift = classify_missing(
+            diff_defs(kind=kind, reference=reference[kind], target=target[kind]), deployed
+        )
+        ahead += [f"{kind}.{k.label}" for k in drift.reference_ahead]
 
-        if not drift.has_drift:
+        if not drift.has_drift and not drift.reference_ahead:
             logger.info(
                 "Schema %s parity OK — target %s carries all %d reference %s(s) "
                 "from %s (%d target-only, not drift)",
@@ -205,20 +359,62 @@ async def run(*, reference_url: str, target_url: str) -> int:
             )
             continue
 
-        logger.warning(
-            "Schema %s DRIFT — target %s diverges from reference %s:\n%s",
-            kind,
-            tgt_label,
-            ref_label,
-            format_drift_report(drift, reference=ref_label, target=tgt_label),
-        )
-        total_drift += drift.drift_count
+        report = format_drift_report(drift, reference=ref_label, target=tgt_label)
+        if drift.has_drift:
+            logger.warning(
+                "Schema %s DRIFT — target %s diverges from reference %s:\n%s",
+                kind,
+                tgt_label,
+                ref_label,
+                report,
+            )
+            total_drift += drift.drift_count
+        else:
+            logger.warning(
+                "Schema %s REFERENCE AHEAD — not drift (pending deploy?):\n%s", kind, report
+            )
 
-    return total_drift
+    # Skipped kinds were not looked at, so their streaks carry over untouched.
+    read = _read_streaks(state_path)
+    previous = read if read is not None else {}
+    streaks = {
+        label: streak
+        for label, streak in previous.items()
+        if label.split(".", 1)[0] in skipped_kinds
+    }
+    streaks |= advance_streaks(previous, ahead, today=today or datetime.now(UTC).date())
+    # Nothing tracked before or now, and a sound file: skip the write, so a state
+    # file only breaks the run when there is a streak to keep or a bad file to replace.
+    needs_write = bool(previous or streaks) or read is None
+    if needs_write and not _write_streaks(state_path, streaks):
+        return AuditResult(drift_count=total_drift, ahead=tuple(ahead), misconfigured=True)
+
+    escalated = tuple(label for label in ahead if streaks[label]["runs"] > escalate_after)
+    if escalated:
+        logger.warning(
+            "Schema parity ESCALATED — %d object(s) ahead of the deployed schema.sql on "
+            "more than %d consecutive daily runs: the reference %s carries a "
+            "long-lived or abandoned branch's schema, not a deploy that is due. Ship "
+            "the branch, or, once no worktree needs them, drop the objects from the "
+            "reference or rebuild it from an empty schema (apply-schema.sh --test is "
+            "additive and keeps them):\n%s",
+            len(escalated),
+            escalate_after,
+            ref_label,
+            "\n".join(f"  - {label} ({streaks[label]['runs']} runs)" for label in escalated),
+        )
+    return AuditResult(drift_count=total_drift, ahead=tuple(ahead), escalated=escalated)
+
+
+def _non_negative_int(text: str) -> int:
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"must be >= 0, got {value}")
+    return value
 
 
 def main() -> None:
-    """CLI entry point — exits 3 on drift or misconfiguration (systemd failure hook)."""
+    """CLI entry point — exits 3 on failure, 4 on reference ahead only (see docstring)."""
     configure_logging()
     parser = build_parser(__doc__)
     parser.add_argument(
@@ -234,6 +430,27 @@ def main() -> None:
             "(default PARITY_REFERENCE_URL, then TEST_DATABASE_URL)"
         ),
     )
+    parser.add_argument(
+        "--deployed-schema",
+        type=Path,
+        default=DEFAULT_DEPLOYED_SCHEMA,
+        help="schema.sql of the deployed commit (default: this checkout's src/core/schema.sql)",
+    )
+    parser.add_argument(
+        "--state-file",
+        type=Path,
+        default=DEFAULT_STATE_PATH,
+        help="per-object reference-ahead run counts (default data/schema_parity/…)",
+    )
+    parser.add_argument(
+        "--escalate-after",
+        type=_non_negative_int,
+        default=DEFAULT_ESCALATE_AFTER,
+        help=(
+            "consecutive runs (at most one per UTC day) an object may stay ahead of "
+            f"the deployed schema before it fails (default {DEFAULT_ESCALATE_AFTER})"
+        ),
+    )
     args = parser.parse_args()
     if not args.target_url:
         parser.error("no target: set DATABASE_URL or pass --target-url")
@@ -247,9 +464,26 @@ def main() -> None:
     echo_target(args.target_url, role="target")
     echo_target(args.reference_url, role="reference")
 
-    drift_count = asyncio.run(run(reference_url=args.reference_url, target_url=args.target_url))
-    if drift_count:
-        sys.exit(3)
+    try:
+        deployed = DeployedSchema.from_sql(args.deployed_schema.read_text())
+    except (OSError, UnicodeDecodeError) as exc:
+        logger.warning(
+            "Schema parity audit MISCONFIGURED — cannot read the deployed schema %s (%s).",
+            args.deployed_schema,
+            exc,
+        )
+        sys.exit(EXIT_FAILURE)
+    result = asyncio.run(
+        run(
+            reference_url=args.reference_url,
+            target_url=args.target_url,
+            deployed=deployed,
+            state_path=args.state_file,
+            escalate_after=args.escalate_after,
+        )
+    )
+    if result.exit_code:
+        sys.exit(result.exit_code)
 
 
 if __name__ == "__main__":
