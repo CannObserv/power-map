@@ -331,8 +331,8 @@ value to lower `BASELINE` to, in a PR. Never raise it to clear a failure. What t
 
 No PM-side data fix is part of the ratchet.
 
-Every run logs every pair (`seat overlap: <role> (<role_id>) — <a_id> <span> ||
-<b_id> <span>`). A count cannot see a fix and a new defect landing together, so
+Every run logs every pair (`seat overlap: <role> (<role_id>) — <name> (<a_id>) <span>
+|| <name> (<b_id>) <span>`; the id alone when a person has no canonical name). A count cannot see a fix and a new defect landing together, so
 on a failure diff the pair log against the last passing run to find the new one.
 
 ```bash

@@ -102,9 +102,17 @@ async def _role(conn, slug="state_senator", qualifier=None) -> str:
     return role
 
 
-async def _person(conn) -> str:
+async def _person(conn, name: str | None = None) -> str:
     pid = generate_id()
     await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    if name:
+        await conn.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+            " VALUES ($1, $2, $3, 'legal', TRUE)",
+            generate_id(),
+            pid,
+            name,
+        )
     return pid
 
 
@@ -210,13 +218,15 @@ async def test_archived_rows_are_not_live(conn):
 @integration
 async def test_audit_fails_only_above_baseline_and_names_each_pair(conn, caplog):
     role = await _role(conn)
-    a = await _hold(conn, role, D(1955, 1, 10), D(1956, 12, 31))
-    b = await _hold(conn, role, D(1949, 1, 1), D(1956, 12, 31))
+    zahn = await _person(conn, "George D. Zahn")
+    a = await _hold(conn, role, D(1955, 1, 10), D(1956, 12, 31), person=zahn)
+    b = await _hold(conn, role, D(1949, 1, 1), D(1956, 12, 31))  # unnamed: id stands in
     count = len(await find_overlaps(conn))
 
     with caplog.at_level(logging.INFO, logger="scripts.audit_seat_occupancy"):
         assert await audit(conn, baseline=count) == 0
-    assert any(a in m and b in m for m in caplog.messages)
+    # Triage reads who, not just which rows: a name where one exists, the id always.
+    assert any(a in m and b in m and "George D. Zahn" in m for m in caplog.messages)
 
     caplog.clear()
     with caplog.at_level(logging.INFO, logger="scripts.audit_seat_occupancy"):

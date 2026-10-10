@@ -51,11 +51,15 @@ WITH live AS (
       AND (ra.end_date IS NOT NULL OR ra.is_current)
 )
 SELECT a.role_id, r.title AS role_title,
-       a.id AS a_id, a.person_id AS a_person_id, a.start_date AS a_start, a.end_date AS a_end,
-       b.id AS b_id, b.person_id AS b_person_id, b.start_date AS b_start, b.end_date AS b_end
+       a.id AS a_id, a.person_id AS a_person_id, pa.display_name AS a_name,
+       a.start_date AS a_start, a.end_date AS a_end,
+       b.id AS b_id, b.person_id AS b_person_id, pb.display_name AS b_name,
+       b.start_date AS b_start, b.end_date AS b_end
 FROM live a
 JOIN live b  ON b.role_id = a.role_id AND a.id < b.id AND b.person_id <> a.person_id
 JOIN roles r ON r.id = a.role_id
+LEFT JOIN v_person_display_names pa ON pa.person_id = a.person_id
+LEFT JOIN v_person_display_names pb ON pb.person_id = b.person_id
 WHERE a.start_date < b.until AND b.start_date < a.until
 ORDER BY r.title, a.role_id, a.id, b.id
 """
@@ -71,8 +75,10 @@ def exit_code(count: int, *, baseline: int) -> int:
     return 3 if count > baseline else 0
 
 
-def _span(start, end) -> str:
-    return f"{start}→{end or 'open'}"
+def _holder(name: str | None, assignment_id: str, start, end) -> str:
+    """``Name (assignment_id) start→end``; the id alone when the person has no name."""
+    who = f"{name} ({assignment_id})" if name else assignment_id
+    return f"{who} {start}→{end or 'open'}"
 
 
 async def audit(conn: asyncpg.Connection, *, baseline: int = BASELINE) -> int:
@@ -80,13 +86,11 @@ async def audit(conn: asyncpg.Connection, *, baseline: int = BASELINE) -> int:
     pairs = await find_overlaps(conn)
     for p in pairs:
         logger.info(
-            "seat overlap: %s (%s) — %s %s || %s %s",
+            "seat overlap: %s (%s) — %s || %s",
             p["role_title"],
             p["role_id"],
-            p["a_id"],
-            _span(p["a_start"], p["a_end"]),
-            p["b_id"],
-            _span(p["b_start"], p["b_end"]),
+            _holder(p["a_name"], p["a_id"], p["a_start"], p["a_end"]),
+            _holder(p["b_name"], p["b_id"], p["b_start"], p["b_end"]),
         )
     count = len(pairs)
     code = exit_code(count, baseline=baseline)
