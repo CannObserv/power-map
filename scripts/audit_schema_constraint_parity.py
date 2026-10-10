@@ -377,7 +377,11 @@ async def run(
     # Skipped kinds were not looked at, so their streaks carry over untouched.
     read = _read_streaks(state_path)
     previous = read if read is not None else {}
-    streaks = {label: n for label, n in previous.items() if label.split(".", 1)[0] in skipped_kinds}
+    streaks = {
+        label: streak
+        for label, streak in previous.items()
+        if label.split(".", 1)[0] in skipped_kinds
+    }
     streaks |= advance_streaks(previous, ahead, today=today or datetime.now(UTC).date())
     # Nothing tracked before or now, and a sound file: skip the write, so a state
     # file only breaks the run when there is a streak to keep or a bad file to replace.
