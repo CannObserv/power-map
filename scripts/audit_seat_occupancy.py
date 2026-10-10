@@ -23,6 +23,7 @@ Read-only. Exit 3 (not 2) stays distinct from argparse usage errors.
 Usage:
     uv run python -m scripts.audit_seat_occupancy          # DATABASE_URL
     uv run python -m scripts.audit_seat_occupancy --test   # TEST_DATABASE_URL
+    uv run python -m scripts.audit_seat_occupancy --baseline 0   # every pair fails
 """
 
 import asyncio
