@@ -27,8 +27,11 @@ INFRA = Path(__file__).resolve().parents[2] / "infra"
 
 
 def test_baseline_only_ratchets_down_from_the_2026_10_10_measurement():
-    """Lowering it as triage lands is the point; raising it to clear a failure is not."""
-    assert 0 <= BASELINE <= 56
+    """Lowering it as triage lands is the point; raising it to clear a failure is not.
+
+    56 on 2026-10-10; 55 once #639 truncated Robinson's legacy LD-38 Pos. 1 row.
+    """
+    assert 0 <= BASELINE <= 55
 
 
 def test_exit_code_at_baseline_is_zero():
