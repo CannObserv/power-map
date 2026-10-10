@@ -472,8 +472,8 @@ CREATE TABLE IF NOT EXISTS role_assignments (
 -- Prevent duplicate role definitions per org (case-insensitive title).
 -- Archived roles are excluded so a re-created role is never blocked.
 -- NOTE: index creation is skipped (with a warning) if duplicate rows exist.
--- Run scripts/deduplicate_roles.py --execute before applying this schema if the
--- index fails to create, then re-run apply_schema to pick it up.
+-- If the index fails to create, merge the duplicate roles (admin role merge,
+-- which re-homes their assignments and ancillary), then re-run apply_schema.
 --
 -- SUPERSEDED by the #261 role-uniqueness split further below (search
 -- "Role structural fields"): that migration DROPs this pre-#261 form and
@@ -489,7 +489,7 @@ DO $$ BEGIN
 EXCEPTION WHEN unique_violation THEN
     RAISE WARNING
         'uq_role_org_title not created: duplicate (organization_id, title) rows exist. '
-        'Run scripts/deduplicate_roles.py --execute then re-apply schema.';
+        'Merge the duplicate roles (admin role merge) then re-apply schema.';
 END $$;
 
 -- Prevent duplicate assignments: same person+role+start_date is always a duplicate.
@@ -505,7 +505,7 @@ DO $$ BEGIN
 EXCEPTION WHEN unique_violation THEN
     RAISE WARNING
         'uq_role_assignment_person_role_start not created: duplicate (person_id, role_id, '
-        'start_date) rows exist. Run scripts/deduplicate_roles.py --execute then re-apply schema.';
+        'start_date) rows exist. Resolve duplicates then re-apply schema.';
 END $$;
 
 -- =============================================================================
@@ -702,8 +702,7 @@ CREATE INDEX IF NOT EXISTS idx_links_entity
 
 -- Natural-key uniqueness (issue #142): an entity must not carry the same URL
 -- twice for the same link_type. Without this, the ON CONFLICT DO NOTHING
--- clauses in src/core/ingestion/pipeline.py are silent no-ops, and the
--- conflict key relied on by scripts/deduplicate_roles.py is unenforced.
+-- clauses in src/core/ingestion/pipeline.py are silent no-ops.
 -- is_active is intentionally excluded — keeping both an active and an
 -- archived copy of the same URL is not a supported state.
 --
@@ -985,7 +984,7 @@ DO $$ BEGIN
 EXCEPTION WHEN unique_violation THEN
     RAISE WARNING
         'uq_role_org_title not created: duplicate (organization_id, title) rows '
-        'exist. Run scripts/deduplicate_roles.py --execute then re-apply schema.';
+        'exist. Merge the duplicate roles (admin role merge) then re-apply schema.';
 END $$;
 
 -- organization_names real-world effective-date timeline (#239). Lets PM answer
