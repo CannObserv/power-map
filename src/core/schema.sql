@@ -280,6 +280,13 @@ CREATE TABLE IF NOT EXISTS role_types (
     forbids_qualifier BOOLEAN NOT NULL DEFAULT FALSE,
     CONSTRAINT chk_role_type_qualifier_policy
         CHECK (NOT (requires_qualifier AND forbids_qualifier)),
+    -- Audited, not enforced (#506): how many people may hold one role of this
+    -- type at a time. `single` = one seat, one holder (a senator, a positioned
+    -- House seat); `shared` = no claim (at-large seats are N concurrent holders
+    -- on one role, #302). scripts/audit_seat_occupancy.py reads it. Never a
+    -- constraint: an exclusion would refuse the data, an audit reports it.
+    occupancy    TEXT        NOT NULL DEFAULT 'shared',
+    CONSTRAINT chk_role_type_occupancy CHECK (occupancy IN ('single', 'shared')),
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -2218,6 +2225,29 @@ DO $$ BEGIN
     END IF;
 END $$;
 
+-- Add occupancy + its CHECK on existing DBs (#506). Fresh DBs already have both
+-- from the CREATE TABLE above.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='role_types'
+          AND column_name='occupancy'
+    ) THEN
+        ALTER TABLE role_types ADD COLUMN occupancy TEXT NOT NULL DEFAULT 'shared';
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema='public' AND table_name='role_types'
+          AND constraint_name='chk_role_type_occupancy'
+    ) THEN
+        ALTER TABLE role_types ADD CONSTRAINT chk_role_type_occupancy
+            CHECK (occupancy IN ('single', 'shared'));
+    END IF;
+END $$;
+
 -- Role-type classifier seed (#261, #266). Governance rubric — the aggregation
 -- test, the domain-prefix convention, concept-vs-label, and coarse-vs-specific —
 -- lives in docs/SCHEMA.md §"Role-type vocabulary — governance". In short:
@@ -2232,7 +2262,9 @@ END $$;
 -- and state_representative_at_large (#302 — the pre-1965 WA House, before Ch. 52
 -- Laws of 1965 introduced Position 1/2) is deliberately positionless: its seats
 -- were fungible, so the qualifier stays NULL and multiplicity is expressed as N
--- concurrent role_assignments on the one role. Seeded ahead of the data, unlike
+-- concurrent role_assignments on the one role. occupancy (#506) is `single` for
+-- the two districted seats only; every other type makes no claim (`shared`).
+-- Seeded ahead of the data, unlike
 -- the reserved peers below, because role_types has NO remote write path —
 -- resolve_role rejects an unknown slug, so an unseeded type would bounce every
 -- pre-1965 observation as `role_type_not_found`.
@@ -2248,31 +2280,32 @@ END $$;
 DROP TABLE IF EXISTS pg_temp._seed_role_types;
 CREATE TEMP TABLE _seed_role_types (LIKE role_types INCLUDING ALL);
 
-INSERT INTO _seed_role_types (id, slug, display_name, expects_jurisdiction, requires_qualifier, forbids_qualifier) VALUES
-    ('01KX0000000000000000000001', 'state_representative',                'State Representative',                TRUE,  TRUE,  FALSE),
-    ('01KX0000000000000000000002', 'state_senator',                      'State Senator',                      TRUE,  FALSE, FALSE),
-    ('01KX000000000000000000000D', 'state_representative_at_large',      'State Representative (At-Large)',    TRUE,  FALSE, TRUE),
-    ('01KX0000000000000000000004', 'chamber_leader',                     'Chamber Leader',                     FALSE, FALSE, FALSE),
-    ('01KX0000000000000000000005', 'chamber_officer',                    'Chamber Officer',                    FALSE, FALSE, FALSE),
-    ('01KX0000000000000000000006', 'committee_chair',                    'Committee Chair',                    FALSE, FALSE, FALSE),
-    ('01KX0000000000000000000007', 'committee_vice_chair',               'Committee Vice Chair',               FALSE, FALSE, FALSE),
-    ('01KX0000000000000000000008', 'committee_ranking_member',           'Committee Ranking Member',           FALSE, FALSE, FALSE),
-    ('01KX0000000000000000000009', 'committee_assistant_ranking_member', 'Committee Assistant Ranking Member', FALSE, FALSE, FALSE),
-    ('01KX000000000000000000000A', 'committee_member',                   'Committee Member',                   FALSE, FALSE, FALSE),
-    ('01KX000000000000000000000B', 'legislature_staff',                  'Legislative Staff',                  FALSE, FALSE, FALSE),
-    ('01KX000000000000000000000C', 'party_member',                       'Party Member',                       FALSE, FALSE, FALSE);
+INSERT INTO _seed_role_types (id, slug, display_name, expects_jurisdiction, requires_qualifier, forbids_qualifier, occupancy) VALUES
+    ('01KX0000000000000000000001', 'state_representative',                'State Representative',                TRUE,  TRUE,  FALSE, 'single'),
+    ('01KX0000000000000000000002', 'state_senator',                      'State Senator',                      TRUE,  FALSE, FALSE, 'single'),
+    ('01KX000000000000000000000D', 'state_representative_at_large',      'State Representative (At-Large)',    TRUE,  FALSE, TRUE,  'shared'),
+    ('01KX0000000000000000000004', 'chamber_leader',                     'Chamber Leader',                     FALSE, FALSE, FALSE, 'shared'),
+    ('01KX0000000000000000000005', 'chamber_officer',                    'Chamber Officer',                    FALSE, FALSE, FALSE, 'shared'),
+    ('01KX0000000000000000000006', 'committee_chair',                    'Committee Chair',                    FALSE, FALSE, FALSE, 'shared'),
+    ('01KX0000000000000000000007', 'committee_vice_chair',               'Committee Vice Chair',               FALSE, FALSE, FALSE, 'shared'),
+    ('01KX0000000000000000000008', 'committee_ranking_member',           'Committee Ranking Member',           FALSE, FALSE, FALSE, 'shared'),
+    ('01KX0000000000000000000009', 'committee_assistant_ranking_member', 'Committee Assistant Ranking Member', FALSE, FALSE, FALSE, 'shared'),
+    ('01KX000000000000000000000A', 'committee_member',                   'Committee Member',                   FALSE, FALSE, FALSE, 'shared'),
+    ('01KX000000000000000000000B', 'legislature_staff',                  'Legislative Staff',                  FALSE, FALSE, FALSE, 'shared'),
+    ('01KX000000000000000000000C', 'party_member',                       'Party Member',                       FALSE, FALSE, FALSE, 'shared');
 
 SELECT reconcile_seeded_slugs('role_types', '_seed_role_types');
 
-INSERT INTO role_types (id, slug, display_name, expects_jurisdiction, requires_qualifier, forbids_qualifier)
-SELECT id, slug, display_name, expects_jurisdiction, requires_qualifier, forbids_qualifier
+INSERT INTO role_types (id, slug, display_name, expects_jurisdiction, requires_qualifier, forbids_qualifier, occupancy)
+SELECT id, slug, display_name, expects_jurisdiction, requires_qualifier, forbids_qualifier, occupancy
 FROM _seed_role_types
 ON CONFLICT (id) DO UPDATE SET
     slug                 = EXCLUDED.slug,
     display_name         = EXCLUDED.display_name,
     expects_jurisdiction = EXCLUDED.expects_jurisdiction,
     requires_qualifier   = EXCLUDED.requires_qualifier,
-    forbids_qualifier    = EXCLUDED.forbids_qualifier;
+    forbids_qualifier    = EXCLUDED.forbids_qualifier,
+    occupancy            = EXCLUDED.occupancy;
 
 DROP TABLE _seed_role_types;
 

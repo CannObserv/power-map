@@ -134,6 +134,7 @@ from .role_list_item import RoleListItem
 from .role_list_response import RoleListResponse
 from .role_observation_request import RoleObservationRequest
 from .role_type import RoleType
+from .role_type_occupancy import RoleTypeOccupancy
 from .role_types_response import RoleTypesResponse
 from .search_meta import SearchMeta
 from .subscription_bulk_delete_request import SubscriptionBulkDeleteRequest
@@ -281,6 +282,7 @@ __all__ = (
     "RoleListResponse",
     "RoleObservationRequest",
     "RoleType",
+    "RoleTypeOccupancy",
     "RoleTypesResponse",
     "SearchMeta",
     "SubscriptionBulkDeleteRequest",

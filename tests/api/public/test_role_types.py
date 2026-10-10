@@ -65,6 +65,7 @@ async def test_role_types_items_have_required_fields(client, api_key):
         "expects_jurisdiction",
         "requires_qualifier",
         "forbids_qualifier",
+        "occupancy",
     }
     assert isinstance(item["expects_jurisdiction"], bool)
     assert isinstance(item["requires_qualifier"], bool)
@@ -88,6 +89,22 @@ async def test_role_types_at_large_office_is_positionless(client, api_key):
     assert at_large["requires_qualifier"] is False
     assert at_large["forbids_qualifier"] is True
     assert by_slug["state_senator"]["forbids_qualifier"] is False
+
+
+@pytest.mark.integration
+async def test_role_types_occupancy_tells_single_seats_from_shared(client, api_key):
+    """#506: a producer reads which offices one person holds at a time.
+
+    The qualifier pair says how a seat is named; ``occupancy`` says how many hold
+    it. A senator's seat and a positioned House seat are ``single``; the at-large
+    seat is ``shared`` (N concurrent holders on one role).
+    """
+    response = await client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
+    by_slug = {r["slug"]: r for r in response.json()["data"]}
+    assert by_slug["state_senator"]["occupancy"] == "single"
+    assert by_slug["state_representative"]["occupancy"] == "single"
+    assert by_slug["state_representative_at_large"]["occupancy"] == "shared"
+    assert by_slug["committee_member"]["occupancy"] == "shared"
 
 
 @pytest.mark.integration
