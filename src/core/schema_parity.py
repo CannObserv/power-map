@@ -196,8 +196,9 @@ class SchemaObjectDrift:
     ``missing_in_target`` and ``mismatched`` are the drift the guard fails on;
     ``target_only`` is informational, and so is ``reference_ahead`` — reference
     objects missing in the target that the deployed ``schema.sql`` does not
-    declare, filled only by ``classify_missing`` (see module docstring). ``kind``
-    namespaces the report (``constraint`` / ``function`` / ``trigger``).
+    declare, filled only by ``classify_missing`` (see module docstring), which
+    also sets ``classified`` — the report then says the missing ones are declared.
+    ``kind`` namespaces the report (``constraint`` / ``function`` / ``trigger``).
     """
 
     kind: str
@@ -205,6 +206,7 @@ class SchemaObjectDrift:
     mismatched: list = field(default_factory=list)
     target_only: list = field(default_factory=list)
     reference_ahead: list = field(default_factory=list)
+    classified: bool = False
 
     @property
     def has_drift(self) -> bool:
@@ -387,7 +389,7 @@ def classify_missing(drift: SchemaObjectDrift, deployed: DeployedSchema) -> Sche
     """
     missing = [k for k in drift.missing_in_target if deployed.declares(drift.kind, k)]
     ahead = [k for k in drift.missing_in_target if not deployed.declares(drift.kind, k)]
-    return replace(drift, missing_in_target=missing, reference_ahead=ahead)
+    return replace(drift, missing_in_target=missing, reference_ahead=ahead, classified=True)
 
 
 def advance_streaks(
@@ -436,7 +438,8 @@ def format_drift_report(drift: SchemaObjectDrift, *, reference: str, target: str
     if drift.missing_in_target:
         lines.append(
             f"{len(drift.missing_in_target)} {kind}(s) present in reference "
-            f"({reference}) but MISSING in target ({target}):"
+            f"({reference}) but MISSING in target ({target})"
+            + (", declared by the deployed schema.sql:" if drift.classified else ":")
         )
         lines += [f"  - {kind}.{k.label}" for k in drift.missing_in_target]
     if drift.mismatched:

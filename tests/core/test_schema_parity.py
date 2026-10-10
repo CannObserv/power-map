@@ -336,6 +336,18 @@ def test_format_report_names_reference_ahead_as_pending_deploy(deployed):
 _D1, _D2 = date(2026, 10, 9), date(2026, 10, 10)
 
 
+def test_format_report_says_classified_missing_objects_are_declared(deployed):
+    """After classification, MISSING means declared by the deployed schema.sql — the
+    header says so, so a mixed report shows why one list fails and the other not."""
+    declared = TriggerKey(table="people", name="trg_updated_at_people")
+    pending = TriggerKey(table="people", name="trg_people_inbound_event_links")
+    raw = diff_defs(kind="trigger", reference={declared: "a", pending: "b"}, target={})
+    classified = format_drift_report(classify_missing(raw, deployed), reference="r", target="p")
+    unclassified = format_drift_report(raw, reference="r", target="p")
+    assert "MISSING in target (p), declared by the deployed schema.sql:" in classified
+    assert "declared by the deployed schema.sql" not in unclassified
+
+
 def test_advance_streaks_counts_consecutive_run_days_per_object():
     """A label still ahead gains a run, a new one starts at 1, a cleared one drops."""
     previous = {
