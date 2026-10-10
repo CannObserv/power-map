@@ -441,3 +441,47 @@ async def test_setting_qualifier_on_at_large_seat_rejected_by_trigger(db):
     )
     with pytest.raises(asyncpg.exceptions.CheckViolationError):
         await db.execute("UPDATE roles SET qualifier='Position 1' WHERE id=$1", rid)
+
+
+# --- occupancy: how many people may hold one role of this type at once (#506) ---
+
+
+async def test_occupancy_seeded_single_only_on_districted_seats(db):
+    """A senator or a positioned representative holds the seat alone; nothing else is asserted.
+
+    At-large seats are fungible (N concurrent holders on one role, #302), and the
+    coarse types carry co-chairs and co-leaders, so they stay ``shared``.
+    """
+    rows = {
+        r["slug"]: r["occupancy"] for r in await db.fetch("SELECT slug, occupancy FROM role_types")
+    }
+    assert rows["state_senator"] == "single"
+    assert rows["state_representative"] == "single"
+    assert rows["state_representative_at_large"] == "shared"
+    assert {slug for slug, occ in rows.items() if occ == "single"} == {
+        "state_senator",
+        "state_representative",
+    }
+
+
+async def test_occupancy_defaults_to_shared(db):
+    """An unseeded type asserts nothing, so the seat-occupancy audit never reads it."""
+    rid = generate_id()
+    await db.execute(
+        "INSERT INTO role_types (id, slug, display_name) VALUES ($1,$2,$3)",
+        rid,
+        "occupancy_default_probe",
+        "Occupancy Default Probe",
+    )
+    assert await db.fetchval("SELECT occupancy FROM role_types WHERE id=$1", rid) == "shared"
+
+
+async def test_occupancy_rejects_unknown_value(db):
+    """chk_role_type_occupancy: the vocabulary is closed."""
+    with pytest.raises(asyncpg.exceptions.CheckViolationError):
+        await db.execute(
+            "INSERT INTO role_types (id, slug, display_name, occupancy) VALUES ($1,$2,$3,'two')",
+            generate_id(),
+            "occupancy_bad_probe",
+            "Occupancy Bad Probe",
+        )

@@ -514,6 +514,10 @@ class RoleType(BaseModel):
     positionless (at-large seats), so supplying a ``qualifier`` is rejected
     (``qualifier_forbidden``). The two are mutually exclusive; both FALSE means
     the qualifier is optional (one seat per district, e.g. a state senator).
+    ``occupancy`` (#506) says how many people hold one role of the office at a
+    time: ``single`` (a senator, a positioned House seat) or ``shared`` (no
+    claim; at-large seats hold N concurrent members). Audited, not enforced:
+    two overlapping holders of a ``single`` seat are accepted and reported.
     """
 
     id: str
@@ -522,6 +526,7 @@ class RoleType(BaseModel):
     expects_jurisdiction: bool
     requires_qualifier: bool
     forbids_qualifier: bool
+    occupancy: Literal["single", "shared"]
 
 
 class RoleTypesResponse(BaseModel):

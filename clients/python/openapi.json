@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "power-map",
-    "version": "0.59.6"
+    "version": "0.60.0"
   },
   "paths": {
     "/health": {
@@ -9914,6 +9914,14 @@
           "forbids_qualifier": {
             "type": "boolean",
             "title": "Forbids Qualifier"
+          },
+          "occupancy": {
+            "type": "string",
+            "enum": [
+              "single",
+              "shared"
+            ],
+            "title": "Occupancy"
           }
         },
         "type": "object",
@@ -9923,10 +9931,11 @@
           "display_name",
           "expects_jurisdiction",
           "requires_qualifier",
-          "forbids_qualifier"
+          "forbids_qualifier",
+          "occupancy"
         ],
         "title": "RoleType",
-        "description": "A role-type classifier (office) — the structural-match vocabulary (#268).\n\n``slug`` is the stable value a producer sends as ``RoleObservationRequest.\nrole_type`` and reads back on ``RoleDetail.role_type_slug``.\n``expects_jurisdiction`` is an advisory hint that this office is normally\nattached with a jurisdiction (structural-tuple match); it is not enforced by\n``resolve_role``. ``requires_qualifier`` (#273) IS enforced: a jurisdictional\nobservation of such an office without a ``qualifier`` is rejected\n(``qualifier_required``) rather than minting a positionless seat.\n``forbids_qualifier`` (#302) is the mirror, also enforced: the office is\npositionless (at-large seats), so supplying a ``qualifier`` is rejected\n(``qualifier_forbidden``). The two are mutually exclusive; both FALSE means\nthe qualifier is optional (one seat per district, e.g. a state senator)."
+        "description": "A role-type classifier (office) — the structural-match vocabulary (#268).\n\n``slug`` is the stable value a producer sends as ``RoleObservationRequest.\nrole_type`` and reads back on ``RoleDetail.role_type_slug``.\n``expects_jurisdiction`` is an advisory hint that this office is normally\nattached with a jurisdiction (structural-tuple match); it is not enforced by\n``resolve_role``. ``requires_qualifier`` (#273) IS enforced: a jurisdictional\nobservation of such an office without a ``qualifier`` is rejected\n(``qualifier_required``) rather than minting a positionless seat.\n``forbids_qualifier`` (#302) is the mirror, also enforced: the office is\npositionless (at-large seats), so supplying a ``qualifier`` is rejected\n(``qualifier_forbidden``). The two are mutually exclusive; both FALSE means\nthe qualifier is optional (one seat per district, e.g. a state senator).\n``occupancy`` (#506) says how many people hold one role of the office at a\ntime: ``single`` (a senator, a positioned House seat) or ``shared`` (no\nclaim; at-large seats hold N concurrent members). Audited, not enforced:\ntwo overlapping holders of a ``single`` seat are accepted and reported."
       },
       "RoleTypesResponse": {
         "properties": {

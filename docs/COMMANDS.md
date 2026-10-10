@@ -467,6 +467,7 @@ row names**; this is a roster, not a reference.
 | `power-map-prune` | daily | `prune_outbox.py --execute` — outbox/tombstone TTL | [RUNBOOKS.md](RUNBOOKS.md) |
 | `power-map-schema-parity` | daily | `audit_schema_constraint_parity.py` — prod vs reference DDL | [AUDITS.md](AUDITS.md) |
 | `power-map-ancillary-orphans` | daily | `audit_ancillary_orphans.py` — no-FK polymorphic orphans | [AUDITS.md](AUDITS.md) |
+| `power-map-seat-occupancy` | daily | `audit_seat_occupancy.py` — two holders of one single seat; ratchet, fails only above baseline | [AUDITS.md](AUDITS.md) |
 | `power-map-assignment-rel-windows` | daily | `audit_assignment_relationship_windows.py` — drifted RA→RA edge windows | [AUDITS.md](AUDITS.md) |
 | `power-map-openapi-parity` | daily | `check_openapi_parity.py` — live `/openapi.json` vs `clients/python/openapi.json`, and its `v<version>` tag | [AUDITS.md](AUDITS.md) |
 | `power-map-a11y` | Sun 04:00 UTC | `run-a11y-sweep.sh` — both a11y tiers against the test DB | [TESTING.md](TESTING.md) |

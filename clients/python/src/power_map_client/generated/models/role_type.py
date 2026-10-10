@@ -6,6 +6,8 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.role_type_occupancy import RoleTypeOccupancy
+
 T = TypeVar("T", bound="RoleType")
 
 
@@ -24,6 +26,10 @@ class RoleType:
     positionless (at-large seats), so supplying a ``qualifier`` is rejected
     (``qualifier_forbidden``). The two are mutually exclusive; both FALSE means
     the qualifier is optional (one seat per district, e.g. a state senator).
+    ``occupancy`` (#506) says how many people hold one role of the office at a
+    time: ``single`` (a senator, a positioned House seat) or ``shared`` (no
+    claim; at-large seats hold N concurrent members). Audited, not enforced:
+    two overlapping holders of a ``single`` seat are accepted and reported.
 
         Attributes:
             id (str):
@@ -32,6 +38,7 @@ class RoleType:
             expects_jurisdiction (bool):
             requires_qualifier (bool):
             forbids_qualifier (bool):
+            occupancy (RoleTypeOccupancy):
     """
 
     id: str
@@ -40,6 +47,7 @@ class RoleType:
     expects_jurisdiction: bool
     requires_qualifier: bool
     forbids_qualifier: bool
+    occupancy: RoleTypeOccupancy
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -55,6 +63,8 @@ class RoleType:
 
         forbids_qualifier = self.forbids_qualifier
 
+        occupancy = self.occupancy.value
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -65,6 +75,7 @@ class RoleType:
                 "expects_jurisdiction": expects_jurisdiction,
                 "requires_qualifier": requires_qualifier,
                 "forbids_qualifier": forbids_qualifier,
+                "occupancy": occupancy,
             }
         )
 
@@ -85,6 +96,8 @@ class RoleType:
 
         forbids_qualifier = d.pop("forbids_qualifier")
 
+        occupancy = RoleTypeOccupancy(d.pop("occupancy"))
+
         role_type = cls(
             id=id,
             slug=slug,
@@ -92,6 +105,7 @@ class RoleType:
             expects_jurisdiction=expects_jurisdiction,
             requires_qualifier=requires_qualifier,
             forbids_qualifier=forbids_qualifier,
+            occupancy=occupancy,
         )
 
         role_type.additional_properties = d

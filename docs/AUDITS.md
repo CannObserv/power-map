@@ -1,14 +1,15 @@
 # power-map — Recurring Data Audits
 
-The six recurring integrity audits: what each one checks, the categories it
+The seven recurring integrity audits: what each one checks, the categories it
 reports, and how to run it. Each is read-only in report mode; the ones that can
 repair take `--execute`, and the resolver and target-echo rules are in
 `docs/RUNBOOKS.md` §"Operational scripts — dry run by default & target echo".
 
-Four run on a systemd timer — assignment-relationship windows (#301), per-key API
-anomaly (#294), schema parity (#315/#331) and ancillary orphans (#324/#326/#319).
-Those four exit 3 on findings, so a run surfaces in `systemctl --failed` (#363),
-and each carries its own install block below. The org-lifecycle (#307) and
+Five run on a systemd timer — assignment-relationship windows (#301), per-key API
+anomaly (#294), schema parity (#315/#331), ancillary orphans (#324/#326/#319) and
+seat occupancy (#506). Those five exit 3 on findings (seat occupancy only above
+its baseline), so a run surfaces in `systemctl --failed` (#363), and each carries
+its own install block below. The org-lifecycle (#307) and
 duplicate-assignment (#311) audits are on-demand: no timer, no exit-3. Three
 guards at the end carry timers too: readiness (#347), egress IP (#410) and
 OpenAPI parity (#618).
@@ -293,6 +294,67 @@ sudo systemctl enable --now power-map-ancillary-orphans.timer
 systemctl list-timers power-map-ancillary-orphans.timer    # next/last run
 sudo systemctl start power-map-ancillary-orphans.service   # run once, now
 sudo journalctl -u power-map-ancillary-orphans -f          # orphan breakdown on failure
+```
+
+---
+
+## Seat-occupancy ratchet (issue #506)
+
+
+`scripts/audit_seat_occupancy.py` reports two **different** people holding one
+role of a `role_types.occupancy='single'` type (`state_senator`,
+`state_representative`) over **strictly** overlapping spans: each starts before
+the other ends. No constraint forbids it, because at-large seats need concurrent
+holders (#302), so this audit is the only thing that notices.
+
+- **Same-day handoffs are not findings.** A span ending the day the next begins
+  is mid-term succession (`Jim Clements 2007-01-05→2007-11-29 || Curtis King
+  2007-11-29→open`); an inclusive rule would report 58 of those forever.
+- **No span is invented.** An unknown start, or an unknown end that is not
+  `is_current`, is out of scope; a current holder runs open-ended.
+- **One person twice** on a role is the duplicate audit's shape (#311), not this one's.
+- Archived assignments and archived roles are not live.
+
+**It is a ratchet, not a zero gate.** `BASELINE` in the script is the count on
+production on 2026-10-10: **56** pairs (55 Senate, 1 House), each listed on usa-wa#489. The run exits 3 only
+when the count rises above it; a lower count passes with a WARNING naming the
+value to lower `BASELINE` to, in a PR. Never raise it to clear a failure. What the 56 are:
+
+- **35** producer pairs, the same count usa-wa's own gate baselines (usa-wa#359,
+  drained in usa-wa#360): mostly a successor arriving mid-term while the
+  predecessor's span, built from roster appearances, runs to the biennium's end.
+- **20** are the 1889–90 multi-member Senate (LD-2/5/8/18/19), where two to five
+  senators lawfully shared a district. usa-wa's gate excludes them from the
+  roster; PM cannot, because both sides model them as one `state_senator` seat
+  (usa-wa#362). They are baselined findings, not defects.
+- **1** pairs a dataset row with a legacy PM row that no dataset anchors (#639).
+
+No PM-side data fix is part of the ratchet.
+
+Every run logs every pair (`seat overlap: <role> (<role_id>) — <name> (<a_id>) <span>
+|| <name> (<b_id>) <span>`; the id alone when a person has no canonical name). A count cannot see a fix and a new defect landing together, so
+on a failure diff the pair log against the last passing run to find the new one.
+
+```bash
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+uv run "${env_args[@]}" python -m scripts.audit_seat_occupancy               # ratchet at BASELINE
+uv run "${env_args[@]}" python -m scripts.audit_seat_occupancy --baseline 0  # every pair as a failure
+```
+
+Scheduled (production): a daily timer. Install / update:
+
+```bash
+sudo cp infra/power-map-seat-occupancy.service infra/power-map-seat-occupancy.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now power-map-seat-occupancy.timer
+
+# Inspect
+systemctl list-timers power-map-seat-occupancy.timer    # next/last run
+sudo systemctl start power-map-seat-occupancy.service   # run once, now
+sudo journalctl -u power-map-seat-occupancy -f          # pair log + verdict
 ```
 
 ---

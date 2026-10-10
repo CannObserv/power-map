@@ -1,0 +1,18 @@
+[Unit]
+Description=power-map daily seat-occupancy ratchet (issue #506)
+After=network.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+EnvironmentFile=/etc/power-map/.env
+EnvironmentFile=-/home/exedev/power-map/.env
+# Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
+# Counts pairs of live assignments where two different people hold one
+# single-occupancy role (role_types.occupancy) over strictly overlapping spans;
+# a same-day handoff is not a finding. Logs every pair. A ratchet: exits 3 only
+# when the count rises above the script's BASELINE, so the unit shows as failed
+# in `systemctl --failed` on a new concurrent holder, not on the known backlog.
+# Read-only.
+ExecStart=uv run python -m scripts.audit_seat_occupancy
