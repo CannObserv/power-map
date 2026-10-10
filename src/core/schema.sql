@@ -505,7 +505,7 @@ DO $$ BEGIN
 EXCEPTION WHEN unique_violation THEN
     RAISE WARNING
         'uq_role_assignment_person_role_start not created: duplicate (person_id, role_id, '
-        'start_date) rows exist. Resolve duplicates then re-apply schema.';
+        'start_date) rows exist. Archive the redundant assignment then re-apply schema.';
 END $$;
 
 -- =============================================================================
