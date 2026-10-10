@@ -443,8 +443,8 @@ def main() -> None:
         type=_non_negative_int,
         default=DEFAULT_ESCALATE_AFTER,
         help=(
-            "consecutive runs an object may stay ahead of the deployed schema before "
-            f"it fails (default {DEFAULT_ESCALATE_AFTER})"
+            "consecutive runs (at most one per UTC day) an object may stay ahead of "
+            f"the deployed schema before it fails (default {DEFAULT_ESCALATE_AFTER})"
         ),
     )
     args = parser.parse_args()
