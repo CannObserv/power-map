@@ -40,7 +40,7 @@ Response item fields: `id`, `organization_id`, `title`, `notes`, `established_on
 
 The machine-readable catalog of role-type classifiers (#268), so producers of structured roles discover the `role_type` match-key vocabulary instead of hardcoding it. Unpaginated `{"data": [...]}` (small, stable set); no query parameters.
 
-Item fields: `id`, `slug`, `display_name`, `expects_jurisdiction`, `requires_qualifier`, `forbids_qualifier`.
+Item fields: `id`, `slug`, `display_name`, `expects_jurisdiction`, `requires_qualifier`, `forbids_qualifier`, `occupancy`.
 
 - `slug` — the stable value sent as `RoleObservationRequest.role_type` and returned as `RoleDetail.role_type_slug`.
 - `expects_jurisdiction` — advisory hint that this office is normally attached with a `jurisdiction_id` (structural-tuple match). It is a producer hint, **not** enforced: `resolve_role` will let a jurisdiction-expecting type be used in title mode. Sending an **unknown** `role_type` is already rejected (`role_type_not_found`), so an unrecognized slug can never mint a role — this endpoint is what keeps a producer from sending a *valid-but-wrong* slug.
@@ -57,13 +57,15 @@ Read the two flags as a pair — they are mutually exclusive, and the combinatio
 
 An empty or whitespace-only `qualifier` counts as **absent** on both paths — it never satisfies `requires_qualifier`, never trips `forbids_qualifier`, and is stored as NULL.
 
+`occupancy` (#506) says how many people hold one role of the office at a time: `single` for `state_senator` and `state_representative`, `shared` (no claim) for everything else, including the at-large seat, whose N members are N concurrent assignments on one role. It is **audited, not enforced**: two overlapping holders of a `single` seat are accepted, and the daily seat-occupancy audit reports them (`docs/AUDITS.md`). A same-day handoff (one span ends the day the next begins) is succession, not overlap. One known exception to `single`: the 1889–90 Senate seated several senators in some districts, and both PM and usa-wa model those as one `state_senator` seat (usa-wa#362), so their co-senators read as overlaps. The audit's baseline counts them.
+
 ```jsonc
 {
   "data": [
-    { "id": "01KX…01", "slug": "state_representative",          "display_name": "State Representative",           "expects_jurisdiction": true,  "requires_qualifier": true,  "forbids_qualifier": false },
-    { "id": "01KX…0D", "slug": "state_representative_at_large", "display_name": "State Representative (At-Large)", "expects_jurisdiction": true,  "requires_qualifier": false, "forbids_qualifier": true  },
-    { "id": "01KX…02", "slug": "state_senator",                 "display_name": "State Senator",                  "expects_jurisdiction": true,  "requires_qualifier": false, "forbids_qualifier": false },
-    { "id": "01KX…0A", "slug": "committee_member",              "display_name": "Committee Member",               "expects_jurisdiction": false, "requires_qualifier": false, "forbids_qualifier": false }
+    { "id": "01KX…01", "slug": "state_representative",          "display_name": "State Representative",           "expects_jurisdiction": true,  "requires_qualifier": true,  "forbids_qualifier": false, "occupancy": "single" },
+    { "id": "01KX…0D", "slug": "state_representative_at_large", "display_name": "State Representative (At-Large)", "expects_jurisdiction": true,  "requires_qualifier": false, "forbids_qualifier": true,  "occupancy": "shared" },
+    { "id": "01KX…02", "slug": "state_senator",                 "display_name": "State Senator",                  "expects_jurisdiction": true,  "requires_qualifier": false, "forbids_qualifier": false, "occupancy": "single" },
+    { "id": "01KX…0A", "slug": "committee_member",              "display_name": "Committee Member",               "expects_jurisdiction": false, "requires_qualifier": false, "forbids_qualifier": false, "occupancy": "shared" }
   ]
 }
 ```
