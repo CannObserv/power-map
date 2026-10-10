@@ -28,6 +28,8 @@ by position, so appending here cannot silently re-label an existing claim (#428 
 
 ## Deduplication (one-time fix)
 
+`scripts/deduplicate_roles.py` was retired in #634; the commands below no longer run. A dirty DB now goes through the admin role merge (`docs/SCHEMA_INDEXES.md`).
+
 
 ```bash
 # Build --env-file flags (see § Environment)
