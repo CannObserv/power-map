@@ -1,0 +1,39 @@
+# Where the host runs each infra/ file (#560). The host never runs these files,
+# only copies of them; scripts/check_infra_drift.py (power-map-infra-drift.timer)
+# compares each pair daily. Every file under infra/ except terraform/ and this
+# one is listed — tests/scripts/test_check_infra_drift.py fails otherwise, and
+# checks each host file's path against its `sudo install -t` line in
+# docs/COMMANDS.md. Paths are absolute.
+
+[installed]
+"power-map-a11y.service" = "/etc/systemd/system/power-map-a11y.service"
+"power-map-ancillary-orphans.service" = "/etc/systemd/system/power-map-ancillary-orphans.service"
+"power-map-anomaly.service" = "/etc/systemd/system/power-map-anomaly.service"
+"power-map-assignment-rel-windows.service" = "/etc/systemd/system/power-map-assignment-rel-windows.service"
+"power-map-datasets-pull.service" = "/etc/systemd/system/power-map-datasets-pull.service"
+"power-map-desired-state.service" = "/etc/systemd/system/power-map-desired-state.service"
+"power-map-egress-ip.service" = "/etc/systemd/system/power-map-egress-ip.service"
+"power-map-openapi-parity.service" = "/etc/systemd/system/power-map-openapi-parity.service"
+"power-map-prune.service" = "/etc/systemd/system/power-map-prune.service"
+"power-map-ready.service" = "/etc/systemd/system/power-map-ready.service"
+"power-map-schema-parity.service" = "/etc/systemd/system/power-map-schema-parity.service"
+"power-map-seat-occupancy.service" = "/etc/systemd/system/power-map-seat-occupancy.service"
+"power-map.service" = "/etc/systemd/system/power-map.service"
+"power-map-a11y.timer" = "/etc/systemd/system/power-map-a11y.timer"
+"power-map-ancillary-orphans.timer" = "/etc/systemd/system/power-map-ancillary-orphans.timer"
+"power-map-anomaly.timer" = "/etc/systemd/system/power-map-anomaly.timer"
+"power-map-assignment-rel-windows.timer" = "/etc/systemd/system/power-map-assignment-rel-windows.timer"
+"power-map-datasets-pull.timer" = "/etc/systemd/system/power-map-datasets-pull.timer"
+"power-map-desired-state.timer" = "/etc/systemd/system/power-map-desired-state.timer"
+"power-map-egress-ip.timer" = "/etc/systemd/system/power-map-egress-ip.timer"
+"power-map-openapi-parity.timer" = "/etc/systemd/system/power-map-openapi-parity.timer"
+"power-map-prune.timer" = "/etc/systemd/system/power-map-prune.timer"
+"power-map-ready.timer" = "/etc/systemd/system/power-map-ready.timer"
+"power-map-schema-parity.timer" = "/etc/systemd/system/power-map-schema-parity.timer"
+"power-map-seat-occupancy.timer" = "/etc/systemd/system/power-map-seat-occupancy.timer"
+"power-map-infra-drift.service" = "/etc/systemd/system/power-map-infra-drift.service"
+"power-map-infra-drift.timer" = "/etc/systemd/system/power-map-infra-drift.timer"
+"needrestart.conf.d/power-map.conf" = "/etc/needrestart/conf.d/power-map.conf"
+"sysctl.d/90-power-map-memory.conf" = "/etc/sysctl.d/90-power-map-memory.conf"
+"system.slice.d/90-power-map-memory.conf" = "/etc/systemd/system/system.slice.d/90-power-map-memory.conf"
+"tailscaled.service.d/90-power-map-oom.conf" = "/etc/systemd/system/tailscaled.service.d/90-power-map-oom.conf"

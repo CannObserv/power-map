@@ -31,6 +31,8 @@ from pathlib import Path
 
 import pytest
 
+from scripts.check_infra_drift import repo_files
+
 INFRA = Path(__file__).resolve().parents[1] / "infra"
 SLICE_DROPIN = INFRA / "system.slice.d" / "90-power-map-memory.conf"
 SYSCTL = INFRA / "sysctl.d" / "90-power-map-memory.conf"
@@ -116,16 +118,12 @@ def test_every_host_file_has_an_install_line():
 
     The host runs copies; a file COMMANDS.md never installs is never applied.
     Top-level units are out of scope: they install by `cp` in their own blocks.
+    The enumeration is the drift guard's (#560), so the two cannot disagree.
     """
     install_lines = [
         ln for ln in COMMANDS_MD.read_text().splitlines() if ln.startswith("sudo install ")
     ]
-    host_files = [
-        f.relative_to(INFRA.parent).as_posix()
-        for d in INFRA.iterdir()
-        if d.is_dir() and d.name != "terraform"
-        for f in d.iterdir()
-    ]
+    host_files = [f"infra/{rel}" for rel in repo_files(INFRA) if "/" in rel]
 
     assert host_files
     for rel in host_files:
