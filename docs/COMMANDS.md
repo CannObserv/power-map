@@ -186,10 +186,8 @@ children's `MemoryLow=` — raise the drop-in when a unit adds one
 (`tests/test_infra_host_memory.py` fails until you do). No swap, by decision: the 64 MiB
 atomic reserve closes the failure mode without it.
 
-The kernel OOM killer is the only killer; earlyoom was retired (#588). The heavy consumers
-are sessions, which exe.dev starts at `oom_score_adj` -1000 (#586) and which both killers skip,
-so earlyoom's only effect was an earlier trigger (≤10 % available, page cache counted) that reached
-production before the kernel would have killed anything. `tailscaled` answers every DNS lookup
+The kernel OOM killer is the only killer; earlyoom was retired (#588; why: the module
+docstring of `tests/test_infra_host_memory.py`). `tailscaled` answers every DNS lookup
 since #568 (the DB host's too), so a drop-in ranks it below the API. Projected from `oom_score`
 on 2026-09-29: the exedev `systemd --user` and `(sd-pam)` (`oom_score_adj` 100), `systemd-logind`,
 `systemd-timesyncd`, `cron`, `journald` (about 40 MiB together), then the API (`-900`), then
@@ -250,8 +248,7 @@ If `infra/power-map.service` changed in the pull, reinstall the unit first (see 
 "Install (first time or after updating infra/power-map.service)") before restarting. Likewise the
 host files (`infra/system.slice.d/`, `infra/sysctl.d/`, `infra/tailscaled.service.d/`,
 `infra/needrestart.conf.d/`): the host runs copies, so a pull changes nothing until the matching
-§ Service Management block re-runs. The daily `power-map-infra-drift` run fails on a skipped one
-(#560); `uv run python -m scripts.check_infra_drift` checks now.
+§ Service Management block re-runs (`power-map-infra-drift` flags a skip, #560).
 
 To apply schema without restarting (e.g. after a manual `git pull` mid-session) — **from the
 main checkout, on `main`**:
@@ -468,15 +465,14 @@ row names**; this is a roster, not a reference.
 | `power-map-prune` | daily | `prune_outbox.py --execute` — outbox/tombstone TTL | [RUNBOOKS.md](RUNBOOKS.md) |
 | `power-map-schema-parity` | daily | `audit_schema_constraint_parity.py` — prod vs reference DDL | [AUDITS.md](AUDITS.md) |
 | `power-map-ancillary-orphans` | daily | `audit_ancillary_orphans.py` — no-FK polymorphic orphans | [AUDITS.md](AUDITS.md) |
-| `power-map-seat-occupancy` | daily | `audit_seat_occupancy.py` — two holders of one single seat; ratchet, fails only above baseline | [AUDITS.md](AUDITS.md) |
+| `power-map-seat-occupancy` | daily | `audit_seat_occupancy.py` — two holders of one single seat; ratchet over a baseline | [AUDITS.md](AUDITS.md) |
 | `power-map-assignment-rel-windows` | daily | `audit_assignment_relationship_windows.py` — drifted RA→RA edge windows | [AUDITS.md](AUDITS.md) |
-| `power-map-infra-drift` | daily | `check_infra_drift.py` — `infra/` vs the host's installed copies; comment-only drift exits 4 | [AUDITS.md](AUDITS.md) |
-| `power-map-openapi-parity` | daily | `check_openapi_parity.py` — live `/openapi.json` vs `clients/python/openapi.json`, and its `v<version>` tag | [AUDITS.md](AUDITS.md) |
+| `power-map-infra-drift` | daily | `check_infra_drift.py` — `infra/` vs the installed copies | [AUDITS.md](AUDITS.md) |
+| `power-map-openapi-parity` | daily | `check_openapi_parity.py` — served vs committed `openapi.json`, and its `v<version>` tag | [AUDITS.md](AUDITS.md) |
 | `power-map-a11y` | Sun 04:00 UTC | `run-a11y-sweep.sh` — both a11y tiers against the test DB | [TESTING.md](TESTING.md) |
 
 An audit timer exits **3** on a finding, which is what puts it in
-`systemctl --failed` (openapi-parity also exits 4 on a release-tag finding, and
-infra-drift exits 4, a success, on comment-only drift);
+`systemctl --failed` (openapi-parity also exits 4 on a release-tag finding);
 exit 1 is a real error. Installing or inspecting any of them takes the same
 shape:
 
