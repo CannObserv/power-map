@@ -442,3 +442,16 @@ def test_an_orphan_names_removal_not_reinstall(tmp_path, monkeypatch, capsys):
     assert code == drift.EXIT_DRIFT
     assert "re-install" not in out
     assert "sudo rm" in out
+
+
+def test_an_enablement_link_in_a_wants_dir_is_not_an_orphan(host):
+    """`systemctl add-wants power-map.service x` links a unit; it is not a power-map file."""
+    install, run, root = host
+    install("power-map-x.service", UNIT, UNIT)
+    other = root / SYSTEMD.lstrip("/") / "other.service"
+    other.write_text("[Service]\n")
+    wants = root / SYSTEMD.lstrip("/") / "power-map-x.service.wants"
+    wants.mkdir()
+    (wants / "other.service").symlink_to(other)
+
+    assert run() == []

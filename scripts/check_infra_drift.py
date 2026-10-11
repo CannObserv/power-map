@@ -206,6 +206,8 @@ def orphans(manifest: dict[str, Path], root: Path) -> list[Finding]:
     systemd = _on_disk(root, SYSTEMD)
     found = []
     for entry in sorted(systemd.glob(OWNED_GLOB)):
+        if entry.is_dir() and not entry.name.endswith(".d"):
+            continue  # .wants/ and .requires/ hold links to other units, not ours
         candidates = sorted(entry.rglob("*")) if entry.is_dir() else [entry]
         for path in candidates:
             if path.is_file() and path not in expected:
