@@ -1,5 +1,6 @@
 """Public API v1 — voice embedding endpoints."""
 
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from src.api.deps import get_db
@@ -70,7 +71,7 @@ def _clamp_top_k(top_k: int) -> int:
     return min(max(top_k, 1), 25)
 
 
-def _identify_match(r) -> IdentifyMatch:
+def _identify_match(r: asyncpg.Record) -> IdentifyMatch:
     """Build one identify match from a row of either identify query."""
     return IdentifyMatch(
         person_id=r["person_id"],
