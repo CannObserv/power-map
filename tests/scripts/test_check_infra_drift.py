@@ -455,3 +455,63 @@ def test_an_enablement_link_in_a_wants_dir_is_not_an_orphan(host):
     (wants / "other.service").symlink_to(other)
 
     assert run() == []
+
+
+TIMER = "[Timer]\nOnCalendar=daily\n\n[Install]\nWantedBy=timers.target\n"
+
+
+def test_an_installed_but_never_enabled_timer_is_drift(host):
+    """Copied without `enable --now`, a timer reads correctly and never fires."""
+    install, run, _ = host
+    install("power-map-x.timer", TIMER, TIMER)
+
+    findings = run()
+
+    assert _kinds(findings) == {"power-map-x.timer": drift.DISABLED}
+    assert "timers.target.wants" in findings[0].detail
+    assert drift.exit_code(findings) == drift.EXIT_DRIFT
+
+
+def test_an_enabled_timer_is_clean(host):
+    install, run, root = host
+    target = install("power-map-x.timer", TIMER, TIMER)
+    wants = root / SYSTEMD.lstrip("/") / "timers.target.wants"
+    wants.mkdir()
+    (wants / "power-map-x.timer").symlink_to(target)  # dangling under the fake root: lexists
+
+    assert run() == []
+
+
+def test_every_wanted_by_target_needs_its_link(host):
+    install, run, root = host
+    unit = "[Service]\nExecStart=x\n\n[Install]\nWantedBy=multi-user.target graphical.target\n"
+    install("power-map-x.service", unit, unit)
+    wants = root / SYSTEMD.lstrip("/") / "multi-user.target.wants"
+    wants.mkdir()
+    (wants / "power-map-x.service").symlink_to("/etc/systemd/system/power-map-x.service")
+
+    [finding] = run()
+
+    assert finding.kind == drift.DISABLED
+    assert "graphical.target.wants" in finding.detail
+    assert "multi-user" not in finding.detail
+
+
+def test_a_missing_unit_is_not_also_reported_disabled(host):
+    install, run, _ = host
+    install("power-map-x.timer", TIMER)
+
+    assert _kinds(run()) == {"power-map-x.timer": drift.MISSING}
+
+
+def test_a_disabled_unit_names_enable(tmp_path, monkeypatch, capsys):
+    infra, root = _cli_host(tmp_path, UNIT)
+    (infra / "power-map-x.service").write_text(UNIT + "\n[Install]\nWantedBy=multi-user.target\n")
+    (root / SYSTEMD.lstrip("/") / "power-map-x.service").write_bytes(
+        (infra / "power-map-x.service").read_bytes()
+    )
+    code = _main(monkeypatch, "--infra", str(infra), "--root", str(root))
+    out = capsys.readouterr().out
+
+    assert code == drift.EXIT_DRIFT
+    assert "systemctl enable" in out

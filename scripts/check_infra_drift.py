@@ -18,6 +18,9 @@ commit) and classifies:
 - **missing** — nothing is installed at the path: exit 3;
 - **orphan** — ``/etc/systemd/system/power-map*`` holds a unit or a drop-in
   (``systemctl edit``) that no repo file accounts for: exit 3;
+- **disabled** — an installed unit's ``WantedBy=`` / ``RequiredBy=`` target
+  lacks its ``.wants/`` / ``.requires/`` link (copied, never enabled): a
+  timer that reads correctly and never fires. Exit 3;
 - **comments only** — directives identical, comments or blank lines not: a
   WARNING and exit 4, which the unit's ``SuccessExitStatus=4`` counts as
   success. Harmless to run, but the host is no longer byte-identical to the
@@ -33,8 +36,8 @@ Read-only and unprivileged: every installed copy here is world-readable.
 Installing stays a deliberate human step (restarts and ``daemon-reload`` touch
 production), so the remedy is named, never run.
 
-Exit codes: 0 = identical; 3 = directive drift, missing or orphan (outranks the
-rest); 1 = a copy could not be read, or the manifest is unreadable or does not
+Exit codes: 0 = identical; 3 = directive drift, missing, orphan or disabled
+(outranks the rest); 1 = a copy could not be read, or the manifest is unreadable or does not
 match ``infra/``; 4 = comments only.
 
 Usage:
@@ -43,6 +46,7 @@ Usage:
 """
 
 import difflib
+import os
 import sys
 import tomllib
 from dataclasses import dataclass
@@ -70,7 +74,10 @@ MISSING = "missing"
 ORPHAN = "orphan"
 UNREADABLE = "unreadable"
 COMMENT = "comment"
-_DRIFT_KINDS = frozenset({DIRECTIVE, MISSING, ORPHAN})
+DISABLED = "disabled"
+_DRIFT_KINDS = frozenset({DIRECTIVE, MISSING, ORPHAN, DISABLED})
+# [Install] keys that `systemctl enable` turns into a link, and the link's directory.
+_ENABLE_KEYS = {b"WantedBy=": ".wants", b"RequiredBy=": ".requires"}
 
 # Diff lines shown per file before the rest is counted: a rewrite stays readable.
 MAX_DIFF_LINES = 20
@@ -78,6 +85,7 @@ REMEDY = (
     "re-install from the main checkout per docs/COMMANDS.md § Service Management "
     "(sudo cp / sudo install, then daemon-reload)"
 )
+DISABLED_REMEDY = "disabled: sudo systemctl enable --now <unit>"
 # Nothing in the repo to re-install: the copy goes, or its file comes back.
 ORPHAN_REMEDY = (
     "orphan: disable it if it is a timer, sudo rm it, then daemon-reload — or "
@@ -215,10 +223,37 @@ def orphans(manifest: dict[str, Path], root: Path) -> list[Finding]:
     return found
 
 
+def missing_links(repo_raw: bytes, installed: Path, root: Path) -> list[Path]:
+    """The enablement links ``systemctl enable`` would make for this unit and has not.
+
+    Only a unit installed straight into ``/etc/systemd/system`` is enabled there; a
+    drop-in or a non-systemd file has no ``[Install]`` to honour.
+    """
+    if installed.parent != SYSTEMD:
+        return []
+    links = []
+    for line in directives(repo_raw):
+        for key, suffix in _ENABLE_KEYS.items():
+            if line.startswith(key):
+                for target in line.removeprefix(key).decode("utf-8", "replace").split():
+                    links.append(SYSTEMD / f"{target}{suffix}" / installed.name)
+    # lexists: the link points at an absolute /etc path, dangling under a --root.
+    return [link for link in links if not os.path.lexists(_on_disk(root, link))]
+
+
 def audit(infra: Path, manifest: dict[str, Path], root: Path = Path("/")) -> list[Finding]:
     """Every finding for this manifest, the orphans last."""
-    findings = [compare(infra, rel, installed, root) for rel, installed in sorted(manifest.items())]
-    return [f for f in findings if f is not None] + orphans(manifest, root)
+    findings = []
+    for rel, installed in sorted(manifest.items()):
+        finding = compare(infra, rel, installed, root)
+        if finding is not None:
+            findings.append(finding)
+        if finding is None or finding.kind in {COMMENT, DIRECTIVE}:
+            unlinked = missing_links((infra / rel).read_bytes(), installed, root)
+            if unlinked:
+                detail = ", ".join(str(link) for link in unlinked)
+                findings.append(Finding(DISABLED, rel, installed, detail))
+    return findings + orphans(manifest, root)
 
 
 def exit_code(findings: list[Finding]) -> int:
@@ -245,6 +280,8 @@ def _report(findings: list[Finding], checked: int) -> None:
             logger.error(
                 "infra drift: %s is installed but no infra/ file accounts for it", f.installed
             )
+        elif f.kind == DISABLED:
+            logger.error("infra drift: %s is installed but not enabled: no %s", f.repo, f.detail)
         elif f.kind == UNREADABLE:
             logger.error("infra drift: cannot compare %s → %s: %s", f.repo, f.installed, f.detail)
         else:
@@ -252,6 +289,8 @@ def _report(findings: list[Finding], checked: int) -> None:
     kinds = {f.kind for f in findings}
     if kinds & {DIRECTIVE, MISSING, COMMENT}:
         logger.warning("infra drift: %s", REMEDY)
+    if DISABLED in kinds:
+        logger.warning("infra drift: %s", DISABLED_REMEDY)
     if ORPHAN in kinds:
         logger.warning("infra drift: %s", ORPHAN_REMEDY)
     noun = "file" if checked == 1 else "files"
