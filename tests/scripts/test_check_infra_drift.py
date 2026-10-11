@@ -394,3 +394,15 @@ def test_a_vanished_repo_file_is_unreadable_not_a_traceback(host):
 
     assert finding.kind == drift.UNREADABLE
     assert "infra" in finding.detail
+
+
+def test_an_orphan_names_removal_not_reinstall(tmp_path, monkeypatch, capsys):
+    """Re-installing cannot fix a unit the repo no longer has."""
+    infra, root = _cli_host(tmp_path, UNIT)
+    (root / SYSTEMD.lstrip("/") / "power-map-retired.timer").write_text("[Timer]\n")
+    code = _main(monkeypatch, "--infra", str(infra), "--root", str(root))
+    out = capsys.readouterr().out
+
+    assert code == drift.EXIT_DRIFT
+    assert "re-install" not in out
+    assert "sudo rm" in out

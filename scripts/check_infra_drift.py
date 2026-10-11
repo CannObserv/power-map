@@ -78,6 +78,11 @@ REMEDY = (
     "re-install from the main checkout per docs/COMMANDS.md § Service Management "
     "(sudo cp / sudo install, then daemon-reload)"
 )
+# Nothing in the repo to re-install: the copy goes, or its file comes back.
+ORPHAN_REMEDY = (
+    "orphan: disable it if it is a timer, sudo rm it, then daemon-reload — or "
+    "restore its infra/ file and manifest entry if it was retired by mistake"
+)
 
 
 class ManifestError(Exception):
@@ -232,9 +237,11 @@ def _report(findings: list[Finding], checked: int) -> None:
             logger.error("infra drift: cannot compare %s → %s: %s", f.repo, f.installed, f.detail)
         else:
             logger.warning("infra drift: %s → %s differs in comments only", f.repo, f.installed)
-    drifted = [f for f in findings if f.kind != UNREADABLE]
-    if drifted:
+    kinds = {f.kind for f in findings}
+    if kinds & {DIRECTIVE, MISSING, COMMENT}:
         logger.warning("infra drift: %s", REMEDY)
+    if ORPHAN in kinds:
+        logger.warning("infra drift: %s", ORPHAN_REMEDY)
     noun = "file" if checked == 1 else "files"
     logger.info("infra drift: %d %s checked, %d finding(s)", checked, noun, len(findings))
 
