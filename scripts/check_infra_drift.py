@@ -168,11 +168,12 @@ def compare(infra: Path, rel: str, installed: Path, root: Path) -> Finding | Non
     """Classify one pair, or ``None`` when the installed copy is byte-identical."""
     try:
         repo_bytes = (infra / rel).read_bytes()
+    except OSError as exc:
+        return Finding(UNREADABLE, rel, installed, f"repo side, {infra / rel}: {exc}")
+    try:
         installed_bytes = _on_disk(root, installed).read_bytes()
     except FileNotFoundError:
-        if (infra / rel).exists():
-            return Finding(MISSING, rel, installed)
-        raise
+        return Finding(MISSING, rel, installed)
     except OSError as exc:
         return Finding(UNREADABLE, rel, installed, str(exc))
     if repo_bytes == installed_bytes:
@@ -228,7 +229,7 @@ def _report(findings: list[Finding], checked: int) -> None:
                 "infra drift: %s is installed but no infra/ file accounts for it", f.installed
             )
         elif f.kind == UNREADABLE:
-            logger.error("infra drift: cannot read %s (%s): %s", f.installed, f.repo, f.detail)
+            logger.error("infra drift: cannot compare %s → %s: %s", f.repo, f.installed, f.detail)
         else:
             logger.warning("infra drift: %s → %s differs in comments only", f.repo, f.installed)
     drifted = [f for f in findings if f.kind != UNREADABLE]

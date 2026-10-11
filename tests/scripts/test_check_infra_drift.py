@@ -365,3 +365,32 @@ def test_main_fails_on_an_unparseable_manifest(tmp_path, monkeypatch, capsys):
 
     assert code == drift.EXIT_ERROR
     assert "manifest" in out
+
+
+def test_an_unreadable_repo_file_names_the_repo_path(host, monkeypatch):
+    install, run, _ = host
+    install("power-map-x.service", UNIT, UNIT)
+    real_read = Path.read_bytes
+
+    def deny(self: Path) -> bytes:
+        if self.name == "power-map-x.service" and self.parent.name == "infra":
+            raise PermissionError(13, "Permission denied")
+        return real_read(self)
+
+    monkeypatch.setattr(Path, "read_bytes", deny)
+    [finding] = run()
+
+    assert finding.kind == drift.UNREADABLE
+    assert "infra" in finding.detail
+    assert drift.exit_code([finding]) == drift.EXIT_ERROR
+
+
+def test_a_vanished_repo_file_is_unreadable_not_a_traceback(host):
+    install, run, root = host
+    install("power-map-x.service", UNIT, UNIT)
+    (root.parent / "infra" / "power-map-x.service").unlink()
+
+    [finding] = run()
+
+    assert finding.kind == drift.UNREADABLE
+    assert "infra" in finding.detail
