@@ -8,6 +8,7 @@ import random
 import pytest
 import pytest_asyncio
 
+from src.api.deps import get_db
 from src.api.main import app
 from src.api.public.embeddings import _get_registry as _emb_get_registry
 from src.api.public.people import _get_registry
@@ -1114,23 +1115,54 @@ async def test_identify_batch_422_over_embedding_cap(client, read_key):
     assert r.status_code == 422
 
 
-async def test_identify_batch_accepts_cap_and_clamps_top_k(client, read_key, seeded_embeddings):
-    """50 embeddings is in bounds; top_k > 25 clamps silently, like identify."""
+async def test_identify_batch_accepts_embedding_cap(client, read_key, seeded_embeddings):
     r = await client.post(
         "/api/v1/people/identify-batch",
-        json={
-            "model_id": _MODEL_ID,
-            "embeddings": [_rand_embedding() for _ in range(50)],
-            "top_k": 999,
-        },
+        json={"model_id": _MODEL_ID, "embeddings": [_rand_embedding() for _ in range(50)]},
         headers={"X-API-Key": read_key},
     )
     assert r.status_code == 200
-    groups = r.json()["results"]
-    assert [g["embedding_index"] for g in groups] == list(range(50))
-    # An upper bound, not an exact count: rolled-back rows from earlier tests
-    # leave dead HNSW entries that spend ef_search, as they do for /identify.
-    assert all(len(g["matches"]) <= 25 for g in groups)
+    assert [g["embedding_index"] for g in r.json()["results"]] == list(range(50))
+
+
+class _FetchSpy:
+    """Delegates to the test connection, recording every ``fetch`` call's args."""
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.fetch_args: list[tuple] = []
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    async def fetch(self, query, *args):
+        self.fetch_args.append(args)
+        return await self._conn.fetch(query, *args)
+
+
+@pytest.mark.parametrize(("top_k", "bound"), [(999, 25), (0, 1), (-3, 1), (7, 7)])
+async def test_identify_batch_clamps_top_k_into_the_query(client, db, read_key, top_k, bound):
+    """top_k is clamped to [1, 25] silently, like identify — asserted on the
+    LIMIT bound the route sends, since dead HNSW entries in the shared test DB
+    make match counts an unreliable witness."""
+    spy = _FetchSpy(db)
+
+    async def _spy_db():
+        yield spy
+
+    previous = app.dependency_overrides[get_db]  # the ``client`` fixture's
+    app.dependency_overrides[get_db] = _spy_db
+    try:
+        r = await client.post(
+            "/api/v1/people/identify-batch",
+            json={"model_id": _MODEL_ID, "embeddings": [_rand_embedding()], "top_k": top_k},
+            headers={"X-API-Key": read_key},
+        )
+    finally:
+        app.dependency_overrides[get_db] = previous
+    assert r.status_code == 200
+    ((_vecs, limit),) = [a for a in spy.fetch_args if len(a) == 2 and isinstance(a[0], list)]
+    assert limit == bound
 
 
 async def test_identify_batch_groups_match_single_identify(client, read_key, seeded_embeddings):
