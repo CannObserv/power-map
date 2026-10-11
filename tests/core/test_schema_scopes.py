@@ -54,8 +54,18 @@ async def test_voice_embeddings_scope_descriptions_name_all_routes(db_pool):
         write = await conn.fetchval(
             "SELECT description FROM api_key_scope_types WHERE id = 'voice_embeddings:write'"
         )
-    for fragment in ("identify", "verify", "embeddings"):
-        assert fragment in read, f"read scope description missing '{fragment}': {read}"
+    # Every route path the read scope gates, not a substring of one: "identify"
+    # alone matched while verify-batch, presence and identify-batch went
+    # unnamed (#638 CR 1).
+    for route in (
+        "POST /api/v1/people/identify,",
+        "POST /api/v1/people/identify-batch",
+        "POST /api/v1/people/verify,",
+        "POST /api/v1/people/verify-batch",
+        "POST /api/v1/people/embeddings/presence",
+        "GET /api/v1/people/{id}/embeddings",
+    ):
+        assert route in read, f"read scope description missing '{route}': {read}"
     for fragment in ("write", "patch", "archive", "restore"):
         assert fragment in write.lower(), f"write scope description missing '{fragment}': {write}"
 
