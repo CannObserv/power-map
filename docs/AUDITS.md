@@ -316,9 +316,10 @@ holders (#302), so this audit is the only thing that notices.
 - Archived assignments and archived roles are not live.
 
 **It is a ratchet, not a zero gate.** `BASELINE` in the script is the count on
-production on 2026-10-10: **56** pairs (55 Senate, 1 House), each listed on usa-wa#489. The run exits 3 only
+production on 2026-10-10: **56** pairs (55 Senate, 1 House), each listed on usa-wa#489; **55**, all
+Senate, once #639 truncated the House one. The run exits 3 only
 when the count rises above it; a lower count passes with a WARNING naming the
-value to lower `BASELINE` to, in a PR. Never raise it to clear a failure. What the 56 are:
+value to lower `BASELINE` to, in a PR. Never raise it to clear a failure. What the 56 were:
 
 - **35** producer pairs, the same count usa-wa's own gate baselines (usa-wa#359,
   drained in usa-wa#360): mostly a successor arriving mid-term while the
@@ -327,9 +328,13 @@ value to lower `BASELINE` to, in a PR. Never raise it to clear a failure. What t
   senators lawfully shared a district. usa-wa's gate excludes them from the
   roster; PM cannot, because both sides model them as one `state_senator` seat
   (usa-wa#362). They are baselined findings, not defects.
-- **1** pairs a dataset row with a legacy PM row that no dataset anchors (#639).
+- **1** paired a dataset row with a legacy PM row that no dataset anchors (#639):
+  Robinson's 2019–20 House tenure on LD-38 Pos. 1 was real but ran only to her
+  Senate appointment, so the admin editor truncated the row's end to Wicks's
+  start, 2020-05-13, a same-day handoff. Cleared; the dataset still lacks that
+  tenure (usa-wa report).
 
-No PM-side data fix is part of the ratchet.
+#639 is the one PM-side data fix; the rest drain upstream.
 
 Every run logs every pair (`seat overlap: <role> (<role_id>) — <name> (<a_id>) <span>
 || <name> (<b_id>) <span>`; the id alone when a person has no canonical name). A count cannot see a fix and a new defect landing together, so

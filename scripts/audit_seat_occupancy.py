@@ -13,8 +13,9 @@ No span is invented: a row with an unknown start, or an unknown end that is not
 ``is_current``, is out of scope. A current holder runs open-ended.
 
 It is a **ratchet**, not a zero gate. ``BASELINE`` is the count measured on
-production on 2026-10-10 — 56 pairs, listed on usa-wa#489 and broken down in
-``docs/AUDITS.md`` — and the run exits 3 only when the count rises above it.
+production on 2026-10-10 — 56 pairs, 55 once #639 landed, listed on usa-wa#489
+and broken down in ``docs/AUDITS.md`` — and the run exits 3 only when the count
+rises above it.
 A lower count passes with a WARNING naming the number to lower ``BASELINE``
 to. Every pair is logged each run, so a day-over-day journal diff names the
 pair a failure added. A count cannot see a fix and a new defect landing
@@ -37,9 +38,9 @@ from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
 
-#: Strictly overlapping pairs on production, re-measured 2026-10-10 (#506).
+#: Strictly overlapping pairs on production: 56 on 2026-10-10 (#506), 55 after #639.
 #: Lower it as triage lands; never raise it to clear a failure.
-BASELINE = 56
+BASELINE = 55
 
 _OVERLAPS_SQL = """
 WITH live AS (
