@@ -1459,7 +1459,7 @@
           "public-api"
         ],
         "summary": "Identify Person Batch",
-        "description": "Return the top-k matches for each of N query embeddings (#638).\n\nMulti-embedding form of ``/identify`` — one group per query embedding, in\n``embeddings`` request order, each holding exactly what ``/identify``\nreturns for that embedding alone.  One SQL round-trip and one read-bucket\ntoken regardless of N.\n\nIdentify semantics, not verify's: an unknown or non-queryable model yields\n``matches: []`` in every group.  422 when any embedding is invalid (zero\nvector, non-finite values) or its dimension mismatches the model (the\ndetail names the failing index) — the whole call, never a partial result.",
+        "description": "Return the top-k matches for each of N query embeddings (#638).\n\nMulti-embedding form of ``/identify`` — one group per query embedding, in\n``embeddings`` request order, each holding what ``/identify`` returns for\nthat embedding alone — exact-distance ties, which ``/identify`` leaves in\nindex order, are ordered by ``embedding_id``.  One SQL round-trip and one\nread-bucket token regardless of N.\n\nIdentify semantics, not verify's: an unknown or non-queryable model yields\n``matches: []`` in every group.  422 when any embedding is invalid (zero\nvector, non-finite values) or its dimension mismatches the model (the\ndetail names the failing index) — the whole call, never a partial result.",
         "operationId": "identifyPeopleByVoiceBatch",
         "requestBody": {
           "content": {
@@ -6791,7 +6791,7 @@
           "matches"
         ],
         "title": "IdentifyBatchGroup",
-        "description": "Per-embedding result group — ``embedding_index`` is the position of the\nquery embedding in the request's ``embeddings`` list; ``matches`` is what\n``/identify`` returns for that embedding alone."
+        "description": "Per-embedding result group — ``embedding_index`` is the position of the\nquery embedding in the request's ``embeddings`` list; ``matches`` holds\nwhat ``/identify`` returns for that embedding alone, with exact-distance\nties ordered by ``embedding_id``."
       },
       "IdentifyBatchRequest": {
         "properties": {

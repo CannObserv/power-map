@@ -86,9 +86,10 @@ def sync_detailed(
      Return the top-k matches for each of N query embeddings (#638).
 
     Multi-embedding form of ``/identify`` — one group per query embedding, in
-    ``embeddings`` request order, each holding exactly what ``/identify``
-    returns for that embedding alone.  One SQL round-trip and one read-bucket
-    token regardless of N.
+    ``embeddings`` request order, each holding what ``/identify`` returns for
+    that embedding alone — exact-distance ties, which ``/identify`` leaves in
+    index order, are ordered by ``embedding_id``.  One SQL round-trip and one
+    read-bucket token regardless of N.
 
     Identify semantics, not verify's: an unknown or non-queryable model yields
     ``matches: []`` in every group.  422 when any embedding is invalid (zero
@@ -133,9 +134,10 @@ def sync(
      Return the top-k matches for each of N query embeddings (#638).
 
     Multi-embedding form of ``/identify`` — one group per query embedding, in
-    ``embeddings`` request order, each holding exactly what ``/identify``
-    returns for that embedding alone.  One SQL round-trip and one read-bucket
-    token regardless of N.
+    ``embeddings`` request order, each holding what ``/identify`` returns for
+    that embedding alone — exact-distance ties, which ``/identify`` leaves in
+    index order, are ordered by ``embedding_id``.  One SQL round-trip and one
+    read-bucket token regardless of N.
 
     Identify semantics, not verify's: an unknown or non-queryable model yields
     ``matches: []`` in every group.  422 when any embedding is invalid (zero
@@ -175,9 +177,10 @@ async def asyncio_detailed(
      Return the top-k matches for each of N query embeddings (#638).
 
     Multi-embedding form of ``/identify`` — one group per query embedding, in
-    ``embeddings`` request order, each holding exactly what ``/identify``
-    returns for that embedding alone.  One SQL round-trip and one read-bucket
-    token regardless of N.
+    ``embeddings`` request order, each holding what ``/identify`` returns for
+    that embedding alone — exact-distance ties, which ``/identify`` leaves in
+    index order, are ordered by ``embedding_id``.  One SQL round-trip and one
+    read-bucket token regardless of N.
 
     Identify semantics, not verify's: an unknown or non-queryable model yields
     ``matches: []`` in every group.  422 when any embedding is invalid (zero
@@ -220,9 +223,10 @@ async def asyncio(
      Return the top-k matches for each of N query embeddings (#638).
 
     Multi-embedding form of ``/identify`` — one group per query embedding, in
-    ``embeddings`` request order, each holding exactly what ``/identify``
-    returns for that embedding alone.  One SQL round-trip and one read-bucket
-    token regardless of N.
+    ``embeddings`` request order, each holding what ``/identify`` returns for
+    that embedding alone — exact-distance ties, which ``/identify`` leaves in
+    index order, are ordered by ``embedding_id``.  One SQL round-trip and one
+    read-bucket token regardless of N.
 
     Identify semantics, not verify's: an unknown or non-queryable model yields
     ``matches: []`` in every group.  422 when any embedding is invalid (zero

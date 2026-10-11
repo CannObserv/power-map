@@ -405,8 +405,9 @@ class IdentifyBatchRequest(BaseModel):
 
 class IdentifyBatchGroup(BaseModel):
     """Per-embedding result group — ``embedding_index`` is the position of the
-    query embedding in the request's ``embeddings`` list; ``matches`` is what
-    ``/identify`` returns for that embedding alone."""
+    query embedding in the request's ``embeddings`` list; ``matches`` holds
+    what ``/identify`` returns for that embedding alone, with exact-distance
+    ties ordered by ``embedding_id``."""
 
     embedding_index: int
     matches: list[IdentifyMatch]
