@@ -57,6 +57,9 @@ from .event_place_address import EventPlaceAddress
 from .event_type_inline import EventTypeInline
 from .health_response import HealthResponse
 from .http_validation_error import HTTPValidationError
+from .identify_batch_group import IdentifyBatchGroup
+from .identify_batch_request import IdentifyBatchRequest
+from .identify_batch_response import IdentifyBatchResponse
 from .identify_match import IdentifyMatch
 from .identify_request import IdentifyRequest
 from .identify_response import IdentifyResponse
@@ -211,6 +214,9 @@ __all__ = (
     "EventTypeInline",
     "HealthResponse",
     "HTTPValidationError",
+    "IdentifyBatchGroup",
+    "IdentifyBatchRequest",
+    "IdentifyBatchResponse",
     "IdentifyMatch",
     "IdentifyRequest",
     "IdentifyResponse",

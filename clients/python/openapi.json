@@ -1452,6 +1452,85 @@
         "x-rate-limit-bucket": "read"
       }
     },
+    "/api/v1/people/identify-batch": {
+      "post": {
+        "tags": [
+          "public-api",
+          "public-api"
+        ],
+        "summary": "Identify Person Batch",
+        "description": "Return the top-k matches for each of N query embeddings (#638).\n\nMulti-embedding form of ``/identify`` — one group per query embedding, in\n``embeddings`` request order, each holding exactly what ``/identify``\nreturns for that embedding alone.  One SQL round-trip and one read-bucket\ntoken regardless of N.\n\nIdentify semantics, not verify's: an unknown or non-queryable model yields\n``matches: []`` in every group.  422 when any embedding is invalid (zero\nvector, non-finite values) or its dimension mismatches the model (the\ndetail names the failing index) — the whole call, never a partial result.",
+        "operationId": "identifyPeopleByVoiceBatch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentifyBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentifyBatchResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No X-API-Key header, or the key lacks the route's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded — back off for Retry-After seconds. See PUBLIC_API.md § Rate Limits.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "x-rate-limit-bucket": "read"
+      }
+    },
     "/api/v1/people/verify": {
       "post": {
         "tags": [
@@ -6691,6 +6770,77 @@
         ],
         "title": "HealthResponse",
         "description": "Liveness payload."
+      },
+      "IdentifyBatchGroup": {
+        "properties": {
+          "embedding_index": {
+            "type": "integer",
+            "title": "Embedding Index"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/IdentifyMatch"
+            },
+            "type": "array",
+            "title": "Matches"
+          }
+        },
+        "type": "object",
+        "required": [
+          "embedding_index",
+          "matches"
+        ],
+        "title": "IdentifyBatchGroup",
+        "description": "Per-embedding result group — ``embedding_index`` is the position of the\nquery embedding in the request's ``embeddings`` list; ``matches`` is what\n``/identify`` returns for that embedding alone."
+      },
+      "IdentifyBatchRequest": {
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "embeddings": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Embeddings"
+          },
+          "top_k": {
+            "type": "integer",
+            "title": "Top K",
+            "default": 5
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_id",
+          "embeddings"
+        ],
+        "title": "IdentifyBatchRequest",
+        "description": "Request body for POST /api/v1/people/identify-batch (#638).\n\nOpen-set identify for N query embeddings in one call — collapses the\nper-centroid identify loop into one read-bucket token.  The cap matches\nverify-batch; with ``top_k`` clamped to 25 it bounds a call at 1,250\nmatches.  Every field applies to the whole batch, so per-batch context\nhints (observo#235) belong beside them, never inside ``embeddings``."
+      },
+      "IdentifyBatchResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/IdentifyBatchGroup"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "title": "IdentifyBatchResponse",
+        "description": "Response envelope for POST /api/v1/people/identify-batch — one group per\nquery embedding, in ``embeddings`` request order."
       },
       "IdentifyMatch": {
         "properties": {
