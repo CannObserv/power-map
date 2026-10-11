@@ -1,5 +1,6 @@
 """Public API v1 — voice embedding endpoints."""
 
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from src.api.deps import get_db
@@ -18,6 +19,9 @@ from src.api.public.schemas import (
     EmbeddingPresenceResult,
     EmbeddingWriteRequest,
     EmbeddingWriteResponse,
+    IdentifyBatchGroup,
+    IdentifyBatchRequest,
+    IdentifyBatchResponse,
     IdentifyMatch,
     IdentifyRequest,
     IdentifyResponse,
@@ -62,6 +66,23 @@ def _require_queryable_model(model_id: str, registry: EmbeddingRegistry) -> Mode
     return meta
 
 
+def _clamp_top_k(top_k: int) -> int:
+    """Clamp identify's ``top_k`` to [1, 25] — silently, never a 422."""
+    return min(max(top_k, 1), 25)
+
+
+def _identify_match(r: asyncpg.Record) -> IdentifyMatch:
+    """Build one identify match from a row of either identify query."""
+    return IdentifyMatch(
+        person_id=r["person_id"],
+        person_name=r["person_name"],
+        similarity=float(r["similarity"]),
+        embedding_id=r["embedding_id"],
+        source_job_id=r["source_job_id"],
+        recorded_at=r["recorded_at"],
+    )
+
+
 @router.post(
     "/identify",
     response_model=IdentifyResponse,
@@ -80,7 +101,7 @@ async def identify_person(
     422 when the embedding dimension does not match the model's expected
     dimension, or the embedding is invalid (zero vector, non-finite values).
     """
-    top_k = min(max(body.top_k, 1), 25)
+    top_k = _clamp_top_k(body.top_k)
 
     meta = registry.get(body.model_id)
     if meta is None or not meta.is_queryable:
@@ -115,17 +136,98 @@ async def identify_person(
         top_k,
     )
 
-    return IdentifyResponse(
-        matches=[
-            IdentifyMatch(
-                person_id=r["person_id"],
-                person_name=r["person_name"],
-                similarity=float(r["similarity"]),
-                embedding_id=r["embedding_id"],
-                source_job_id=r["source_job_id"],
-                recorded_at=r["recorded_at"],
+    return IdentifyResponse(matches=[_identify_match(r) for r in rows])
+
+
+@router.post(
+    "/identify-batch",
+    response_model=IdentifyBatchResponse,
+    operation_id="identifyPeopleByVoiceBatch",
+    openapi_extra={BUCKET_EXTRA_KEY: "read"},
+)
+async def identify_person_batch(
+    body: IdentifyBatchRequest,
+    _auth: AuthedKey = Depends(require_scope("voice_embeddings:read")),
+    db=Depends(get_db),
+    registry: EmbeddingRegistry = Depends(_get_registry),
+) -> IdentifyBatchResponse:
+    """Return the top-k matches for each of N query embeddings (#638).
+
+    Multi-embedding form of ``/identify`` — one group per query embedding, in
+    ``embeddings`` request order, each holding what ``/identify`` returns for
+    that embedding alone — exact-distance ties, which ``/identify`` leaves in
+    index order, are ordered by ``embedding_id``.  One SQL round-trip and one
+    read-bucket token regardless of N.
+
+    Identify semantics, not verify's: an unknown or non-queryable model yields
+    ``matches: []`` in every group.  422 when any embedding is invalid (zero
+    vector, non-finite values) or its dimension mismatches the model (the
+    detail names the failing index) — the whole call, never a partial result.
+    """
+    top_k = _clamp_top_k(body.top_k)
+
+    meta = registry.get(body.model_id)
+    if meta is None or not meta.is_queryable:
+        return IdentifyBatchResponse(
+            results=[
+                IdentifyBatchGroup(embedding_index=idx, matches=[])
+                for idx in range(len(body.embeddings))
+            ]
+        )
+
+    for i, emb in enumerate(body.embeddings):
+        if len(emb) != meta.dimension:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Embedding at index {i} has dimension {len(emb)}; "
+                f"model '{meta.model_id}' expected {meta.dimension}",
             )
-            for r in rows
+
+    table = meta.table_name  # registry-controlled — not user input
+    op = meta.operator
+    vecs = [_vec_str(e) for e in body.embeddings]
+
+    # The LATERAL body is /identify's query with the query vector as an outer
+    # reference, so each embedding keeps the same ANN index scan; WITH
+    # ORDINALITY carries its request position.  The outer id tiebreak only
+    # orders exact-distance ties, which /identify leaves unordered.
+    rows = await db.fetch(
+        f"""
+        SELECT (q.idx - 1)::int AS embedding_index,
+               m.embedding_id,
+               m.person_id,
+               v.display_name AS person_name,
+               1 - m.distance AS similarity,
+               m.source_job_id,
+               m.recorded_at
+          FROM (SELECT t.idx, t.vec::vector AS vec
+                  FROM unnest($1::text[]) WITH ORDINALITY AS t(vec, idx)) q
+         CROSS JOIN LATERAL (
+               SELECT e.id AS embedding_id,
+                      e.person_id,
+                      e.embedding {op} q.vec AS distance,
+                      e.source_job_id,
+                      e.recorded_at
+                 FROM {table} e
+                WHERE e.archived_at IS NULL
+                ORDER BY e.embedding {op} q.vec
+                LIMIT $2
+               ) m
+          LEFT JOIN v_person_display_names v ON v.person_id = m.person_id
+         ORDER BY q.idx, m.distance, m.embedding_id
+        """,
+        vecs,
+        top_k,
+    )
+
+    grouped: list[list[IdentifyMatch]] = [[] for _ in body.embeddings]
+    for r in rows:
+        grouped[r["embedding_index"]].append(_identify_match(r))
+
+    return IdentifyBatchResponse(
+        results=[
+            IdentifyBatchGroup(embedding_index=idx, matches=matches)
+            for idx, matches in enumerate(grouped)
         ]
     )
 

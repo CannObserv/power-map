@@ -4255,10 +4255,12 @@ $$ LANGUAGE plpgsql;
 -- closed-set verify (#299). These descriptions surface in the admin
 -- key-management UI, so they must state the full blast radius of a
 -- biometric-data grant. Plain UPDATEs — the table has no updated_at trigger,
--- so re-application is naturally a no-op (CR #299 round 2).
+-- so re-application is naturally a no-op (CR #299 round 2). Amend the text in
+-- place when a gated route lands (#310 verify-batch + presence, #638
+-- identify-batch); the next apply rewrites it.
 
 UPDATE api_key_scope_types
-   SET description = 'Read voice embedding data via POST /api/v1/people/identify, POST /api/v1/people/verify, and GET /api/v1/people/{id}/embeddings'
+   SET description = 'Read voice embedding data via POST /api/v1/people/identify, POST /api/v1/people/identify-batch, POST /api/v1/people/verify, POST /api/v1/people/verify-batch, POST /api/v1/people/embeddings/presence, and GET /api/v1/people/{id}/embeddings'
  WHERE id = 'voice_embeddings:read';
 
 UPDATE api_key_scope_types

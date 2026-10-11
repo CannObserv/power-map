@@ -388,6 +388,38 @@ class IdentifyResponse(BaseModel):
     matches: list[IdentifyMatch]
 
 
+class IdentifyBatchRequest(BaseModel):
+    """Request body for POST /api/v1/people/identify-batch (#638).
+
+    Open-set identify for N query embeddings in one call — collapses the
+    per-centroid identify loop into one read-bucket token.  The cap matches
+    verify-batch; with ``top_k`` clamped to 25 it bounds a call at 1,250
+    matches.  Every field applies to the whole batch, so per-batch context
+    hints (observo#235) belong beside them, never inside ``embeddings``.
+    """
+
+    model_id: str
+    embeddings: list[EmbeddingVector] = Field(min_length=1, max_length=50)
+    top_k: int = 5
+
+
+class IdentifyBatchGroup(BaseModel):
+    """Per-embedding result group — ``embedding_index`` is the position of the
+    query embedding in the request's ``embeddings`` list; ``matches`` holds
+    what ``/identify`` returns for that embedding alone, with exact-distance
+    ties ordered by ``embedding_id``."""
+
+    embedding_index: int
+    matches: list[IdentifyMatch]
+
+
+class IdentifyBatchResponse(BaseModel):
+    """Response envelope for POST /api/v1/people/identify-batch — one group per
+    query embedding, in ``embeddings`` request order."""
+
+    results: list[IdentifyBatchGroup]
+
+
 class VerifyRequest(BaseModel):
     """Request body for POST /api/v1/people/verify — closed-set verification (#299).
 

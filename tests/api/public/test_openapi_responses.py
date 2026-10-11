@@ -231,6 +231,18 @@ def test_identify_similarity_is_a_required_number():
     assert match["properties"]["similarity"]["type"] == "number"
 
 
+def test_identify_batch_groups_reuse_identify_match():
+    """identify-batch matches are ``IdentifyMatch`` itself (#638), so the
+    per-match fields and nullability cannot drift from ``/identify``."""
+    schemas = app.openapi()["components"]["schemas"]
+    group = schemas["IdentifyBatchGroup"]
+    assert set(group["required"]) == {"embedding_index", "matches"}
+    assert group["properties"]["matches"]["items"]["$ref"] == "#/components/schemas/IdentifyMatch"
+    op = app.openapi()["paths"]["/api/v1/people/identify-batch"]["post"]
+    assert op["operationId"] == "identifyPeopleByVoiceBatch"
+    assert _body_ref(op["responses"]["200"]) == "#/components/schemas/IdentifyBatchResponse"
+
+
 def test_if_none_match_parameters_share_no_objects():
     """Each operation owns its parameter: an edit to one must not edit all."""
     params = [

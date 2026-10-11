@@ -80,6 +80,7 @@ def test_app_derives_read_paths_from_route_metadata():
     }
     assert marked == {
         "/api/v1/people/identify",
+        "/api/v1/people/identify-batch",
         "/api/v1/people/verify",
         "/api/v1/people/verify-batch",
         "/api/v1/people/embeddings/presence",

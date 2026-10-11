@@ -1,4 +1,4 @@
-"""Tests for POST /api/v1/people/identify and POST /api/v1/people/{id}/embeddings."""
+"""Tests for the voice-embedding endpoints in ``src/api/public/embeddings.py``."""
 
 import hashlib
 import json
@@ -8,6 +8,7 @@ import random
 import pytest
 import pytest_asyncio
 
+from src.api.deps import get_db
 from src.api.main import app
 from src.api.public.embeddings import _get_registry as _emb_get_registry
 from src.api.public.people import _get_registry
@@ -995,6 +996,231 @@ async def test_verify_batch_excludes_archived_embeddings(client, db, read_key, s
         await db.execute(
             f"UPDATE {_TABLE} SET archived_at = NULL WHERE id = ANY($1::text[])",
             pid0_eids,
+        )
+
+
+# ---------------------------------------------------------------------------
+# POST /people/identify-batch — multi-embedding open-set identify (#638)
+# ---------------------------------------------------------------------------
+
+
+async def test_identify_batch_requires_read_scope(client, unscoped_key):
+    r = await client.post(
+        "/api/v1/people/identify-batch",
+        json={"model_id": _MODEL_ID, "embeddings": [_rand_embedding()]},
+        headers={"X-API-Key": unscoped_key},
+    )
+    assert r.status_code == 403
+
+
+def test_identify_batch_rejects_missing_key(unit_client):
+    r = unit_client.post(
+        "/api/v1/people/identify-batch",
+        json={"model_id": _MODEL_ID, "embeddings": [_rand_embedding()]},
+    )
+    assert r.status_code == 403
+
+
+async def test_identify_batch_unknown_model_returns_empty_groups(client, read_key):
+    """Mirrors identify, not verify: an unknown model yields ``matches: []``,
+    one group per query embedding."""
+    r = await client.post(
+        "/api/v1/people/identify-batch",
+        json={"model_id": "no-such-model", "embeddings": [_rand_embedding(), _rand_embedding()]},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    assert r.json() == {
+        "results": [
+            {"embedding_index": 0, "matches": []},
+            {"embedding_index": 1, "matches": []},
+        ]
+    }
+
+
+async def test_identify_batch_non_queryable_model_returns_empty_groups(
+    client, read_key, seeded_embeddings
+):
+    _, _, _, query_vec = seeded_embeddings
+    non_queryable = ModelMeta(
+        model_id=_MODEL_ID,
+        table_name=_TABLE,
+        dimension=_DIM,
+        metric="cosine",
+        accepts_writes=True,
+        is_queryable=False,
+        operator="<=>",
+    )
+    app.dependency_overrides[_emb_get_registry] = lambda: EmbeddingRegistry(
+        {_MODEL_ID: non_queryable}
+    )
+    try:
+        r = await client.post(
+            "/api/v1/people/identify-batch",
+            json={"model_id": _MODEL_ID, "embeddings": [query_vec]},
+            headers={"X-API-Key": read_key},
+        )
+    finally:
+        app.dependency_overrides.pop(_emb_get_registry, None)
+    assert r.status_code == 200
+    assert r.json() == {"results": [{"embedding_index": 0, "matches": []}]}
+
+
+async def test_identify_batch_422_dim_mismatch_reports_index(client, read_key):
+    r = await client.post(
+        "/api/v1/people/identify-batch",
+        json={"model_id": _MODEL_ID, "embeddings": [_rand_embedding(), _rand_embedding(dim=64)]},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+    assert "index 1" in r.json()["detail"]
+
+
+async def test_identify_batch_422_zero_vector_element(client, read_key):
+    """All-or-nothing: one invalid vector rejects the whole call."""
+    r = await client.post(
+        "/api/v1/people/identify-batch",
+        json={"model_id": _MODEL_ID, "embeddings": [_rand_embedding(), [0.0] * _DIM]},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_identify_batch_422_non_finite_element(client, read_key):
+    vec = _rand_embedding()
+    vec[5] = float("nan")
+    r = await client.post(
+        "/api/v1/people/identify-batch",
+        content=json.dumps({"model_id": _MODEL_ID, "embeddings": [_rand_embedding(), vec]}),
+        headers={"X-API-Key": read_key, "Content-Type": "application/json"},
+    )
+    assert r.status_code == 422
+
+
+async def test_identify_batch_422_empty_embeddings(client, read_key):
+    r = await client.post(
+        "/api/v1/people/identify-batch",
+        json={"model_id": _MODEL_ID, "embeddings": []},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_identify_batch_422_over_embedding_cap(client, read_key):
+    r = await client.post(
+        "/api/v1/people/identify-batch",
+        json={"model_id": _MODEL_ID, "embeddings": [_rand_embedding() for _ in range(51)]},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 422
+
+
+async def test_identify_batch_accepts_embedding_cap(client, read_key, seeded_embeddings):
+    r = await client.post(
+        "/api/v1/people/identify-batch",
+        json={"model_id": _MODEL_ID, "embeddings": [_rand_embedding() for _ in range(50)]},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    assert [g["embedding_index"] for g in r.json()["results"]] == list(range(50))
+
+
+class _FetchSpy:
+    """Delegates to the test connection, recording every ``fetch`` call's args."""
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.fetch_args: list[tuple] = []
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    async def fetch(self, query, *args):
+        self.fetch_args.append(args)
+        return await self._conn.fetch(query, *args)
+
+
+@pytest.mark.parametrize(("top_k", "bound"), [(999, 25), (0, 1), (-3, 1), (7, 7)])
+async def test_identify_batch_clamps_top_k_into_the_query(client, db, read_key, top_k, bound):
+    """top_k is clamped to [1, 25] silently, like identify — asserted on the
+    LIMIT bound the route sends, since dead HNSW entries in the shared test DB
+    make match counts an unreliable witness."""
+    spy = _FetchSpy(db)
+
+    async def _spy_db():
+        yield spy
+
+    previous = app.dependency_overrides[get_db]  # the ``client`` fixture's
+    app.dependency_overrides[get_db] = _spy_db
+    try:
+        r = await client.post(
+            "/api/v1/people/identify-batch",
+            json={"model_id": _MODEL_ID, "embeddings": [_rand_embedding()], "top_k": top_k},
+            headers={"X-API-Key": read_key},
+        )
+    finally:
+        app.dependency_overrides[get_db] = previous
+    assert r.status_code == 200
+    ((_vecs, limit),) = [a for a in spy.fetch_args if len(a) == 2 and isinstance(a[0], list)]
+    assert limit == bound
+
+
+async def test_identify_batch_groups_match_single_identify(client, read_key, seeded_embeddings):
+    """Each group equals what ``/identify`` returns for that embedding alone —
+    same matches, same order, same per-match fields and nullability."""
+    _, _, embedding_ids, query_vec = seeded_embeddings
+    embeddings = [_rand_embedding(), query_vec, _rand_embedding()]
+
+    r = await client.post(
+        "/api/v1/people/identify-batch",
+        json={"model_id": _MODEL_ID, "embeddings": embeddings, "top_k": 3},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    groups = r.json()["results"]
+    assert [g["embedding_index"] for g in groups] == [0, 1, 2]
+
+    for idx, emb in enumerate(embeddings):
+        single = await client.post(
+            "/api/v1/people/identify",
+            json={"model_id": _MODEL_ID, "embedding": emb, "top_k": 3},
+            headers={"X-API-Key": read_key},
+        )
+        assert single.status_code == 200
+        assert groups[idx]["matches"] == single.json()["matches"]
+
+    best = groups[1]["matches"][0]
+    assert best["embedding_id"] == embedding_ids[0]
+    assert abs(best["similarity"] - 1.0) < 1e-4
+    # Seeded people carry no names: person_name is the nullable field.
+    assert best["person_name"] is None
+    assert best["source_job_id"] == "job_seed"
+    assert best["recorded_at"] == "2026-06-01T00:00:00.000000Z"
+
+
+async def test_identify_batch_excludes_archived(client, db, read_key, seeded_embeddings):
+    _, _, embedding_ids, query_vec = seeded_embeddings
+    await db.execute(
+        f"UPDATE {_TABLE} SET archived_at = now() WHERE id = ANY($1::text[])",
+        embedding_ids,
+    )
+    try:
+        r = await client.post(
+            "/api/v1/people/identify-batch",
+            json={"model_id": _MODEL_ID, "embeddings": [query_vec, _rand_embedding()]},
+            headers={"X-API-Key": read_key},
+        )
+        assert r.status_code == 200
+        assert r.json() == {
+            "results": [
+                {"embedding_index": 0, "matches": []},
+                {"embedding_index": 1, "matches": []},
+            ]
+        }
+    finally:
+        await db.execute(
+            f"UPDATE {_TABLE} SET archived_at = NULL WHERE id = ANY($1::text[])",
+            embedding_ids,
         )
 
 
