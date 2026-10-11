@@ -115,19 +115,35 @@ def test_the_guard_timer_is_daily_and_persistent():
 # --- directive normalisation ------------------------------------------------
 
 
-def test_directives_drop_comments_blank_lines_and_edge_whitespace():
-    text = "# head\n\n[Service]\n  # indented comment\nUser=exedev   \n\tExecStart=x\n"
+def test_directives_drop_comments_blank_lines_and_leading_whitespace():
+    raw = b"# head\n\n[Service]\n  # indented comment\n\tExecStart=x\n   \n"
 
-    assert drift.directives(text) == ["[Service]", "User=exedev", "ExecStart=x"]
+    assert drift.directives(raw) == [b"[Service]", b"ExecStart=x"]
 
 
 def test_a_semicolon_line_is_a_directive():
     """`;` is a comment to systemd, a statement to Perl (needrestart): err towards drift."""
-    assert drift.directives("; note\n") == ["; note"]
+    assert drift.directives(b"; note\n") == [b"; note"]
 
 
 def test_inner_whitespace_is_significant():
-    assert drift.directives("User = exedev\n") != drift.directives("User=exedev\n")
+    assert drift.directives(b"User = exedev\n") != drift.directives(b"User=exedev\n")
+
+
+def test_trailing_whitespace_is_significant():
+    """A space after a continuation backslash stops systemd joining the next line."""
+    assert drift.directives(b"Description=a \\ \n") != drift.directives(b"Description=a \\\n")
+
+
+def test_only_newlines_split_lines():
+    """systemd reads `\\x0c` and friends as part of the line; `str.splitlines` would not."""
+    assert drift.directives(b"User=exedev\x0c#root\n") == [b"User=exedev\x0c#root"]
+
+
+def test_crlf_and_lf_files_have_the_same_directives():
+    assert drift.directives(UNIT.encode().replace(b"\n", b"\r\n")) == drift.directives(
+        UNIT.encode()
+    )
 
 
 # --- the comparison ---------------------------------------------------------
@@ -200,6 +216,26 @@ def test_a_directive_difference_is_drift(host):
 
     assert _kinds(findings) == {"power-map-x.service": drift.DIRECTIVE}
     assert drift.exit_code(findings) == drift.EXIT_DRIFT
+
+
+@pytest.mark.parametrize(
+    ("repo", "installed"),
+    [
+        ("Description=a \\\nUser=exedev\n", "Description=a \\ \nUser=exedev\n"),
+        ("User=exedev\n", "User=exedev\x0c#root\n"),
+        ("Description=caf\xe9\n", "Description=caf\xe8\n"),
+    ],
+    ids=["space-after-backslash", "form-feed", "invalid-utf8"],
+)
+def test_parser_visible_differences_are_never_comment_only(host, repo, installed):
+    """Each pair parses differently to systemd; a lossy normalisation called them comments."""
+    install, run, root = host
+    install("power-map-x.service", "")
+    (root.parent / "infra" / "power-map-x.service").write_bytes(repo.encode("latin-1"))
+    on_disk = root / SYSTEMD.lstrip("/") / "power-map-x.service"
+    on_disk.write_bytes(installed.encode("latin-1"))
+
+    assert _kinds(run()) == {"power-map-x.service": drift.DIRECTIVE}
 
 
 def test_reordered_directives_are_drift(host):

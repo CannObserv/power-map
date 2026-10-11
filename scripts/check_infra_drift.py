@@ -26,8 +26,8 @@ commit) and classifies:
 A comment is a whole line whose first non-blank character is ``#``. ``;`` is a
 comment to systemd and sysctl but a statement to Perl (the needrestart
 drop-in), so it reads as a directive: the error is towards a false alarm, never
-a missed change. Leading and trailing whitespace is ignored; inner whitespace
-is not.
+a missed change. Lines are compared as bytes, split only where systemd splits
+them; leading blanks are ignored, trailing and inner ones are not.
 
 Read-only and unprivileged: every installed copy here is world-readable.
 Installing stays a deliberate human step (restarts and ``daemon-reload`` touch
@@ -142,21 +142,33 @@ def check_manifest(infra: Path, manifest: dict[str, Path]) -> None:
         )
 
 
-def directives(text: str) -> list[str]:
-    """The lines that configure something: comments and blank lines dropped, edges stripped."""
-    lines = (ln.strip() for ln in text.splitlines())
-    return [ln for ln in lines if ln and not ln.startswith("#")]
+def directives(raw: bytes) -> list[bytes]:
+    """The lines that configure something: comment and blank lines dropped.
+
+    Bytes, not text, so nothing two parsers would tell apart compares equal:
+    ``bytes.splitlines`` breaks only on ``\\n``, ``\\r\\n`` and ``\\r``, as systemd's
+    line reader does (``str.splitlines`` also breaks on ``\\x0c`` and friends), and
+    invalid UTF-8 is never folded into one replacement character. Only leading
+    blanks go: trailing ones are kept, since a space after a continuation
+    backslash stops systemd joining the next line.
+    """
+    lines = (ln.lstrip(b" \t") for ln in raw.splitlines())
+    return [ln for ln in lines if ln.strip(b" \t") and not ln.startswith(b"#")]
 
 
 def _on_disk(root: Path, installed: Path) -> Path:
     return root / installed.relative_to("/")
 
 
-def _directive_diff(installed_text: str, repo_text: str) -> str:
+def _shown(lines: list[bytes]) -> list[str]:
+    return [ln.decode("utf-8", "backslashreplace") for ln in lines]
+
+
+def _directive_diff(installed_raw: bytes, repo_raw: bytes) -> str:
     diff = list(
         difflib.unified_diff(
-            directives(installed_text),
-            directives(repo_text),
+            _shown(directives(installed_raw)),
+            _shown(directives(repo_raw)),
             fromfile="installed",
             tofile="repo",
             n=0,
@@ -183,11 +195,9 @@ def compare(infra: Path, rel: str, installed: Path, root: Path) -> Finding | Non
         return Finding(UNREADABLE, rel, installed, str(exc))
     if repo_bytes == installed_bytes:
         return None
-    repo_text = repo_bytes.decode("utf-8", "replace")
-    installed_text = installed_bytes.decode("utf-8", "replace")
-    if directives(repo_text) == directives(installed_text):
+    if directives(repo_bytes) == directives(installed_bytes):
         return Finding(COMMENT, rel, installed)
-    return Finding(DIRECTIVE, rel, installed, _directive_diff(installed_text, repo_text))
+    return Finding(DIRECTIVE, rel, installed, _directive_diff(installed_bytes, repo_bytes))
 
 
 def orphans(manifest: dict[str, Path], root: Path) -> list[Finding]:

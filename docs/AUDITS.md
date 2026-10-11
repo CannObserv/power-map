@@ -495,7 +495,8 @@ file's path agrees with its `sudo install -t` line.
 - An unreadable copy, or a manifest that does not match `infra/`: exit 1.
 
 `;` lines count as directives: a statement in the Perl needrestart drop-in, so a
-`;` comment edit in a unit reads as drift (a false alarm, never a miss).
+`;` comment edit in a unit reads as drift (a false alarm, never a miss). Lines
+compare as bytes, split only where systemd splits them, with trailing blanks kept.
 Read-only and unprivileged. It never installs: restarts and `daemon-reload`
 touch production, so the fix stays a person's.
 
