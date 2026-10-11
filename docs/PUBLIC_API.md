@@ -29,7 +29,7 @@ Read endpoints are accessible with any valid key. Write endpoints require an add
 | `observations:write` | `POST /*/observations` endpoints |
 | `subscriptions:write` | `POST /api/v1/subscriptions`, `DELETE /api/v1/subscriptions`, `DELETE /api/v1/subscriptions/{entity_id}` |
 | `voice_embeddings:write` | `POST /api/v1/people/{id}/embeddings`, `PATCH /api/v1/people/{id}/embeddings/{eid}`, `DELETE /api/v1/people/{id}/embeddings/{eid}`, `DELETE /api/v1/people/{id}/embeddings`, `POST /api/v1/people/{id}/embeddings/{eid}/restore` |
-| `voice_embeddings:read` | `POST /api/v1/people/identify`, `POST /api/v1/people/verify`, `POST /api/v1/people/verify-batch`, `POST /api/v1/people/embeddings/presence`, `GET /api/v1/people/{id}/embeddings` — required for all biometric data reads |
+| `voice_embeddings:read` | `POST /api/v1/people/identify`, `POST /api/v1/people/identify-batch`, `POST /api/v1/people/verify`, `POST /api/v1/people/verify-batch`, `POST /api/v1/people/embeddings/presence`, `GET /api/v1/people/{id}/embeddings` — required for all biometric data reads |
 
 ---
 
@@ -40,7 +40,7 @@ Per-key token-bucket rate limiting is enforced at the application layer (#292). 
 
 | Bucket | Applies to | Sustained rate | Burst capacity |
 |--------|-----------|----------------|----------------|
-| read | `GET` / `HEAD`, plus the read-semantic POST endpoints: `POST /people/identify`, `POST /people/verify`, `POST /people/verify-batch`, `POST /people/embeddings/presence` (#310 — they carry a body for size reasons but only read) | 2 req/s | 120 |
+| read | `GET` / `HEAD`, plus the read-semantic POST endpoints: `POST /people/identify`, `POST /people/identify-batch`, `POST /people/verify`, `POST /people/verify-batch`, `POST /people/embeddings/presence` (#310 — they carry a body for size reasons but only read) | 2 req/s | 120 |
 | write | everything else | 1 req/s | 60 |
 
 An exhausted bucket returns **`429 Too Many Requests`** with:
