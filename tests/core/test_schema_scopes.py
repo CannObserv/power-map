@@ -1,6 +1,12 @@
 """Integration test: api_key_scope_types and api_key_scopes tables exist after apply_schema."""
 
+import inspect
+import re
+
 import pytest
+from fastapi.routing import APIRoute
+
+from src.api.main import app
 
 pytestmark = [
     pytest.mark.integration,
@@ -43,6 +49,27 @@ async def test_api_key_scope_types_seed_description(db_pool):
     assert "observations" in row["description"].lower()
 
 
+def _routes_gated_on(scope_id: str) -> set[str]:
+    """``"METHOD path"`` for every app route whose dependency tree includes
+    ``require_scope(scope_id)``; path params read ``{id}``, as descriptions do."""
+
+    def _scopes(dependant) -> set[str]:
+        found = set()
+        for dep in dependant.dependencies:
+            call = dep.call
+            if getattr(call, "__qualname__", "").startswith("require_scope."):
+                found.add(inspect.getclosurevars(call).nonlocals["scope_id"])
+            found |= _scopes(dep)
+        return found
+
+    return {
+        f"{method} {re.sub(r'{[a-z_]*id}', '{id}', route.path)}"
+        for route in app.routes
+        if isinstance(route, APIRoute) and scope_id in _scopes(route.dependant)
+        for method in route.methods
+    }
+
+
 @pytest.mark.integration
 async def test_voice_embeddings_scope_descriptions_name_all_routes(db_pool):
     """Scope descriptions surface in the admin key-management UI — they must
@@ -54,18 +81,14 @@ async def test_voice_embeddings_scope_descriptions_name_all_routes(db_pool):
         write = await conn.fetchval(
             "SELECT description FROM api_key_scope_types WHERE id = 'voice_embeddings:write'"
         )
-    # Every route path the read scope gates, not a substring of one: "identify"
-    # alone matched while verify-batch, presence and identify-batch went
-    # unnamed (#638 CR 1).
-    for route in (
-        "POST /api/v1/people/identify,",
-        "POST /api/v1/people/identify-batch",
-        "POST /api/v1/people/verify,",
-        "POST /api/v1/people/verify-batch",
-        "POST /api/v1/people/embeddings/presence",
-        "GET /api/v1/people/{id}/embeddings",
-    ):
-        assert route in read, f"read scope description missing '{route}': {read}"
+    # Every route the read scope gates, derived from the app — a hand-kept list
+    # let verify-batch, presence and identify-batch go unnamed (#638 CR 1/7).
+    gated = _routes_gated_on("voice_embeddings:read")
+    assert "POST /api/v1/people/identify-batch" in gated  # the walk found them
+    for route in sorted(gated):
+        assert re.search(re.escape(route) + r"(?![\w/-])", read), (
+            f"read scope description missing '{route}': {read}"
+        )
     for fragment in ("write", "patch", "archive", "restore"):
         assert fragment in write.lower(), f"write scope description missing '{fragment}': {write}"
 
