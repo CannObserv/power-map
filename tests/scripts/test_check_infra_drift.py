@@ -515,3 +515,16 @@ def test_a_disabled_unit_names_enable(tmp_path, monkeypatch, capsys):
 
     assert code == drift.EXIT_DRIFT
     assert "systemctl enable" in out
+
+
+def test_the_remedy_names_sections_commands_md_has():
+    """The remedy defers to COMMANDS.md's blocks; a renamed heading would strand it."""
+    headings = {
+        ln.removeprefix("## ").strip()
+        for ln in COMMANDS_MD.read_text().splitlines()
+        if ln.startswith("## ")
+    }
+    named = re.findall(r"§ ([A-Z]\w*(?: \w+)*?)(?= or |;|$)", drift.REMEDY)
+
+    assert named == ["Service Management", "Scheduled timers"]
+    assert set(named) <= headings

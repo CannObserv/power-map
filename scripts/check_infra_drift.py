@@ -81,9 +81,11 @@ _ENABLE_KEYS = {b"WantedBy=": ".wants", b"RequiredBy=": ".requires"}
 
 # Diff lines shown per file before the rest is counted: a rewrite stays readable.
 MAX_DIFF_LINES = 20
+# Each file's block names its own follow-up (daemon-reload, sysctl --system, a
+# restart, enable --now), so the remedy points there rather than guessing one.
 REMEDY = (
-    "re-install from the main checkout per docs/COMMANDS.md § Service Management "
-    "(sudo cp / sudo install, then daemon-reload)"
+    "re-run each file's install block, from the main checkout, in docs/COMMANDS.md "
+    "§ Service Management or § Scheduled timers; it names the reload or restart it needs"
 )
 DISABLED_REMEDY = "disabled: sudo systemctl enable --now <unit>"
 # Nothing in the repo to re-install: the copy goes, or its file comes back.
