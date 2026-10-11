@@ -488,7 +488,9 @@ file's path agrees with its `sudo install -t` line.
 - **Directives differ** (the files differ once whole-line `#` comments and blank
   lines are dropped), **missing** copy, or an **orphan** (a `power-map*` unit or
   drop-in under `/etc/systemd/system`, `systemctl edit` overrides included, that
-  no repo file accounts for): exit 3. The journal shows the directive diff.
+  no repo file accounts for), or a **disabled** unit (installed, but the `.wants/`
+  link its `WantedBy=` asks for is absent): exit 3. The journal shows the
+  directive diff.
 - **Comments only**: a WARNING and exit 4, which the unit's `SuccessExitStatus=4`
   counts as success. The copy works, but is no longer byte-identical. Re-copy
   it at the next install.
