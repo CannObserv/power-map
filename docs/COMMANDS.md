@@ -250,7 +250,8 @@ If `infra/power-map.service` changed in the pull, reinstall the unit first (see 
 "Install (first time or after updating infra/power-map.service)") before restarting. Likewise the
 host files (`infra/system.slice.d/`, `infra/sysctl.d/`, `infra/tailscaled.service.d/`,
 `infra/needrestart.conf.d/`): the host runs copies, so a pull changes nothing until the matching
-§ Service Management block re-runs.
+§ Service Management block re-runs. The daily `power-map-infra-drift` run fails on a skipped one
+(#560); `uv run python -m scripts.check_infra_drift` checks now.
 
 To apply schema without restarting (e.g. after a manual `git pull` mid-session) — **from the
 main checkout, on `main`**:
@@ -469,11 +470,13 @@ row names**; this is a roster, not a reference.
 | `power-map-ancillary-orphans` | daily | `audit_ancillary_orphans.py` — no-FK polymorphic orphans | [AUDITS.md](AUDITS.md) |
 | `power-map-seat-occupancy` | daily | `audit_seat_occupancy.py` — two holders of one single seat; ratchet, fails only above baseline | [AUDITS.md](AUDITS.md) |
 | `power-map-assignment-rel-windows` | daily | `audit_assignment_relationship_windows.py` — drifted RA→RA edge windows | [AUDITS.md](AUDITS.md) |
+| `power-map-infra-drift` | daily | `check_infra_drift.py` — `infra/` vs the host's installed copies; comment-only drift exits 4 | [AUDITS.md](AUDITS.md) |
 | `power-map-openapi-parity` | daily | `check_openapi_parity.py` — live `/openapi.json` vs `clients/python/openapi.json`, and its `v<version>` tag | [AUDITS.md](AUDITS.md) |
 | `power-map-a11y` | Sun 04:00 UTC | `run-a11y-sweep.sh` — both a11y tiers against the test DB | [TESTING.md](TESTING.md) |
 
 An audit timer exits **3** on a finding, which is what puts it in
-`systemctl --failed` (openapi-parity also exits 4 on a release-tag finding);
+`systemctl --failed` (openapi-parity also exits 4 on a release-tag finding, and
+infra-drift exits 4, a success, on comment-only drift);
 exit 1 is a real error. Installing or inspecting any of them takes the same
 shape:
 
