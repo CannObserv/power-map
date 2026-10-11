@@ -1,4 +1,4 @@
-"""Tests for POST /api/v1/people/identify and POST /api/v1/people/{id}/embeddings."""
+"""Tests for the voice-embedding endpoints in ``src/api/public/embeddings.py``."""
 
 import hashlib
 import json
