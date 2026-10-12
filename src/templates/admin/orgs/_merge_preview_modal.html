@@ -133,8 +133,8 @@
     <div class="alert alert--warning" role="alert" style="margin-bottom:var(--space-4)">
       <strong>{{ dropped_assignments_count }} duplicate role assignment{{ 's' if dropped_assignments_count != 1 }} will be deleted.</strong>
       Each is the same person, role and start date as a row the kept organization
-      already has, so the two cannot coexist. The kept row survives and the deleted
-      IDs are published to the change feed pointing at it.
+      already has, so the two cannot coexist. The kept row survives, and each
+      deleted ID answers <code>410 Gone</code> on the public API, pointing at it.
     </div>
     {% endif %}
 

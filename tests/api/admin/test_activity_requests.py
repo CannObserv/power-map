@@ -128,7 +128,9 @@ async def seeded_log(db):
         entity_type="person",
         result_entity_id=generate_id(),  # not in people -> "(removed)"
     )
-    ids["empty_poll"] = await _insert_log(
+    # A poll of the retired change feed (#502), still in the log until the prune
+    # ages it out.
+    ids["legacy_poll"] = await _insert_log(
         db,
         api_key_id=kid,
         method="GET",
@@ -164,26 +166,25 @@ async def test_list_redirects_unauthenticated(client):
     assert "/__exe.dev/login" in resp.headers["location"]
 
 
-async def test_list_default_hides_other_group(client, seeded_log):
-    """Default view is observations + changes; 'other' rows excluded."""
+async def test_list_default_shows_observations_only(client, seeded_log):
+    """Default view is the observations group; 'other' and legacy feed rows excluded."""
     resp = await client.get(_BASE, headers=AUTH_HEADERS)
     assert f"/admin/activity/requests/{seeded_log['new']}/" in resp.text
     assert f"/admin/activity/requests/{seeded_log['other']}/" not in resp.text
+    assert f"/admin/activity/requests/{seeded_log['legacy_poll']}/" not in resp.text
 
 
-async def test_list_all_group_shows_other(client, seeded_log):
+async def test_list_all_group_shows_other_and_legacy_feed_rows(client, seeded_log):
     resp = await client.get(_BASE + "?group=all", headers=AUTH_HEADERS)
     assert f"/admin/activity/requests/{seeded_log['other']}/" in resp.text
+    assert f"/admin/activity/requests/{seeded_log['legacy_poll']}/" in resp.text
 
 
-async def test_list_default_hides_empty_polls(client, seeded_log):
+async def test_list_has_no_feed_controls(client, seeded_log):
+    """The change feed retired (#502): no feed stat, filter option or empty-poll toggle."""
     resp = await client.get(_BASE, headers=AUTH_HEADERS)
-    assert f"/admin/activity/requests/{seeded_log['empty_poll']}/" not in resp.text
-
-
-async def test_list_show_empty_includes_empty_polls(client, seeded_log):
-    resp = await client.get(_BASE + "?show_empty=true", headers=AUTH_HEADERS)
-    assert f"/admin/activity/requests/{seeded_log['empty_poll']}/" in resp.text
+    for gone in ("Changes polls", "Rows delivered", 'value="changes"', "Show empty polls"):
+        assert gone not in resp.text, gone
 
 
 async def test_list_filter_by_disposition_rejected(client, seeded_log):

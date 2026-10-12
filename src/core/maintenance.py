@@ -1,29 +1,52 @@
-"""TTL pruning for the change-feed outbox, deletion tombstones, and request log.
+"""TTL pruning for the outbox, deletion tombstones, and request log — one window each.
 
 The ``entity_changes`` outbox (issue #203) accretes a row on every INSERT/UPDATE
 of the five entity tables, and a tombstone row on every hard delete / merge.
 ``deleted_entities`` accretes one row per removal; its merge rows are exempt
 (#607 — see ``_PRUNABLE_TOMBSTONE``). ``api_request_log`` (issue #260) accretes
-one row per ``/api/v1/*`` request. None is self-limiting, so all are pruned to a
-fixed retention window by a scheduled job
+one row per ``/api/v1/*`` request. None is self-limiting, so each is pruned to
+its own retention window (:class:`Retention`) by a scheduled job
 (``scripts/prune_outbox.py`` under a systemd timer — see ``docs/COMMANDS.md``).
 
-Retention is the consumer-facing contract: the change feed is a *recent-changes*
-window, not a permanent event store. A consumer dark longer than the window must
-full-reconcile (see ``docs/PUBLIC_API.md``).
+The windows are separate because the tables answer to different contracts
+(#502). A bare-delete tombstone's window is how long its id answers ``410``
+before falling back to ``404`` (``docs/PUBLIC_API.md`` § Retired ids). The
+request log's window bounds the PII its captured bodies hold
+(``docs/CONVENTIONS.md``). The outbox no longer has a reader since the change
+feed retired; it is pruned until it is dropped (#651).
 
 Deletes run in independently-committed batches so a large first-run backlog does
 not execute as one long transaction (lock/WAL/bloat). The job is idempotent — a
 run that fails partway resumes on the next invocation.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 import asyncpg
 
-#: Default retention window (days). Matches the ``deleted_entities`` TTL cited in
-#: ``docs/PUBLIC_API.md`` and the change-feed design doc.
-DEFAULT_RETENTION_DAYS = 90
+
+@dataclass(frozen=True)
+class Retention:
+    """Retention window, in days, for each pruned table (#502).
+
+    Each defaults to 90 days. The single shared window that preceded this, and
+    the #495 104-day hold on it, retired in #502.
+    """
+
+    entity_changes: int = 90
+    #: Bare-delete tombstones only: merge tombstones never expire (#607).
+    deleted_entities: int = 90
+    api_request_log: int = 90
+
+    def __post_init__(self) -> None:
+        for f in fields(self):
+            days = getattr(self, f.name)
+            if days < 1:
+                raise ValueError(f"{f.name} retention must be >= 1 day, got {days}")
+
+
+#: The windows the daily prune runs on (``infra/power-map-prune.service`` names none).
+DEFAULT_RETENTION = Retention()
 
 #: Rows deleted per batch. Bounds lock duration / WAL burst / dead-tuple bloat so
 #: a large first-run backlog doesn't run as one long transaction.
@@ -68,7 +91,7 @@ WHERE ctid IN (
 )
 """
 
-# api_request_log (#260) accretes one row per /api/v1/* request. Same TTL window,
+# api_request_log (#260) accretes one row per /api/v1/* request. Its own window,
 # same batched-DELETE-via-ctid strategy — no dedicated occurred_at index needed
 # beyond idx_arl_occurred, which the planner may use for the LIMIT scan.
 _PRUNE_REQUEST_LOG_SQL = f"""
@@ -94,11 +117,6 @@ class PruneResult:
     api_request_log: int
 
 
-def _validate_retention(retention_days: int) -> None:
-    if retention_days < 1:
-        raise ValueError(f"retention_days must be >= 1, got {retention_days}")
-
-
 def _rowcount(status: str) -> int:
     """Parse asyncpg's ``DELETE <n>`` command tag into an int."""
     return int(status.split()[-1])
@@ -106,17 +124,16 @@ def _rowcount(status: str) -> int:
 
 async def count_prunable(
     conn: asyncpg.Connection,
-    retention_days: int = DEFAULT_RETENTION_DAYS,
+    retention: Retention = DEFAULT_RETENTION,
 ) -> PruneResult:
     """Count rows eligible for deletion, without deleting any.
 
     Shares the retention predicate with :func:`prune_outbox`, so a dry run can
     never disagree with the subsequent execute.
     """
-    _validate_retention(retention_days)
-    changes = await conn.fetchval(_COUNT_CHANGES_SQL, retention_days)
-    tombstones = await conn.fetchval(_COUNT_TOMBSTONES_SQL, retention_days)
-    request_log = await conn.fetchval(_COUNT_REQUEST_LOG_SQL, retention_days)
+    changes = await conn.fetchval(_COUNT_CHANGES_SQL, retention.entity_changes)
+    tombstones = await conn.fetchval(_COUNT_TOMBSTONES_SQL, retention.deleted_entities)
+    request_log = await conn.fetchval(_COUNT_REQUEST_LOG_SQL, retention.api_request_log)
     return PruneResult(
         entity_changes=changes,
         deleted_entities=tombstones,
@@ -147,22 +164,24 @@ async def _prune_table(
 
 async def prune_outbox(
     conn: asyncpg.Connection,
-    retention_days: int = DEFAULT_RETENTION_DAYS,
+    retention: Retention = DEFAULT_RETENTION,
     *,
     batch_size: int = DEFAULT_BATCH_SIZE,
 ) -> PruneResult:
-    """Delete outbox + tombstone rows older than ``retention_days``.
+    """Delete each table's rows older than its own window in ``retention``.
 
     Prunes ``entity_changes``, ``deleted_entities`` and ``api_request_log`` in
-    independently committed batches so the three TTLs stay aligned. Returns the
-    per-table delete counts.
+    independently committed batches. Returns the per-table delete counts.
     """
-    _validate_retention(retention_days)
     if batch_size < 1:
         raise ValueError(f"batch_size must be >= 1, got {batch_size}")
-    changes = await _prune_table(conn, _PRUNE_CHANGES_SQL, retention_days, batch_size)
-    tombstones = await _prune_table(conn, _PRUNE_TOMBSTONES_SQL, retention_days, batch_size)
-    request_log = await _prune_table(conn, _PRUNE_REQUEST_LOG_SQL, retention_days, batch_size)
+    changes = await _prune_table(conn, _PRUNE_CHANGES_SQL, retention.entity_changes, batch_size)
+    tombstones = await _prune_table(
+        conn, _PRUNE_TOMBSTONES_SQL, retention.deleted_entities, batch_size
+    )
+    request_log = await _prune_table(
+        conn, _PRUNE_REQUEST_LOG_SQL, retention.api_request_log, batch_size
+    )
     return PruneResult(
         entity_changes=changes,
         deleted_entities=tombstones,

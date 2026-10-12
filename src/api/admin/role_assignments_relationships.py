@@ -3,7 +3,7 @@
 Makes the role-assignment detail-page Relationships panel interactive: add a
 directional edge (target-assignment typeahead + rel_type + direction + validity +
 notes), inline-edit validity/notes, and remove (soft-delete via ``archived_at`` —
-the retract model, so the change feed drops the anchor). The admin write path
+the retract model). The admin write path
 enforces the temporal invariant via ``check_edge_within_assignments`` (422); the
 DB guards ``chk_no_self_rel_assignment`` / ``chk_edge_valid_range`` backstop it.
 """

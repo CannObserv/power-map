@@ -9,11 +9,6 @@ from .assignment_list_item import AssignmentListItem
 from .assignment_list_response import AssignmentListResponse
 from .assignment_observation_request import AssignmentObservationRequest
 from .assignment_observation_request_op import AssignmentObservationRequestOp
-from .change_feed_response import ChangeFeedResponse
-from .change_item import ChangeItem
-from .change_item_change_kind import ChangeItemChangeKind
-from .change_item_entity_type import ChangeItemEntityType
-from .change_meta import ChangeMeta
 from .citation_list_response import CitationListResponse
 from .citation_observation_item import CitationObservationItem
 from .citation_observation_item_op import CitationObservationItemOp
@@ -21,11 +16,6 @@ from .citation_observation_result import CitationObservationResult
 from .citation_observations_request import CitationObservationsRequest
 from .citation_observations_response import CitationObservationsResponse
 from .citation_read import CitationRead
-from .discover_subscriptions_root_type import DiscoverSubscriptionsRootType
-from .discovery_item import DiscoveryItem
-from .discovery_item_entity_type import DiscoveryItemEntityType
-from .discovery_meta import DiscoveryMeta
-from .discovery_response import DiscoveryResponse
 from .embedding_archive_response import EmbeddingArchiveResponse
 from .embedding_batch_archive_response import EmbeddingBatchArchiveResponse
 from .embedding_list_item import EmbeddingListItem
@@ -78,7 +68,6 @@ from .link_types_response import LinkTypesResponse
 from .list_jurisdiction_relationships_direction import (
     ListJurisdictionRelationshipsDirection,
 )
-from .list_subscriptions_entity_type_type_0 import ListSubscriptionsEntityTypeType0
 from .observation_acronym import ObservationAcronym
 from .observation_additional_identifier import ObservationAdditionalIdentifier
 from .observation_address import ObservationAddress
@@ -140,13 +129,6 @@ from .role_type import RoleType
 from .role_type_occupancy import RoleTypeOccupancy
 from .role_types_response import RoleTypesResponse
 from .search_meta import SearchMeta
-from .subscription_bulk_delete_request import SubscriptionBulkDeleteRequest
-from .subscription_item import SubscriptionItem
-from .subscription_item_entity_type import SubscriptionItemEntityType
-from .subscription_list_meta import SubscriptionListMeta
-from .subscription_list_response import SubscriptionListResponse
-from .subscription_register_request import SubscriptionRegisterRequest
-from .subscription_register_response import SubscriptionRegisterResponse
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
 from .verify_batch_group import VerifyBatchGroup
@@ -166,11 +148,6 @@ __all__ = (
     "AssignmentListResponse",
     "AssignmentObservationRequest",
     "AssignmentObservationRequestOp",
-    "ChangeFeedResponse",
-    "ChangeItem",
-    "ChangeItemChangeKind",
-    "ChangeItemEntityType",
-    "ChangeMeta",
     "CitationListResponse",
     "CitationObservationItem",
     "CitationObservationItemOp",
@@ -178,11 +155,6 @@ __all__ = (
     "CitationObservationsRequest",
     "CitationObservationsResponse",
     "CitationRead",
-    "DiscoverSubscriptionsRootType",
-    "DiscoveryItem",
-    "DiscoveryItemEntityType",
-    "DiscoveryMeta",
-    "DiscoveryResponse",
     "EmbeddingArchiveResponse",
     "EmbeddingBatchArchiveResponse",
     "EmbeddingListItem",
@@ -233,7 +205,6 @@ __all__ = (
     "LinkType",
     "LinkTypesResponse",
     "ListJurisdictionRelationshipsDirection",
-    "ListSubscriptionsEntityTypeType0",
     "ObservationAcronym",
     "ObservationAdditionalIdentifier",
     "ObservationAddress",
@@ -291,13 +262,6 @@ __all__ = (
     "RoleTypeOccupancy",
     "RoleTypesResponse",
     "SearchMeta",
-    "SubscriptionBulkDeleteRequest",
-    "SubscriptionItem",
-    "SubscriptionItemEntityType",
-    "SubscriptionListMeta",
-    "SubscriptionListResponse",
-    "SubscriptionRegisterRequest",
-    "SubscriptionRegisterResponse",
     "ValidationError",
     "ValidationErrorContext",
     "VerifyBatchGroup",

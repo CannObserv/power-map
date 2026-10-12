@@ -33,8 +33,6 @@
           {% else %}—{% endif %}
         </td></tr>
       <tr><th scope="row">Reason</th><td>{{ row.reason or '—' }}</td></tr>
-      {% elif row.route_group == 'changes' %}
-      <tr><th scope="row">Rows delivered</th><td>{{ row.item_count if row.item_count is not none else '—' }}{% if row.is_empty %} <span style="color:var(--color-text-muted)">(empty poll)</span>{% endif %}</td></tr>
       {% endif %}
       <tr><th scope="row">Client IP</th><td>{{ row.client_ip or '—' }}</td></tr>
       <tr><th scope="row">User agent</th><td>{{ row.user_agent or '—' }}</td></tr>

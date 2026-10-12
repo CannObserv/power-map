@@ -2,7 +2,7 @@
 
 Per-resource endpoint behaviour for **Assignments**: filters, response shapes, and the
 implicit rules this collection follows. Auth, pagination and conditional requests are in
-`docs/PUBLIC_API.md`, the change feed in `docs/CHANGE_FEED.md`; the other resources are
+`docs/PUBLIC_API.md`; the other resources are
 indexed in `docs/API_ENTITIES.md`. Assignment write semantics live here, in
 §"Write semantics & provenance"; the cross-cutting observation rules the other
 resources share are in `docs/OBSERVATIONS.md`.
@@ -125,4 +125,3 @@ Closing is not retracting. `end_date` + `is_current=false` asserts the tenure **
 - **Cascades come free.** The archiving UPDATE fires `trg_entity_changes_role_assignments` → outbox row (subscribers already mirror `archived_at`, usa-wa #41/#42) and `trg_cascade_assignment_relationships` → dependent `staff_of` edges archive with the seat (#301). Ancillary stays attached to the soft-deleted row, so the daily ancillary-orphan audit is unaffected. No schema change — `role_assignments.archived_at` already shipped.
 - **New disposition** `retracted` on `Disposition` / `ObservationResponse.disposition`. Emitted only by this surface; the other single-object observation endpoints never return it.
 
-**Changes feed:** `role_assignment` entities appear in `GET /api/v1/changes` with `entity_type: "role_assignment"`.

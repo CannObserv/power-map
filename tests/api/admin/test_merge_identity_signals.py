@@ -1,16 +1,19 @@
-"""#467: a merge must preserve assignment identity and tell the change feed.
+"""#467: a merge must preserve assignment identity and tombstone what it deletes.
 
 Merging an org used to migrate the loser role's assignments by INSERT-a-copy +
 DELETE-the-original, reminting every ULID, and hard-deleted the loser's roles and
 assignments without a tombstone. A producer holding `pm_assignment_id` anchors saw
-its rows 404 with nothing on `/api/v1/changes` to explain it.
+its rows 404 with nothing to explain it.
 
 The contract these tests pin:
 
 1. a non-colliding assignment keeps its **id** across every merge path;
 2. every role / role_assignment a merge hard-deletes gets a `deleted_entities`
-   row carrying `merged_into` = the survivor, so the outbox emits a rebind signal;
-3. subscriptions follow the entity instead of dangling.
+   row carrying `merged_into` = the survivor, so its detail GET answers `410` +
+   `merged_into` (#607) — a rebind, not a bare drop.
+
+(A third clause, "subscriptions follow the entity", retired with the change feed
+in #502.)
 """
 
 import hashlib
@@ -133,16 +136,6 @@ async def _tombstone(db, entity_type, entity_id):
     )
 
 
-async def _subscribe(db, api_key_id, entity_type, entity_id):
-    await db.execute(
-        "INSERT INTO api_key_entity_subscriptions (api_key_id, entity_id, entity_type)"
-        " VALUES ($1, $2, $3)",
-        api_key_id,
-        entity_id,
-        entity_type,
-    )
-
-
 # ---------------------------------------------------------------------------
 # 1. Identity preservation — the incident itself
 # ---------------------------------------------------------------------------
@@ -233,7 +226,7 @@ async def test_org_merge_tombstones_dropped_duplicate_assignment(client, db):
         " WHERE entity_type='role_assignment' AND entity_id=$1 AND change_kind='deleted'",
         dropped,
     )
-    assert change is not None, "no 'deleted' outbox row — a subscriber sees nothing"
+    assert change is not None, "no 'deleted' outbox row (the outbox retires in #651)"
     assert change["merged_into"] == survivor
 
 
@@ -296,108 +289,7 @@ async def test_person_merge_tombstones_dropped_duplicate_assignment(client, db):
 
 
 # ---------------------------------------------------------------------------
-# 3. Subscriptions gain the survivor and keep the loser
-#
-# `mirror_subscriptions` ADDS; it must never move. The feed resolves subscriptions
-# when the consumer polls (`changes.py`: `s.entity_id = ec.entity_id`), so dropping
-# the loser's subscription would hide the loser's own tombstone from the only key
-# that needed it. `tests/api/public/test_changes.py` pins that end to end; these
-# pin the row-level state each merge path leaves behind.
-# ---------------------------------------------------------------------------
-
-
-async def _subscribed_ids(db, api_key_id):
-    return {
-        r["entity_id"]
-        for r in await db.fetch(
-            "SELECT entity_id FROM api_key_entity_subscriptions WHERE api_key_id=$1", api_key_id
-        )
-    }
-
-
-async def test_org_merge_mirrors_org_subscription_onto_winner(client, db, api_key_id):
-    """The winner is added; the loser anchor stays so its tombstone stays reachable."""
-    win_org, lose_org = await _org(db, "Sub Win"), await _org(db, "Sub Lose")
-    await _subscribe(db, api_key_id, "organization", lose_org)
-
-    response = await client.post(
-        f"/admin/orgs/{win_org}/merge-with/{lose_org}/",
-        headers=AUTH_HEADERS,
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
-    assert await _subscribed_ids(db, api_key_id) == {win_org, lose_org}
-
-
-async def test_org_merge_mirrors_subscription_of_dropped_assignment(client, db, api_key_id):
-    """A subscription anchored to a dropped duplicate gains the survivor."""
-    win_org, lose_org = await _org(db, "Sub RA Win"), await _org(db, "Sub RA Lose")
-    win_role, lose_role = await _role(db, win_org), await _role(db, lose_org)
-    person = await _person(db)
-    survivor = await _assign(db, person, win_role, "2020-01-01")
-    dropped = await _assign(db, person, lose_role, "2020-01-01")
-    await _subscribe(db, api_key_id, "role_assignment", dropped)
-
-    response = await client.post(
-        f"/admin/orgs/{win_org}/merge-with/{lose_org}/",
-        data={"merge_role_pairs": f"{win_role}:{lose_role}"},
-        headers=AUTH_HEADERS,
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
-    assert await _subscribed_ids(db, api_key_id) == {survivor, dropped}
-
-
-async def test_merge_mirror_is_a_noop_when_both_sides_already_subscribed(client, db, api_key_id):
-    """Subscribed to both: both rows survive, no PK violation from the re-insert."""
-    win_org, lose_org = await _org(db, "Sub Both Win"), await _org(db, "Sub Both Lose")
-    await _subscribe(db, api_key_id, "organization", win_org)
-    await _subscribe(db, api_key_id, "organization", lose_org)
-
-    response = await client.post(
-        f"/admin/orgs/{win_org}/merge-with/{lose_org}/",
-        headers=AUTH_HEADERS,
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
-    assert await _subscribed_ids(db, api_key_id) == {win_org, lose_org}
-
-
-async def test_person_merge_mirrors_subscription_onto_winner(client, db, api_key_id):
-    """Person merge owes the same signal (finding 6 — this path was untested)."""
-    winner, loser = await _person(db, "Ada L"), await _person(db, "Ada Lovelace")
-    await _subscribe(db, api_key_id, "person", loser)
-
-    response = await client.post(
-        f"/admin/people/{winner}/merge-with/{loser}/",
-        headers=AUTH_HEADERS,
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
-    assert await _subscribed_ids(db, api_key_id) == {winner, loser}
-
-
-async def test_role_merge_mirrors_role_and_assignment_subscriptions(client, db, api_key_id):
-    """Role merge owes the same signal, for both the role and a dropped duplicate."""
-    org = await _org(db, "Role Sub Org")
-    win_role, lose_role = await _role(db, org, "Chair"), await _role(db, org, "Chairman")
-    person = await _person(db)
-    survivor = await _assign(db, person, win_role, "2020-01-01")
-    dropped = await _assign(db, person, lose_role, "2020-01-01")
-    await _subscribe(db, api_key_id, "role", lose_role)
-    await _subscribe(db, api_key_id, "role_assignment", dropped)
-
-    response = await client.post(
-        f"/admin/orgs/{org}/roles/{win_role}/merge/{lose_role}/",
-        headers=AUTH_HEADERS,
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
-    assert await _subscribed_ids(db, api_key_id) == {win_role, lose_role, survivor, dropped}
-
-
-# ---------------------------------------------------------------------------
-# 4. Blast radius is stated before the merge, not after
+# 3. Blast radius is stated before the merge, not after
 # ---------------------------------------------------------------------------
 
 
@@ -421,17 +313,17 @@ async def test_merge_preview_reports_assignment_blast_radius(client, db):
 
 
 # ---------------------------------------------------------------------------
-# 5. `merge_role_pairs` is form input — it may not name arbitrary roles
+# 4. `merge_role_pairs` is form input — it may not name arbitrary roles
 # ---------------------------------------------------------------------------
 
 
 async def test_merge_role_pairs_outside_the_org_pair_are_ignored(client, db, api_key_id):
     """A pair naming a role from neither org must not delete it or tombstone it.
 
-    `_absorb_role` hard-deletes the loser role it is handed and publishes a
-    `role/deleted merged_into=…` row for it. Since the pairs arrive as unvalidated
-    form input, an unfiltered list lets a manipulated submit both destroy an
-    unrelated role and inject a false rebind into subscribers' feeds.
+    `_absorb_role` hard-deletes the loser role it is handed and tombstones it
+    `merged_into=…`. Since the pairs arrive as unvalidated form input, an
+    unfiltered list lets a manipulated submit both destroy an unrelated role and
+    point its id's `410` at a false survivor (#607).
     """
     win_org, lose_org = await _org(db, "Scoped Win"), await _org(db, "Scoped Lose")
     win_role = await _role(db, win_org)
@@ -488,7 +380,7 @@ async def test_merge_role_pairs_naming_an_archived_role_are_ignored(client, db):
 # `curation_overlay` is keyed on (entity_type, entity_id) with no FK, and the
 # mapping layer joins it on the surviving pm_id — so an override left on a
 # merged-away id stops applying without a word. Every merge path carries it
-# wherever it mirrors a subscription; the sweep holds the paths to that.
+# wherever it tombstones a loser; the sweep holds the paths to that.
 # ---------------------------------------------------------------------------
 
 

@@ -1,24 +1,17 @@
-"""Unit tests for the two consumer-facing signals a merge owes (#467).
+"""Unit tests for the tombstone a merge owes each hard-deleted row (#467, #607).
 
-The route-level tests exercise these helpers incidentally, through whichever merge
-path calls them. These pin the contract directly: what each does with an empty
-pair list, what it rejects, and what it does on a second application — the
-properties a caller relies on but no single merge test asserts.
+The route-level tests exercise the helper incidentally, through whichever merge
+path calls it. These pin the contract directly: what it does with an empty pair
+list, what it rejects, and what it does on a second application — the properties
+a caller relies on but no single merge test asserts. (The subscription mirror
+tested beside it retired with the change feed, #502.)
 """
-
-import hashlib
-import os
 
 import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
-from src.core.merge_signals import (
-    MERGEABLE_ENTITY_TYPES,
-    copy_subscriptions,
-    mirror_subscriptions,
-    record_merge_tombstones,
-)
+from src.core.merge_signals import MERGEABLE_ENTITY_TYPES, record_merge_tombstones
 
 pytestmark = [
     pytest.mark.integration,
@@ -34,22 +27,6 @@ async def db(db_pool):
             yield conn
         finally:
             await tr.rollback()
-
-
-@pytest_asyncio.fixture(loop_scope="session")
-async def api_key_id(db):
-    uid, kid = generate_id(), generate_id()
-    raw_key = "pm_" + os.urandom(16).hex()
-    await db.execute("INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, "signals@test.com")
-    await db.execute(
-        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
-        kid,
-        uid,
-        "Signals Unit",
-        raw_key[:8],
-        hashlib.sha256(raw_key.encode()).hexdigest(),
-    )
-    return kid
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -97,7 +74,7 @@ async def test_tombstone_is_idempotent(db, org_pair):
 
 
 async def test_tombstone_keeps_the_first_winner_on_a_second_hop(db, org_pair):
-    """A→B then A→C keeps B: the first hop is the one the subscriber missed."""
+    """A→B then A→C keeps B: the first hop is the one a reader missed."""
     loser, winner = org_pair
     later = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", later)
@@ -141,150 +118,7 @@ def test_edges_and_jurisdictions_are_excluded_deliberately():
 
     No merge folds one jurisdiction into another; and an edge is announced through
     the two assignments it joins, each of which carries its own tombstone, so it has
-    no independent anchor a subscriber could repair.
+    no independent anchor a consumer could repair.
     """
     assert "jurisdiction" not in MERGEABLE_ENTITY_TYPES
     assert "role_assignment_relationship" not in MERGEABLE_ENTITY_TYPES
-
-
-# ---------------------------------------------------------------------------
-# mirror_subscriptions
-# ---------------------------------------------------------------------------
-
-
-async def _subscribe(db, kid, entity_id, entity_type):
-    await db.execute(
-        "INSERT INTO api_key_entity_subscriptions (api_key_id, entity_id, entity_type)"
-        " VALUES ($1,$2,$3)",
-        kid,
-        entity_id,
-        entity_type,
-    )
-
-
-async def test_mirror_adds_the_winner_and_keeps_the_loser(db, api_key_id, org_pair):
-    """The loser row is the audience for the loser's tombstone — it must survive."""
-    loser, winner = org_pair
-    await _subscribe(db, api_key_id, loser, "organization")
-    await mirror_subscriptions(db, [(loser, winner)])
-
-    rows = await db.fetch(
-        "SELECT entity_id, entity_type FROM api_key_entity_subscriptions WHERE api_key_id=$1",
-        api_key_id,
-    )
-    assert {(r["entity_id"], r["entity_type"]) for r in rows} == {
-        (loser, "organization"),
-        (winner, "organization"),
-    }
-
-
-async def test_mirror_copies_entity_type_from_the_loser_row(db, api_key_id):
-    """The type is read from the row being mirrored, not supplied by the caller.
-
-    That makes a caller's mismatched argument impossible rather than silently
-    retyping a subscription — there is no argument to mismatch.
-    """
-    org = generate_id()
-    role_owner = generate_id()
-    loser_role, winner_role = generate_id(), generate_id()
-    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org)
-    await db.execute("INSERT INTO organizations (id) VALUES ($1)", role_owner)
-    for rid, oid in ((loser_role, org), (winner_role, role_owner)):
-        await db.execute(
-            "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,$3)", rid, oid, rid[:8]
-        )
-    await _subscribe(db, api_key_id, loser_role, "role")
-    await mirror_subscriptions(db, [(loser_role, winner_role)])
-
-    assert (
-        await db.fetchval(
-            "SELECT entity_type FROM api_key_entity_subscriptions"
-            " WHERE api_key_id=$1 AND entity_id=$2",
-            api_key_id,
-            winner_role,
-        )
-        == "role"
-    )
-
-
-async def test_mirror_is_idempotent_when_the_winner_is_already_subscribed(db, api_key_id, org_pair):
-    """The PK is (api_key_id, entity_id); a re-insert must not raise."""
-    loser, winner = org_pair
-    await _subscribe(db, api_key_id, loser, "organization")
-    await _subscribe(db, api_key_id, winner, "organization")
-    await mirror_subscriptions(db, [(loser, winner)])
-    await mirror_subscriptions(db, [(loser, winner)])
-
-    assert (
-        await db.fetchval(
-            "SELECT count(*) FROM api_key_entity_subscriptions WHERE api_key_id=$1", api_key_id
-        )
-        == 2
-    )
-
-
-async def test_mirror_adds_nothing_when_nobody_watched_the_loser(db, api_key_id, org_pair):
-    """No watcher means no need for the winner — the winner is not force-subscribed."""
-    loser, winner = org_pair
-    await mirror_subscriptions(db, [(loser, winner)])
-
-    assert (
-        await db.fetchval(
-            "SELECT count(*) FROM api_key_entity_subscriptions WHERE entity_id = ANY($1::text[])",
-            [loser, winner],
-        )
-        == 0
-    )
-
-
-async def test_mirror_empty_pairs_is_a_noop(db):
-    before = await db.fetchval("SELECT count(*) FROM api_key_entity_subscriptions")
-    await mirror_subscriptions(db, [])
-    assert await db.fetchval("SELECT count(*) FROM api_key_entity_subscriptions") == before
-
-
-# ---------------------------------------------------------------------------
-# copy_subscriptions — the direction-neutral primitive (#479)
-# ---------------------------------------------------------------------------
-
-
-async def test_copy_adds_the_target_and_keeps_the_source(db, api_key_id, org_pair):
-    """A restore copies winner → resurrected, the reverse of the merge direction.
-
-    Same statement, opposite direction, so the copy may not assume its source is
-    a loser or its target a winner. `mirror_subscriptions` keeps the merge-facing
-    name; this is the primitive both share.
-    """
-    winner, resurrected = org_pair
-    await _subscribe(db, api_key_id, winner, "organization")
-    await copy_subscriptions(db, [(winner, resurrected)])
-
-    rows = await db.fetch(
-        "SELECT entity_id, entity_type FROM api_key_entity_subscriptions WHERE api_key_id=$1",
-        api_key_id,
-    )
-    assert {(r["entity_id"], r["entity_type"]) for r in rows} == {
-        (winner, "organization"),
-        (resurrected, "organization"),
-    }
-
-
-async def test_mirror_subscriptions_is_the_merge_named_alias(db, api_key_id, org_pair):
-    """Both names reach one statement — a second copy would be free to drift."""
-    loser, winner = org_pair
-    await _subscribe(db, api_key_id, loser, "organization")
-    await mirror_subscriptions(db, [(loser, winner)])
-    await copy_subscriptions(db, [(loser, winner)])
-
-    assert (
-        await db.fetchval(
-            "SELECT count(*) FROM api_key_entity_subscriptions WHERE api_key_id=$1", api_key_id
-        )
-        == 2
-    )
-
-
-async def test_copy_empty_pairs_is_a_noop(db):
-    before = await db.fetchval("SELECT count(*) FROM api_key_entity_subscriptions")
-    await copy_subscriptions(db, [])
-    assert await db.fetchval("SELECT count(*) FROM api_key_entity_subscriptions") == before

@@ -4,8 +4,8 @@ The outbox row carries the API key whose request *transaction* caused it:
 public write routes set the txn-local GUC ``app.source_key_id`` (via the
 ``stamped_transaction`` helper) and the change/touch triggers stamp
 ``NULLIF(current_setting('app.source_key_id', true), '')``. Admin, merge and
-script writes never set the GUC, so their rows stay NULL. The feed exposes the
-value as ``ChangeItem.source_key_id`` so a consumer can skip its own echoes.
+script writes never set the GUC, so their rows stay NULL. The feed that served
+the value retired in #502; the stamp itself retires with the outbox (#651).
 """
 
 import hashlib
@@ -20,7 +20,6 @@ pytestmark = [
     pytest.mark.integration,
 ]
 
-_CHANGES = "/api/v1/changes"
 _PEOPLE_OBS = "/api/v1/people/observations"
 _ASSIGN_OBS = "/api/v1/assignments/observations"
 
@@ -59,16 +58,6 @@ async def write_key(db):
         "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,$2)", kid, scope_id
     )
     return raw, kid
-
-
-async def _subscribe(db, key_id: str, entity_id: str, entity_type: str = "person") -> None:
-    await db.execute(
-        "INSERT INTO api_key_entity_subscriptions (api_key_id, entity_id, entity_type)"
-        " VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
-        key_id,
-        entity_id,
-        entity_type,
-    )
 
 
 async def _outbox_rows(db, entity_id: str, after: int):
@@ -115,11 +104,11 @@ async def test_trigger_empty_string_guc_is_null(db):
 
 
 # ---------------------------------------------------------------------------
-# Route seam — public write → stamped feed row on the wire
+# Route seam — public write → stamped outbox row
 # ---------------------------------------------------------------------------
 
 
-async def test_public_write_stamps_feed_row(client, db, write_key):
+async def test_public_write_stamps_outbox_row(client, db, write_key):
     raw, kid = write_key
     before = await db.fetchval("SELECT COALESCE(MAX(id),0) FROM entity_changes")
     r = await client.post(
@@ -131,26 +120,8 @@ async def test_public_write_stamps_feed_row(client, db, write_key):
         headers={"X-API-Key": raw},
     )
     assert r.status_code == 200
-    entity_id = r.json()["entity_id"]
-    await _subscribe(db, kid, entity_id)
-
-    feed = await client.get(_CHANGES, params={"after": before}, headers={"X-API-Key": raw})
-    assert feed.status_code == 200
-    items = [i for i in feed.json()["data"] if i["entity_id"] == entity_id]
-    assert items and all(i["source_key_id"] == kid for i in items)
-
-
-async def test_curator_origin_row_is_null_on_wire(client, db, write_key):
-    raw, kid = write_key
-    before = await db.fetchval("SELECT COALESCE(MAX(id),0) FROM entity_changes")
-    person_id = generate_id()
-    await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
-    await _subscribe(db, kid, person_id)
-
-    feed = await client.get(_CHANGES, params={"after": before}, headers={"X-API-Key": raw})
-    assert feed.status_code == 200
-    items = [i for i in feed.json()["data"] if i["entity_id"] == person_id]
-    assert items and all(i["source_key_id"] is None for i in items)
+    rows = await _outbox_rows(db, r.json()["entity_id"], before)
+    assert rows and all(row["source_key_id"] == kid for row in rows)
 
 
 async def test_stamp_does_not_leak_past_route_transaction(client, db, write_key):
@@ -176,7 +147,7 @@ async def test_stamp_does_not_leak_past_route_transaction(client, db, write_key)
     assert rows and all(r["source_key_id"] is None for r in rows)
 
 
-async def test_retract_stamps_feed_row(client, db, write_key):
+async def test_retract_stamps_outbox_row(client, db, write_key):
     # The assignments retract branch runs in its own stamped transaction
     # (separate from the create path). Skipping your own retract echo is the
     # loaded case for a consumer, so it gets its own seam test (CR round 1).
@@ -197,7 +168,6 @@ async def test_retract_stamps_feed_row(client, db, write_key):
     assert created.status_code == 200, created.text
     assert created.json()["disposition"] == "new"
     assignment_id = created.json()["entity_id"]
-    await _subscribe(db, kid, assignment_id, "role_assignment")
 
     before = await db.fetchval("SELECT COALESCE(MAX(id),0) FROM entity_changes")
     retracted = await client.post(
@@ -212,7 +182,5 @@ async def test_retract_stamps_feed_row(client, db, write_key):
     assert retracted.status_code == 200, retracted.text
     assert retracted.json()["disposition"] == "retracted"
 
-    feed = await client.get(_CHANGES, params={"after": before}, headers={"X-API-Key": raw})
-    assert feed.status_code == 200
-    items = [i for i in feed.json()["data"] if i["entity_id"] == assignment_id]
-    assert items and all(i["source_key_id"] == kid for i in items)
+    rows = await _outbox_rows(db, assignment_id, before)
+    assert rows and all(row["source_key_id"] == kid for row in rows)

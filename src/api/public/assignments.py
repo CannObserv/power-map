@@ -287,8 +287,8 @@ async def submit_assignment_observation(
             if attached_archived:
                 # #391 anti-resurrection attach: the match is a *retracted* row.
                 # Writing ancillary onto it would attach evidence to a
-                # soft-deleted entity and emit an entity_changes row (via the
-                # #327 touch triggers) for something subscribers have dropped.
+                # soft-deleted entity and, via the #327 touch triggers, bump
+                # its updated_at.
                 # Report what was withheld instead — the #311 signaling rule.
                 unapplied += [
                     name

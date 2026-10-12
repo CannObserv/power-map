@@ -1,45 +1,24 @@
-"""What a merge owes its consumers: tombstones and subscription re-homing (#467).
+"""What a merge owes its readers: one tombstone per hard-deleted row (#467, #607).
 
 A merge does two things a plain edit does not: it **hard-deletes** rows, and it
-**re-identifies** the data those rows held. Both are invisible to a subscriber
-unless the merge says so, because the outbox triggers
-(``fn_record_entity_change``) fire on INSERT and UPDATE only — a DELETE emits
-nothing. The single channel for "this id retired" is a ``deleted_entities`` row,
-whose own INSERT trigger writes the ``'deleted'`` outbox entry.
+**re-identifies** the data those rows held. The single record of "this id
+retired, and here is where it went" is a ``deleted_entities`` row. The detail
+GETs read it to answer a retired id with ``410`` + ``merged_into`` (#607), and
+the applier reads it to follow a crosswalk anchor through a merge.
 
 Until #467 only the merged **organization** / **person** got one. The roles and
 role_assignments a merge hard-deletes underneath them got nothing, on the
-assumption (stated in :mod:`src.core.ancillary_migrate`) that the parent's
-tombstone covered the subtree. It does not: a producer anchored on
-``pm_assignment_id`` polls ``/api/v1/changes`` filtered by its **own**
-subscriptions, so a parent-org tombstone it may not even hold tells it nothing
-about the 136 assignment ids that just stopped resolving.
+assumption that the parent's tombstone covered the subtree. It does not: a
+consumer anchored on an assignment id reads that id, not its parent's.
 
-Two helpers close that:
+:func:`record_merge_tombstones` closes that: one tombstone per hard-deleted row,
+carrying ``merged_into`` = the **survivor of that row**, not of the parent merge.
+That makes the signal a *rebind* ("this assignment is now that assignment")
+rather than a bare drop. It is idempotent and safe on an empty pair list, so a
+caller can hand over whatever its conflict query returned without a length check.
 
-- :func:`record_merge_tombstones` — one tombstone per hard-deleted row, carrying
-  ``merged_into`` = the **survivor of that row**, not of the parent merge. That
-  makes the signal a *rebind* ("this assignment is now that assignment") rather
-  than a bare drop, which is what a producer needs to repair its anchor map
-  without re-deriving it.
-- :func:`mirror_subscriptions` — everyone watching the loser also watches the
-  winner from here on, so a subscriber does not stop seeing the data merely
-  because it moved. It **adds** rather than moves: the feed joins subscriptions at
-  *read* time (``changes.py``: ``s.entity_id = ec.entity_id``), so deleting the
-  loser's row would hide the tombstone written moments earlier from the one key
-  that needed it. Keeping a subscription on a retired id is a supported state —
-  ``_BATCH_RESOLVE_ENTITY_TYPE`` resolves ids through ``deleted_entities``
-  precisely so it is — and the consumer drops it once the rebind is processed.
-
-Both are idempotent and safe on an empty pair list, so a caller can hand over
-whatever its conflict query returned without a length check.
-
-:func:`copy_subscriptions` is the direction-neutral statement under
-``mirror_subscriptions``. A **restore** — un-merging an id the feed already
-tombstoned — needs the same copy pointed the other way, because ``changes.py``
-joins on *current* subscriptions: the consumer that acted on the tombstone and
-unsubscribed is precisely the one that cannot be told the id is live again
-(#479, ``docs/CHANGE_FEED.md`` § "A `deleted` event can be reversed").
+The subscription copy that sat beside it (``mirror_subscriptions`` /
+``copy_subscriptions``) retired with the change feed in #502.
 """
 
 import asyncpg
@@ -50,10 +29,9 @@ import asyncpg
 #: 'role_assignment_relationship', because an edge is announced through its
 #: endpoints rather than on its own. An edge is reachable only via the two
 #: assignments it joins, both of which get their own tombstone, so it has no
-#: independent anchor for a subscriber to repair — see the CASCADE note in
+#: independent anchor for a consumer to repair — see the CASCADE note in
 #: :mod:`src.core.ancillary_migrate`. Anything not listed here would only widen what
-#: a typo can reach. `mirror_subscriptions` needs no such list — it copies the type
-#: from the row it mirrors.
+#: a typo can reach.
 MERGEABLE_ENTITY_TYPES = frozenset({"person", "organization", "role", "role_assignment"})
 
 
@@ -80,7 +58,7 @@ async def record_merge_tombstones(
     but ordering it after keeps "the row is gone" and "the row was announced"
     adjacent in every caller. ``ON CONFLICT DO NOTHING`` makes a re-merge of an
     already-tombstoned id a no-op instead of a 23505 — the first tombstone's
-    ``merged_into`` is the one that describes the hop the subscriber missed.
+    ``merged_into`` is the one that describes the hop a reader missed.
     """
     _validate(entity_type)
     if not pairs:
@@ -89,59 +67,4 @@ async def record_merge_tombstones(
         "INSERT INTO deleted_entities (entity_type, entity_id, merged_into)"
         " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         [(entity_type, loser_id, winner_id) for loser_id, winner_id in pairs],
-    )
-
-
-async def mirror_subscriptions(db: asyncpg.Connection, pairs: list[tuple[str, str]]) -> None:
-    """Subscribe every watcher of ``loser`` to ``winner`` too, keeping the loser row.
-
-    ``pairs`` is ``[(loser_id, winner_id), ...]``.
-
-    **Add, never move.** The change feed resolves subscriptions when the consumer
-    polls, not when the merge runs (``changes.py``: ``JOIN ... ON s.entity_id =
-    ec.entity_id``). Re-pointing the loser's subscription onto the winner would
-    therefore erase the audience for the loser's own tombstone — the subscriber
-    holding the retired anchor is the only party that needs it, and it would be the
-    one party guaranteed not to receive it. The loser row stays until the consumer
-    retires it. The tombstone itself is never pruned (#607): it also backs the
-    detail GETs' ``410`` + ``merged_into``.
-
-    ``entity_type`` is copied from the loser's own subscription row rather than
-    passed in: the two ends of a merge are always the same type, and reading it
-    from the row makes a caller's mismatched argument impossible instead of
-    silently retyping a subscription.
-    """
-    await copy_subscriptions(db, pairs)
-
-
-async def copy_subscriptions(db: asyncpg.Connection, pairs: list[tuple[str, str]]) -> None:
-    """Subscribe every watcher of ``source`` to ``target`` too, keeping the source row.
-
-    ``pairs`` is ``[(source_id, target_id), ...]``.
-
-    The direction-neutral primitive under :func:`mirror_subscriptions`. A merge
-    copies loser → winner; a **restore** copies winner → resurrected id (#479),
-    which is the same statement run the other way. That second caller is why the
-    parameters are not named loser/winner here: ``GET /changes`` joins on
-    *current* subscriptions, so a consumer that processed a merge tombstone and
-    correctly unsubscribed from the retired id can never be told through the feed
-    that the id came back. The winner's current watchers are the closest
-    available stand-in for the audience that was lost, and re-subscribing them is
-    the only path back.
-
-    ``entity_type`` is read from the source's own subscription row, so a caller
-    cannot retype a subscription by passing a mismatched argument — there is no
-    argument to mismatch. ``ON CONFLICT DO NOTHING`` on the
-    ``(api_key_id, entity_id)`` PK makes a re-run a no-op, and an empty
-    ``pairs`` is a no-op so a caller can hand over whatever its query returned.
-    """
-    if not pairs:
-        return
-    await db.executemany(
-        """INSERT INTO api_key_entity_subscriptions (api_key_id, entity_id, entity_type)
-           SELECT s.api_key_id, $2, s.entity_type
-           FROM api_key_entity_subscriptions s
-           WHERE s.entity_id = $1
-           ON CONFLICT DO NOTHING""",
-        pairs,
     )

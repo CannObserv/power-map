@@ -240,8 +240,8 @@ async def rehome_conflicting_assignment_ancillary(
 # DELETE trigger) — so a hard-deleted edge leaves no per-edge tombstone. The
 # parenthetical that used to stand here — "exactly how merged role_assignments are
 # handled (the parent person/org tombstone covers it)" — was the assumption #467
-# disproved: a subscriber's feed is filtered by its OWN subscriptions, which are
-# per-assignment, so a parent tombstone it may not hold announces nothing. Merged
+# disproved: a consumer anchored on an assignment id reads that id, not its
+# parent's, so a parent tombstone announces nothing to it. Merged
 # role_assignments now get their own tombstone via
 # :func:`src.core.merge_signals.record_merge_tombstones`. Edges keep the old
 # behaviour deliberately: an edge is reachable only through its endpoints, both of
@@ -645,7 +645,7 @@ async def count_orphaned_citations(db: asyncpg.Connection) -> dict[str, int]:
 # (#497/#498), keyed on (entity_type, entity_id) with no FK — polymorphic like
 # every table above. The mapping layer joins it on the *surviving* pm_id, so an
 # override left on a merged-away id stops applying without a word. Every merge
-# step that mirrors a subscription re-homes these rows beside it
+# step that tombstones a loser re-homes these rows beside it
 # (`tests/api/admin/test_merge_identity_sweep.py` holds the paths to that).
 # ---------------------------------------------------------------------------
 
@@ -757,11 +757,9 @@ async def delete_entity_ancillary(db: asyncpg.Connection, entity_type: str, enti
     the ``DELETE`` for ``refuse_delete_while_identified`` to refuse (#630). The route's
     'deleted' tombstone announces the removal, so no per-table signal is
     needed. Outliving the entity on purpose: ``deleted_entities`` and
-    ``entity_changes`` (the tombstone and its outbox) and
-    ``api_key_entity_subscriptions`` (the change feed joins it to deliver
-    that tombstone). Another entity's event linking here is not this
-    entity's to drop: the route refuses the delete first, via
-    ``inbound_link_conflict`` (#608).
+    ``entity_changes`` (the tombstone and its outbox). Another entity's event
+    linking here is not this entity's to drop: the route refuses the delete
+    first, via ``inbound_link_conflict`` (#608).
 
     Raises ``ValueError`` on a type outside :data:`HARD_DELETABLE_TYPES`: a
     misspelt one would match no row and strand them all without a word.

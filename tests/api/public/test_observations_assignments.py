@@ -14,7 +14,6 @@ pytestmark = [
 ]
 
 _BASE = "/api/v1/assignments/observations"
-_CHANGES = "/api/v1/changes"
 
 
 # ---------------------------------------------------------------------------
@@ -427,75 +426,6 @@ async def test_address_written(client, write_key, obs_entities, db, local_addres
         aid,
     )
     assert row is not None
-
-
-# ---------------------------------------------------------------------------
-# Changes feed — role_assignment coverage
-# ---------------------------------------------------------------------------
-
-
-@pytest_asyncio.fixture(loop_scope="session")
-async def changes_api_key(db):
-    uid = generate_id()
-    kid = generate_id()
-    raw_key = "pm_" + os.urandom(16).hex()
-    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-    await db.execute(
-        "INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, "asgn_changes@test.com"
-    )
-    await db.execute(
-        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
-        kid,
-        uid,
-        "Asgn Changes Key",
-        raw_key[:8],
-        key_hash,
-    )
-    return {"raw_key": raw_key, "key_id": kid}
-
-
-@pytest_asyncio.fixture(loop_scope="session")
-async def asgn_change_fixtures(db, changes_api_key):
-    before_seq = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
-    person_id = generate_id()
-    org_id = generate_id()
-    role_id = generate_id()
-    asgn_id = generate_id()
-    kid = changes_api_key["key_id"]
-    await db.execute("INSERT INTO people (id) VALUES ($1)", person_id)
-    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
-    await db.execute(
-        "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'Feed Role')",
-        role_id,
-        org_id,
-    )
-    await db.execute(
-        "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1,$2,$3)",
-        asgn_id,
-        person_id,
-        role_id,
-    )
-    await db.execute(
-        "INSERT INTO api_key_entity_subscriptions (api_key_id, entity_id, entity_type)"
-        " VALUES ($1,$2,'role_assignment')",
-        kid,
-        asgn_id,
-    )
-    return {"before_seq": before_seq, "asgn_id": asgn_id}
-
-
-async def test_changes_includes_role_assignments(client, changes_api_key, asgn_change_fixtures):
-    r = await client.get(
-        _CHANGES,
-        params={"after": asgn_change_fixtures["before_seq"], "limit": 100},
-        headers={"X-API-Key": changes_api_key["raw_key"]},
-    )
-    assert r.status_code == 200
-    items = r.json()["data"]
-    asgn_items = [i for i in items if i["entity_id"] == asgn_change_fixtures["asgn_id"]]
-    assert len(asgn_items) >= 1
-    assert asgn_items[0]["entity_type"] == "role_assignment"
-    assert asgn_items[0]["change_kind"] == "updated"
 
 
 # ---------------------------------------------------------------------------

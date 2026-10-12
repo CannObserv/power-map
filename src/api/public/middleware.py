@@ -6,8 +6,8 @@ response bodies without breaking downstream ``.json()`` reads.
 
 Identity comes from ``scope["state"]["api_key_id"]``, stashed by the auth deps
 (``src.api.public.deps``) when a key resolves; unauthenticated requests log a
-row with a NULL key. Domain-specific enrichment (disposition, entity_id, item
-count) is layered on in ``_enrich`` for the observations/changes route groups.
+row with a NULL key. Domain-specific enrichment (disposition, entity_id) is
+layered on in ``_enrich`` for the observations route group.
 
 Capture is strictly best-effort: any failure while recording is swallowed and
 logged, so observability can never break the request path.
@@ -160,14 +160,14 @@ def route_group_for_path(path: str) -> str:
     """Classify a request path into a coarse group for filtering/aggregation.
 
     ``observations`` — any ``*/observations`` write endpoint.
-    ``changes``      — the ``/changes`` feed.
     ``other``        — every other v1 path.
+
+    A third group, ``changes``, classified the change feed until it retired
+    (#502); rows logged before then keep it until the prune ages them out.
     """
     last = path.rstrip("/").rsplit("/", 1)[-1]
     if last == "observations":
         return "observations"
-    if last == "changes":
-        return "changes"
     return "other"
 
 
@@ -202,9 +202,9 @@ def _enrich(route_group: str, response_obj) -> dict:
     """Extract domain columns from a parsed response for known route groups.
 
     Observations expose ``disposition`` / ``entity_id`` / ``entity_type`` /
-    ``reason``; the change feed exposes ``meta.count`` (falling back to
-    ``len(data)``). Any other group, or a non-dict body, yields all-empty
-    columns — enrichment never raises.
+    ``reason``. Any other group, or a non-dict body, yields all-empty columns —
+    enrichment never raises. (``item_count`` / ``is_empty`` were the retired
+    change feed's, #502: always empty now.)
     """
     fields = {
         "entity_type": None,
@@ -221,14 +221,6 @@ def _enrich(route_group: str, response_obj) -> dict:
         fields["result_entity_id"] = response_obj.get("entity_id")
         fields["entity_type"] = response_obj.get("entity_type")
         fields["reason"] = response_obj.get("reason")
-    elif route_group == "changes":
-        meta = response_obj.get("meta")
-        count = meta.get("count") if isinstance(meta, dict) else None
-        if count is None:
-            data = response_obj.get("data")
-            count = len(data) if isinstance(data, list) else None
-        fields["item_count"] = count
-        fields["is_empty"] = count == 0
     return fields
 
 
@@ -243,11 +235,11 @@ class RequestLogMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Raw bodies are stored (and enrichment parsed) only for the two groups the
-        # log surfaces — observations/changes. Other v1 traffic (e.g. large embedding
-        # vectors) records metadata only, so we don't even buffer its bodies in memory.
+        # Raw bodies are stored (and enrichment parsed) only for the group the log
+        # surfaces — observations. Other v1 traffic (e.g. large embedding vectors)
+        # records metadata only, so we don't even buffer its bodies in memory.
         route_group = route_group_for_path(scope.get("path", ""))
-        capture_bodies = route_group in ("observations", "changes")
+        capture_bodies = route_group == "observations"
 
         request_chunks: list[bytes] = []
 

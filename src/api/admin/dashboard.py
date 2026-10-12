@@ -42,8 +42,6 @@ async def dashboard(
                 AS obs_attached,
             COUNT(*) FILTER (WHERE route_group='observations' AND disposition='rejected')
                 AS obs_rejected,
-            COUNT(*) FILTER (WHERE route_group='changes') AS changes_polls,
-            COALESCE(SUM(item_count) FILTER (WHERE route_group='changes'), 0) AS changes_rows,
             COUNT(*) FILTER (WHERE status_code >= 400) AS errors,
             MAX(occurred_at) AS last_request
         FROM api_request_log

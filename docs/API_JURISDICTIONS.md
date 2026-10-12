@@ -2,7 +2,7 @@
 
 Per-resource endpoint behaviour for **Jurisdictions**: filters, response shapes, and the
 implicit rules this collection follows. Auth, pagination and conditional requests are in
-`docs/PUBLIC_API.md`, the change feed in `docs/CHANGE_FEED.md`; write semantics in
+`docs/PUBLIC_API.md`; write semantics in
 `docs/OBSERVATIONS.md`; the other resources are indexed in `docs/API_ENTITIES.md`.
 
 ---

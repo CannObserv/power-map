@@ -202,7 +202,6 @@ docs/TESTING.md :: recipes live in `docs/SCHEMA.md`; the a11y rules themselves i
 
 docs/ANCILLARY.md :: Observation write semantics per kind are in `docs/OBSERVATIONS.md` — assignments
 docs/API_ENTITIES.md :: are in `docs/PUBLIC_API.md`; write semantics in `docs/OBSERVATIONS.md`, except
-docs/CHANGE_FEED.md :: `docs/API_ENTITIES.md`; write semantics in `docs/OBSERVATIONS.md` and, for
 
 # provenance-heading — #458 CR round 1. Both carry an issue number in the
 # heading, this repo's established convention for a section whose rule is

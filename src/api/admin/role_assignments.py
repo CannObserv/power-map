@@ -687,7 +687,7 @@ async def ra_delete(
         # #605: identifiers/links/etc. have no FK — drop them with the row.
         await delete_entity_ancillary(db, "role_assignment", ra_id)
         await db.execute("DELETE FROM role_assignments WHERE id = $1", ra_id)
-        # Tombstone (issue #277): emit a 'deleted' signal for subscribers.
+        # Tombstone (issue #277): the id answers 410 on its detail GET (#607).
         await db.execute(
             "INSERT INTO deleted_entities (entity_type, entity_id)"
             " VALUES ('role_assignment', $1) ON CONFLICT DO NOTHING",

@@ -32,7 +32,7 @@ from src.core.ancillary_migrate import (
 )
 from src.core.db import generate_id
 from src.core.logging import get_logger
-from src.core.merge_signals import mirror_subscriptions, record_merge_tombstones
+from src.core.merge_signals import record_merge_tombstones
 from src.core.org_lifecycle import count_open_assignments, get_org_ended_on
 
 logger = get_logger(__name__)
@@ -178,8 +178,9 @@ async def _absorb_role(db, winner_role_id: str, loser_role_id: str) -> int:
     deleting the loser row — that tuple is exactly what
     `uq_role_assignment_person_role_start` refuses, so it is the one case
     re-pointing cannot serve. Each such delete is announced (#467) with
-    `merged_into` naming the survivor, so a subscriber can rebind rather than
-    merely notice an id stopped resolving.
+    `merged_into` naming the survivor, so a consumer reading the id gets
+    `410` + `merged_into` (#607) and can rebind rather than merely notice it
+    stopped resolving.
 
     Both of `_execute_merge`'s conflict passes route through here: the explicit
     `merge_role_pairs` one and the safeguard for pairs the form did not submit.
@@ -200,11 +201,9 @@ async def _absorb_role(db, winner_role_id: str, loser_role_id: str) -> int:
     pairs = [(r["loser_ra"], r["winner_ra"]) for r in conflicts]
     # The colliding loser rows are about to be hard-deleted: their polymorphic
     # ancillary (#324 / #319 citations) and their active relationship edges (#301,
-    # FK ON DELETE CASCADE) must reach the survivor first, and anyone watching them
-    # must also start watching the survivor (#467).
+    # FK ON DELETE CASCADE) must reach the survivor first.
     await rehome_conflicting_assignment_ancillary(db, pairs)
     await rehome_assignment_relationships(db, pairs)
-    await mirror_subscriptions(db, pairs)
     await rehome_curation_overlay(db, "assignment", pairs)  # #514
     await db.execute(
         "DELETE FROM role_assignments WHERE id = ANY($1::text[])",
@@ -220,7 +219,6 @@ async def _absorb_role(db, winner_role_id: str, loser_role_id: str) -> int:
     )
     # #326: the loser role's own contacts/links have no FK — re-home before the delete.
     await rehome_role_ancillary(db, loser_role_id, winner_role_id)
-    await mirror_subscriptions(db, [(loser_role_id, winner_role_id)])
     await rehome_curation_overlay(db, "role", [(loser_role_id, winner_role_id)])  # #514
     await db.execute("DELETE FROM roles WHERE id=$1", loser_role_id)
     await record_merge_tombstones(db, "role", [(loser_role_id, winner_role_id)])
@@ -258,9 +256,9 @@ async def _execute_merge(
         # uq_role_org_title (organization_id, lower(title)) WHERE archived_at IS NULL.
         #
         # The pairs are unvalidated form input and `_absorb_role` hard-deletes the
-        # loser role it is handed *and* publishes a `role/deleted merged_into=…` row
-        # for it, so an unfiltered list would let a manipulated submit destroy an
-        # unrelated role and inject a false rebind into subscribers' feeds. Accept a
+        # loser role it is handed *and* tombstones it `merged_into=…`, so an
+        # unfiltered list would let a manipulated submit destroy an unrelated role
+        # and point its id's 410 at a false survivor (#607). Accept a
         # pair only if it is one the preview could have offered: both roles **active**
         # (`conflicting_roles` filters `archived_at IS NULL`) and each in the org it
         # must belong to. Archiving matters as much as the org does — the bulk
@@ -537,10 +535,6 @@ async def _execute_merge(
         # winner (citations and all) — left behind, both would name a deleted id.
         await rehome_entity_events(db, "organization", [(loser_id, winner_id)])
 
-        # #467: a key watching the loser also watches the winner from here on. The
-        # loser's own subscription stays — the feed joins subscriptions at read time,
-        # so removing it would hide the tombstone written just below.
-        await mirror_subscriptions(db, [(loser_id, winner_id)])
         # #514: a curator's override on the loser applies to the winner from here on.
         await rehome_curation_overlay(db, "organization", [(loser_id, winner_id)])
 

@@ -166,7 +166,7 @@ Each line says what a task would need the doc for — load the one that matches,
 
 **Public API**
 
-- [docs/PUBLIC_API.md](docs/PUBLIC_API.md) — auth, scopes, rate limits, pagination, conditional requests; routes to [CHANGE_FEED](docs/CHANGE_FEED.md)
+- [docs/PUBLIC_API.md](docs/PUBLIC_API.md) — auth, scopes, rate limits, pagination, conditional requests
 - [docs/API_ENTITIES.md](docs/API_ENTITIES.md) — one-table index over the resource docs below; load one, not the set
   - [API_PEOPLE](docs/API_PEOPLE.md) — people, identify, name reads
   - [API_ORGS](docs/API_ORGS.md) — orgs, hierarchy, lifespan

@@ -1,7 +1,7 @@
 # power-map — Dedup & Merge UI
 
 The server-side merge data contract — id preservation, the one destructive case,
-tombstones and subscription re-homing (#467) — plus the duplicate-detection
+tombstones (#467) — plus the duplicate-detection
 workflow and the merge-bar pattern that drives it, across the people, orgs and
 roles list and detail screens.
 
@@ -102,37 +102,22 @@ the preview modal states it *before* the merge, alongside how many assignments w
 move with their ids intact. Archived assignments always re-point: the unique index
 is partial on active rows, so a retracted tenure is never the collision.
 
-**Every hard delete is announced.** The outbox triggers are `INSERT OR UPDATE` — a
-`DELETE` emits nothing. So each deleted role and role_assignment gets a
+**Every hard delete is announced.** Each deleted role and role_assignment gets a
 `deleted_entities` row via
 [`record_merge_tombstones`](../src/core/merge_signals.py), with `merged_into` naming
 **that row's** survivor (the sibling assignment, the absorbing role) rather than the
-parent merge's winner. That makes the feed signal a rebind, not a bare drop. A
-parent org/person tombstone does not substitute: subscribers poll
-`/api/v1/changes` filtered by their own per-entity subscriptions, so a tombstone
-they do not hold tells them nothing. Guard:
+parent merge's winner. Its detail GET then answers `410` + `merged_into`
+(`docs/PUBLIC_API.md` § Retired ids, #607): a rebind, not a bare drop. A parent
+org/person tombstone does not substitute: a consumer anchored on an assignment id
+reads that id, not its parent's. Merge tombstones never expire. Guard:
 `test_merge_identity_sweep.py` fails any admin module that hard-deletes a role or
-role_assignment without tombstone machinery.
-
-**Subscriptions gain the survivor, and keep the loser.** `mirror_subscriptions`
-subscribes every watcher of a deleted id to the row that absorbed it, so a
-subscriber does not stop seeing the data merely because it moved. It **adds** and
-never moves: the feed resolves subscriptions when the consumer polls, not when the
-merge runs (`changes.py`: `JOIN ... ON s.entity_id = ec.entity_id`), so deleting
-the loser's subscription would erase the audience for the loser's own tombstone —
-the subscriber holding the retired anchor is the only party that needs it. A
-subscription on a retired id is a supported state: `_BATCH_RESOLVE_ENTITY_TYPE`
-resolves ids through `deleted_entities` for exactly that reason. Retiring the stale
-row is the consumer's to do (`DELETE /api/v1/subscriptions/{entity_id}`, or the bulk
-form) — nothing prunes subscriptions server-side, so the set grows by one row per
-merge. Note also that absorbing a collision emits **no** outbox row for the survivor
-when the dropped row carried no ancillary: nothing about the survivor changed, so
-`merged_into` is the signal to re-fetch it, not a promise of a follow-up event.
+role_assignment without tombstone machinery. (The subscription mirror that sat
+beside each tombstone retired with the change feed, #502.)
 
 **Curator overrides follow the entity (#514).** `curation_overlay` rows are keyed
 on an id with no FK, and the mapping layer joins them on the *surviving* `pm_id`,
 so an override left on a merged-away id would stop applying without a word.
-Wherever a path mirrors a subscription it also calls
+Wherever a path tombstones a loser it also calls
 [`rehome_curation_overlay`](../src/core/ancillary_migrate.py) for the same pairs:
 the org, person or role itself, and every dropped duplicate assignment. The table
 holds one *active* override per (entity, field), so on a clash the survivor's
@@ -140,8 +125,7 @@ override stands and the loser's is archived — as an unpin is (#498) — and ca
 across as history with the loser's other archived pins. A pin whose *value*
 is an org id (`organization.parent_id`) is re-pointed loser → survivor as the
 live column is, and one left naming its own org is archived (#498). Guard: `test_merge_identity_sweep.py` fails a
-merge module whose `mirror_subscriptions` and `rehome_curation_overlay` call counts
-differ.
+merge module whose tombstone and `rehome_curation_overlay` call counts differ.
 
 **Events follow the entity too (#611).** `entity_events` names a person or org
 twice, neither with an FK: as an event's owner and as another event's link target
@@ -154,8 +138,8 @@ dedup key, archived rows included) collapses into the row already naming the
 survivor, which takes the moving row's citations; a **self-link** is archived; a
 second active **succession edge** on one pair archives the later by
 `(created_at, id)`, the `uq_entity_events_succession_edge` rule. The touch trigger
-bumps every org whose owned or linked event moved, so ETags and the change feed move
-without a manual emit. A producer still naming the loser in an event refine or
+bumps every org whose owned or linked event moved, so ETags move without a manual
+emit. A producer still naming the loser in an event refine or
 retract's `linked_entity` is now refused `identity_immutable` (the stored link names
 the survivor), and a collapsed twin's `pm_event_id` answers `event_not_found`; the
 loser's 410 `merged_into` is the id to follow. Guard: `test_merge_identity_sweep.py`
