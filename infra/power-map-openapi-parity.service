@@ -31,6 +31,6 @@ TimeoutStartSec=120
 # co-status monitor: co-power-map-openapi-parity (CannObserv/status#36)
 Environment=STATUS_MONITOR_ID=
 Environment=STATUS_EXIT_KINDS=1:unfetchable,3:drift,4:untagged
-LoadCredential=status-checkin:/etc/power-map/status-checkin.key
+LoadCredential=status-checkin:/etc/power-map/status-api.key
 SetCredential=status-checkin:\n
 ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

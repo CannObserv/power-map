@@ -59,7 +59,7 @@ and notifier#114. Then re-run each unit's install line.
 
 ```bash
 # Keys, once: the operator writes each terminal to terminal, never echoed
-sudo install -m 600 -o root -g root /dev/null /etc/power-map/status-checkin.key
+sudo install -m 600 -o root -g root /dev/null /etc/power-map/status-api.key
 sudo install -m 600 -o root -g root /dev/null /etc/power-map/notifier-api.key
 test "$(curl -s http://status:9000/health | jq -r .environment)" = production
 
@@ -68,7 +68,7 @@ sudo cat /etc/power-map/notifier-api.key | \
   uv run python -m scripts.publish_notifier_template --execute [--template-id <ULID>]
 
 # A deliberate `test` alert on one monitor; the timer's next ok clears it
-sudo systemd-run --wait --pipe -p LoadCredential=status-checkin:/etc/power-map/status-checkin.key \
+sudo systemd-run --wait --pipe -p LoadCredential=status-checkin:/etc/power-map/status-api.key \
   -E STATUS_MONITOR_ID=<id> /usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py \
   power-map-ready.service --test
 

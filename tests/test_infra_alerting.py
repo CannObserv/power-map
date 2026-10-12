@@ -29,7 +29,7 @@ API = INFRA / "power-map.service"
 HANDLER = INFRA / "power-map-notify-failure@.service"
 
 HOOK = "-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n"
-STATUS_KEY = "status-checkin:/etc/power-map/status-checkin.key"
+STATUS_KEY = "status-checkin:/etc/power-map/status-api.key"
 NOTIFIER_KEY = "notifier-api:/etc/power-map/notifier-api.key"
 ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 

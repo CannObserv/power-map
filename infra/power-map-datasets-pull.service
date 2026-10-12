@@ -32,6 +32,6 @@ ExecStart=uv run python -m scripts.pull_datasets
 # co-status monitor: co-power-map-datasets-pull (CannObserv/status#36)
 Environment=STATUS_MONITOR_ID=
 Environment=STATUS_EXIT_KINDS=2:unconfigured
-LoadCredential=status-checkin:/etc/power-map/status-checkin.key
+LoadCredential=status-checkin:/etc/power-map/status-api.key
 SetCredential=status-checkin:\n
 ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

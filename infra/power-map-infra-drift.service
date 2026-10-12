@@ -28,6 +28,6 @@ TimeoutStartSec=120
 # co-status monitor: co-power-map-infra-drift (CannObserv/status#36)
 Environment=STATUS_MONITOR_ID=
 Environment=STATUS_EXIT_KINDS=1:unreadable,3:drift
-LoadCredential=status-checkin:/etc/power-map/status-checkin.key
+LoadCredential=status-checkin:/etc/power-map/status-api.key
 SetCredential=status-checkin:\n
 ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

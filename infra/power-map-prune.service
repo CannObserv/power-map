@@ -26,6 +26,6 @@ ExecStart=uv run python -m scripts.prune_outbox --execute --retention-days 104
 # the unit (243).
 # co-status monitor: co-power-map-prune (CannObserv/status#36)
 Environment=STATUS_MONITOR_ID=
-LoadCredential=status-checkin:/etc/power-map/status-checkin.key
+LoadCredential=status-checkin:/etc/power-map/status-api.key
 SetCredential=status-checkin:\n
 ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

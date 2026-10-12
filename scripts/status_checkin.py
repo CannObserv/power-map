@@ -28,7 +28,7 @@ Usage (in a unit):
 
 A deliberate test alert (``kind=test``); the timer's next ``ok`` clears it:
     sudo systemd-run --wait --pipe \\
-      -p LoadCredential=status-checkin:/etc/power-map/status-checkin.key \\
+      -p LoadCredential=status-checkin:/etc/power-map/status-api.key \\
       -E STATUS_MONITOR_ID=<id> \\
       /usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py <unit> --test
 

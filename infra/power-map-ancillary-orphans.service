@@ -27,6 +27,6 @@ ExecStart=uv run python -m scripts.audit_ancillary_orphans
 # co-status monitor: co-power-map-ancillary-orphans (CannObserv/status#36)
 Environment=STATUS_MONITOR_ID=
 Environment=STATUS_EXIT_KINDS=3:orphans
-LoadCredential=status-checkin:/etc/power-map/status-checkin.key
+LoadCredential=status-checkin:/etc/power-map/status-api.key
 SetCredential=status-checkin:\n
 ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n
