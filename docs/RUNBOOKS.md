@@ -120,32 +120,19 @@ Safe to re-run; upserts are idempotent.
 
 ---
 
-## Seed WA legislative roles (idempotent, #263 — generator retired in #497)
+## Retired cutover seeds (#502)
 
 
-`scripts/seed_roles.py` replays a role seed JSON (create-or-attach through
-`resolve_role`, so re-runs attach rather than duplicate). Its generator,
-`scripts/generate_wa_roles.py`, was **retired in #497**: the 147 legislative
-seats it bootstrapped will arrive through usa-wa's published `roles` dataset
-once #500 ships, and `src/core` carries no WA vocabulary to generate titles
-from. Keep this only to replay an existing file under `data/cannabis_observer/`.
+Two seeders served the #490 cutover and are gone. Recover either from git
+history (`git log --diff-filter=D -- scripts/<name>.py`) rather than re-running
+an old copy against today's schema.
 
-```bash
-# Build --env-file flags (see § Environment)
-env_args=()
-[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
-[ -f .env ] && env_args+=(--env-file .env)
-
-# Dry run — read-only; reports would-create / already-exist / unresolved counts
-uv run "${env_args[@]}" python -m scripts.seed_roles data/cannabis_observer/2026_07_03-usa_wa-legislative-roles.json
-
-# Execute — create-or-attach the roles and commit
-uv run "${env_args[@]}" python -m scripts.seed_roles data/cannabis_observer/2026_07_03-usa_wa-legislative-roles.json --execute
-```
-
-Seeder, not updater — it does not revise existing roles' titles/attributes.
-Merging existing (idiosyncratic) legislator Roles onto these roles is separate
-(#265).
+- `scripts/seed_roles.py` (#263) replayed a WA role seed JSON. Legislative
+  roles arrive through usa-wa's published `roles` dataset (#500).
+- `scripts/seed_producer_crosswalk.py` (#495) seeded `producer_crosswalk` once
+  from usa-wa's anchor export, resolving each PM id through merge history. The
+  applier (#499) has been the table's writer since (`docs/SCHEMA.md` § Producer
+  crosswalk).
 
 ---
 
@@ -231,8 +218,7 @@ as authentication — and the script refuses to start with no token at all.
 - **Each version carries `snapshot.json`** — name, version, schema version,
   digest, contract hash, row count, `generated_at`. That is what lets a consumer verify a
   snapshot without a second catalog fetch that may answer with a newer version
-  by then. `scripts/seed_producer_crosswalk.py` reads it directly, so
-  `--export data/usa_wa_snapshots/pm_anchors/<version>` needs no hand-staging.
+  by then.
 - **Pruning spares the version just landed**, whatever `--keep` says.
 - **The catalog carries the publisher's heartbeat (#551, usa-wa#386).**
   `checked_at` says the publisher completed a run — it advances every night
@@ -251,66 +237,6 @@ as authentication — and the script refuses to start with no token at all.
 
 Writes only into `data/usa_wa_snapshots/` (gitignored) — never the database, so
 there is no `--execute` gate here. The gated step is the applier (#499).
-
----
-
-## Seed the producer crosswalk (idempotent, #495)
-
-
-`scripts/seed_producer_crosswalk.py` reads a published anchor export, resolves
-every PM id through PM's merge history, and writes `producer_crosswalk` —
-transition safeguard 1 of the dataset-subscription design (#490).
-
-**Seed from `pm_anchors`** (#525). A snapshot the puller landed (`data.csv` +
-`snapshot.json`) and usa-wa's VM-file layout (`anchors.csv` + `manifest.json`)
-are both read and verified the same way. `pm_anchors` left the catalog after the
-#501 cutover and is not pinned, so the puller no longer fetches it: seed from the
-version already in the store, or from a VM-file export. The
-contract is four columns, `kind,usa_wa_id,pm_id,span_key`: an assignment anchor
-carries its key in the published dataset, and an empty key means usa-wa has no
-published row for it.
-
-```bash
-uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
-    --export data/usa_wa_snapshots/pm_anchors/<version>             # dry run: prints the report
-uv run "${env_args[@]}" python -m scripts.seed_producer_crosswalk \
-    --export data/usa_wa_snapshots/pm_anchors/<version> --execute
-```
-
-A row is matched on the id its export carried (`exported_producer_id`) and keyed
-on the dataset's (`producer_id`: the `span_key` for an assignment, else the
-`usa_wa_id`), so re-seeding moves a key in place and never inserts a row beside
-it. The report adds two lines. `re-keyed` counts rows whose key moved. `unkeyed`
-counts assignment anchors with no published row: they stay on their ULID, which
-the dataset never names, so they read as absent once #500 archives. `STALE`
-compares exported ids, so a row the applier minted (no export) is never stale.
-An anchor whose row the applier archived (`retracted_at`, #527) keeps its scope
-through a re-seed, though the report counts it `archived`: the applier restores
-the row if the span returns. An export that re-points the anchor clears the stamp.
-
-Five refusals, each deliberate:
-
-- **Digest before parse.** A truncated copy is a shorter valid CSV, so the
-  manifest's `sha256` is checked against the raw bytes before any row is read.
-- **The file is rejected whole.** A bad kind, a non-base32 id or a malformed or
-  duplicate `span_key` fails the export rather than skipping the row — a short
-  parse silently narrows the applier's scope instead of failing it.
-- **The keyless header.** The three-column export that predates `span_key` (the
-  2026-09-09 file among them) is refused by name: re-seeding it after the re-key
-  would move every assignment back to its ULID.
-- **A blocking report stops `--execute`.** An anchor that resolves nowhere, or
-  two producer ids landing on one PM row (PM merged what the producer holds
-  apart), is a disagreement about identity. The script writes nothing and leaves
-  the diff for the triage pass (#501). A dry run still prints it — that is the
-  point of the dry run.
-- **A key another row holds fails `--execute` only.** A row the applier minted,
-  or a key two anchors swap between exports, collides on
-  `uq_producer_crosswalk_producer`. The dry run writes nothing, so it cannot see
-  it; the real run rolls back whole with a traceback instead of a report.
-
-`missing` in the report means PM has no record of the id at all, which includes
-every merge pruned before #607 made merge tombstones permanent. It is never
-evidence that the row never existed.
 
 ---
 

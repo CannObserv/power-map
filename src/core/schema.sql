@@ -2027,6 +2027,11 @@ DO $$ BEGIN
     END IF;
 END $$;
 
+-- The WA scheme rows below (*_wa_*, #490/#502) are HISTORY, not contract: they
+-- hold identifiers recorded before the dataset-subscription cutover, and stay
+-- seeded only so a rebuilt DB can hold the rows that reference them. usa-wa's
+-- published crosswalk owns the WA scheme graph; the applier writes none of them.
+-- docs/OBSERVATIONS.md § Identifier types.
 DROP TABLE IF EXISTS pg_temp._seed_entity_identifier_types;
 CREATE TEMP TABLE _seed_entity_identifier_types (LIKE entity_identifier_types INCLUDING ALL);
 
