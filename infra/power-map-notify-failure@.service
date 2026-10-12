@@ -15,7 +15,7 @@ WorkingDirectory=/home/exedev/power-map
 # None of these is a secret. Empty = journal only, logged; filled in from
 # notifier#114 (channels) and publish_notifier_template.py (template).
 Environment=NOTIFIER_URL=http://notifier:9000
-Environment=NOTIFIER_TEMPLATE_ID=
+Environment=NOTIFIER_TEMPLATE_ID=01M4RF07PJ5HDTW0YM9Z5CXKK0
 Environment=NOTIFIER_CHANNEL_IDS=
 # The tenant key, root-only on disk. SetCredential= (a lone newline, read as
 # "no key") keeps a missing file from failing the handler (243) before its
