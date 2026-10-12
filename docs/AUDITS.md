@@ -10,9 +10,9 @@ anomaly (#294), schema parity (#315/#331), ancillary orphans (#324/#326/#319) an
 seat occupancy (#506). Those five exit 3 on findings (seat occupancy only above
 its baseline), so a run surfaces in `systemctl --failed` (#363), and each carries
 its own install block below. The org-lifecycle (#307) and
-duplicate-assignment (#311) audits are on-demand: no timer, no exit-3. Three
-guards at the end carry timers too: readiness (#347), egress IP (#410) and
-OpenAPI parity (#618).
+duplicate-assignment (#311) audits are on-demand: no timer, no exit-3. Four
+guards at the end carry timers too: readiness (#347), egress IP (#410), OpenAPI
+parity (#618) and infra drift (#560).
 
 The importer, the idempotent seeds and the TTL prune are in `docs/RUNBOOKS.md`;
 incident triage for an unreachable database is in `docs/RUNBOOK_DB_TRIAGE.md`.
@@ -469,4 +469,40 @@ a reboot, so that day's tag check is skipped.
 uv run python -m scripts.check_openapi_parity                 # compare once, now
 uv run python -m scripts.check_openapi_parity --no-tag-check --url http://localhost:8001/openapi.json
 sudo journalctl -u power-map-openapi-parity -f
+```
+
+## Infra drift guard (issue #560)
+
+A host guard, not a data audit; it carries a timer like the others.
+
+The host runs **copies** of `infra/`, made by the install lines in
+[COMMANDS.md § Service Management](COMMANDS.md#service-management), so a merged
+and pulled change to one does nothing until that line re-runs. On 2026-09-24 two
+units had been stale for 15 and 46 days. `scripts/check_infra_drift.py` compares
+each file with its copy once a day, from the main checkout (the deployed
+commit). `infra/installed.toml` says where each copy lives, because the host
+drop-ins are not at `/etc/systemd/system/<name>`. A unit test fails until every
+file under `infra/` except `terraform/` is listed there, and until each host
+file's path agrees with its `sudo install -t` line.
+
+- **Directives differ** (the files differ once whole-line `#` comments and blank
+  lines are dropped), **missing** copy, or an **orphan** (a `power-map*` unit or
+  drop-in under `/etc/systemd/system`, `systemctl edit` overrides included, that
+  no repo file accounts for), or a **disabled** unit (installed, but the `.wants/`
+  link its `WantedBy=` asks for, or `RequiredBy=`'s `.requires/`, is absent):
+  exit 3. The journal shows the directive diff.
+- **Comments only**: a WARNING and exit 4, which the unit's `SuccessExitStatus=4`
+  counts as success. The copy works, but is no longer byte-identical. Re-copy
+  it at the next install.
+- An unreadable copy, or a manifest that does not match `infra/`: exit 1.
+
+`;` lines count as directives: a statement in the Perl needrestart drop-in, so a
+`;` comment edit in a unit reads as drift (a false alarm, never a miss). Lines
+compare as bytes, split only where systemd splits them, with trailing blanks kept.
+Read-only and unprivileged. It never installs: restarts and `daemon-reload`
+touch production, so the fix stays a person's.
+
+```bash
+uv run python -m scripts.check_infra_drift   # compare once, now
+sudo journalctl -u power-map-infra-drift -f
 ```
