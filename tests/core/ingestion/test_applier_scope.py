@@ -3,7 +3,7 @@
 Row scope is the *live* crosswalk — `producer_crosswalk` rows with resolution
 live or merged, read at run time — never the pm_id a desired row carries. A
 desired row that disagrees with the live crosswalk is `stale`: the desired
-state predates a merge, an archive or a re-seed and must be rebuilt.
+state predates a merge or an archive and must be rebuilt.
 """
 
 import json
@@ -99,6 +99,9 @@ async def test_a_row_with_no_live_crosswalk_row_is_stale():
 
     assert kept == []
     assert "no crosswalk row" in stale[0].reason
+    # The cutover seed retired in #502: the remedy is a rebuild, never a re-seed.
+    assert stale[0].reason.endswith("— rebuild")
+    assert "seed" not in stale[0].reason
 
 
 async def test_a_create_the_live_crosswalk_already_resolves_is_stale():

@@ -271,7 +271,7 @@ def scope_rows(
 
     A desired row carries the pm_id the crosswalk export said at build time;
     the live crosswalk is the authority. Any disagreement — a merge since, an
-    archive since, a re-seed, a producer id PM linked since — means the desired
+    archive since, a producer id PM linked since — means the desired
     state must be rebuilt before anything is applied. Merge tables pass through
     untouched: a tombstoned loser has no producer row to scope here, so
     `_diff_merge` checks its anchor itself (#514).
@@ -307,9 +307,7 @@ def scope_rows(
             else:
                 kept.append(row)
         elif live is None:
-            _stale(
-                row, f"no crosswalk row for {producer_id} (desired {desired}) — re-seed or rebuild"
-            )
+            _stale(row, f"no crosswalk row for {producer_id} (desired {desired}) — rebuild")
         elif live.resolution not in IN_SCOPE:
             _stale(row, f"anchor left scope: {live.resolution} — rebuild")
         elif live.pm_id != desired:
