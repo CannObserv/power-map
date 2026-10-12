@@ -269,7 +269,7 @@ class AssignmentResolution:
     anti-resurrection attach — an archived twin matched — and obliges the caller
     to skip every ancillary write: links / contact methods / addresses on a
     retracted row are meaningless, and each one fires a #327 touch trigger,
-    emitting an ``entity_changes`` row for an entity subscribers have dropped.
+    bumping ``updated_at`` on an entity the producer has retracted.
     """
 
     assignment_id: str
@@ -1724,8 +1724,8 @@ async def _retract_event(conn, event_type_id: str, key_id: str | None, ev) -> Ev
       checked before provenance so a foreign re-emit stays quiet (mirrors refine)
     - ``event_type`` differs from the stored row → ``identity_immutable``
     - live event, foreign non-NULL ``source_key_id`` → ``provenance_conflict``
-    - else archive it → ``retracted`` (the UPDATE fires the org-touch trigger →
-      outbox row → subscriber drops the stale anchor)
+    - else archive it → ``retracted`` (the UPDATE fires the org-touch trigger,
+      so the org's ETag moves)
     """
     if ev.pm_event_id is None:
         raise _EventRejected(EventRejectReason.INVALID)
@@ -2380,8 +2380,8 @@ async def retract_assignment(
       ``identity_immutable`` (guards a copy-paste ``pm_assignment_id``)
     - live row, foreign non-NULL ``source_key_id`` → ``source_key_mismatch``
     - else archive → ``RETRACTED``. The UPDATE fires
-      ``trg_entity_changes_role_assignments`` (outbox row → subscribers mirror
-      ``archived_at`` and drop the anchor) and
+      ``trg_entity_changes_role_assignments`` (an outbox row; the outbox retires
+      in #651) and
       ``trg_cascade_assignment_relationships`` (dependent ``staff_of`` edges
       archive with it, #301).
 

@@ -439,7 +439,7 @@ async def role_delete(
             # hard-delete doesn't orphan them.
             await delete_entity_ancillary(db, "role", role_id)
             await db.execute("DELETE FROM roles WHERE id = $1", role_id)
-            # Tombstone (issue #277): emit a 'deleted' signal for subscribers.
+            # Tombstone (issue #277): the id answers 410 on its detail GET (#607).
             await db.execute(
                 "INSERT INTO deleted_entities (entity_type, entity_id) VALUES ('role', $1)"
                 " ON CONFLICT DO NOTHING",
