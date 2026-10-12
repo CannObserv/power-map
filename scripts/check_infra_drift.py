@@ -37,8 +37,8 @@ Installing stays a deliberate human step (restarts and ``daemon-reload`` touch
 production), so the remedy is named, never run.
 
 Exit codes: 0 = identical; 3 = directive drift, missing, orphan or disabled
-(outranks the rest); 1 = a copy could not be read, or the manifest is unreadable or does not
-match ``infra/``; 4 = comments only.
+(outranks the rest); 1 = a copy could not be read, or the manifest is
+unreadable or does not match ``infra/``; 4 = comments only.
 
 Usage:
     uv run python -m scripts.check_infra_drift
