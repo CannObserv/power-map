@@ -65,6 +65,12 @@ ones worth knowing before minting:
 | `org_wa_legislature` | organization | the legislature-level anchor (#225) |
 | `org_wa_legislature_chamber` | organization | chamber key — `usa_wa_house` / `usa_wa_senate` (#225) |
 
+**The WA scheme types are history, not contract (#502).** The `*_wa_*` slugs above (and
+`role_wa_pdc`) hold identifiers recorded before the #490 cutover. The rows stay, and
+`schema.sql` keeps seeding the types so a rebuilt database can hold what references
+them. But the nightly applier writes none of them, and usa-wa's published crosswalk owns
+the WA scheme graph: don't build a new integration on one.
+
 ---
 
 ## Org lifespan bounds on assignments (#307)

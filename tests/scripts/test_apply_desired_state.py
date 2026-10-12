@@ -314,13 +314,11 @@ def test_main_reports_an_applier_error_as_a_sentence_and_exits_three(monkeypatch
     assert "desired_people" in out and "Traceback" not in out
 
 
-def test_the_applier_scopes_by_the_source_the_seed_writes():
+def test_the_applier_scopes_by_the_crosswalk_source():
     """The first production dry run matched zero crosswalk rows: the seed wrote `usa_wa`,
-    the applier asked for `usa-wa`. One constant now, and this pins it."""
-    from scripts import seed_producer_crosswalk
-
+    the applier asked for `usa-wa`. One constant now, and this pins it (the seed
+    itself retired in #502; the rows it wrote carry the same value)."""
     assert cli.SOURCE == PRODUCER_SOURCE == "usa_wa"
-    assert seed_producer_crosswalk.DEFAULT_SOURCE == PRODUCER_SOURCE
 
 
 @pytest.mark.parametrize(

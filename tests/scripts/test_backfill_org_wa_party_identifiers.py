@@ -3,8 +3,7 @@
 Backfills the ``org_wa_party`` identifier onto the two existing WA party Orgs
 (matched by canonical name) so a producer's first party observation
 AUTO_ATTACHES instead of creating a duplicate. Core logic takes an injected
-connection so tests run inside the rolled-back ``db`` transaction (mirrors
-tests/scripts/test_seed_roles.py).
+connection so tests run inside the rolled-back ``db`` transaction.
 """
 
 import pytest
