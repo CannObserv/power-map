@@ -45,7 +45,7 @@ ExecStart=uv run --group mapping python -m scripts.apply_desired_state
 # read as "no key") is the fallback that keeps a missing key file from failing
 # the unit (243).
 # co-status monitor: co-power-map-desired-state (CannObserv/status#36)
-Environment=STATUS_MONITOR_ID=
+Environment=STATUS_MONITOR_ID=01M4RF3TQTTWRF76HXRTCSQF9C
 Environment=STATUS_EXIT_KINDS=3:needs-a-person
 LoadCredential=status-checkin:/etc/power-map/status-api.key
 SetCredential=status-checkin:\n

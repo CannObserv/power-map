@@ -33,10 +33,10 @@ STATUS_KEY = "status-checkin:/etc/power-map/status-api.key"
 NOTIFIER_KEY = "notifier-api:/etc/power-map/notifier-api.key"
 ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 
-# co-status posts the monitor ids on status#36 once the tenant exists. Until
-# then every unit carries an empty STATUS_MONITOR_ID (the hook logs and skips);
-# filling them in flips this, and the ids must then all be present at once.
-MONITOR_IDS_PENDING = True
+# The monitor ids came from status#36 (comment 6128848036, 2026-10-12); each
+# unit's comment names its monitor. Pending, every unit carried an empty id and
+# the hook skipped; this stays as the switch a re-provisioning would flip back.
+MONITOR_IDS_PENDING = False
 
 
 def directives(path: Path) -> dict[str, list[tuple[str, str]]]:

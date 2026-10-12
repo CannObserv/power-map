@@ -30,7 +30,7 @@ ExecStart=uv run python -m scripts.pull_datasets
 # read as "no key") is the fallback that keeps a missing key file from failing
 # the unit (243).
 # co-status monitor: co-power-map-datasets-pull (CannObserv/status#36)
-Environment=STATUS_MONITOR_ID=
+Environment=STATUS_MONITOR_ID=01M4RF3TPFD6H3CE9S8GBAEZ09
 Environment=STATUS_EXIT_KINDS=2:unconfigured
 LoadCredential=status-checkin:/etc/power-map/status-api.key
 SetCredential=status-checkin:\n

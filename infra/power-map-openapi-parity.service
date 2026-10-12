@@ -29,7 +29,7 @@ TimeoutStartSec=120
 # read as "no key") is the fallback that keeps a missing key file from failing
 # the unit (243).
 # co-status monitor: co-power-map-openapi-parity (CannObserv/status#36)
-Environment=STATUS_MONITOR_ID=
+Environment=STATUS_MONITOR_ID=01M4RF3TYJWSN40ZHVZ1CJVBZ3
 Environment=STATUS_EXIT_KINDS=1:unfetchable,3:drift,4:untagged
 LoadCredential=status-checkin:/etc/power-map/status-api.key
 SetCredential=status-checkin:\n

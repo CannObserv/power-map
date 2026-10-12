@@ -33,7 +33,7 @@ SuccessExitStatus=4
 # read as "no key") is the fallback that keeps a missing key file from failing
 # the unit (243).
 # co-status monitor: co-power-map-schema-parity (CannObserv/status#36)
-Environment=STATUS_MONITOR_ID=
+Environment=STATUS_MONITOR_ID=01M4RF3TTG1CFY7W7J53XRPH6Y
 Environment=STATUS_EXIT_KINDS=3:drift
 LoadCredential=status-checkin:/etc/power-map/status-api.key
 SetCredential=status-checkin:\n
