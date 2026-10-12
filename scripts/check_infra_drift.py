@@ -77,7 +77,7 @@ COMMENT = "comment"
 DISABLED = "disabled"
 _DRIFT_KINDS = frozenset({DIRECTIVE, MISSING, ORPHAN, DISABLED})
 # [Install] keys that `systemctl enable` turns into a link, and the link's directory.
-_ENABLE_KEYS = {b"WantedBy=": ".wants", b"RequiredBy=": ".requires"}
+_ENABLE_KEYS = {b"WantedBy": ".wants", b"RequiredBy": ".requires"}
 
 # Diff lines shown per file before the rest is counted: a rewrite stays readable.
 MAX_DIFF_LINES = 20
@@ -235,10 +235,11 @@ def missing_links(repo_raw: bytes, installed: Path, root: Path) -> list[Path]:
         return []
     links = []
     for line in directives(repo_raw):
-        for key, suffix in _ENABLE_KEYS.items():
-            if line.startswith(key):
-                for target in line.removeprefix(key).decode("utf-8", "replace").split():
-                    links.append(SYSTEMD / f"{target}{suffix}" / installed.name)
+        key, sep, value = line.partition(b"=")
+        suffix = _ENABLE_KEYS.get(key.strip(b" \t"))  # systemd strips blanks around `=`
+        if sep and suffix:
+            for target in value.decode("utf-8", "replace").split():
+                links.append(SYSTEMD / f"{target}{suffix}" / installed.name)
     # lexists: the link points at an absolute /etc path, dangling under a --root.
     return [link for link in links if not os.path.lexists(_on_disk(root, link))]
 

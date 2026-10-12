@@ -538,3 +538,12 @@ def test_a_directive_diff_logs_one_record_per_line(tmp_path, monkeypatch, capsys
 
     assert any('"infra drift:   -User=root"' in r for r in records)
     assert not any("\\n" in r for r in records)
+
+
+def test_wanted_by_with_spaces_around_the_equals_is_still_checked(host):
+    """systemd strips blanks around `=`; a check that does not would skip the unit."""
+    install, run, _ = host
+    unit = "[Service]\nExecStart=x\n\n[Install]\nWantedBy = multi-user.target\n"
+    install("power-map-x.service", unit, unit)
+
+    assert _kinds(run()) == {"power-map-x.service": drift.DISABLED}
