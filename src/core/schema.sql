@@ -2536,15 +2536,15 @@ CREATE TABLE IF NOT EXISTS api_request_log (
     api_key_id       TEXT        REFERENCES api_keys(id) ON DELETE SET NULL,  -- NULL = unauthenticated/invalid
     method           TEXT        NOT NULL,
     path             TEXT        NOT NULL,
-    route_group      TEXT        NOT NULL,          -- 'observations' | 'changes' | 'other'
+    route_group      TEXT        NOT NULL,          -- 'observations' | 'other' ('changes' until the feed retired, #502)
     entity_type      TEXT,                          -- observations: people|organizations|jurisdictions
     status_code      INT         NOT NULL,
     latency_ms       INT         NOT NULL,
     disposition      TEXT,                          -- observations: new|auto-attached|rejected
     result_entity_id TEXT,                          -- observations: matched/created entity (no FK — may be deleted/merged)
     reason           TEXT,                          -- rejection/error reason code
-    item_count       INT,                           -- changes: rows delivered (0 = empty poll)
-    is_empty         BOOLEAN     NOT NULL DEFAULT FALSE,  -- changes: zero-result poll flag
+    item_count       INT,                           -- retired feed (#502): rows delivered; unwritten, drop tracked on #651
+    is_empty         BOOLEAN     NOT NULL DEFAULT FALSE,  -- retired feed (#502): empty-poll flag; unwritten, drop tracked on #651
     client_ip        TEXT,
     user_agent       TEXT,
     request_body     JSONB,                         -- raw; NULL for GET/changes
