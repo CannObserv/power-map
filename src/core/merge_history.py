@@ -2,11 +2,10 @@
 
 ``deleted_entities.merged_into`` names *that row's* survivor (see
 :mod:`src.core.merge_signals`), so where a retired id went is a chain, not a
-lookup: A was merged into B, and B later into C. Two readers need the walk —
-the producer crosswalk (:mod:`src.core.ingestion.crosswalk`), resolving anchors
-before an applier writes, and the public detail GETs (:mod:`src.api.public.gone`),
-answering a retired id with ``410`` + where it went. Both key the walk by the
-tombstone's own ``entity_type``.
+lookup: A was merged into B, and B later into C. The public detail GETs
+(:mod:`src.api.public.gone`) walk it to answer a retired id with ``410`` + where
+it went, keyed by the tombstone's own ``entity_type``. The producer crosswalk's
+cutover seed walked it too, to resolve anchors; that seed retired in #502.
 
 Merge tombstones never expire (``src/core/maintenance.py``), so a merge stays
 walkable for good; a bare-delete tombstone ages out on the TTL.
