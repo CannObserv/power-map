@@ -16,7 +16,7 @@ from src.core.ancillary_migrate import (
     rehome_curation_overlay,
     rehome_entity_events,
 )
-from src.core.merge_signals import mirror_subscriptions, record_merge_tombstones
+from src.core.merge_signals import record_merge_tombstones
 from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, heal_person_canonical
 
 __all__ = ["PersonNotFoundError", "merge_person_into", "preview_person_merge"]
@@ -325,8 +325,6 @@ async def merge_person_into(
     # #301: re-point the loser assignments' active relationship edges onto the
     # winner before the hard-delete, else FK ON DELETE CASCADE silently drops them.
     await rehome_assignment_relationships(db, _conflict_pairs)
-    # #467: whoever watches a dropped duplicate also watches its survivor.
-    await mirror_subscriptions(db, _conflict_pairs)
     # #514: and a curator's override on it follows it there.
     await rehome_curation_overlay(db, "assignment", _conflict_pairs)
     # Delete exactly the rows we just re-homed — deriving the DELETE set from the
@@ -337,9 +335,9 @@ async def merge_person_into(
         "DELETE FROM role_assignments WHERE id = ANY($1::text[])",
         [r["loser_ra"] for r in conflict_pairs],
     )
-    # #467: each dropped duplicate is announced with the survivor it folded into.
-    # The person tombstone below does not cover these — a producer polls
-    # /api/v1/changes filtered by its own subscriptions, which are per-assignment.
+    # #467: each dropped duplicate is tombstoned with the survivor it folded into,
+    # so its own detail GET answers 410 + merged_into (#607). The person tombstone
+    # below covers only the person id.
     await record_merge_tombstones(db, "role_assignment", _conflict_pairs)
     await db.execute(
         "UPDATE role_assignments SET person_id=$1 WHERE person_id=$2",
@@ -465,9 +463,6 @@ async def merge_person_into(
     await rehome_entity_events(db, "person", [(loser_id, winner_id)])
 
     await db.execute("DELETE FROM people WHERE id=$1", loser_id)
-    # #467: a key watching the loser also watches the winner; its own subscription
-    # stays, or the tombstone below would have no audience.
-    await mirror_subscriptions(db, [(loser_id, winner_id)])
     await rehome_curation_overlay(db, "person", [(loser_id, winner_id)])
     await db.execute(
         "INSERT INTO deleted_entities (entity_type, entity_id, merged_into)"

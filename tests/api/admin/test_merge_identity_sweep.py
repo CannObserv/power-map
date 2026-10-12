@@ -11,13 +11,13 @@ paths, so they are enforced structurally instead:
    `pm_assignment_id` anchor a producer holds.
 2. **Tombstone ratchet.** Any admin module — or merge module outside the admin
    tree, like the core person merge — that hard-deletes a `role` or a
-   `role_assignment` must also emit a tombstone, because the outbox triggers fire
-   on INSERT/UPDATE only — a DELETE is invisible to `/api/v1/changes` unless a
-   `deleted_entities` row announces it.
-3. **Overlay ratchet (#514).** Wherever a merge path mirrors a subscription onto
-   a survivor, it re-homes the loser's `curation_overlay` rows too. Both tables
-   are keyed on an id with no FK, and an override left on a merged-away id stops
-   applying without a word — the mapping layer joins it on the surviving pm_id.
+   `role_assignment` must also emit a tombstone. Without a `deleted_entities`
+   row the id just 404s, where it should answer `410` + `merged_into` (#607).
+3. **Overlay ratchet (#514).** Wherever a merge path tombstones a loser, it
+   re-homes the loser's `curation_overlay` rows too. The overlay is keyed on an
+   id with no FK, and an override left on a merged-away id stops applying
+   without a word — the mapping layer joins it on the surviving pm_id. (The
+   ratchet was anchored on the subscription mirror until that retired, #502.)
 4. **Event ratchet (#611).** Wherever a merge path hard-deletes a person or an
    org, it re-homes the events naming the loser first. ``entity_events`` names
    an entity as owner and as link target, neither with an FK, so a merge that
@@ -79,7 +79,7 @@ def test_no_merge_path_inserts_a_role_assignment():
 
 
 def test_every_role_or_assignment_hard_delete_emits_a_tombstone():
-    """#467: a DELETE fires no outbox trigger, so it must be announced explicitly."""
+    """#467: a hard-deleted id is announced by its tombstone, or it 404s blind."""
     offenders = []
     for path in TOMBSTONE_SCOPE:
         literals = _string_constants(path)
@@ -91,8 +91,8 @@ def test_every_role_or_assignment_hard_delete_emits_a_tombstone():
             offenders.append(path.name)
     assert not offenders, (
         f"{offenders} hard-delete a role or role_assignment without a tombstone."
-        " The change-feed triggers are INSERT/UPDATE-only, so subscribers see"
-        " nothing unless a deleted_entities row announces it (#467)."
+        " Without a deleted_entities row its id 404s instead of answering 410 +"
+        " merged_into (#467, #607)."
     )
 
 
@@ -110,17 +110,23 @@ def _calls(path: Path, name: str) -> int:
     )
 
 
-def test_every_subscription_mirror_carries_the_curation_overlay():
-    """#514: a merge step that re-homes watchers re-homes curator overrides with them."""
+def _merge_tombstones(path: Path) -> int:
+    """How many tombstones the module writes: helper calls plus raw INSERTs."""
+    raw = sum("INSERT INTO deleted_entities" in s for s in _string_constants(path))
+    return _calls(path, "record_merge_tombstones") + raw
+
+
+def test_every_merge_tombstone_carries_the_curation_overlay():
+    """#514: a merge step that retires a loser re-homes its curator overrides."""
     offenders = {
-        name: (mirrors, rehomes)
+        name: (tombstones, rehomes)
         for name in MERGE_MODULES
-        if (mirrors := _calls(SRC_DIR / name, "mirror_subscriptions"))
+        if (tombstones := _merge_tombstones(SRC_DIR / name))
         != (rehomes := _calls(SRC_DIR / name, "rehome_curation_overlay"))
     }
     assert not offenders, (
-        f"{offenders} (mirror_subscriptions calls, rehome_curation_overlay calls) differ."
-        " Each merge step that mirrors a subscription must re-home the loser's"
+        f"{offenders} (merge tombstones, rehome_curation_overlay calls) differ."
+        " Each merge step that tombstones a loser must re-home its"
         " curation_overlay rows beside it (#514)."
     )
 

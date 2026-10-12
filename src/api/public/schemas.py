@@ -1170,53 +1170,6 @@ class EntityEventsResponse(BaseModel):
     meta: SearchMeta
 
 
-class ChangeItem(BaseModel):
-    """A single entry in the change feed — updated or deleted entity."""
-
-    seq_id: int
-    entity_type: EntityType
-    entity_id: str
-    changed_at: datetime
-    change_kind: Literal["updated", "deleted"]
-    merged_into: str | None = None
-    # #491: key whose request transaction caused this row (causal, not
-    # ownership — cascades and touch fan-out carry the initiating key).
-    # NULL = curator/admin, merge, or script origin. Additive-optional (#477).
-    source_key_id: str | None = None
-
-    @field_serializer("changed_at")
-    def _serialize_ts(self, v: datetime) -> TimestampStr:
-        return fmt_ts(v)
-
-
-class ChangeMeta(BaseModel):
-    """Pagination metadata for the change feed."""
-
-    limit: int
-    count: int
-    has_more: bool
-    next_after: int  # outbox seq_id — pass as ?after= on the next poll
-    min_seq: int | None = Field(
-        default=None,
-        description=(
-            "Oldest outbox seq_id still retained — the prune horizon (#388). "
-            "null when the outbox is empty. Global, not subscription-scoped: "
-            "pruning is a global changed_at delete, so this is the single id "
-            "below which any event may already be gone. On resume, if your "
-            "persisted `after` is below `min_seq - 1`, events may have been "
-            "pruned before you read them — full-reconcile against the read "
-            "endpoints."
-        ),
-    )
-
-
-class ChangeFeedResponse(BaseModel):
-    """Response envelope for GET /api/v1/changes."""
-
-    data: list[ChangeItem]
-    meta: ChangeMeta
-
-
 # ---------------------------------------------------------------------------
 # Tombstoned detail reads (#607)
 # ---------------------------------------------------------------------------
@@ -1267,85 +1220,6 @@ class ApiRootResponse(BaseModel):
 
     status: str
     version: str
-
-
-# ---------------------------------------------------------------------------
-# Subscription schemas (#203)
-# ---------------------------------------------------------------------------
-
-
-class SubscriptionItem(BaseModel):
-    """A single subscription row returned by GET /api/v1/subscriptions."""
-
-    entity_id: str
-    entity_type: EntityType
-    created_at: datetime
-
-    @field_serializer("created_at")
-    def _serialize_ts(self, v: datetime) -> TimestampStr:
-        return fmt_ts(v)
-
-
-class SubscriptionListMeta(BaseModel):
-    """Pagination metadata for subscription list."""
-
-    limit: int
-    offset: int
-    count: int
-    has_more: bool
-
-
-class SubscriptionListResponse(BaseModel):
-    """Response envelope for GET /api/v1/subscriptions."""
-
-    data: list[SubscriptionItem]
-    meta: SubscriptionListMeta
-
-
-class SubscriptionRegisterRequest(BaseModel):
-    """Request body for POST /api/v1/subscriptions."""
-
-    entity_ids: list[str] = Field(..., max_length=500)
-
-
-class SubscriptionRegisterResponse(BaseModel):
-    """Response for POST /api/v1/subscriptions."""
-
-    registered: int
-    already_subscribed: int
-    not_found: list[str]
-
-
-class SubscriptionBulkDeleteRequest(BaseModel):
-    """Request body for DELETE /api/v1/subscriptions (bulk)."""
-
-    entity_ids: list[str] = Field(..., max_length=500)
-
-
-class DiscoveryItem(BaseModel):
-    """Single entity returned by GET /api/v1/subscriptions/discover."""
-
-    entity_type: EntityType
-    entity_id: str
-    display_name: str | None = None
-    hops_from_root: int
-
-
-class DiscoveryMeta(BaseModel):
-    """Pagination meta for discovery response."""
-
-    limit: int
-    offset: int
-    count: int
-    has_more: bool
-    truncated: bool = False
-
-
-class DiscoveryResponse(BaseModel):
-    """Response for GET /api/v1/subscriptions/discover."""
-
-    data: list[DiscoveryItem]
-    meta: DiscoveryMeta
 
 
 # ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@ from src.core.ancillary_migrate import (
     rehome_role_ancillary,
 )
 from src.core.db import generate_id
-from src.core.merge_signals import mirror_subscriptions, record_merge_tombstones
+from src.core.merge_signals import record_merge_tombstones
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/orgs/{org_id}/roles", tags=["admin-org-roles"])
@@ -207,8 +207,6 @@ async def role_merge(
         # #301: re-point active relationship edges onto the winner before the
         # hard-delete (FK ON DELETE CASCADE would otherwise drop them silently).
         await rehome_assignment_relationships(db, _conflict_pairs)
-        # #467: whoever watches a dropped duplicate also watches its survivor.
-        await mirror_subscriptions(db, _conflict_pairs)
         await rehome_curation_overlay(db, "assignment", _conflict_pairs)  # #514
         # Delete exactly the rows just re-homed, derived from the same pair list, so
         # the re-homed set and the deleted set are provably identical (#324 CR2).
@@ -227,7 +225,6 @@ async def role_merge(
         # #326: re-home the loser role's own contacts/links onto the winner before
         # the hard-delete, else they orphan (entity_type='role', no FK).
         await rehome_role_ancillary(db, loser_id, winner_id)
-        await mirror_subscriptions(db, [(loser_id, winner_id)])
         await rehome_curation_overlay(db, "role", [(loser_id, winner_id)])  # #514
         await db.execute("DELETE FROM roles WHERE id=$1", loser_id)
         # #467: the role id retires here — say so, and say what replaced it.

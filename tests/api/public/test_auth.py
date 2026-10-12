@@ -80,22 +80,6 @@ async def test_get_person_invalid_key_returns_401(client):
 
 
 # ---------------------------------------------------------------------------
-# /api/v1/changes
-# ---------------------------------------------------------------------------
-
-
-def test_changes_missing_key_returns_403(unit_client):
-    r = unit_client.get("/api/v1/changes")
-    assert r.status_code == 403
-
-
-@pytest.mark.integration
-async def test_changes_invalid_key_returns_401(client):
-    r = await client.get("/api/v1/changes", headers={"X-API-Key": "pm_bad"})
-    assert r.status_code == 401
-
-
-# ---------------------------------------------------------------------------
 # /api/v1/jurisdictions
 # ---------------------------------------------------------------------------
 

@@ -7,11 +7,10 @@ table has ever pointed at. #543 was the voice-embedding table's
 ``created_by_key_id``; a future per-model ``person_embeddings_*`` table cloned from
 it would repeat the mistake.
 
-The two legitimate answers: ``CASCADE`` for rows the key *owns* (its scopes, its
-entity subscriptions) and ``SET NULL`` for rows it merely *sourced* (the #311
-provenance convention). Swept over the live catalog after ``apply_schema``, so it
-sees both an inline definition on a fresh DB and a reconciliation block's repair
-on an existing one.
+The two legitimate answers: ``CASCADE`` for rows the key *owns* (its scopes) and
+``SET NULL`` for rows it merely *sourced* (the #311 provenance convention). Swept
+over the live catalog after ``apply_schema``, so it sees both an inline
+definition on a fresh DB and a reconciliation block's repair on an existing one.
 """
 
 import pytest

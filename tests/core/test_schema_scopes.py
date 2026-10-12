@@ -105,3 +105,22 @@ async def test_api_key_scopes_fk_enforced(db_pool):
                 "nonexistent-key-id",
                 "nonexistent:scope",
             )
+
+
+@pytest.mark.integration
+async def test_subscriptions_scope_is_retired(db_pool):
+    """The change feed's write scope went with it (#502)."""
+    async with db_pool.acquire() as conn:
+        assert not await conn.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM api_key_scope_types WHERE id = 'subscriptions:write')"
+        )
+        assert not await conn.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM api_key_scopes WHERE scope_id = 'subscriptions:write')"
+        )
+
+
+@pytest.mark.integration
+async def test_subscription_table_is_dropped(db_pool):
+    """``api_key_entity_subscriptions`` fed only ``/changes`` (#502)."""
+    async with db_pool.acquire() as conn:
+        assert await conn.fetchval("SELECT to_regclass('api_key_entity_subscriptions')") is None

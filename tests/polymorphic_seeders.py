@@ -17,7 +17,6 @@ from tests.db_utils import trigger_disabled
 SURVIVORS = {
     "deleted_entities": "the tombstone itself",
     "entity_changes": "the outbox the 'deleted' signal travels on",
-    "api_key_entity_subscriptions": "the change feed joins it to deliver the tombstone",
 }
 
 

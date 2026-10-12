@@ -3198,8 +3198,8 @@ END $$;
 -- Migration (#301): extend the change-feed entity_type CHECKs to include
 -- 'role_assignment_relationship' on existing DBs (fresh DBs get the full shape
 -- from the CREATE TABLE definitions above). Keyed on absence of '_relationship'
--- in the existing clause. Covers all three change-feed surfaces:
--- entity_changes (outbox), deleted_entities (tombstone), api_key_entity_subscriptions.
+-- in the existing clause. Covers entity_changes (outbox) and deleted_entities
+-- (tombstone); the third surface, api_key_entity_subscriptions, retired in #502.
 -- =============================================================================
 
 DO $$ BEGIN
@@ -3226,21 +3226,6 @@ DO $$ BEGIN
     ) THEN
         ALTER TABLE deleted_entities DROP CONSTRAINT deleted_entities_entity_type_check;
         ALTER TABLE deleted_entities ADD CONSTRAINT deleted_entities_entity_type_check
-            CHECK (entity_type IN
-                ('person', 'organization', 'jurisdiction', 'role',
-                 'role_assignment', 'role_assignment_relationship'));
-    END IF;
-END $$;
-
-DO $$ BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.check_constraints
-        WHERE constraint_schema = 'public'
-          AND constraint_name = 'api_key_entity_subscriptions_entity_type_check'
-          AND check_clause NOT LIKE '%role_assignment_relationship%'
-    ) THEN
-        ALTER TABLE api_key_entity_subscriptions DROP CONSTRAINT api_key_entity_subscriptions_entity_type_check;
-        ALTER TABLE api_key_entity_subscriptions ADD CONSTRAINT api_key_entity_subscriptions_entity_type_check
             CHECK (entity_type IN
                 ('person', 'organization', 'jurisdiction', 'role',
                  'role_assignment', 'role_assignment_relationship'));
@@ -3572,6 +3557,7 @@ UPDATE embedding_model_registry
 -- Replaces the timestamp-cursor polling pattern with:
 --   1. entity_changes — append-only outbox with BIGSERIAL cursor
 --   2. api_key_entity_subscriptions — explicit per-key entity allowlist
+--      (retired with /changes in #502; see the DROP below)
 --
 -- Breaking changes:
 --   - /changes ?since= replaced by ?after= (integer seq_id, > exclusive)
@@ -3762,40 +3748,15 @@ CREATE OR REPLACE TRIGGER trg_entity_changes_deleted
     FOR EACH ROW EXECUTE FUNCTION fn_record_deleted_entity_change();
 
 -- ---------------------------------------------------------------------------
--- Subscription allowlist
+-- Retired (#502): the subscription allowlist and its subscriptions:write scope
+-- fed only /changes, removed with the feed after the #490 cutover. Idempotent:
+-- a fresh DB never creates either; an existing one loses both on the next
+-- apply. A key's grant goes before its scope type (api_key_scopes RESTRICTs).
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS api_key_entity_subscriptions (
-    api_key_id   TEXT         NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
-    entity_id    TEXT         NOT NULL,
-    entity_type  TEXT         NOT NULL
-                              CHECK (entity_type IN
-                                ('person', 'organization', 'jurisdiction',
-                                 'role', 'role_assignment',
-                                 'role_assignment_relationship')),
-    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (api_key_id, entity_id)
-);
-
--- Supports the subscription-join query from the changes endpoint.
-CREATE INDEX IF NOT EXISTS idx_sub_entity
-    ON api_key_entity_subscriptions (entity_id, api_key_id);
-
--- Backs GET /api/v1/subscriptions list ordering: WHERE api_key_id ORDER BY
--- created_at, entity_id (#297). Lets the paged scan avoid a sort step as a
--- key's subscription set grows.
-CREATE INDEX IF NOT EXISTS idx_sub_key_created
-    ON api_key_entity_subscriptions (api_key_id, created_at, entity_id);
-
--- ---------------------------------------------------------------------------
--- New scope: subscriptions:write
--- ---------------------------------------------------------------------------
-
-INSERT INTO api_key_scope_types (id, display_name, description) VALUES
-    ('subscriptions:write',
-     'Subscriptions: Write',
-     'Manage entity subscriptions via POST/DELETE /api/v1/subscriptions')
-ON CONFLICT (id) DO NOTHING;
+DROP TABLE IF EXISTS api_key_entity_subscriptions;
+DELETE FROM api_key_scopes WHERE scope_id = 'subscriptions:write';
+DELETE FROM api_key_scope_types WHERE id = 'subscriptions:write';
 
 -- Recreate HNSW index for 256-D cosine
 CREATE INDEX IF NOT EXISTS person_embeddings_pyannote_community_1_embed_hnsw
@@ -4306,7 +4267,7 @@ ALTER TABLE organizations
 -- the outbox triggers record it here. NULL = curator/admin, merge, or script
 -- origin — none of those set the GUC. Semantics are CAUSAL: the key whose
 -- request transaction produced the row, so #327 indirect touches and #301
--- cascade clamps carry the initiating key (documented in docs/CHANGE_FEED.md).
+-- cascade clamps carry the initiating key. Retires with the outbox (#651).
 --
 -- Deliberately NOT the #311 FK convention (REFERENCES api_keys ON DELETE SET
 -- NULL): this is the trigger-heavy insert path the table comment above keeps
