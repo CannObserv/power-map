@@ -528,3 +528,13 @@ def test_the_remedy_names_sections_commands_md_has():
 
     assert named == ["Service Management", "Scheduled timers"]
     assert set(named) <= headings
+
+
+def test_a_directive_diff_logs_one_record_per_line(tmp_path, monkeypatch, capsys):
+    """JSON logging escapes newlines: a diff inside one record reads as one long line."""
+    infra, root = _cli_host(tmp_path, UNIT.replace("exedev", "root"))
+    _main(monkeypatch, "--infra", str(infra), "--root", str(root))
+    records = capsys.readouterr().out.splitlines()
+
+    assert any('"infra drift:   -User=root"' in r for r in records)
+    assert not any("\\n" in r for r in records)

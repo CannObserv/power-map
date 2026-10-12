@@ -273,9 +273,10 @@ def exit_code(findings: list[Finding]) -> int:
 def _report(findings: list[Finding], checked: int) -> None:
     for f in findings:
         if f.kind == DIRECTIVE:
-            logger.error(
-                "infra drift: %s → %s differs in directives:\n%s", f.repo, f.installed, f.detail
-            )
+            logger.error("infra drift: %s → %s differs in directives:", f.repo, f.installed)
+            # One record per line: the JSON formatter escapes newlines inside a message.
+            for line in f.detail.splitlines():
+                logger.error("infra drift:   %s", line)
         elif f.kind == MISSING:
             logger.error("infra drift: %s is not installed at %s", f.repo, f.installed)
         elif f.kind == ORPHAN:
