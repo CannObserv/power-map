@@ -8,7 +8,7 @@ User=exedev
 WorkingDirectory=/home/exedev/power-map
 EnvironmentFile=/etc/power-map/.env
 EnvironmentFile=-/home/exedev/power-map/.env
-# Requires uv on PATH (/usr/local/bin/uv) and gh (/bin/gh); see infra/power-map.service.
+# Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
 #
 # Compares this host's public egress IP against the cluster's live Trusted
 # Sources, read from the DO API using DO_API_TOKEN (/etc/power-map/.env). The
@@ -19,9 +19,23 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # our address being removed from the list. EGRESS_EXPECTED_IPS is the fallback
 # when there is no token or the API is briefly unreachable.
 #
-# Exits 3 on drift, so the unit shows in `systemctl --failed`, and opens a
-# single `egress-ip-drift` GitHub issue carrying the new address — which is
-# the whole of the fix. Losing every lookup service is NOT drift: it logs a
-# WARNING and exits 0 rather than alerting about someone else's outage.
+# Exits 3 on drift, so the unit shows in `systemctl --failed` and checks in
+# `drift` below; the journal names the new address, which is the whole of the
+# fix (#566 retired the issue it used to open). Losing every lookup service is
+# NOT drift: it logs a WARNING and exits 0 rather than alerting about someone
+# else's outage.
 ExecStart=uv run python -m scripts.check_egress_ip
 TimeoutStartSec=120
+
+# After every run, ok or alert, a check-in with co-status (#566): a failed run
+# reaches a person through Notifier, and a run that never happens goes `missing`.
+# Best-effort (`-`, and the hook always exits 0); never changes this unit's result.
+# The key is a credential, never an env var; SetCredential= (a lone newline,
+# read as "no key") is the fallback that keeps a missing key file from failing
+# the unit (243).
+# co-status monitor: co-power-map-egress-ip (CannObserv/status#36)
+Environment=STATUS_MONITOR_ID=01M4RF3TKYG22293FQG8N4QX0Z
+Environment=STATUS_EXIT_KINDS=3:drift
+LoadCredential=status-checkin:/etc/power-map/status-api.key
+SetCredential=status-checkin:\n
+ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

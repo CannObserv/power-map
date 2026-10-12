@@ -23,3 +23,16 @@ EnvironmentFile=-/home/exedev/power-map/.env
 ExecStart=/home/exedev/power-map/scripts/run-a11y-sweep.sh
 # Two pytest sessions + a real browser launch; give it ample headroom.
 TimeoutStartSec=1200
+
+# After every run, ok or alert, a check-in with co-status (#566): a failed run
+# reaches a person through Notifier, and a run that never happens goes `missing`.
+# Best-effort (`-`, and the hook always exits 0); never changes this unit's result.
+# The key is a credential, never an env var; SetCredential= (a lone newline,
+# read as "no key") is the fallback that keeps a missing key file from failing
+# the unit (243).
+# co-status monitor: co-power-map-a11y (CannObserv/status#36)
+Environment=STATUS_MONITOR_ID=01M4RF3V2NR9G8Z5SKFNFJSQGK
+Environment=STATUS_EXIT_KINDS=1:regression,2:no-browser
+LoadCredential=status-checkin:/etc/power-map/status-api.key
+SetCredential=status-checkin:\n
+ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

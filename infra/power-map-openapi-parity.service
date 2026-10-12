@@ -18,6 +18,19 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # Exit 4 when v<served version> is missing on GitHub or tags a commit whose
 # snapshot differs (#631); skipped within 2 h of power-map.service starting, or
 # when GitHub is unreachable (unauthenticated REST API; the repo is public).
-# Read-only: HTTP only, no DB, no writes, no GitHub issue (alerting is #566).
+# Read-only: HTTP only, no DB, no writes; it alerts through the check-in below.
 ExecStart=uv run python -m scripts.check_openapi_parity
 TimeoutStartSec=120
+
+# After every run, ok or alert, a check-in with co-status (#566): a failed run
+# reaches a person through Notifier, and a run that never happens goes `missing`.
+# Best-effort (`-`, and the hook always exits 0); never changes this unit's result.
+# The key is a credential, never an env var; SetCredential= (a lone newline,
+# read as "no key") is the fallback that keeps a missing key file from failing
+# the unit (243).
+# co-status monitor: co-power-map-openapi-parity (CannObserv/status#36)
+Environment=STATUS_MONITOR_ID=01M4RF3TYJWSN40ZHVZ1CJVBZ3
+Environment=STATUS_EXIT_KINDS=1:unfetchable,3:drift,4:untagged
+LoadCredential=status-checkin:/etc/power-map/status-api.key
+SetCredential=status-checkin:\n
+ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

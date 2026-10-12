@@ -12,7 +12,9 @@ its baseline), so a run surfaces in `systemctl --failed` (#363), and each carrie
 its own install block below. The org-lifecycle (#307) and
 duplicate-assignment (#311) audits are on-demand: no timer, no exit-3. Four
 guards at the end carry timers too: readiness (#347), egress IP (#410), OpenAPI
-parity (#618) and infra drift (#560).
+parity (#618) and infra drift (#560). Every timer, these and the rest in
+`docs/COMMANDS.md` § Scheduled timers, checks in with co-status after each run,
+so a failure or a missed run reaches a person: [ALERTING.md](ALERTING.md).
 
 The importer, the idempotent seeds and the TTL prune are in `docs/RUNBOOKS.md`;
 incident triage for an unreachable database is in `docs/RUNBOOK_DB_TRIAGE.md`.
@@ -72,7 +74,7 @@ uv run "${env_args[@]}" python -m scripts.audit_assignment_relationship_windows 
 
 Idempotent. Report mode **exits 3 when any drift is found** (0 when clean), so the
 daily `power-map-assignment-rel-windows.timer` shows as failed in `systemctl --failed`
-and can drive `OnFailure=` — same convention as the ancillary-orphans / schema-parity
+and alerts as `drift` — same convention as the ancillary-orphans / schema-parity
 audits (#363). `--execute` reconciles the drift and always exits 0.
 
 ---
@@ -138,8 +140,7 @@ Idempotent — merged pairs leave the audit's scope (archived rows are ignored).
 grouped per API key, and logs a journal `WARNING` for every key at/above the
 threshold (default 5000/hr; env `API_ANOMALY_HOURLY_THRESHOLD`; `<= 0` disables).
 Exits 3 when anomalous — distinct from argparse usage errors (exit 2) — so the
-systemd unit shows failed (`systemctl --failed`; future
-`OnFailure=` hook). The threshold is deliberately **below** the rate-limit
+systemd unit shows failed (`systemctl --failed`) and alerts as `anomaly`. The threshold is deliberately **below** the rate-limit
 ceiling (2 workers × 2/s ≈ 14.4k/hr) — the 2026-07-11 runaway ran at ~17.5k/hr,
 so a "well above ceiling" threshold would have missed it. Human-facing layer:
 Admin → Activity → API Requests per-key panel.
@@ -378,11 +379,10 @@ the triage: `no_pool` / `pool_timeout` / `db_error` / `unreachable` /
 `probe_timeout` / `http_<code>`. A `pool_timeout` usually means the egress IP
 rotated out of DO Trusted Sources → [RUNBOOK_DB_TRIAGE.md](RUNBOOK_DB_TRIAGE.md).
 
-On failure it opens a single `ready-regression` GitHub issue — summary and a
-journal pointer only, because the repo is public — and then **stays quiet while
-that issue is open**: a comment per run would be ~30/hour. Recovery comments
-once and closes it, so the alert state lives in the issue and no local state
-file is needed.
+A failing run checks in `not-ready` ([ALERTING.md](ALERTING.md)).
+co-status folds the run of alerts into one fault, reminds hourly, and the next
+green run's `ok` clears it, so no local state file is needed. Until #566 it
+opened a `ready-regression` GitHub issue instead.
 
 It exists because `/ready` was correct and unread throughout the 2026-08-09
 outage (#347).
@@ -396,8 +396,7 @@ sudo journalctl -u power-map-ready -f                       # reason slug on fai
 |---|---|
 | `READY_PROBE_URL`, `READY_PROBE_TIMEOUT` | target and per-attempt timeout |
 | `READY_PROBE_ATTEMPTS`, `READY_PROBE_RETRY_DELAY` | retry shape |
-| `READY_CHECK_NO_GH=1` | probe and report, never touch GitHub |
-| `READY_CHECK_FORCE_FAIL=1` | force the failure path (exercises the issue flow) |
+| `READY_CHECK_FORCE_FAIL=1` | force the failure path: exit 3, so a `not-ready` check-in |
 
 ## Egress-IP drift guard (issue #410)
 
@@ -408,8 +407,9 @@ else.
 `scripts/check_egress_ip.py` runs every five minutes and compares this host's
 public egress IP against the cluster's **live** Trusted Sources, read from the
 DigitalOcean API (`DO_API_TOKEN`). With no token, or an unreachable API, it
-falls back to `EGRESS_EXPECTED_IPS`. A mismatch is exit 3 plus an
-`egress-ip-drift` GitHub issue carrying the **new** address.
+falls back to `EGRESS_EXPECTED_IPS`. A mismatch is exit 3 and a `drift` check-in;
+the journal WARNING names the **new** address and where to paste it. (Until #566
+an `egress-ip-drift` GitHub issue carried it.)
 
 Reading the allowlist live rather than keeping a hand-maintained copy is what
 catches our rule being *removed* — a copy cannot see that — and since #409 there
@@ -427,7 +427,7 @@ uv run "${env_args[@]}" python -m scripts.check_egress_ip   # compare once, now
 sudo journalctl -u power-map-egress-ip -f
 ```
 
-Hatches: `EGRESS_CHECK_NO_GH=1`, `EGRESS_CHECK_FORCE_FAIL=1`.
+Hatch: `EGRESS_CHECK_FORCE_FAIL=1`.
 
 ## OpenAPI parity guard (issue #618)
 
@@ -449,8 +449,8 @@ names what differs: `info.version`, paths and `components.schemas`, each list
 capped at ten names. It catches a schema that depends on runtime configuration,
 a deploy that skipped the gate, and a pull with no restart (the versions then
 differ). A fetch failure exits 1, because `/ready`'s guard owns liveness. It is
-read-only and opens no GitHub issue; #566's alerting will carry it once that
-lands.
+read-only, and alerts through its check-in as `drift`, `untagged` (exit 4,
+below) or `unfetchable`.
 
 It also checks the release tag (#631), the pin consumers install from.
 `v<served info.version>` must exist on GitHub and point at a commit whose

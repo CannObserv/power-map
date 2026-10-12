@@ -8,8 +8,8 @@ This guard answers one question: *is the address we leave this box from still
 one the database allowlist knows about?* Three properties matter, and each has
 a test below:
 
-1. The current IP appears in the alert. Triage ends with pasting it into
-   Trusted Sources, so an alert that omits it costs a lookup.
+1. The current IP appears in the journal WARNING. Triage ends with pasting it
+   into Trusted Sources; the alert check-in (#566) points at that journal.
 2. A junk response from an echo service is not an IP. Some return an HTML
    error page with 200, which would otherwise "drift" us every run.
 3. Failing to determine the IP is not drift. A third-party outage must not
@@ -17,14 +17,12 @@ a test below:
 """
 
 import json
-import logging
 import sys
 
 import pytest
 
 from scripts.check_egress_ip import (
     DEFAULT_SERVICES,
-    EGRESS_ALERT,
     lookup,
     main,
     parse_expected,
@@ -125,7 +123,7 @@ def test_parse_expected(raw, expected):
 # --- main ------------------------------------------------------------------
 
 
-def _run(monkeypatch, *, body=b"69.67.149.183", argv=("--no-gh",), env=None):
+def _run(monkeypatch, *, body=b"69.67.149.183", argv=(), env=None):
     monkeypatch.setattr(sys, "argv", ["check_egress_ip", *argv])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(body))
     for key, value in (env or {}).items():
@@ -134,12 +132,12 @@ def _run(monkeypatch, *, body=b"69.67.149.183", argv=("--no-gh",), env=None):
 
 
 def test_main_exits_clean_when_the_ip_matches(monkeypatch):
-    run = _run(monkeypatch, argv=("--no-gh", "--expected", "69.67.149.183"))
+    run = _run(monkeypatch, argv=("--expected", "69.67.149.183"))
     run()  # no SystemExit
 
 
 def test_main_exits_3_on_drift(monkeypatch):
-    run = _run(monkeypatch, argv=("--no-gh", "--expected", "67.213.124.9"))
+    run = _run(monkeypatch, argv=("--expected", "67.213.124.9"))
     with pytest.raises(SystemExit) as excinfo:
         run()
     assert excinfo.value.code == 3
@@ -147,7 +145,7 @@ def test_main_exits_3_on_drift(monkeypatch):
 
 def test_main_drift_warning_names_both_addresses(monkeypatch, capsys):
     """Triage is 'paste this into Trusted Sources' — the alert must carry it."""
-    run = _run(monkeypatch, argv=("--no-gh", "--expected", "67.213.124.9"))
+    run = _run(monkeypatch, argv=("--expected", "67.213.124.9"))
     with pytest.raises(SystemExit):
         run()
     out = capsys.readouterr().out
@@ -156,7 +154,7 @@ def test_main_drift_warning_names_both_addresses(monkeypatch, capsys):
 
 
 def test_main_accepts_any_of_several_expected(monkeypatch):
-    run = _run(monkeypatch, argv=("--no-gh", "--expected", "67.213.124.9,69.67.149.183"))
+    run = _run(monkeypatch, argv=("--expected", "67.213.124.9,69.67.149.183"))
     run()  # no SystemExit
 
 
@@ -178,63 +176,46 @@ def test_main_unconfigured_reports_the_ip_and_exits_clean(monkeypatch, capsys):
 
 def test_main_undeterminable_ip_is_not_drift(monkeypatch, capsys):
     """A third-party echo outage must not raise an alert about our network."""
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh", "--expected", "69.67.149.183"])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--expected", "69.67.149.183"])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(OSError("down")))
     main()  # no SystemExit
     assert "could not determine" in capsys.readouterr().out.lower()
 
 
-def test_main_no_gh_hatch_suppresses_surfacing(monkeypatch):
-    called = []
-    monkeypatch.setenv("EGRESS_CHECK_NO_GH", "1")
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--expected", "67.213.124.9"])
-    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
-    monkeypatch.setattr("scripts._alerting.gh", lambda args: called.append(args) or (0, ""))
-    with pytest.raises(SystemExit):
-        main()
-    assert called == []
-
-
-def test_main_surfaces_drift_with_the_current_ip_in_the_body(monkeypatch):
-    """The GitHub alert must be actionable without opening a shell on the VM."""
-    calls = []
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--expected", "67.213.124.9"])
-    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
-    monkeypatch.setattr(
-        "scripts._alerting.gh",
-        lambda args: (calls.append(args), (0, "") if "list" not in args else (0, ""))[1],
-    )
-    with pytest.raises(SystemExit):
-        main()
-    # "create" alone also matches the label-create call, which carries no body.
-    create = next((c for c in calls if "issue" in c and "create" in c), None)
-    assert create is not None
-    body = create[create.index("--body") + 1]
-    assert "69.67.149.183" in body
-
-
 def test_main_force_fail_hatch(monkeypatch):
     monkeypatch.setenv("EGRESS_CHECK_FORCE_FAIL", "1")
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     with pytest.raises(SystemExit) as excinfo:
         main()
     assert excinfo.value.code == 3
 
 
-def test_alert_identity_is_distinct_from_the_readiness_guard(monkeypatch):
-    """Separate labels: two causes, two issues, independent open/close cycles."""
-    from scripts.check_ready import READY_ALERT
-
-    assert EGRESS_ALERT.label != READY_ALERT.label
-    assert EGRESS_ALERT.unit != READY_ALERT.unit
-
-
-def test_main_logs_at_warning_on_drift(monkeypatch, caplog):
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh", "--expected", "67.213.124.9"])
+def test_main_logs_the_fix_at_warning_on_drift(monkeypatch, capsys):
+    """The journal is where the new address lives since #566: the alert check-in's
+    body names ``journalctl``, never the address itself."""
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--expected", "67.213.124.9"])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
-    with caplog.at_level(logging.WARNING), pytest.raises(SystemExit):
+    with pytest.raises(SystemExit):
         main()
+    lines = [json.loads(ln) for ln in capsys.readouterr().out.splitlines() if ln.startswith("{")]
+    fix = [ln for ln in lines if "Trusted Sources" in ln["message"]]
+    assert fix and fix[0]["level"] == "WARNING"
+    assert "69.67.149.183" in fix[0]["message"]
+
+
+def test_main_never_touches_github(monkeypatch):
+    """#566: the co-status check-in replaced the ``egress-ip-drift`` issue."""
+
+    # Recorded, not raised: the retired surfacing swallowed every exception.
+    ran = []
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: ran.append(a))
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--expected", "67.213.124.9"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+    assert excinfo.value.code == 3
+    assert ran == []
 
 
 # --- allowlist source: the DO API is authoritative (#409 unblocked this) -----
@@ -267,7 +248,7 @@ def _do_api(ips, *, fail=False):
 
 def test_allowlist_comes_from_the_do_api_when_a_token_is_present(monkeypatch, capsys):
     monkeypatch.setenv("DO_API_TOKEN", "tok")
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     monkeypatch.setattr(
         "scripts.check_egress_ip.fetch_allowed_ips", lambda *a, **k: ["69.67.149.183"]
@@ -280,7 +261,7 @@ def test_do_api_allowlist_drives_the_drift_verdict(monkeypatch):
     """The env var is not consulted at all when the API answers."""
     monkeypatch.setenv("DO_API_TOKEN", "tok")
     monkeypatch.setenv("EGRESS_EXPECTED_IPS", "69.67.149.183")  # would say "fine"
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", lambda *a, **k: ["1.2.3.4"])
     with pytest.raises(SystemExit) as excinfo:
@@ -291,7 +272,7 @@ def test_do_api_allowlist_drives_the_drift_verdict(monkeypatch):
 def test_api_catches_a_rule_being_removed(monkeypatch):
     """The failure the env var cannot see: our IP deleted from Trusted Sources."""
     monkeypatch.setenv("DO_API_TOKEN", "tok")
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     monkeypatch.setattr(
         "scripts.check_egress_ip.fetch_allowed_ips", lambda *a, **k: ["67.213.124.9"]
@@ -304,7 +285,7 @@ def test_api_catches_a_rule_being_removed(monkeypatch):
 def test_api_failure_falls_back_to_the_env_var(monkeypatch, capsys):
     monkeypatch.setenv("DO_API_TOKEN", "tok")
     monkeypatch.setenv("EGRESS_EXPECTED_IPS", "69.67.149.183")
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
 
     def boom(*a, **k):
@@ -319,7 +300,7 @@ def test_api_failure_without_a_fallback_is_not_drift(monkeypatch, capsys):
     """Someone else's outage must not alert about our network."""
     monkeypatch.setenv("DO_API_TOKEN", "tok")
     monkeypatch.delenv("EGRESS_EXPECTED_IPS", raising=False)
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
 
     def boom(*a, **k):
@@ -337,7 +318,7 @@ def test_empty_trusted_sources_means_unrestricted_not_drift(monkeypatch, capsys)
     """
     monkeypatch.setenv("DO_API_TOKEN", "tok")
     monkeypatch.delenv("EGRESS_EXPECTED_IPS", raising=False)
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", lambda *a, **k: [])
     main()  # no SystemExit
@@ -347,7 +328,7 @@ def test_empty_trusted_sources_means_unrestricted_not_drift(monkeypatch, capsys)
 def test_no_token_still_uses_the_env_var(monkeypatch, capsys):
     """Fallback path stays intact for any host without a DO token."""
     monkeypatch.setenv("EGRESS_EXPECTED_IPS", "67.213.124.9")
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     with pytest.raises(SystemExit) as excinfo:
         main()
@@ -364,7 +345,7 @@ def test_an_explicit_expected_flag_beats_the_api(monkeypatch):
     An operator passing an allowlist explicitly is debugging; honour it.
     """
     monkeypatch.setenv("DO_API_TOKEN", "tok")
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh", "--expected", "1.2.3.4"])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--expected", "1.2.3.4"])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     monkeypatch.setattr(
         "scripts.check_egress_ip.fetch_allowed_ips", lambda *a, **k: ["69.67.149.183"]
@@ -378,7 +359,7 @@ def test_the_env_var_still_loses_to_the_api(monkeypatch, capsys):
     """Only an explicitly-passed flag wins — the env var stays a fallback."""
     monkeypatch.setenv("DO_API_TOKEN", "tok")
     monkeypatch.setenv("EGRESS_EXPECTED_IPS", "1.2.3.4")
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh"])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     monkeypatch.setattr(
         "scripts.check_egress_ip.fetch_allowed_ips", lambda *a, **k: ["69.67.149.183"]
@@ -396,7 +377,7 @@ def test_timeout_is_threaded_into_the_do_api_call(monkeypatch):
         return ["69.67.149.183"]
 
     monkeypatch.setenv("DO_API_TOKEN", "tok")
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh", "--timeout", "3"])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--timeout", "3"])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", recording)
     main()
@@ -406,7 +387,7 @@ def test_timeout_is_threaded_into_the_do_api_call(monkeypatch):
 def test_an_explicit_but_empty_expected_is_unknown_not_drift(monkeypatch, capsys):
     """`--expected ""` asks to compare against nothing; that is not a verdict."""
     monkeypatch.setenv("DO_API_TOKEN", "tok")
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh", "--expected", ""])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--expected", ""])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     main()  # no SystemExit
     assert "could not determine the allowlist" in capsys.readouterr().out.lower()
@@ -415,7 +396,7 @@ def test_an_explicit_but_empty_expected_is_unknown_not_drift(monkeypatch, capsys
 def test_an_explicit_expected_of_only_separators_is_undetermined(monkeypatch, capsys):
     """CR2 finding 13: the label and the emptiness check must not disagree."""
     monkeypatch.setenv("DO_API_TOKEN", "tok")
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh", "--expected", ","])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--expected", ","])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     main()  # no SystemExit
     assert "could not determine the allowlist" in capsys.readouterr().out.lower()
@@ -424,7 +405,7 @@ def test_an_explicit_expected_of_only_separators_is_undetermined(monkeypatch, ca
 def test_undetermined_message_does_not_misattribute_the_cause(monkeypatch, capsys):
     """With a token present, blaming a missing token sends triage the wrong way."""
     monkeypatch.setenv("DO_API_TOKEN", "tok")
-    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--no-gh", "--expected", ","])
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip", "--expected", ","])
     monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
     main()
     out = capsys.readouterr().out

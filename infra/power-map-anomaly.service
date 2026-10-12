@@ -11,6 +11,19 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
 # Logs a WARNING per key at/above the threshold (default 5000/hr; env
 # API_ANOMALY_HOURLY_THRESHOLD, <= 0 disables) and exits 3 — the unit shows as
-# failed, so anomalies surface in `systemctl --failed` and can drive
-# OnFailure= later. Exit 3 (not 2) stays distinct from argparse usage errors.
+# failed, so anomalies surface in `systemctl --failed` and as an `anomaly`
+# alert check-in. Exit 3 (not 2) stays distinct from argparse usage errors.
 ExecStart=uv run python -m scripts.check_api_anomalies
+
+# After every run, ok or alert, a check-in with co-status (#566): a failed run
+# reaches a person through Notifier, and a run that never happens goes `missing`.
+# Best-effort (`-`, and the hook always exits 0); never changes this unit's result.
+# The key is a credential, never an env var; SetCredential= (a lone newline,
+# read as "no key") is the fallback that keeps a missing key file from failing
+# the unit (243).
+# co-status monitor: co-power-map-anomaly (CannObserv/status#36)
+Environment=STATUS_MONITOR_ID=01M4RF3TN7DPWYFPKT42555RMZ
+Environment=STATUS_EXIT_KINDS=3:anomaly
+LoadCredential=status-checkin:/etc/power-map/status-api.key
+SetCredential=status-checkin:\n
+ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

@@ -18,22 +18,21 @@ Two behaviours are load-bearing and easy to get wrong:
 - **Flap resistance.** A single failed probe is not an outage. The run retries
   after ``--retry-delay`` and only alerts when every attempt fails, so a lone
   2-second blip stays quiet.
-- **Quiet when already alerting.** At a 2-minute cadence, commenting on each
-  failing run would post ~30 comments an hour. An already-open issue is left
-  untouched; recovery comments once and closes it. No local state file is
-  needed — the open issue *is* the state, held by GitHub.
+- **One alert per outage.** At a 2-minute cadence every failing run exits 3,
+  and the unit's co-status check-in (#566) sends ``alert``; co-status folds a
+  run of alerts into one fault and the next green run's ``ok`` clears it. No
+  local state file is needed — the fault *is* the state, held by co-status.
 
 Exit codes: 0 = ready; 3 = not ready (systemd marks the unit failed, so it
 shows in ``systemctl --failed``, the ambient signal the SessionStart hook
 reads). Exit 3, not 2, keeps it distinct from argparse usage errors.
 
-Test hatches:
-    READY_CHECK_NO_GH=1      skip GitHub surfacing entirely.
+Test hatch:
     READY_CHECK_FORCE_FAIL=1 skip probing and exercise the failure path.
 
 Usage:
     uv run python -m scripts.check_ready
-    uv run python -m scripts.check_ready --url http://localhost:8001/ready --no-gh
+    uv run python -m scripts.check_ready --url http://localhost:8001/ready
 """
 
 import argparse
@@ -45,7 +44,6 @@ import urllib.error
 from dataclasses import dataclass
 from urllib.request import urlopen
 
-from scripts._alerting import Alert, surface
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -56,14 +54,6 @@ DEFAULT_URL = "http://localhost:8000/ready"
 DEFAULT_TIMEOUT = 10.0
 DEFAULT_ATTEMPTS = 2
 DEFAULT_RETRY_DELAY = 10.0
-
-READY_ALERT = Alert(
-    label="ready-regression",
-    title="Readiness probe failing (automated)",
-    subject_recovered="`/ready` is green again",
-    unit="power-map-ready",
-    label_description="Automated /ready probe failure (power-map-ready.timer, #347)",
-)
 
 
 @dataclass(frozen=True)
@@ -151,7 +141,7 @@ def check(
 
 
 def summarize(results: list[ProbeResult]) -> str:
-    """One line for the journal and the issue body — slug first, no internals."""
+    """One line for the journal — slug first, no internals."""
     last = results[-1]
     where = f"HTTP {last.status}" if last.status is not None else "no response"
     return f"/ready not ready after {len(results)} attempt(s) — {where}, reason `{last.reason}`"
@@ -203,9 +193,6 @@ def main() -> None:
             f"seconds between attempts (default {DEFAULT_RETRY_DELAY}; env READY_PROBE_RETRY_DELAY)"
         ),
     )
-    parser.add_argument(
-        "--no-gh", action="store_true", help="skip GitHub surfacing (env READY_CHECK_NO_GH)"
-    )
     args = parser.parse_args()
     # These all come from /etc/power-map/.env, so a typo must produce a usage
     # error rather than a traceback every two minutes: zero attempts probed
@@ -217,14 +204,9 @@ def main() -> None:
         parser.error(f"--retry-delay must not be negative (got {args.retry_delay})")
     if args.timeout <= 0:
         parser.error(f"--timeout must be greater than 0 (got {args.timeout})")
-    no_gh = args.no_gh or bool(os.environ.get("READY_CHECK_NO_GH"))
 
     if os.environ.get("READY_CHECK_FORCE_FAIL"):
         logger.warning("READY_CHECK_FORCE_FAIL set — exercising the failure path (synthetic)")
-        if not no_gh:
-            surface(
-                False, "synthetic failure (READY_CHECK_FORCE_FAIL) — surfacing self-test, ignore."
-            )
         sys.exit(3)
 
     results = check(
@@ -239,9 +221,6 @@ def main() -> None:
         logger.info("readiness OK (%s, %d attempt(s))", args.url, len(results))
     else:
         logger.warning("readiness FAILED — %s (%s)", summarize(results), args.url)
-
-    if not no_gh:
-        surface(ok, summarize(results), alert=READY_ALERT)
     if not ok:
         sys.exit(3)
 

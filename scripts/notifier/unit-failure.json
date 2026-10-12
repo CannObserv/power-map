@@ -1,0 +1,23 @@
+{
+  "name": "power-map-unit-failure",
+  "title_template": "[power-map] {{ unit }} failed on {{ host }}",
+  "body_template": "{{ unit }} failed on {{ host }}: {{ result }}.\n\nThe detail stays on the host (power-map's repo is public): {{ journal_cmd }}\n\nAfter a start-limit trip the service stays down until someone runs: sudo systemctl reset-failed {{ unit }} && sudo systemctl start {{ unit }}",
+  "variables_schema": {
+    "type": "object",
+    "required": ["unit", "result", "host", "journal_cmd"],
+    "properties": {
+      "unit": {"type": "string"},
+      "result": {"type": "string"},
+      "host": {"type": "string"},
+      "journal_cmd": {"type": "string"}
+    },
+    "additionalProperties": true
+  },
+  "sample_variables": {
+    "unit": "power-map.service",
+    "result": "start-limit-hit (exited 1)",
+    "host": "power-map",
+    "journal_cmd": "journalctl -u power-map.service -n 100"
+  },
+  "tags": ["power-map", "unit-failure"]
+}

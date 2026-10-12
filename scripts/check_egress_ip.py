@@ -30,15 +30,16 @@ Two judgements worth keeping:
   with an HTML error page; parsing that as an address would "drift" every run.
 
 Exit codes: 0 = matches (or nothing to compare against); 3 = drift (systemd
-marks the unit failed, so it shows in ``systemctl --failed``).
+marks the unit failed, so it shows in ``systemctl --failed``, and the unit's
+co-status check-in alerts as ``drift``; #566). The new address is in the
+journal WARNING, which the alert points at; it never leaves the host.
 
-Test hatches:
-    EGRESS_CHECK_NO_GH=1      skip GitHub surfacing entirely.
+Test hatch:
     EGRESS_CHECK_FORCE_FAIL=1 skip lookup and exercise the failure path.
 
 Usage:
     uv run python -m scripts.check_egress_ip
-    uv run python -m scripts.check_egress_ip --expected 69.67.149.183 --no-gh
+    uv run python -m scripts.check_egress_ip --expected 69.67.149.183
 """
 
 import argparse
@@ -47,7 +48,6 @@ import os
 import sys
 from urllib.request import urlopen
 
-from scripts._alerting import Alert, surface
 from scripts._do_api import DEFAULT_CLUSTER, fetch_allowed_ips
 from scripts._do_api import DEFAULT_TIMEOUT as DO_API_TIMEOUT
 from src.core.logging import configure_logging, get_logger
@@ -57,14 +57,6 @@ logger = get_logger(__name__)
 # Two independent providers: one outage must not blind the guard.
 DEFAULT_SERVICES = ("https://api.ipify.org", "https://ifconfig.me/ip")
 DEFAULT_TIMEOUT = 10.0
-
-EGRESS_ALERT = Alert(
-    label="egress-ip-drift",
-    title="Egress IP no longer matches the database allowlist (automated)",
-    subject_recovered="the egress IP matches the allowlist again",
-    unit="power-map-egress-ip",
-    label_description="Automated egress-IP drift detection (power-map-egress-ip.timer, #410)",
-)
 
 
 def lookup(services, *, timeout: float, opener=None) -> str | None:
@@ -164,20 +156,10 @@ def main() -> None:
     parser.add_argument(
         "--cluster", default=DEFAULT_CLUSTER, help=f"DO cluster name (default {DEFAULT_CLUSTER})"
     )
-    parser.add_argument(
-        "--no-gh", action="store_true", help="skip GitHub surfacing (env EGRESS_CHECK_NO_GH)"
-    )
     args = parser.parse_args()
-    no_gh = args.no_gh or bool(os.environ.get("EGRESS_CHECK_NO_GH"))
 
     if os.environ.get("EGRESS_CHECK_FORCE_FAIL"):
         logger.warning("EGRESS_CHECK_FORCE_FAIL set — exercising the failure path (synthetic)")
-        if not no_gh:
-            surface(
-                False,
-                "synthetic drift (EGRESS_CHECK_FORCE_FAIL) — surfacing self-test, ignore.",
-                alert=EGRESS_ALERT,
-            )
         sys.exit(3)
 
     current = lookup(DEFAULT_SERVICES, timeout=args.timeout, opener=urlopen)
@@ -214,26 +196,19 @@ def main() -> None:
 
     if current in allowed:
         logger.info("egress IP %s is in the allowlist (source: %s)", current, source)
-        if not no_gh:
-            surface(True, "", alert=EGRESS_ALERT)
         return
 
-    summary = (
-        f"Egress IP is `{current}`, which is not in the allowlist "
-        f"(`{'`, `'.join(sorted(allowed))}`, source: {source}).\n\n"
-        "The database cluster gates on source IP, so this takes every DB-backed route "
-        "down as soon as connections are re-established. Fix: add `" + current + "` to "
-        "DO → Databases → `co-pm-db-1` → Settings → Trusted Sources, then update "
-        "`EGRESS_EXPECTED_IPS` and terraform's `allowed_external_ips` to match."
-    )
     logger.warning(
         "egress IP DRIFT — %s is not in the allowlist (%s; source: %s)",
         current,
         ", ".join(sorted(allowed)),
         source,
     )
-    if not no_gh:
-        surface(False, summary, alert=EGRESS_ALERT)
+    logger.warning(
+        "fix: add %s to DO → Databases → co-pm-db-1 → Settings → Trusted Sources, then "
+        "update EGRESS_EXPECTED_IPS and terraform's allowed_external_ips to match",
+        current,
+    )
     sys.exit(3)
 
 

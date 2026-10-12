@@ -17,3 +17,15 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # tombstones, the outbox and the request log. Revert to the default when the
 # triage pass (#501) is done.
 ExecStart=uv run python -m scripts.prune_outbox --execute --retention-days 104
+
+# After every run, ok or alert, a check-in with co-status (#566): a failed run
+# reaches a person through Notifier, and a run that never happens goes `missing`.
+# Best-effort (`-`, and the hook always exits 0); never changes this unit's result.
+# The key is a credential, never an env var; SetCredential= (a lone newline,
+# read as "no key") is the fallback that keeps a missing key file from failing
+# the unit (243).
+# co-status monitor: co-power-map-prune (CannObserv/status#36)
+Environment=STATUS_MONITOR_ID=01M4RF3TS7HK2PMZFQ3P5JXE6F
+LoadCredential=status-checkin:/etc/power-map/status-api.key
+SetCredential=status-checkin:\n
+ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

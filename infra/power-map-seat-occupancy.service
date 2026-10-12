@@ -16,3 +16,16 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # in `systemctl --failed` on a new concurrent holder, not on the known backlog.
 # Read-only.
 ExecStart=uv run python -m scripts.audit_seat_occupancy
+
+# After every run, ok or alert, a check-in with co-status (#566): a failed run
+# reaches a person through Notifier, and a run that never happens goes `missing`.
+# Best-effort (`-`, and the hook always exits 0); never changes this unit's result.
+# The key is a credential, never an env var; SetCredential= (a lone newline,
+# read as "no key") is the fallback that keeps a missing key file from failing
+# the unit (243).
+# co-status monitor: co-power-map-seat-occupancy (CannObserv/status#36)
+Environment=STATUS_MONITOR_ID=01M4RF3TZV0WYMBZ6GNF634BB8
+Environment=STATUS_EXIT_KINDS=3:ratchet
+LoadCredential=status-checkin:/etc/power-map/status-api.key
+SetCredential=status-checkin:\n
+ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

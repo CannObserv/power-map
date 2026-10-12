@@ -114,7 +114,7 @@ Only the hazards are here; every command itself is in `docs/COMMANDS.md`.
 - The dev server on 8001 always runs from a worktree, never the main checkout.
 - `/health` + `/ready` are unauthenticated probes (#343); a `pool_timeout` from `/ready` means the egress IP likely rotated out of DO Trusted Sources → `docs/RUNBOOK_DB_TRIAGE.md` (#410).
 
-Scheduled timers all surface failure through `systemctl --failed` — roster, cadences and scripts in `docs/COMMANDS.md` § Scheduled timers.
+Timer roster: `docs/COMMANDS.md` § Scheduled timers.
 
 **Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates its write behind `--execute` and echoes its target first. Uniform flags, the `scripts/_dsn.py` resolver, and the AST sweep enforcing them → `docs/RUNBOOKS.md` § Operational scripts.
 
@@ -194,6 +194,7 @@ Each line says what a task would need the doc for — load the one that matches,
 - [docs/RUNBOOKS.md](docs/RUNBOOKS.md) — data operations: importer, seeds, role sweep, TTL prune, operational-script dry-run rules
 - [docs/RUNBOOK_DESIRED_STATE.md](docs/RUNBOOK_DESIRED_STATE.md) — the dataset-subscription chain: pull, build, apply, and what a nightly run blocks on
 - [docs/AUDITS.md](docs/AUDITS.md) — the recurring integrity audits and uptime guards, and which carry systemd timers
+- [docs/ALERTING.md](docs/ALERTING.md) — how a failed or missed run reaches a person
 - [docs/RUNBOOK_DB_TRIAGE.md](docs/RUNBOOK_DB_TRIAGE.md) — DB unreachable: `/ready` reasons, egress-IP drift
 - [docs/RUNBOOK_DB_MIGRATION.md](docs/RUNBOOK_DB_MIGRATION.md) — DB cutover checklist, maintenance window, rollback
 - [docs/SKILLS.md](docs/SKILLS.md) — vendored skill inventory, submodule refresh, hook command form, index health (the daily `unresolved %` line is not a defect)

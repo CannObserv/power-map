@@ -15,5 +15,18 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # script or raw SQL can strand (#324, #605, #609). The delete/merge paths drop or
 # re-home first; this is the continuous backstop.
 # Exits 3 when any orphan exists, so the unit shows as failed in
-# `systemctl --failed` and can drive OnFailure= later. Read-only.
+# `systemctl --failed` and alerts as `orphans`. Read-only.
 ExecStart=uv run python -m scripts.audit_ancillary_orphans
+
+# After every run, ok or alert, a check-in with co-status (#566): a failed run
+# reaches a person through Notifier, and a run that never happens goes `missing`.
+# Best-effort (`-`, and the hook always exits 0); never changes this unit's result.
+# The key is a credential, never an env var; SetCredential= (a lone newline,
+# read as "no key") is the fallback that keeps a missing key file from failing
+# the unit (243).
+# co-status monitor: co-power-map-ancillary-orphans (CannObserv/status#36)
+Environment=STATUS_MONITOR_ID=01M4RF3TVWSXDK4XASWNNJ4CW0
+Environment=STATUS_EXIT_KINDS=3:orphans
+LoadCredential=status-checkin:/etc/power-map/status-api.key
+SetCredential=status-checkin:\n
+ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

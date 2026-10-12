@@ -37,3 +37,16 @@ EnvironmentFile=-/home/exedev/power-map/.env
 ExecStart=uv run --group mapping python -m scripts.export_pm_tables
 ExecStart=uv run --group mapping python -m scripts.build_desired_state
 ExecStart=uv run --group mapping python -m scripts.apply_desired_state
+
+# After every run, ok or alert, a check-in with co-status (#566): a failed run
+# reaches a person through Notifier, and a run that never happens goes `missing`.
+# Best-effort (`-`, and the hook always exits 0); never changes this unit's result.
+# The key is a credential, never an env var; SetCredential= (a lone newline,
+# read as "no key") is the fallback that keeps a missing key file from failing
+# the unit (243).
+# co-status monitor: co-power-map-desired-state (CannObserv/status#36)
+Environment=STATUS_MONITOR_ID=01M4RF3TQTTWRF76HXRTCSQF9C
+Environment=STATUS_EXIT_KINDS=3:needs-a-person
+LoadCredential=status-checkin:/etc/power-map/status-api.key
+SetCredential=status-checkin:\n
+ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

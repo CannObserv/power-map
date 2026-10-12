@@ -19,6 +19,7 @@
 "power-map-schema-parity.service" = "/etc/systemd/system/power-map-schema-parity.service"
 "power-map-seat-occupancy.service" = "/etc/systemd/system/power-map-seat-occupancy.service"
 "power-map.service" = "/etc/systemd/system/power-map.service"
+"power-map-notify-failure@.service" = "/etc/systemd/system/power-map-notify-failure@.service"
 "power-map-a11y.timer" = "/etc/systemd/system/power-map-a11y.timer"
 "power-map-ancillary-orphans.timer" = "/etc/systemd/system/power-map-ancillary-orphans.timer"
 "power-map-anomaly.timer" = "/etc/systemd/system/power-map-anomaly.timer"
