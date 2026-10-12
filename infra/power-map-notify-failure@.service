@@ -1,0 +1,31 @@
+[Unit]
+Description=Report the failure of %i to the journal and Notifier (issue #566)
+# The OnFailure= target of power-map.service (CannObserv/notifier#114). The
+# timers report through their co-status check-in instead (status#36).
+# 1. One crit line tagged power-map-unit-failure, always first: no network, venv
+#    or config needed, so it is the fallback (`journalctl -t power-map-unit-failure`).
+# 2. A Notifier dispatch, one per failed invocation. The leading `-` makes systemd
+#    ignore its exit status, so fail-open holds even if the script itself breaks.
+# Deliberately no OnFailure= of its own: a failing handler would recurse.
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+# None of these is a secret. Empty = journal only, logged; filled in from
+# notifier#114 (channels) and publish_notifier_template.py (template).
+Environment=NOTIFIER_URL=http://notifier:9000
+Environment=NOTIFIER_TEMPLATE_ID=
+Environment=NOTIFIER_CHANNEL_IDS=
+# The tenant key, root-only on disk. SetCredential= (a lone newline, read as
+# "no key") keeps a missing file from failing the handler (243) before its
+# logger line runs.
+LoadCredential=notifier-api:/etc/power-map/notifier-api.key
+SetCredential=notifier-api:\n
+ExecStart=/usr/bin/logger -t power-map-unit-failure -p daemon.crit "%i failed; see: journalctl -u %i -n 100"
+# The venv's interpreter, not `uv run`: no sync on the alert path, whose cause may
+# be a broken sync. notifier-client is a main dependency, so the API's own
+# `uv sync` keeps it installed.
+ExecStart=-/home/exedev/power-map/.venv/bin/python -m scripts.notify_unit_failure %i
+# The script bounds itself at 60s (RUN_BUDGET_SECONDS); this is the backstop.
+TimeoutStartSec=90

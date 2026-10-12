@@ -13,6 +13,9 @@ dependencies = [
     "jinja2>=3.1.6",
     "nameparser>=1.1.3",
     "nicknames>=1.0.1",
+    # power-map.service's OnFailure= dispatch (#566). A main dependency, not a
+    # group: the API's own `uv sync` prunes groups from the checkout the handler runs in.
+    "notifier-client>=0.3.2,<1",
     "phonenumbers>=9.0.26",
     "python-dotenv>=1.2.2",
     "python-json-logger>=4.0.0",
@@ -54,6 +57,9 @@ mapping = [
 
 [tool.uv.sources]
 power-map-client = { path = "clients/python", editable = true }
+# Pinned by release tag, per CannObserv/notifier docs/RELEASING.md; uv does not
+# enforce the floor above against a git source, so the tag is the pin.
+notifier-client = { git = "https://github.com/CannObserv/notifier.git", subdirectory = "clients/python", tag = "v0.3.2" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

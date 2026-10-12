@@ -1,6 +1,16 @@
 [Unit]
 Description=power-map API
 After=network.target
+# Crash-loop alert through Notifier (#566, CannObserv/notifier#114). Under
+# Restart= with the default RestartMode=normal, every crash passes through
+# `failed` and OnFailure= would fire per restart; RestartMode=direct below keeps
+# each restart out of `failed`, so the handler fires once: when 10 starts land
+# inside 600s (a refused ExecStartPre schema apply included) and systemd gives
+# up. Manual restarts count too. After a trip the service stays down:
+#   sudo systemctl reset-failed power-map && sudo systemctl start power-map
+OnFailure=power-map-notify-failure@%n.service
+StartLimitIntervalSec=600
+StartLimitBurst=10
 
 [Service]
 User=exedev
@@ -14,6 +24,7 @@ ExecStartPre=bash scripts/apply-schema.sh
 ExecStart=uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 2 --log-config src/core/log_config.json
 Restart=on-failure
 RestartSec=5s
+RestartMode=direct
 
 # Memory reservation (#537). This host is 7.2 GiB with NO swap and also carries
 # interactive agent sessions, whose processes inherit oom_score_adj -1000 from

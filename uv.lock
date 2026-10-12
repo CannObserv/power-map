@@ -1216,6 +1216,16 @@ wheels = [
 ]
 
 [[package]]
+name = "notifier-client"
+version = "0.3.2"
+source = { git = "https://github.com/CannObserv/notifier.git?subdirectory=clients%2Fpython&tag=v0.3.2#8e7c020b52e3c2d4b8cea9fa1bbe0e9be2e86e4f" }
+dependencies = [
+    { name = "attrs" },
+    { name = "httpx" },
+    { name = "python-ulid" },
+]
+
+[[package]]
 name = "openapi-python-client"
 version = "0.29.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1342,6 +1352,7 @@ dependencies = [
     { name = "jinja2" },
     { name = "nameparser" },
     { name = "nicknames" },
+    { name = "notifier-client" },
     { name = "phonenumbers" },
     { name = "python-dotenv" },
     { name = "python-json-logger" },
@@ -1390,6 +1401,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "nameparser", specifier = ">=1.1.3" },
     { name = "nicknames", specifier = ">=1.0.1" },
+    { name = "notifier-client", git = "https://github.com/CannObserv/notifier.git?subdirectory=clients%2Fpython&tag=v0.3.2" },
     { name = "phonenumbers", specifier = ">=9.0.26" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "python-json-logger", specifier = ">=4.0.0" },

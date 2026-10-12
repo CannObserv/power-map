@@ -159,8 +159,8 @@ sudo journalctl -u power-map -f
 # no_pool | pool_timeout | db_error.
 curl -fsS localhost:8000/health && curl -fsS localhost:8000/ready
 
-# Install (first time or after updating infra/power-map.service)
-sudo cp infra/power-map.service /etc/systemd/system/power-map.service
+# Install (first time or after updating either unit)
+sudo cp infra/power-map.service infra/power-map-notify-failure@.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now power-map
 
@@ -450,9 +450,8 @@ git submodule update --remote --merge skills-vendor/gregoryfoster-skills skills-
 
 ## Scheduled timers
 
-Every unit below reports failure through `systemctl --failed`, and each one that
-can alert opens a GitHub issue and closes it on recovery — the alert state lives
-in the issue, never in a local file. **The per-script detail is in the doc each
+Every unit below reports failure through `systemctl --failed` and checks in with
+co-status after each run, so a failed or missed run alerts ([ALERTING.md](ALERTING.md)). **The per-script detail is in the doc each
 row names**; this is a roster, not a reference.
 
 | Timer | Cadence | Runs | Detail |

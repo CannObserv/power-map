@@ -73,10 +73,10 @@ true). Last resort while it is down: `sudo cp /etc/resolv.pre-tailscale-backup.c
 
 ### Scheduled guards
 
-`power-map-ready.timer` (every 2 min, #347) catches the effect; the
-`ready-regression` GitHub issue carries the slug; both guards' cadence,
-hatches and overrides are in [AUDITS.md](AUDITS.md). `power-map-egress-ip.timer`
-(every 5 min, #410) catches this specific cause and hands over the new address.
+`power-map-ready.timer` (every 2 min, #347) catches the effect and alerts
+`not-ready` through co-status (#566); the journal carries the slug. Both guards'
+cadence, hatches and overrides are in [AUDITS.md](AUDITS.md). `power-map-egress-ip.timer`
+(every 5 min, #410) catches this specific cause and names the new address in its journal.
 Install / update either:
 
 ```bash

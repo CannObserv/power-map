@@ -17,7 +17,7 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # function/trigger body-drift window (#331; extension-owned/internal excluded,
 # version-sensitive kinds skipped on a PG-major mismatch). Exit 3 (not 2) stays
 # distinct from argparse usage errors; the unit shows as failed, so drift
-# surfaces in `systemctl --failed` and can drive OnFailure= later.
+# surfaces in `systemctl --failed` and alerts as `drift`.
 # A reference-only object the deployed src/core/schema.sql (this checkout's) does
 # not declare is the reference running ahead of a deploy (#632): exit 4, a journal
 # WARNING, success here. Past 3 consecutive daily runs it escalates to exit 3;
@@ -25,3 +25,16 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # Read-only on both databases; the state file is its only write.
 ExecStart=uv run python -m scripts.audit_schema_constraint_parity
 SuccessExitStatus=4
+
+# After every run, ok or alert, a check-in with co-status (#566): a failed run
+# reaches a person through Notifier, and a run that never happens goes `missing`.
+# Best-effort (`-`, and the hook always exits 0); never changes this unit's result.
+# The key is a credential, never an env var; SetCredential= (a lone newline,
+# read as "no key") is the fallback that keeps a missing key file from failing
+# the unit (243).
+# co-status monitor: co-power-map-schema-parity (CannObserv/status#36)
+Environment=STATUS_MONITOR_ID=
+Environment=STATUS_EXIT_KINDS=3:drift
+LoadCredential=status-checkin:/etc/power-map/status-checkin.key
+SetCredential=status-checkin:\n
+ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

@@ -9,8 +9,8 @@ layer here. What it *does* own is three things worth pinning down:
    failure", not "slow query".
 2. Not crying wolf on a single blip — a failure followed by a success inside
    one run is green.
-3. Not spamming. At a 2-minute cadence a comment per failing run would post
-   ~30 comments an hour, so an already-open issue is left alone.
+3. Exit 3 on failure and nothing else: the unit's co-status check-in (#566)
+   turns that into one alert, and the next green run's ``ok`` clears it.
 
 ``urlopen`` raises ``HTTPError`` for 503 rather than returning a response, and
 ``HTTPError`` doubles as a readable response object. The fakes here reproduce
@@ -18,7 +18,6 @@ that shape so the tests fail the same way the real client would.
 """
 
 import io
-import logging
 import sys
 import urllib.error
 
@@ -26,7 +25,6 @@ import pytest
 
 from scripts.check_ready import (
     DEFAULT_URL,
-    READY_ALERT,
     ProbeResult,
     check,
     main,
@@ -80,22 +78,6 @@ def _ok_opener():
 
 def _down_opener(reason=b"pool_timeout"):
     return _opener(_http_error(503, b'{"status":"unavailable","reason":"' + reason + b'"}'))
-
-
-class _Runner:
-    """Fake ``gh`` runner recording argv; returns queued (rc, stdout) pairs."""
-
-    def __init__(self, *results):
-        self.results = list(results)
-        self.calls = []
-
-    def __call__(self, args):
-        self.calls.append(args)
-        return self.results.pop(0) if self.results else (0, "")
-
-    def ran(self, *needles):
-        """True when some call contains all the given argv fragments."""
-        return any(all(n in call for n in needles) for call in self.calls)
 
 
 # --- probe: response -> reason slug ----------------------------------------
@@ -248,7 +230,7 @@ def test_summary_reports_attempt_count():
 
 def test_main_exits_3_when_not_ready(monkeypatch):
     """Exit 3 marks the unit failed — same convention as the anomaly check."""
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", "--attempts", "1"])
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--attempts", "1"])
     monkeypatch.setattr("scripts.check_ready.urlopen", _down_opener())
     with pytest.raises(SystemExit) as excinfo:
         main()
@@ -256,36 +238,24 @@ def test_main_exits_3_when_not_ready(monkeypatch):
 
 
 def test_main_exits_clean_when_ready(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", "--attempts", "1"])
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--attempts", "1"])
     monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
     main()  # no SystemExit
 
 
 def test_main_logs_the_reason_slug(monkeypatch, capsys):
     """The journal line is the first thing an operator reads."""
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", "--attempts", "1"])
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--attempts", "1"])
     monkeypatch.setattr("scripts.check_ready.urlopen", _down_opener())
     with pytest.raises(SystemExit):
         main()
     assert "pool_timeout" in capsys.readouterr().out
 
 
-def test_main_no_gh_hatch_suppresses_surfacing(monkeypatch):
-    """READY_CHECK_NO_GH is how the timer is exercised without touching GitHub."""
-    called = []
-    monkeypatch.setenv("READY_CHECK_NO_GH", "1")
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--attempts", "1"])
-    monkeypatch.setattr("scripts.check_ready.urlopen", _down_opener())
-    monkeypatch.setattr("scripts._alerting.gh", lambda args: called.append(args) or (0, ""))
-    with pytest.raises(SystemExit):
-        main()
-    assert called == []
-
-
 def test_main_force_fail_hatch(monkeypatch):
-    """Exercise the surfacing path without breaking a real dependency."""
+    """Exercise the alert path (exit 3, so an `alert` check-in) without breaking anything."""
     monkeypatch.setenv("READY_CHECK_FORCE_FAIL", "1")
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh"])
+    monkeypatch.setattr(sys, "argv", ["check_ready"])
     monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
     with pytest.raises(SystemExit) as excinfo:
         main()
@@ -300,7 +270,7 @@ def test_main_url_defaults_to_localhost_prod_port(monkeypatch):
 def test_main_url_overridable_by_env(monkeypatch):
     opener = _ok_opener()
     monkeypatch.setenv("READY_PROBE_URL", "http://localhost:8001/ready")
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", "--attempts", "1"])
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--attempts", "1"])
     monkeypatch.setattr("scripts.check_ready.urlopen", opener)
     main()
     assert opener.calls[0][0] == "http://localhost:8001/ready"
@@ -309,34 +279,24 @@ def test_main_url_overridable_by_env(monkeypatch):
 def test_main_default_timeout_exceeds_ready_worst_case(monkeypatch):
     """/ready bounds itself at ~4s (2s acquire + 2s query) — probe must outlast it."""
     opener = _ok_opener()
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", "--attempts", "1"])
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--attempts", "1"])
     monkeypatch.setattr("scripts.check_ready.urlopen", opener)
     main()
     assert opener.calls[0][1] > 4
 
 
-def test_main_surfaces_recovery_when_ready(monkeypatch):
-    """Green runs still call gh — that is what closes a stale alert."""
-    runner = _Runner((0, READY_ALERT.label), (0, ""))
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--attempts", "1"])
-    monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
-    monkeypatch.setattr("scripts._alerting.gh", runner)
-    main()
-    assert runner.calls
+def test_main_never_touches_github(monkeypatch):
+    """#566: the co-status check-in replaced the ``ready-regression`` issue."""
 
-
-def test_main_gh_failure_does_not_mask_the_probe_result(monkeypatch, caplog):
-    """Surfacing is best-effort; a broken gh must not turn an outage into exit 0."""
-
-    def boom(args):
-        raise OSError("gh exploded")
-
+    # Recorded, not raised: the retired surfacing swallowed every exception.
+    ran = []
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: ran.append(a))
     monkeypatch.setattr(sys, "argv", ["check_ready", "--attempts", "1"])
     monkeypatch.setattr("scripts.check_ready.urlopen", _down_opener())
-    monkeypatch.setattr("scripts._alerting.gh", boom)
-    with caplog.at_level(logging.WARNING), pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(SystemExit) as excinfo:
         main()
     assert excinfo.value.code == 3
+    assert ran == []
 
 
 # --- CR1 finding 1: attempts must be a real count ---------------------------
@@ -349,7 +309,7 @@ def test_main_rejects_a_non_positive_attempt_count(monkeypatch, attempts):
     An env typo in /etc/power-map/.env must not turn the outage guard into a
     unit that traps every two minutes without ever making a request.
     """
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", "--attempts", attempts])
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--attempts", attempts])
     monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
     with pytest.raises(SystemExit) as excinfo:
         main()
@@ -358,7 +318,7 @@ def test_main_rejects_a_non_positive_attempt_count(monkeypatch, attempts):
 
 def test_main_rejects_a_non_positive_attempt_count_from_the_environment(monkeypatch):
     monkeypatch.setenv("READY_PROBE_ATTEMPTS", "0")
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh"])
+    monkeypatch.setattr(sys, "argv", ["check_ready"])
     monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
     with pytest.raises(SystemExit) as excinfo:
         main()
@@ -367,7 +327,7 @@ def test_main_rejects_a_non_positive_attempt_count_from_the_environment(monkeypa
 
 def test_main_accepts_a_single_attempt(monkeypatch):
     """1 is the floor, not an error — flap resistance is opt-out-able."""
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", "--attempts", "1"])
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--attempts", "1"])
     monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
     main()  # no SystemExit
 
@@ -385,7 +345,7 @@ def test_main_rejects_nonsensical_timings(monkeypatch, flag, value):
     Same hazard as --attempts 0: these all come from /etc/power-map/.env, so a
     typo must produce a usage error, not a traceback every two minutes.
     """
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", flag, value])
+    monkeypatch.setattr(sys, "argv", ["check_ready", flag, value])
     monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
     with pytest.raises(SystemExit) as excinfo:
         main()
@@ -397,7 +357,7 @@ def test_main_rejects_nonsensical_timings(monkeypatch, flag, value):
 )
 def test_main_rejects_nonsensical_timings_from_the_environment(monkeypatch, env, value):
     monkeypatch.setenv(env, value)
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh"])
+    monkeypatch.setattr(sys, "argv", ["check_ready"])
     monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
     with pytest.raises(SystemExit) as excinfo:
         main()
@@ -406,6 +366,6 @@ def test_main_rejects_nonsensical_timings_from_the_environment(monkeypatch, env,
 
 def test_zero_retry_delay_is_allowed(monkeypatch):
     """0 means 'retry immediately' — legitimate, and the tests rely on it."""
-    monkeypatch.setattr(sys, "argv", ["check_ready", "--no-gh", "--retry-delay", "0"])
+    monkeypatch.setattr(sys, "argv", ["check_ready", "--retry-delay", "0"])
     monkeypatch.setattr("scripts.check_ready.urlopen", _ok_opener())
     main()  # no SystemExit
