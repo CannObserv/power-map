@@ -9,8 +9,9 @@ WorkingDirectory=/home/exedev/power-map
 # Compares every file infra/installed.toml lists (this checkout's, the deployed
 # commit) with its installed copy under /etc, and every power-map* unit or
 # drop-in under /etc/systemd/system with the manifest. Exit 3 when a copy's
-# directives differ, a copy is missing, or an installed unit has no repo file,
-# with the diff in the journal, so the unit lands in `systemctl --failed`.
+# directives differ, a copy is missing, an installed unit has no repo file, or
+# an installed unit lacks the .wants/ link its WantedBy= asks for (never
+# enabled), with the diff in the journal, so the unit lands in `systemctl --failed`.
 # A copy that differs in comments or blank lines only is exit 4, a journal
 # WARNING, success here. Exit 1 on an unreadable copy or a manifest that does
 # not match infra/. Read-only and unprivileged; it never installs anything.
