@@ -105,6 +105,16 @@ def test_the_guard_unit_counts_comment_only_drift_as_success():
     assert "ExecStart=uv run python -m scripts.check_infra_drift" in lines
 
 
+def test_every_timer_can_be_enabled():
+    """No [Install] means `enable --now` refuses, and no WantedBy= means the
+    disabled check has no link to require: the timer would silently never fire."""
+    timers = sorted(INFRA.glob("*.timer"))
+
+    assert timers
+    for timer in timers:
+        assert "WantedBy=timers.target" in timer.read_text().splitlines(), timer.name
+
+
 def test_the_guard_timer_is_daily_and_persistent():
     lines = (INFRA / "power-map-infra-drift.timer").read_text().splitlines()
 
