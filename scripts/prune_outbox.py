@@ -100,10 +100,12 @@ def main() -> None:
     configure_logging()
     parser = build_arg_parser()
     args = parser.parse_args()
-    try:
-        retention = retention_from_args(args)
-    except ValueError as exc:
-        parser.error(str(exc))
+    # Validated per flag, so the usage error names what the operator typed
+    # (Retention re-checks, naming its field, for any other caller).
+    for flag, field in _WINDOW_FLAGS.items():
+        if getattr(args, field) < 1:
+            parser.error(f"{flag} must be >= 1")
+    retention = retention_from_args(args)
     # Resolved after validation: the echo means "about to connect", so it must
     # not precede a usage error that ends the run without one. See
     # docs/RUNBOOKS.md §"Operational scripts — dry run by default & target echo".

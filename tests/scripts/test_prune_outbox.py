@@ -44,6 +44,16 @@ def test_the_single_window_flag_is_gone(capsys):
     assert "--retention-days" in capsys.readouterr().err
 
 
+def test_a_bad_window_names_the_flag_the_operator_typed(monkeypatch, capsys):
+    """The usage error names ``--request-log-retention-days``, not the field behind it."""
+    monkeypatch.setattr("sys.argv", ["prune_outbox", "--request-log-retention-days", "0"])
+    with pytest.raises(SystemExit):
+        prune_outbox.main()
+    err = capsys.readouterr().err
+    assert "--request-log-retention-days" in err
+    assert "api_request_log" not in err
+
+
 def test_installed_unit_runs_on_the_defaults():
     """The #495 hold is released: the unit names no window, so the defaults govern."""
     exec_start = [line for line in UNIT.read_text().splitlines() if line.startswith("ExecStart=")]
