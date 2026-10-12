@@ -173,9 +173,11 @@ def test_the_handler_has_no_onfailure_of_its_own():
 
 def test_the_handler_names_its_template_and_channels():
     env = environment(HANDLER)
+    """Provisioned on notifier#114 (2026-10-12): the template, plus Slack and Mailgun."""
     assert env["NOTIFIER_URL"] == "http://notifier:9000"
-    assert "NOTIFIER_TEMPLATE_ID" in env
-    assert "NOTIFIER_CHANNEL_IDS" in env
+    assert ULID.match(env["NOTIFIER_TEMPLATE_ID"])
+    channels = env["NOTIFIER_CHANNEL_IDS"].split(",")
+    assert len(channels) == 2 and all(ULID.match(c) for c in channels)
 
 
 def test_the_handler_is_the_only_onfailure_target():
