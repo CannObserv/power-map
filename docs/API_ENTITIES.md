@@ -1,7 +1,7 @@
 # power-map Public API — Resources
 
 Per-resource endpoint behaviour: filters, response shapes, and the implicit rules
-each collection follows. Auth, pagination, conditional requests and the change feed
+each collection follows. Auth, pagination and conditional requests
 are in `docs/PUBLIC_API.md`; write semantics in `docs/OBSERVATIONS.md`, except
 assignments', which live with the endpoint in `docs/API_ASSIGNMENTS.md`.
 

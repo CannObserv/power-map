@@ -327,28 +327,19 @@ flip's flags, and the first production measurement.
 ## Outbox + tombstone TTL prune (issue #204)
 
 
-**Temporarily held at 104 days (#495).** The installed unit passes
-`--retention-days 104` until the #490 cutover: the crosswalk seed resolves
-usa-wa's anchors through `deleted_entities.merged_into`, so a pruned tombstone is
-merge history the seed can no longer see — the anchor resolves `missing`
-(unresolvable) instead of `merged`. Prod's oldest surviving tombstone is
-2026-06-17, so the hold protects what is left rather than recovering what is
-gone. Revert to the default once the triage pass (#501) is done. The consumer
-contract is unaffected: 90 days is a floor, and a longer window only helps.
-Since #607 the prune never deletes a merge tombstone, so merge history no longer
-depends on this hold. Reverting it now ages out only bare deletes, the outbox
-and the request log.
+`scripts/prune_outbox.py` deletes rows from **three** append-only tables, each
+past **its own** retention window (`Retention` in `src/core/maintenance.py`, #502):
 
-`scripts/prune_outbox.py` deletes rows past the retention window (default 90 days)
-from **three** append-only tables: `entity_changes` (the change-feed outbox),
-`deleted_entities` (deletion tombstones), and `api_request_log` (the public-API
-request log, issue #260). **Merge tombstones (`merged_into` set) are exempt
-(#607):** they drive the detail GETs' `410` + `merged_into`, so a merge stays
-followable for good. One row per merge, so the table stays small. Bare-delete
-tombstones keep the TTL, then answer `404`. The other TTLs stay aligned, so the
-change feed and the request-observability window expire together.
-Sibling services must poll at least once per window or full-reconcile (see
-`docs/PUBLIC_API.md` § change feed).
+| Table | Flag | Default | What the window bounds |
+|---|---|---|---|
+| `entity_changes` (the outbox) | `--changes-retention-days` | 90 | Nothing reads it since the change feed retired (#502); pruned until it is dropped (#651) |
+| `deleted_entities` (bare-delete tombstones) | `--tombstone-retention-days` | 90 | How long a deleted id answers `410` before `404` (`docs/PUBLIC_API.md` § Retired ids) |
+| `api_request_log` (#260) | `--request-log-retention-days` | 90 | The request log's PII footprint (`docs/CONVENTIONS.md`) |
+
+**Merge tombstones (`merged_into` set) are exempt at any age (#607):** they drive
+the detail GETs' `410` + `merged_into`, so a merge stays followable for good. One
+row per merge, so the table stays small. The installed unit names no window, so
+the defaults govern; the #495 104-day hold was released in #502.
 
 Manual run:
 
@@ -358,12 +349,12 @@ env_args=()
 [ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
 [ -f .env ] && env_args+=(--env-file .env)
 
-# Dry run — count eligible rows in both tables
+# Dry run — count each table's eligible rows
 uv run "${env_args[@]}" python -m scripts.prune_outbox
 
-# Execute — delete (optionally override the window)
+# Execute — delete (optionally override one table's window)
 uv run "${env_args[@]}" python -m scripts.prune_outbox --execute
-uv run "${env_args[@]}" python -m scripts.prune_outbox --execute --retention-days 90
+uv run "${env_args[@]}" python -m scripts.prune_outbox --execute --request-log-retention-days 30
 ```
 
 Scheduled (production): a daily systemd timer runs `--execute`. Install / update:

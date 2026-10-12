@@ -5,8 +5,8 @@
 **Python client (#618):** `clients/python` (`power-map-client`) is generated from `/openapi.json`, which lists `/api/v1/*` and `/health` only, and is pinned by tag `v<version>`. Install, `connect()` and versioning are in `clients/python/README.md`.
 
 Meta-level contracts: auth, scopes, rate limits, pagination, conditional requests and
-shared observation-write behaviour. The change feed and subscriptions are in
-`docs/CHANGE_FEED.md`; per-resource endpoint detail in `docs/API_ENTITIES.md`.
+shared observation-write behaviour. Per-resource endpoint detail is in
+`docs/API_ENTITIES.md`. The change feed is retired (§ Change feed — retired).
 
 ---
 
@@ -27,7 +27,6 @@ Read endpoints are accessible with any valid key. Write endpoints require an add
 | Scope | Used by |
 |-------|---------|
 | `observations:write` | `POST /*/observations` endpoints |
-| `subscriptions:write` | `POST /api/v1/subscriptions`, `DELETE /api/v1/subscriptions`, `DELETE /api/v1/subscriptions/{entity_id}` |
 | `voice_embeddings:write` | `POST /api/v1/people/{id}/embeddings`, `PATCH /api/v1/people/{id}/embeddings/{eid}`, `DELETE /api/v1/people/{id}/embeddings/{eid}`, `DELETE /api/v1/people/{id}/embeddings`, `POST /api/v1/people/{id}/embeddings/{eid}/restore` |
 | `voice_embeddings:read` | `POST /api/v1/people/identify`, `POST /api/v1/people/identify-batch`, `POST /api/v1/people/verify`, `POST /api/v1/people/verify-batch`, `POST /api/v1/people/embeddings/presence`, `GET /api/v1/people/{id}/embeddings` — required for all biometric data reads |
 
@@ -53,14 +52,14 @@ An exhausted bucket returns **`429 Too Many Requests`** with:
 
 On 429, back off for at least `Retry-After` seconds — hammering a drained bucket earns only more 429s. The limits are a backstop against runaway clients, not a precise quota: enforcement is per server worker, so short bursts may admit slightly more than the configured rate. Design your client for the documented numbers.
 
-To reduce request volume in the first place: poll `GET /api/v1/changes` for deltas instead of re-fetching entities, and use `If-None-Match` conditional requests (see the caching sections) so unchanged resources cost a 304 instead of a full transfer.
+To reduce request volume in the first place, use `If-None-Match` conditional requests (see the caching sections) so unchanged resources cost a 304 instead of a full transfer.
 
 ---
 
 ## Request logging
 
 
-For operational observability and debugging, the service records each `/api/v1/*` request: timestamp, key, method/path, status, and latency. For the observation-write and change-feed endpoints it additionally stores the **raw request and response bodies** (so submissions and their dispositions can be inspected). Records are retained for ~90 days, then pruned on the same window as the change feed. Your `X-API-Key` token is never stored — requests are attributed by the key's internal id.
+For operational observability and debugging, the service records each `/api/v1/*` request: timestamp, key, method/path, status, and latency. For the observation-write endpoints it additionally stores the **raw request and response bodies** (so submissions and their dispositions can be inspected). Records are retained for ~90 days, then pruned (`docs/RUNBOOKS.md` § prune). Your `X-API-Key` token is never stored — requests are attributed by the key's internal id.
 
 ---
 
@@ -162,7 +161,7 @@ A comma inside a quoted tag is part of the tag, not a separator.
 
 **`If-Modified-Since` is not honored.** Revalidation is ETag-only: a request carrying `If-Modified-Since` (and no matching `If-None-Match`) always receives a full `200`, despite the `Last-Modified` header we send. `Last-Modified` is informational — always revalidate with `If-None-Match`.
 
-**A 304 still costs a rate-limit token.** The limiter runs in the auth dependency, ahead of the handler, so conditional requests reduce transfer and serialization — not your effective poll ceiling. Use `GET /api/v1/changes` to lower request *count*.
+**A 304 still costs a rate-limit token.** The limiter runs in the auth dependency, ahead of the handler, so conditional requests reduce transfer and serialization — not your effective poll ceiling.
 
 ---
 
@@ -264,8 +263,10 @@ Unauthenticated probes live at root level, outside `/api/v1` (#343) — not part
 
 ---
 
-## Change feed & subscriptions
+## Change feed — retired
 
-The polled change feed and webhook subscriptions live in `docs/CHANGE_FEED.md` —
-one subject, and the half of the API a consumer integrates against rather than
-queries.
+`GET /api/v1/changes`, the five `/api/v1/subscriptions` routes (discovery
+included) and the `subscriptions:write` scope were removed in v0.63.0 (#502).
+Their only consumer moved to dataset subscription (#490). To follow an id
+through a merge, read it: a retired id answers `410` + `merged_into`
+(§ Retired ids). To stay current, re-read with `If-None-Match`.

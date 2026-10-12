@@ -508,9 +508,8 @@ Observability of public API traffic, under the **Activity** section
   as the stats strip.
 - **List** — `/admin/activity/requests/`. Stats strip (24h/7d window toggle via
   `request.url.include_query_params`), filter form (endpoint group defaulting to
-  observations+changes, key **by label**, status class, disposition, free-text
-  on path/reason), empty `/changes` polls hidden by default with a "Show empty
-  polls" toggle. Rows with `status_code >= 400` or `disposition='rejected'` are
+  observations, key **by label**, status class, disposition, free-text
+  on path/reason). Rows with `status_code >= 400` or `disposition='rejected'` are
   tinted `rgba(220,38,38,0.06)`. Filters live in query params so a filtered view
   is shareable. Offset pagination (consistent with Import History), keyset on
   `id DESC`.
