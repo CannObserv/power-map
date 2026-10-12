@@ -118,6 +118,12 @@ async def test_dashboard_has_api_activity_panel(client):
     assert 'href="/admin/activity/requests/"' in resp.text
 
 
+async def test_dashboard_api_panel_has_no_feed_stat(client):
+    """The change feed retired (#502): its polls / rows stat goes with it."""
+    resp = await client.get("/admin/", headers=AUTH_HEADERS)
+    assert "Changes polls" not in resp.text
+
+
 async def test_dashboard_activity_cards_api_activity_first(client):
     """Activity cards render API Activity before Import History. Both headings
     appear only inside the card grid within the <main> region, so

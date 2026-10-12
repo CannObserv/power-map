@@ -1,10 +1,11 @@
 """Admin views for the API request log (#260) — observability of public API traffic.
 
 Read-only list + detail over ``api_request_log`` (populated by the public-API
-capture middleware). The list defaults to the observations + changes route
-groups and hides empty ``/changes`` polls; both are widenable via query params
-so a filtered view is shareable. Detail pretty-prints the raw bodies and
-resolves a result entity to its admin link.
+capture middleware). The list defaults to the observations route group,
+widenable via a query param so a filtered view is shareable. Detail
+pretty-prints the raw bodies and resolves a result entity to its admin link.
+Rows from the retired change feed (#502, ``route_group='changes'``) stay
+reachable under ``group=all`` until the prune ages them out.
 """
 
 import json
@@ -38,8 +39,6 @@ SELECT
         AS obs_attached,
     COUNT(*) FILTER (WHERE route_group='observations' AND disposition='rejected')
         AS obs_rejected,
-    COUNT(*) FILTER (WHERE route_group='changes') AS changes_polls,
-    COALESCE(SUM(item_count) FILTER (WHERE route_group='changes'), 0) AS changes_rows,
     COUNT(*) FILTER (WHERE status_code >= 400) AS errors,
     COUNT(DISTINCT api_key_id) AS active_keys
 FROM api_request_log
@@ -47,12 +46,12 @@ WHERE occurred_at >= NOW() - make_interval(hours => $1::int)
 """
 
 
-def _build_filters(group, key, status, disposition, show_empty, q):
+def _build_filters(group, key, status, disposition, q):
     """Return (where_sql, args) for the list query. Columns are aliased ``r``."""
     conds: list[str] = []
     args: list = []
     if group is None:
-        conds.append("r.route_group IN ('observations','changes')")
+        conds.append("r.route_group = 'observations'")
     elif group != "all":
         args.append(group)
         conds.append(f"r.route_group = ${len(args)}")
@@ -68,8 +67,6 @@ def _build_filters(group, key, status, disposition, show_empty, q):
     if disposition:
         args.append(disposition)
         conds.append(f"r.disposition = ${len(args)}")
-    if not show_empty:
-        conds.append("r.is_empty = FALSE")
     if q:
         args.append(f"%{q}%")
         conds.append(f"(r.path ILIKE ${len(args)} OR r.reason ILIKE ${len(args)})")
@@ -84,7 +81,6 @@ async def request_list(
     key: str | None = Query(default=None),
     status: str | None = Query(default=None),
     disposition: str | None = Query(default=None),
-    show_empty: bool = Query(default=False),
     q: str | None = Query(default=None),
     window: str = Query(default="24h"),
     page: int = Query(default=1, ge=1),
@@ -92,7 +88,7 @@ async def request_list(
     db=Depends(get_db),
 ):
     """Filterable, paginated list of captured API requests."""
-    where, args = _build_filters(group, key, status, disposition, show_empty, q)
+    where, args = _build_filters(group, key, status, disposition, q)
     total = await db.fetchval(f"SELECT COUNT(*) FROM api_request_log r {where}", *args)
     offset = (page - 1) * PAGE_SIZE
     rows = await db.fetch(
@@ -145,7 +141,6 @@ async def request_list(
                 "key": key or "",
                 "status": status or "",
                 "disposition": disposition or "",
-                "show_empty": show_empty,
                 "q": q or "",
                 "window": window if window in _WINDOWS else "24h",
             },

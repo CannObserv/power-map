@@ -20,8 +20,6 @@
   {{ stat("New", stats.obs_new) }}
   {{ stat("Auto-attached", stats.obs_attached) }}
   {{ stat("Rejected", stats.obs_rejected, danger=True) }}
-  {{ stat("Changes polls", stats.changes_polls) }}
-  {{ stat("Rows delivered", stats.changes_rows) }}
   {{ stat("Errors (4xx/5xx)", stats.errors, danger=True) }}
   {{ stat("Active keys", stats.active_keys) }}
   <div style="grid-column:1/-1;font-size:var(--font-size-sm);color:var(--color-text-muted)">
@@ -74,10 +72,8 @@
   style="display:flex;flex-wrap:wrap;gap:var(--space-3);align-items:end;margin-bottom:var(--space-4)">
   <label class="form-group">Endpoints
     <select name="group">
-      <option value="" {% if not filters.group %}selected{% endif %}>Observations + Changes</option>
+      <option value="" {% if not filters.group or filters.group == 'observations' %}selected{% endif %}>Observations</option>
       <option value="all" {% if filters.group == 'all' %}selected{% endif %}>All endpoints</option>
-      <option value="observations" {% if filters.group == 'observations' %}selected{% endif %}>Observations</option>
-      <option value="changes" {% if filters.group == 'changes' %}selected{% endif %}>Changes</option>
       <option value="other" {% if filters.group == 'other' %}selected{% endif %}>Other</option>
     </select>
   </label>
@@ -108,9 +104,6 @@
   <label class="form-group">Search
     <input type="search" name="q" value="{{ filters.q }}" placeholder="path or reason">
   </label>
-  <label style="display:flex;align-items:center;gap:var(--space-2)">
-    <input type="checkbox" name="show_empty" value="true" {% if filters.show_empty %}checked{% endif %}> Show empty polls
-  </label>
   <input type="hidden" name="window" value="{{ filters.window }}">
   <button type="submit" class="btn btn--primary btn--sm">Filter</button>
   <a href="/admin/activity/requests/" class="btn btn--ghost btn--sm">Reset</a>
@@ -136,12 +129,11 @@
       <tr {% if is_problem %}style="background:rgba(220,38,38,0.06)"{% endif %}>
         <td><a href="/admin/activity/requests/{{ r.id }}/">{{ r.occurred_at.strftime('%Y-%m-%d %H:%M:%S') }}</a></td>
         <td>{{ r.key_label or '—' }}</td>
-        <td><code>{{ r.method }} {{ r.path }}</code>{% if r.is_empty %} <span style="color:var(--color-text-muted);font-size:var(--font-size-sm)">(empty)</span>{% endif %}</td>
+        <td><code>{{ r.method }} {{ r.path }}</code></td>
         <td><span class="badge {{ 'badge--inactive' if r.status_code < 400 else 'badge--archived' }}">{{ r.status_code }}</span></td>
         <td>
           {% if r.disposition == 'rejected' %}<span class="badge badge--archived">rejected</span>
           {% elif r.disposition %}<span class="badge badge--active">{{ r.disposition }}</span>
-          {% elif r.route_group == 'changes' %}{{ r.item_count if r.item_count is not none else '—' }} rows
           {% else %}—{% endif %}
         </td>
         <td>{{ r.latency_ms }} ms</td>

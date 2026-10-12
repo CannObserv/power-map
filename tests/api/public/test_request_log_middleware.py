@@ -65,9 +65,10 @@ def test_route_group_observations(path):
     assert route_group_for_path(path) == "observations"
 
 
-def test_route_group_changes():
-    assert route_group_for_path("/api/v1/changes") == "changes"
-    assert route_group_for_path("/api/v1/changes/") == "changes"
+def test_retired_feed_path_is_other():
+    """The /changes group retired with the feed (#502); a stray poll is just 'other'."""
+    assert route_group_for_path("/api/v1/changes") == "other"
+    assert route_group_for_path("/api/v1/changes/") == "other"
 
 
 @pytest.mark.parametrize(
@@ -581,27 +582,6 @@ def test_enrich_observation_rejected():
     assert out["reason"] == "bad_type"
 
 
-def test_enrich_changes_empty():
-    out = _enrich(
-        "changes",
-        {"data": [], "meta": {"count": 0, "limit": 50, "has_more": False, "next_after": 0}},
-    )
-    assert out["item_count"] == 0
-    assert out["is_empty"] is True
-
-
-def test_enrich_changes_nonempty():
-    out = _enrich("changes", {"data": [{}, {}, {}], "meta": {"count": 3}})
-    assert out["item_count"] == 3
-    assert out["is_empty"] is False
-
-
-def test_enrich_changes_count_falls_back_to_data_len():
-    out = _enrich("changes", {"data": [{}, {}], "meta": {}})
-    assert out["item_count"] == 2
-    assert out["is_empty"] is False
-
-
 def test_enrich_other_and_nondict_noop():
     assert _enrich("other", {"disposition": "new"})["disposition"] is None
     assert _enrich("observations", None)["disposition"] is None
@@ -653,22 +633,3 @@ async def test_observation_rejected_enriched(client, db, obs_key):
     assert row["disposition"] == "rejected"
     assert row["result_entity_id"] is None
     assert row["reason"] is not None
-
-
-@pytest.mark.integration
-async def test_changes_empty_poll_enriched(client, db, plain_key):
-    raw, kid = plain_key
-    resp = await client.get("/api/v1/changes?after=0", headers={"X-API-Key": raw})
-    assert resp.status_code == 200
-    row = await _poll_row(
-        db,
-        "SELECT * FROM api_request_log WHERE api_key_id=$1 AND route_group='changes'"
-        " ORDER BY id DESC LIMIT 1",
-        kid,
-    )
-    assert row is not None
-    assert row["item_count"] == 0
-    assert row["is_empty"] is True
-    # changes is a captured group: the response body is stored (GET has no request body).
-    assert row["response_body"] is not None
-    assert row["request_body"] is None

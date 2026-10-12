@@ -27,7 +27,7 @@
       </span>
     </div>
     <p style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted)">
-      Observability of public API traffic — observation writes and change-feed polls, per key.
+      Observability of public API traffic — observation writes and reads, per key.
       {% if counts.busiest_request_count %}<br>Busiest key (24h): <strong>{{ counts.busiest_key_label or '— (no key)' }}</strong> ({{ counts.busiest_request_count }} request{{ 's' if counts.busiest_request_count != 1 else '' }}){% endif %}
     </p>
     <a href="/admin/activity/requests/" class="btn btn--sm btn--secondary">View →</a>
