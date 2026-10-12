@@ -494,7 +494,7 @@ Observability of public API traffic, under the **Activity** section
   landing page.
 - **Dashboard panel** — `admin/dashboard.html` Activity grid gains an
   "API Activity (24h)" card: total requests, observation dispositions (new /
-  attached / **rejected**), changes polls/rows, error rate, last-request time.
+  attached / **rejected**), error rate, last-request time.
   Rejections and a non-zero error rate render in `--color-danger`.
 - **Per-key panel** (#294) — on the list page, between the stats strip and the
   filter form: one row per key active in the window (hottest first, from
