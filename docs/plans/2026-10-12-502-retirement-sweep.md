@@ -1,7 +1,7 @@
 ---
 title: "#502 retirement sweep: the change feed, its scopes, the cutover seeds, the prune hold"
 date: 2026-10-12
-status: draft
+status: approved
 ---
 
 # #502 retirement sweep
@@ -57,13 +57,13 @@ Between PR 1 and PR 3 the outbox is still written and still pruned at 90 days, s
 9. Delete `seed_producer_crosswalk.py`, `seed_roles.py` and their tests. Delete the seed-only half of `crosswalk.py` (`Anchor`, `parse_anchors`, `verify_digest`, `resolve_anchor`, `load_anchors`, `SeedReport`…), keeping `Supersession` + `repoint_anchors`. Fix the RUNBOOKS/SCHEMA references. No version bump: there's no public-schema change.
 10. Mark the WA identifier-type `INSERT` block in `schema.sql` and in the docs as **historical**: the rows stay, they're not a contract, and usa-wa's published crosswalk owns the scheme graph.
 
-**PR 3: retire `entity_changes` (new sub-issue, after PR 1 + 1 week)**
+**PR 3: retire `entity_changes` (#651, after PR 1 + 1 week)**
 
 11. Drop the 7 `trg_entity_changes_*` triggers, the manual inserts, the outbox prune leg, `stamped_transaction` + the GUC + the #491 sweep + its AGENTS.md rule, and the schema-parity expectations. Re-point the 37 test files to `updated_at`. Optionally export a CSV, then `DROP TABLE`. Keep the touch triggers: they bump `updated_at`, which drives the ETags (#392). Rename `prune_outbox.py` to `prune.py`.
 
-## Open questions / risks
+## Decisions (2026-10-12, reviewed)
 
-- **SDK consumers.** observo#671 and archiver#324 adopted `power-map-client`. Removing the feed modules breaks only code that calls them; both are recorded as read-only. Check their imports before tagging?
-- **`restore_467_committee_succession.py`.** Retire it (recommended), or strip only its subscription step?
-- **PR 3's export.** Archive a CSV of `entity_changes` (11 MB) before the drop, or drop outright?
-- **Retention values.** All three windows default to 90 days, which matches PUBLIC_API's "~90 days" request-log statement and #607's bare-tombstone TTL. Do you want a different value for any of them?
+- **D1 SDK consumers:** checked. archiver imports `get_org`/`search_orgs`. Observo imports search, identify/verify, embeddings and `submit_people_observation`. Neither imports a feed operation.
+- **D2 `restore_467_committee_succession.py`:** retire it.
+- **D3 PR 3:** drop `entity_changes` outright, with no CSV export.
+- **D4 retention:** drop the 104-day hold outright. Every window is 90 days, and the first run's large request-log delete is accepted.
