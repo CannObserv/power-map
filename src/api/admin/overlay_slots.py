@@ -29,6 +29,7 @@ import asyncpg
 from src.core.curation_overlay import Pin, active_pin, in_scope, pin_changed
 
 __all__ = [
+    "LINK_LOCKED_MSG",
     "PRODUCER_LABEL",
     "SLOTS",
     "Slot",
@@ -47,6 +48,11 @@ __all__ = [
 # `src/core` never does (`test_src_core_wa_free.py`). One producer today (#490);
 # key it by crosswalk `source` when a second arrives.
 PRODUCER_LABEL = "usa-wa"
+# #592: the refusal every door gives a link the dataset owns — what to do instead.
+LINK_LOCKED_MSG = (
+    f"Links between {PRODUCER_LABEL} organizations come from its org_lineage dataset;"
+    " change it upstream."
+)
 
 
 @dataclass(frozen=True)

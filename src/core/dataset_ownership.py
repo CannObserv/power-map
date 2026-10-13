@@ -15,18 +15,45 @@ import asyncpg
 
 from src.core.ingestion.crosswalk import IN_SCOPE
 
-__all__ = ["DATASET_OWNED_LINK_TYPES", "dataset_owned_link"]
+__all__ = ["DATASET_OWNED_LINK_TYPES", "anchored_orgs", "dataset_owned_link", "owned_link"]
 
 # The org→org link types a dataset owns on anchored pairs.
 DATASET_OWNED_LINK_TYPES: frozenset[str] = frozenset({"succeeded_by", "merged_with", "split_from"})
 
-# Both orgs carry a producer anchor in scope — the applier's own row scope, so
-# the lock reaches exactly the links absence can archive.
-_PAIR_SQL = (
-    "SELECT count(DISTINCT pm_id) = 2 FROM producer_crosswalk"
+# The orgs among $1 carrying a producer anchor in scope — the applier's own row
+# scope, so the lock reaches exactly the links absence can archive.
+_ANCHORED_SQL = (
+    "SELECT DISTINCT pm_id FROM producer_crosswalk"
     " WHERE kind = 'organization' AND pm_id = ANY($1::text[])"
     " AND resolution = ANY($2::text[])"
 )
+
+
+async def anchored_orgs(conn: asyncpg.Connection, ids: list[str]) -> set[str]:
+    """The orgs among ``ids`` a producer anchor holds in scope — one query for a list."""
+    if not ids:
+        return set()
+    return {r["pm_id"] for r in await conn.fetch(_ANCHORED_SQL, ids, list(IN_SCOPE))}
+
+
+def owned_link(
+    entity_type: str,
+    entity_id: str,
+    slug: str | None,
+    linked_type: str | None,
+    linked_id: str | None,
+    anchored: set[str],
+) -> bool:
+    """`dataset_owned_link` given the anchored orgs already read (a list renders many)."""
+    return (
+        entity_type == "organization"
+        and slug in DATASET_OWNED_LINK_TYPES
+        and linked_type == "organization"
+        and bool(linked_id)
+        and linked_id != entity_id
+        and entity_id in anchored
+        and linked_id in anchored
+    )
 
 
 async def dataset_owned_link(
@@ -44,12 +71,9 @@ async def dataset_owned_link(
     write would leave it, so an edit can neither move a link into the lock nor
     free one from it.
     """
-    if (
-        entity_type != "organization"
-        or slug not in DATASET_OWNED_LINK_TYPES
-        or linked_type != "organization"
-        or not linked_id
-        or linked_id == entity_id
+    if linked_id is None or not owned_link(
+        entity_type, entity_id, slug, linked_type, linked_id, {entity_id, linked_id}
     ):
-        return False
-    return bool(await conn.fetchval(_PAIR_SQL, [entity_id, linked_id], list(IN_SCOPE)))
+        return False  # decided without the anchors: not an owned org→org link
+    anchored = await anchored_orgs(conn, [entity_id, linked_id])
+    return owned_link(entity_type, entity_id, slug, linked_type, linked_id, anchored)
