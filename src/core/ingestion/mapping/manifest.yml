@@ -8,6 +8,8 @@
 #                    report  — absence is reported, never acted on (safeguard 2)
 #                    archive — absence archives the PM row, and a row the
 #                              applier archived restores when it returns (#527)
+#                              — on a child binding (#592), an owned-type
+#                              row is archived and a return is a fresh insert
 #   owned_columns  the PM columns the producer asserts; everything else on the
 #                  row is PM's, column-scoped (safeguard 4)
 #   types          every column the table exports → its duckdb type (VARCHAR,
@@ -20,6 +22,9 @@
 #                  (entity, overlay) is the pair a curator's pin is keyed on.
 #                  Required on column and child tables, refused elsewhere. A
 #                  binding owning several columns maps each to its field (#527)
+#                  `none` (#592): the values are locked, not pinned — every PM
+#                  write door refuses them; only a child binding owning nothing
+#                  but src/core/dataset_ownership.py's link types may say it
 #   target         the binding (v2): one of four shapes the applier interprets
 #                    entity  — a row in an entity table: identity, create,
 #                              retraction. `identity` names what a create writes
@@ -209,6 +214,35 @@ tables:
       constants: {entity_type: organization}
       match: key
       key_columns: [event_type]
+      lookups:
+        event_type: {table: entity_event_types, from: slug, to: id}
+      archived: archived_at
+      insert_defaults: {visibility: public}
+  desired_organization_lineage:
+    entity: organization
+    key: [producer_id, event_type, linked_pm_id]   # usa-wa's key, its linked end bound (#592)
+    pm_key: pm_id
+    # A superseded link drops out of the next version; PM archives it, gated as
+    # an archive. Only links between two in-scope orgs are owned at all.
+    retraction: archive
+    owned_event_types: [succeeded_by, merged_with, split_from]
+    owned_columns: [event_year]   # month/day stay PM's, as on dissolved
+    overlay: none                 # locked: admin and the API refuse these links
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
+      event_type: VARCHAR
+      linked_pm_id: VARCHAR
+      linked_producer_id: VARCHAR
+      event_year: INTEGER
+    target:
+      shape: child
+      table: entity_events
+      parent: entity_id
+      columns: {event_type: event_type_id, linked_pm_id: linked_entity_id, event_year: event_year}
+      constants: {entity_type: organization, linked_entity_type: organization}
+      match: key
+      key_columns: [event_type, linked_pm_id]
       lookups:
         event_type: {table: entity_event_types, from: slug, to: id}
       archived: archived_at

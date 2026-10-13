@@ -63,14 +63,14 @@ usa-wa#447 (PR usa-wa#464, nightly `v20261004T080416Z-d68664`) ships two things 
 | `linked_pm_id` | VARCHAR | linked org's PM id |
 | `event_year` | INTEGER | `effective_year` |
 
-A link drops out when either end is a create, archived or unresolved. The warn test `unresolved_org_lineage` names it, and it lands the night after its create executes (precedent: `unresolved_org_parents`). Key uniqueness gets its own singular test (`desired_organization_lineage_key_unique`).
+A link drops out when either end is a create, archived or unresolved. The warn test `unresolved_org_lineage` names it, and it lands the night after its create executes (precedent: `unresolved_org_parents`). Key uniqueness gets its own singular test (`desired_organization_lineage_key_unique`). The key's linked end is `linked_pm_id`, the PM column the match binds (manifest invariant: key columns are bound). Two producer orgs that PM holds as one collapse to a duplicate key and halt the build: no single link can be chosen for them.
 
 **Manifest table:**
 
 ```yaml
 desired_organization_lineage:
   entity: organization
-  key: [producer_id, event_type, linked_producer_id]
+  key: [producer_id, event_type, linked_pm_id]
   pm_key: pm_id
   retraction: archive
   owned_event_types: [succeeded_by, merged_with, split_from]

@@ -13,6 +13,7 @@ import yaml
 
 pytest.importorskip("dbt.adapters.duckdb")
 
+from src.core.dataset_ownership import DATASET_OWNED_LINK_TYPES  # noqa: E402
 from src.core.ingestion.mapping import (  # noqa: E402
     PROJECT_DIR,
     load_manifest,
@@ -92,10 +93,16 @@ def test_no_key_names_pm_id(table):
     assert "pm_id" not in load_manifest().tables[table].key
 
 
-def test_no_other_table_claims_event_types():
+def test_event_types_are_claimed_by_two_tables_that_never_overlap():
+    """dissolved is the events binding's; the link types are lineage's (#592). Each
+    binding retracts only its own types, so an overlap would retract the other's rows."""
     tables = load_manifest().tables
+    claims = {t: set(s.owned_event_types) for t, s in tables.items() if s.owned_event_types}
 
-    assert [t for t, s in tables.items() if s.owned_event_types] == ["desired_entity_events"]
+    assert claims == {
+        "desired_entity_events": {"dissolved"},
+        "desired_organization_lineage": {"succeeded_by", "merged_with", "split_from"},
+    }
 
 
 # --- v2: the target binding (#499 step 1) -------------------------------------
@@ -121,6 +128,7 @@ def test_the_four_shapes_cover_the_marts_as_designed():
         "desired_organization_names": "child",
         "desired_organization_acronyms": "child",
         "desired_entity_events": "child",
+        "desired_organization_lineage": "child",
         "desired_person_merges": "merge",
         "desired_organization_merges": "merge",
         "desired_role_assignments": "entity",
@@ -591,3 +599,74 @@ def test_archives_and_restores_are_zero_in_productions_manifest():
     thresholds = load_manifest().thresholds
 
     assert (thresholds.archives, thresholds.restores) == (0, 0)
+
+
+# --- #592: links are locked, not pinned -----------------------------------------
+
+LINEAGE = "desired_organization_lineage"
+
+
+def test_the_lineage_binding_owns_the_three_link_types_and_their_year():
+    spec = load_manifest().tables[LINEAGE]
+
+    assert spec.key == ["producer_id", "event_type", "linked_pm_id"]
+    assert spec.retraction == "archive"
+    assert spec.owned_columns == ["event_year"]
+    assert spec.overlays == {}  # `overlay: none` — the lock stands in for a pin
+    assert spec.target.shape == "child"
+    assert spec.target.key_columns == ["event_type", "linked_pm_id"]
+    assert spec.target.constants == {
+        "entity_type": "organization",
+        "linked_entity_type": "organization",
+    }
+
+
+def test_the_lock_covers_exactly_the_types_the_applier_owns():
+    """Admin cannot import the manifest (dbt), so the lock carries its own copy of the
+    types; this holds the two together. A type the applier owns but the lock misses
+    is one a curator edits and the next run reverts."""
+    spec = load_manifest().tables[LINEAGE]
+
+    assert set(spec.owned_event_types) == set(DATASET_OWNED_LINK_TYPES)
+
+
+def test_overlay_none_on_a_binding_owning_an_unlocked_type_fails_at_load():
+    raw = _raw()
+    raw["tables"][LINEAGE]["owned_event_types"] = ["succeeded_by", "dissolved"]
+
+    with pytest.raises(ManifestError, match="overlay none"):
+        parse_manifest(raw)
+
+
+def test_overlay_none_on_a_binding_owning_no_event_type_fails_at_load():
+    raw = _raw()
+    raw["tables"]["desired_person_names"]["overlay"] = "none"
+
+    with pytest.raises(ManifestError, match="overlay none"):
+        parse_manifest(raw)
+
+
+def test_overlay_none_on_a_column_binding_fails_at_load():
+    raw = _raw()
+    raw["tables"]["desired_organization_parents"]["overlay"] = "none"
+
+    with pytest.raises(ManifestError, match="overlay none"):
+        parse_manifest(raw)
+
+
+def test_a_child_archive_reaches_only_owned_event_types():
+    """Archive on a child binding acts on the owned event types and nothing else:
+    without them it would archive every unmatched row of the parent."""
+    raw = _raw()
+    raw["tables"][LINEAGE]["owned_event_types"] = []
+
+    with pytest.raises(ManifestError, match="owned_event_types"):
+        parse_manifest(raw)
+
+
+def test_a_child_archive_names_the_archived_column_it_sets():
+    raw = _raw()
+    raw["tables"][LINEAGE]["target"].pop("archived")
+
+    with pytest.raises(ManifestError, match="archived"):
+        parse_manifest(raw)

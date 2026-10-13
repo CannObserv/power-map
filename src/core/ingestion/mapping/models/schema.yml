@@ -149,6 +149,24 @@ models:
                 to: ref('desired_organizations')
                 field: pm_id
 
+  - name: desired_organization_lineage
+    description: Keyed (producer_id, event_type, linked_pm_id) — tests/desired_organization_lineage_key_unique.sql. Both ends in scope, or no claim (#592); tests/unresolved_org_lineage.sql names the rest.
+    columns:
+      - name: pm_id
+        tests: [not_null]
+      - name: linked_pm_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('desired_organizations')
+                field: pm_id
+      - name: event_type
+        tests:
+          - accepted_values:
+              arguments:
+                values: [succeeded_by, merged_with, split_from]
+
   - name: desired_organization_names
     description: Keyed (producer_id, name_type) — tests/desired_organization_names_key_unique.sql (CR 28).
     columns:
