@@ -147,6 +147,9 @@ class Target:
     lookups: dict[str, dict[str, str]] = field(default_factory=dict)  # desired col → table/from/to
     insert_defaults: dict[str, object] = field(default_factory=dict)  # PM column → literal
     archived: str | None = None  # key: match among rows where this is null
+    # key (#592): key columns naming a row of the binding's entity. A PM row whose
+    # value is out of scope is not the producer's: absence never reaches it
+    anchored: list[str] = field(default_factory=list)
     hint_on_create: bool = False
     primitive: str | None = None  # merge: the core merge it acts through; None = report-only
     # entity (#527): desired column → what a create writes; the PM columns of the
@@ -303,6 +306,7 @@ def _target(name: str, raw: object) -> Target:
         match=raw.get("match"),
         type_column=raw.get("type_column"),
         canonical=raw.get("canonical"),
+        anchored=list(raw.get("anchored") or []),
         key_columns=list(raw.get("key_columns") or []),
         constants=dict(raw.get("constants") or {}),
         lookups={k: dict(v) for k, v in (raw.get("lookups") or {}).items()},
@@ -371,6 +375,9 @@ def _target(name: str, raw: object) -> Target:
         for col in target.key_columns:
             if col not in target.columns:
                 raise ManifestError(f"{where}: key column {col!r} is not in target.columns")
+    for col in target.anchored:
+        if col not in target.key_columns:
+            raise ManifestError(f"{where}: anchored column {col!r} is not a key column")
     for col, lookup in target.lookups.items():
         if col not in target.columns:
             raise ManifestError(f"{where}: lookup {col!r} is not in target.columns")

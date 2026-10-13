@@ -243,6 +243,7 @@ tables:
       constants: {entity_type: organization, linked_entity_type: organization}
       match: key
       key_columns: [event_type, linked_pm_id]
+      anchored: [linked_pm_id]      # a link to an org no anchor names is PM's own
       lookups:
         event_type: {table: entity_event_types, from: slug, to: id}
       archived: archived_at

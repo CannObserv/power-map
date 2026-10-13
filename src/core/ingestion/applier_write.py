@@ -152,6 +152,15 @@ def plan_statements(
         for e in diff.by_kind(kind):
             spec = manifest.tables[e.table]
             table = _ident(spec.target.table)
+            if spec.target.shape == "child":
+                # #592: a child row archives alone. The anchor is its parent's,
+                # and the parent stays — so nothing is stamped, and nothing restores.
+                sql = (
+                    f"UPDATE {table} SET archived_at = {archived_at}"
+                    f" WHERE id = $1 AND archived_at {guard}"
+                )
+                retracting.append(Statement(kind, table, sql, (e.row_id,), e.entry_id))
+                continue
             sql = (
                 f"UPDATE {table} SET archived_at = {archived_at}"
                 f" WHERE id = $1 AND archived_at {guard}"

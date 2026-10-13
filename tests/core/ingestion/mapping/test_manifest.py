@@ -664,6 +664,15 @@ def test_a_child_archive_reaches_only_owned_event_types():
         parse_manifest(raw)
 
 
+def test_an_anchored_column_must_be_a_key_column():
+    """`anchored` scopes absence by a key column; a non-key column scopes nothing."""
+    raw = _raw()
+    raw["tables"][LINEAGE]["target"]["anchored"] = ["event_year"]
+
+    with pytest.raises(ManifestError, match="anchored"):
+        parse_manifest(raw)
+
+
 def test_a_child_archive_names_the_archived_column_it_sets():
     raw = _raw()
     raw["tables"][LINEAGE]["target"].pop("archived")
