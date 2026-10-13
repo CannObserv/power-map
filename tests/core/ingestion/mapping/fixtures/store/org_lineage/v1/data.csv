@@ -1,0 +1,4 @@
+subject_entity_id,slug,linked_entity_id,subject_source_id,linked_source_id,effective_year,evidence_url,notes
+01O5000000000000000000000A,succeeded_by,01O4000000000000000000000A,20901,31640,2021,https://app.leg.wa.gov/committees/,"Ways & Means re-keyed, fixture only"
+01O7000000000000000000000A,split_from,01O6000000000000000000000A,35000,34000,2015,,
+01O10000000000000000000000A,merged_with,01O4000000000000000000000A,17001,31640,2001,,"comma, in notes"

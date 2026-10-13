@@ -74,6 +74,7 @@ USA_WA_SOURCES: dict[str, str] = {
     "org_crosswalk": "PM_SRC_ORG_CROSSWALK",
     "assignments": "PM_SRC_ASSIGNMENTS",
     "roles": "PM_SRC_ROLES",
+    "org_lineage": "PM_SRC_ORG_LINEAGE",  # #592
 }
 
 # PM table → env var, read from `<snapshot_root>/_pm/<table>.parquet`.
