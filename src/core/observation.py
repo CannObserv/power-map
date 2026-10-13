@@ -12,6 +12,7 @@ import asyncpg
 if TYPE_CHECKING:
     from src.api.public.schemas import ObservationAcronym, ObservationOrgName, ObservationPersonName
 
+from src.core.dataset_ownership import dataset_owned_link
 from src.core.db import generate_id, linked_entity_vanished
 from src.core.logging import get_logger
 from src.core.normalizers.address import get_address_normalizer
@@ -293,8 +294,9 @@ class EventRejectReason(StrEnum):
     """Machine-readable event rejection reasons (#321).
 
     Transient (self-heals on a later cycle): ``linked_entity_unresolved``.
-    All others are terminal. #85 rejection-visibility / #112 non-convergence
-    bucket by these slugs.
+    All others are terminal. ``event_owned_by_dataset`` (#592): the event is an
+    org link a subscribed dataset owns — correct it at the dataset. #85
+    rejection-visibility / #112 non-convergence bucket by these slugs.
     """
 
     LINKED_ENTITY_UNRESOLVED = "linked_entity_unresolved"  # transient
@@ -305,6 +307,7 @@ class EventRejectReason(StrEnum):
     MISSING_REQUIRED_FIELD = "missing_required_field"
     UNKNOWN_EVENT_TYPE = "unknown_event_type"
     INVALID = "invalid"
+    EVENT_OWNED_BY_DATASET = "event_owned_by_dataset"
 
 
 @dataclass(frozen=True)
@@ -1596,13 +1599,13 @@ async def _apply_one_event(
     # Resolve event type (slug XOR id, enforced by the schema validator).
     if ev.event_type_id is None:
         etype = await conn.fetchrow(
-            "SELECT id, applies_to, requires_year, requires_linked_entity"
+            "SELECT id, slug, applies_to, requires_year, requires_linked_entity"
             " FROM entity_event_types WHERE slug=$1",
             ev.event_type_slug,
         )
     else:
         etype = await conn.fetchrow(
-            "SELECT id, applies_to, requires_year, requires_linked_entity"
+            "SELECT id, slug, applies_to, requires_year, requires_linked_entity"
             " FROM entity_event_types WHERE id=$1",
             ev.event_type_id,
         )
@@ -1612,6 +1615,11 @@ async def _apply_one_event(
 
     if etype["applies_to"] != "both" and etype["applies_to"] != entity_type:
         return EventResult(EventDisposition.REJECTED, None, EventRejectReason.APPLIES_TO_MISMATCH)
+
+    if await _owned_by_dataset(conn, entity_id, entity_type, etype["slug"], ev):
+        return EventResult(
+            EventDisposition.REJECTED, None, EventRejectReason.EVENT_OWNED_BY_DATASET
+        )
 
     try:
         if ev.op == "retract":
@@ -1623,6 +1631,38 @@ async def _apply_one_event(
         return await _create_event(conn, entity_id, entity_type, event_type_id, key_id, etype, ev)
     except _EventRejected as exc:
         return EventResult(EventDisposition.REJECTED, None, exc.reason)
+
+
+async def _owned_by_dataset(
+    conn: asyncpg.Connection, entity_id: str, entity_type: str, slug: str, ev
+) -> bool:
+    """#592: whether this claim touches a link a subscribed dataset owns.
+
+    An id-addressed claim (refine, retract) is judged by the row it names — its
+    identity is immutable, so that is the row before and after. A create is
+    judged by what it would write. An id naming no row is not decided here: the
+    refine or retract path rejects it as ``event_not_found``.
+    """
+    if ev.op == "retract" or ev.pm_event_id is not None:
+        row = await conn.fetchrow(
+            "SELECT e.entity_type, e.entity_id, t.slug, e.linked_entity_type, e.linked_entity_id"
+            " FROM entity_events e JOIN entity_event_types t ON t.id = e.event_type_id"
+            " WHERE e.id = $1",
+            ev.pm_event_id,
+        )
+        if row is None:
+            return False
+        return await dataset_owned_link(
+            conn,
+            row["entity_type"],
+            row["entity_id"],
+            row["slug"],
+            row["linked_entity_type"],
+            row["linked_entity_id"],
+        )
+    return await dataset_owned_link(
+        conn, entity_type, entity_id, slug, ev.linked_entity_type, ev.linked_entity_id
+    )
 
 
 async def _refine_event_in_place(

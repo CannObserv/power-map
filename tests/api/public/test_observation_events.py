@@ -1486,3 +1486,127 @@ async def test_event_retract_datable_event_native(client, evt_write_key, db):
     assert r.json()["results"][0]["disposition"] == "retracted"
     archived = await db.fetchval("SELECT archived_at FROM entity_events WHERE id=$1", event_id)
     assert archived is not None
+
+
+# ---------------------------------------------------------------------------
+# #592 — a link between two anchored orgs is the dataset's: every op refuses it
+# ---------------------------------------------------------------------------
+
+
+async def _anchored_pair(client, raw, db):
+    """Two orgs a producer anchor holds in scope."""
+    pair = [await _make_org(client, raw, db) for _ in range(2)]
+    for org in pair:
+        await db.execute(
+            "INSERT INTO producer_crosswalk"
+            " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
+            " VALUES ($1, 'test-592-api', 'organization', $2, $3, $3, 'live')",
+            generate_id(),
+            f"P-{org}",
+            org,
+        )
+    return pair
+
+
+async def _seed_link(db, subject, linked, slug="succeeded_by"):
+    row = generate_id()
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year,"
+        " linked_entity_type, linked_entity_id)"
+        " SELECT $1, 'organization', $2, t.id, 2021, 'organization', $3"
+        " FROM entity_event_types t WHERE t.slug = $4",
+        row,
+        subject,
+        linked,
+        slug,
+    )
+    return row
+
+
+@pytest.mark.parametrize("slug", ["succeeded_by", "merged_with", "split_from"])
+async def test_creating_a_link_between_anchored_orgs_is_owned_by_the_dataset(
+    client, evt_write_key, db, slug
+):
+    raw, _ = evt_write_key
+    a, b = await _anchored_pair(client, raw, db)
+
+    r = await _post_org_events(
+        client,
+        raw,
+        a,
+        [{"event_type_slug": slug, "linked_entity_type": "organization", "linked_entity_id": b}],
+    )
+
+    assert r.status_code == 200, r.text
+    result = r.json()["results"][0]
+    assert (result["disposition"], result["reason"]) == ("rejected", "event_owned_by_dataset")
+    assert not await db.fetchval("SELECT count(*) FROM entity_events WHERE entity_id = $1", a)
+
+
+async def test_refining_a_dataset_owned_link_is_refused(client, evt_write_key, db):
+    raw, _ = evt_write_key
+    a, b = await _anchored_pair(client, raw, db)
+    row = await _seed_link(db, a, b)
+
+    r = await _post_org_events(
+        client,
+        raw,
+        a,
+        [
+            {
+                "event_type_slug": "succeeded_by",
+                "pm_event_id": row,
+                "event_year": 1999,
+                "linked_entity_type": "organization",
+                "linked_entity_id": b,
+            }
+        ],
+    )
+
+    assert r.json()["results"][0]["reason"] == "event_owned_by_dataset"
+    assert await db.fetchval("SELECT event_year FROM entity_events WHERE id = $1", row) == 2021
+
+
+async def test_retracting_a_dataset_owned_link_is_refused(client, evt_write_key, db):
+    raw, _ = evt_write_key
+    a, b = await _anchored_pair(client, raw, db)
+    row = await _seed_link(db, a, b, "split_from")
+
+    r = await _post_org_events(
+        client,
+        raw,
+        a,
+        [
+            {
+                "event_type_slug": "split_from",
+                "pm_event_id": row,
+                "op": "retract",
+                "linked_entity_type": "organization",
+                "linked_entity_id": b,
+            }
+        ],
+    )
+
+    assert r.json()["results"][0]["reason"] == "event_owned_by_dataset"
+    assert await db.fetchval("SELECT archived_at FROM entity_events WHERE id = $1", row) is None
+
+
+async def test_a_link_to_an_unanchored_org_is_still_the_callers(client, evt_write_key, db):
+    raw, _ = evt_write_key
+    a, _b = await _anchored_pair(client, raw, db)
+    other = await _make_org(client, raw, db)
+
+    r = await _post_org_events(
+        client,
+        raw,
+        a,
+        [
+            {
+                "event_type_slug": "succeeded_by",
+                "linked_entity_type": "organization",
+                "linked_entity_id": other,
+            }
+        ],
+    )
+
+    assert r.json()["results"][0]["disposition"] == "new"
