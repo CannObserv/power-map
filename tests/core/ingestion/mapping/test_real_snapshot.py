@@ -61,6 +61,10 @@ def real(tmp_path_factory):
         # overlay file; an empty one is what production holds until #498 writes
         # rows, so the measurements below are the same either way.
         write_parquet([], TABLES["curation_overlay"], overlay)
+    pm_orgs = root / PM_EXPORT_DIR / "organizations.parquet"
+    if not pm_orgs.exists():
+        # An export taken before #592 carries no PM flags: the hint compares nothing.
+        write_parquet([], TABLES["organizations"], pm_orgs)
     db = root / "mapping.duckdb"
     result = run_dbt(["build"], snapshot_root=root, duckdb_path=str(db))
     assert result.success, getattr(result, "exception", None)
@@ -130,6 +134,22 @@ def test_dissolved_events_match_pm_and_the_current_biennium_is_live(real):
     assert events == 152, f"dissolved events: {events}"
     assert types == {"dissolved"}
     assert still_live == 34, f"orgs at the current biennium: {still_live}"
+
+
+def test_every_published_link_resolves_to_an_anchored_pair(real):
+    """#592: org_lineage 1.0.0 measured 162 links, each end a live anchor, all dated;
+    PM already held every one (the Civic Health year aside)."""
+    links = real.execute(
+        "SELECT event_type, count(*) FROM desired_organization_lineage GROUP BY 1"
+    ).fetchall()
+    published = _count(real, "SELECT count(*) FROM stg_usa_wa__org_lineage")
+    undated = _count(
+        real, "SELECT count(*) FROM desired_organization_lineage WHERE event_year IS NULL"
+    )
+
+    assert sum(n for _, n in links) == published, "a published link failed to resolve"
+    assert {t for t, _ in links} <= {"succeeded_by", "merged_with", "split_from"}
+    assert undated == 0
 
 
 def test_the_landed_store_matches_the_pins_it_was_landed_under():

@@ -37,6 +37,24 @@ that joins it. The admin cannot read the manifest directly, because the
 mapping package imports dbt and the service does not install it
 (`tests/test_api_imports_without_mapping.py` guards this).
 
+## Locked, not pinned: dataset-owned links (#592)
+
+Org links have no slot. An org can carry several links of one type (a
+predecessor with three successors), and a slot holds one value. So a
+`succeeded_by` / `merged_with` / `split_from` link between **two** in-scope orgs
+is the dataset's outright: usa-wa's `org_lineage` dates it, inserts it and
+archives it when dropped, and a correction goes upstream.
+
+Every admin door refuses one, with the `locked` flash: the succession route
+(`orgs_succession.py`, also the dup-detection "link as successors" modal) and
+the events panel's create, edit, archive, unarchive and delete
+(`_events_shared.py`). An edit is judged as the row is and as it would be, so
+it cannot move a link into the lock or free one from it. The row renders
+read-only with a `usa-wa` badge. A link with either end outside scope is
+ordinary curation. The predicate is `src/core/dataset_ownership.py`
+(`dataset_owned_link`); its type list is held to the manifest by
+`test_manifest.py`, since the admin cannot read the manifest.
+
 ## The pin rule
 
 **A write that changes a slot's value pins the value after the edit.** Each
