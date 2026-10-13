@@ -25,7 +25,9 @@ sources:
         meta:
           external_location: "read_csv('{{ env_var('PM_SRC_ORGANIZATIONS', '') }}', header=true, all_varchar=true)"
           schema_major: 1
-          # 1.1.0 (usa-wa#428) appends `active`; the model ignores it (#591, #592).
+          # 1.1.0 (usa-wa#428) appends `active`; 1.2.0 derives it false for an org a
+          # succeeded_by/merged_with link closes (INV2), contract unchanged. PM keeps
+          # its own flag: `active` is read only by tests/org_active_divergence.sql (#592).
           contract_hash: "sha256:907ee1ce75ffe84d9bc31a0038e1f44c4952d35abab52adaef3f943c2fb7278f"
       - name: person_crosswalk
         description: usa-wa's own crosswalk — entity → source keys, with merged_into tombstones (design § gap E).
@@ -71,3 +73,7 @@ sources:
         description: The role-type vocabulary (#266) — read for the qualifier policies its triggers enforce.
         meta:
           external_location: "read_parquet('{{ env_var('PM_SRC_ROLE_TYPES', '') }}')"
+      - name: organizations
+        description: PM's own organizations.active, which the applier never writes — read only by the active hint (#592).
+        meta:
+          external_location: "read_parquet('{{ env_var('PM_SRC_PM_ORGANIZATIONS', '') }}')"

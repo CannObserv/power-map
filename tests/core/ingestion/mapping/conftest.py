@@ -128,6 +128,15 @@ DEFAULT_ROLE_TYPES = [
     ("rt-state_representative", "state_representative", True, False),
     ("rt-state_representative_at_large", "state_representative_at_large", False, True),
 ]
+
+
+def pm_org_row(pm_id: str, active: bool, *, archived_at=None):
+    """An `organizations` export row (#592): PM's own active flag."""
+    return (pm_id, active, archived_at)
+
+
+# PM's flags agree with the fixture's `active` column: the hint is silent by default.
+DEFAULT_PM_ORGS = [pm_org_row(m, m not in (MO5, MO10)) for _, m in ORG_ANCHORS]
 DEFAULT_OVERLAY = [
     overlay_row("person", PM1, "name", "Curated One"),
     # PM parents the Senate committee elsewhere; the overlay must win over the
@@ -204,6 +213,7 @@ def _build_cache(tmp_path_factory):
         crosswalk: Sequence[tuple] = DEFAULT_CROSSWALK,
         overlay: Sequence[tuple] = DEFAULT_OVERLAY,
         role_types: Sequence[tuple] = DEFAULT_ROLE_TYPES,
+        pm_orgs: Sequence[tuple] = DEFAULT_PM_ORGS,
         datasets: Mapping[str, str] | None = None,
         select: str | None = None,
         must_succeed: bool = True,
@@ -211,7 +221,15 @@ def _build_cache(tmp_path_factory):
         """``datasets`` replaces a usa-wa dataset's CSV (see `fixture_csv`); ``must_succeed=False``
         returns a failed build for a test that asserts *what* failed."""
         edits = tuple(sorted((datasets or {}).items()))
-        key = (tuple(crosswalk), tuple(overlay), tuple(role_types), edits, select, must_succeed)
+        key = (
+            tuple(crosswalk),
+            tuple(overlay),
+            tuple(role_types),
+            tuple(pm_orgs),
+            edits,
+            select,
+            must_succeed,
+        )
         if key in cache:
             return cache[key]
         root = tmp_path_factory.mktemp("mapping") / "store"
@@ -222,6 +240,7 @@ def _build_cache(tmp_path_factory):
         write_parquet(crosswalk, TABLES["producer_crosswalk"], pm / "producer_crosswalk.parquet")
         write_parquet(overlay, TABLES["curation_overlay"], pm / "curation_overlay.parquet")
         write_parquet(role_types, TABLES["role_types"], pm / "role_types.parquet")
+        write_parquet(pm_orgs, TABLES["organizations"], pm / "organizations.parquet")
         db = root.parent / "mapping.duckdb"
         # `--indirect-selection cautious`: a partial build runs a singular test only
         # when every model it reads was selected, so a test of another family does

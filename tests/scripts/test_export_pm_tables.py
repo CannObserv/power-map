@@ -29,8 +29,15 @@ async def db(db_pool):
 
 def test_the_tables_the_models_read_are_exported():
     """#529 added role_types: the models read its qualifier policies to drop a role
-    create PM would refuse."""
-    assert set(TABLES) == {"producer_crosswalk", "curation_overlay", "role_types"}
+    create PM would refuse. #592 added organizations: the active hint compares
+    PM's flag with usa-wa's."""
+    assert set(TABLES) == {"producer_crosswalk", "curation_overlay", "role_types", "organizations"}
+
+
+def test_the_organizations_export_is_the_flag_and_its_archive_only():
+    """The hint reads PM's `active` and skips archived orgs; nothing else is exported."""
+    assert TABLES["organizations"].columns == ("id", "active", "archived_at")
+    assert TABLES["organizations"].types == ("TEXT", "BOOLEAN", "TIMESTAMPTZ")
 
 
 async def test_run_writes_one_file_per_table_under_the_pm_dir(tmp_path):
@@ -40,6 +47,7 @@ async def test_run_writes_one_file_per_table_under_the_pm_dir(tmp_path):
         ],
         "curation_overlay": [],
         "role_types": [("RT1", "committee_member", False, False)],
+        "organizations": [("ORG1", True, None)],
     }
 
     async def fake_fetch(spec):
@@ -47,7 +55,12 @@ async def test_run_writes_one_file_per_table_under_the_pm_dir(tmp_path):
 
     report = await run(fake_fetch, root=tmp_path)
 
-    assert report == {"producer_crosswalk": 1, "curation_overlay": 0, "role_types": 1}
+    assert report == {
+        "producer_crosswalk": 1,
+        "curation_overlay": 0,
+        "role_types": 1,
+        "organizations": 1,
+    }
     assert read_rows(tmp_path / "_pm" / "producer_crosswalk.parquet")[0][0] == "01A"
     assert (tmp_path / "_pm" / "curation_overlay.parquet").exists()
 

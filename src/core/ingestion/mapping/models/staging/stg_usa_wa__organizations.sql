@@ -20,5 +20,7 @@ select
     end as first_biennium,
     case
         when regexp_matches(trim(last_biennium), '^\d{4}-\d{2}$') then trim(last_biennium)
-    end as last_biennium
+    end as last_biennium,
+    -- #592: carried for the active hint only; PM's flag is PM's.
+    try_cast(nullif(trim(active), '') as boolean) as active
 from {{ source('usa_wa', 'organizations') }}
