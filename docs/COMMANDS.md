@@ -460,7 +460,7 @@ row names**; this is a roster, not a reference.
 | `power-map-egress-ip` | 5 min | `check_egress_ip.py` — egress IP vs the cluster's live Trusted Sources | [AUDITS.md](AUDITS.md) |
 | `power-map-anomaly` | hourly | `check_api_anomalies.py` — per-key request-rate threshold | [AUDITS.md](AUDITS.md) |
 | `power-map-datasets-pull` | 09:00 UTC | `pull_datasets.py` — lands usa-wa snapshots; writes no DB rows | [RUNBOOKS.md](RUNBOOKS.md) |
-| `power-map-desired-state` | 09:30 UTC | export → build → apply, the applier **dry run**; a failed step stops the chain | [RUNBOOK_DESIRED_STATE.md](RUNBOOK_DESIRED_STATE.md) |
+| `power-map-desired-state` | 09:30 UTC | export → build → apply, the applier **dry run**; a failed step stops the chain; exit 4 = entries unapplied > 3 days (#656) | [RUNBOOK_DESIRED_STATE.md](RUNBOOK_DESIRED_STATE.md) |
 | `power-map-prune` | daily | `prune_outbox.py --execute` — per-table TTL: outbox, bare tombstones, request log | [RUNBOOKS.md](RUNBOOKS.md) |
 | `power-map-schema-parity` | daily | `audit_schema_constraint_parity.py` — prod vs reference DDL | [AUDITS.md](AUDITS.md) |
 | `power-map-ancillary-orphans` | daily | `audit_ancillary_orphans.py` — no-FK polymorphic orphans | [AUDITS.md](AUDITS.md) |
