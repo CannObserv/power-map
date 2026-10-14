@@ -192,7 +192,9 @@ versions are the ones it offered (`currency`, #535).
 - **Org links (#592).** A child binding archives too: a link between two
   in-scope orgs that the snapshot dropped (usa-wa superseded it) is an
   `archive` of that `entity_events` row, counted under `archives` — so the
-  nightly blocks until a supervised `--allow-archives N`. It stamps no anchor
+  nightly blocks until a supervised `--allow-archives N`. That N spans link and
+  assignment archives alike: size it from `summary.md`'s by-table counts, not
+  from one table's triage. It stamps no anchor
   (the orgs stay) and never restores: a link usa-wa publishes again is a fresh
   `insert`. A link to an org no anchor names is invisible (`anchored:
   [linked_pm_id]`), and so is every other event type. The pre-merge dry run
