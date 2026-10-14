@@ -10,10 +10,11 @@ import pytest_asyncio
 
 from src.core.dataset_ownership import DATASET_OWNED_LINK_TYPES, dataset_owned_link
 from src.core.db import generate_id
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE
 
 pytestmark = [pytest.mark.integration]
 
-SOURCE = "test-592-lock"
+SOURCE = PRODUCER_SOURCE  # the applier's scope is this source's anchors (CR 2)
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -27,7 +28,7 @@ async def db(db_pool):
             await tr.rollback()
 
 
-async def _org(db, resolution: str | None = "live") -> str:
+async def _org(db, resolution: str | None = "live", *, source: str = SOURCE) -> str:
     org = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org)
     if resolution is not None:
@@ -36,7 +37,7 @@ async def _org(db, resolution: str | None = "live") -> str:
             " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
             " VALUES ($1, $2, 'organization', $3, $4, $4, $5)",
             generate_id(),
-            SOURCE,
+            source,
             f"P-{org}",
             org,
             resolution,
@@ -52,6 +53,7 @@ async def orgs(db):
         "merged": await _org(db, "merged"),
         "archived": await _org(db, "archived"),
         "bare": await _org(db, None),
+        "foreign": await _org(db, source="another-producer"),
     }
 
 
@@ -70,7 +72,7 @@ async def test_a_merged_anchor_is_in_scope(db, orgs):
     )
 
 
-@pytest.mark.parametrize("other", ["archived", "bare"])
+@pytest.mark.parametrize("other", ["archived", "bare", "foreign"])
 async def test_a_link_with_an_end_out_of_scope_is_pms_own(db, orgs, other):
     assert not await dataset_owned_link(
         db, "organization", orgs["a"], "succeeded_by", "organization", orgs[other]

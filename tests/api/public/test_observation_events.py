@@ -7,6 +7,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE
 
 pytestmark = [
     pytest.mark.integration,
@@ -1500,8 +1501,9 @@ async def _anchored_pair(client, raw, db):
         await db.execute(
             "INSERT INTO producer_crosswalk"
             " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
-            " VALUES ($1, 'test-592-api', 'organization', $2, $3, $3, 'live')",
+            " VALUES ($1, $2, 'organization', $3, $4, $4, 'live')",
             generate_id(),
+            PRODUCER_SOURCE,
             f"P-{org}",
             org,
         )

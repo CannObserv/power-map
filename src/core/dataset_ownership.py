@@ -13,27 +13,29 @@ holds the two together.
 
 import asyncpg
 
-from src.core.ingestion.crosswalk import IN_SCOPE
+from src.core.ingestion.crosswalk import IN_SCOPE, PRODUCER_SOURCE
 
 __all__ = ["DATASET_OWNED_LINK_TYPES", "anchored_orgs", "dataset_owned_link", "owned_link"]
 
 # The org→org link types a dataset owns on anchored pairs.
 DATASET_OWNED_LINK_TYPES: frozenset[str] = frozenset({"succeeded_by", "merged_with", "split_from"})
 
-# The orgs among $1 carrying a producer anchor in scope — the applier's own row
-# scope, so the lock reaches exactly the links absence can archive.
+# The orgs among $1 carrying an in-scope anchor of the producer whose dataset
+# owns the links — the applier's own row scope (it reads one source's crosswalk),
+# so the lock reaches exactly the links absence can archive (CR 2).
 _ANCHORED_SQL = (
     "SELECT DISTINCT pm_id FROM producer_crosswalk"
-    " WHERE kind = 'organization' AND pm_id = ANY($1::text[])"
+    " WHERE source = $3 AND kind = 'organization' AND pm_id = ANY($1::text[])"
     " AND resolution = ANY($2::text[])"
 )
 
 
 async def anchored_orgs(conn: asyncpg.Connection, ids: list[str]) -> set[str]:
-    """The orgs among ``ids`` a producer anchor holds in scope — one query for a list."""
+    """The orgs among ``ids`` the producer's anchors hold in scope — one query for a list."""
     if not ids:
         return set()
-    return {r["pm_id"] for r in await conn.fetch(_ANCHORED_SQL, ids, list(IN_SCOPE))}
+    rows = await conn.fetch(_ANCHORED_SQL, ids, list(IN_SCOPE), PRODUCER_SOURCE)
+    return {r["pm_id"] for r in rows}
 
 
 def owned_link(

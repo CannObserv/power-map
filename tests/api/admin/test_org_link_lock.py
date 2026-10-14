@@ -14,12 +14,13 @@ from httpx import ASGITransport, AsyncClient
 from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
+from src.core.ingestion.crosswalk import PRODUCER_SOURCE
 
 pytestmark = [pytest.mark.integration]
 
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
-SOURCE = "test-592-admin"
+SOURCE = PRODUCER_SOURCE  # the lock reads the applier's own source (CR 2)
 LOCKED = "org_lineage"  # every refusal names the dataset to fix upstream
 
 
