@@ -146,3 +146,12 @@ def test_a_duplicated_link_halts_the_build(build):
     )
 
     assert "desired_organization_lineage_key_unique" in b.failures
+
+
+def test_a_link_from_an_org_to_itself_is_named_not_claimed(build):
+    """CR 1: a dated self-link would end the org's own lifespan; entity_events has no
+    CHECK against one, so the mart refuses it and the warn test names it."""
+    b = build(datasets={LINEAGE: fixture_csv(LINEAGE, add=[_link(O6, "succeeded_by", O6)])})
+
+    assert O6 not in {r[1] for r in b.rows("desired_organization_lineage")}
+    assert UNRESOLVED in b.warnings
