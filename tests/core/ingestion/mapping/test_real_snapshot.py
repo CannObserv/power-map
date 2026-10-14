@@ -8,7 +8,9 @@ out.
 
 Needs the store the nightly puller lands plus the read-only crosswalk export
 (`scripts/pull_datasets.py`, `scripts/export_pm_tables.py`); absent either, it
-skips by name rather than passing vacuously. It never opens a database.
+skips by name rather than passing vacuously. It never opens a database, yet the
+`integration` marker gate still skips it unless `TEST_DATABASE_URL` is set — run
+it with the `env_args` idiom (`docs/COMMANDS.md`).
 """
 
 import shutil
