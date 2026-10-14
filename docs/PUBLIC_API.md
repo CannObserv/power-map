@@ -202,7 +202,7 @@ All `POST /*/observations` endpoints return an `ObservationResponse` with the fo
 
 **`reason` is a diagnostic aid, not a stable API contract.** Its format (e.g. `"unknown_identifier_type: 'org_wa_legislature_chamber'"`) may change across releases. Do not pattern-match on specific reason strings in production code; use it for logging and debugging only. To avoid `unknown_identifier_type` in the first place, discover the registered slugs from `GET /api/v1/entity-identifier-types` instead of hardcoding them (#459) — value conventions per slug are in [OBSERVATIONS.md](OBSERVATIONS.md).
 
-**Event `reason` slugs are a contract, though.** Unlike the top-level `reason`, per-event `EventObservationResult.reason` (#321) is a stable machine-readable slug: one transient — `linked_entity_unresolved` (self-heals once the linked entity anchors) — and the rest terminal: `identity_immutable`, `event_not_found`, `provenance_conflict`, `applies_to_mismatch`, `missing_required_field`, `unknown_event_type`, `invalid`.
+**Event `reason` slugs are a contract, though.** Unlike the top-level `reason`, per-event `EventObservationResult.reason` (#321) is a stable machine-readable slug: one transient — `linked_entity_unresolved` (self-heals once the linked entity anchors) — and the rest terminal: `identity_immutable`, `event_not_found`, `provenance_conflict`, `applies_to_mismatch`, `missing_required_field`, `unknown_event_type`, `invalid`, `event_owned_by_dataset` (#592: a `succeeded_by`/`merged_with`/`split_from` link between two orgs a subscribed dataset anchors — create, refine and retract alike; correct it at the dataset).
 
 ### Event observations — refine-in-place & partial-success (#321)
 

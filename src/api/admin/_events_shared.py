@@ -19,8 +19,15 @@ from src.api.admin.deps import (
     with_flash,
 )
 from src.api.admin.entity_lookup import ENTITY_TYPES, entity_exists, resolve_entity_label
-from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
+from src.api.admin.overlay_slots import (
+    LINK_LOCKED_MSG,
+    flash_key,
+    overlay_refresh,
+    pinned_note,
+    tracked,
+)
 from src.core.ancillary_migrate import delete_citations
+from src.core.dataset_ownership import anchored_orgs, dataset_owned_link, owned_link
 from src.core.db import generate_id, linked_entity_vanished
 from src.core.types import EVENT_PLACE_PRECISIONS
 
@@ -94,7 +101,7 @@ def _validate_date_time(
 
 
 _EVENT_FETCH_QUERY = f"""
-SELECT ee.id, ee.event_year, ee.event_month, ee.event_day,
+SELECT ee.id, ee.entity_type, ee.entity_id, ee.event_year, ee.event_month, ee.event_day,
        ee.event_hour, ee.event_minute, ee.event_second,
        ee.event_place_text, ee.event_place_address_id,
        ee.linked_entity_type, ee.linked_entity_id,
@@ -124,6 +131,10 @@ LEFT JOIN addresses pa ON pa.id = ee.event_place_address_id
 {citation_count_lateral("entity_event", "ee.id")}
 WHERE ee.id = $1 AND ee.entity_id = $2 AND ee.entity_type = $3
 """
+
+_EVENT_TYPE_QUERY = (
+    "SELECT slug, requires_year, requires_linked_entity FROM entity_event_types WHERE id=$1"
+)
 
 _EVENT_TYPES_QUERY = """
 SELECT id, slug, display_name, requires_year, requires_linked_entity
@@ -160,9 +171,34 @@ async def _validate_event_place_address(
 async def fetch_entity_events(entity_id: str, entity_type: str, db: asyncpg.Connection) -> list:
     """Fetch all events for an entity, sorted for display.
 
-    Exposed at module level so detail routes can include events in context.
+    Exposed at module level so detail routes can include events in context. Each
+    row carries ``dataset_owned`` (#592): a link a dataset owns renders read-only.
     """
-    return await db.fetch(_EVENT_FETCH_QUERY, entity_id, entity_type)
+    return await _with_ownership(db, await db.fetch(_EVENT_FETCH_QUERY, entity_id, entity_type))
+
+
+async def _with_ownership(db: asyncpg.Connection, rows) -> list[dict]:
+    """Rows as dicts, each flagged ``dataset_owned`` — one anchor read for the lot."""
+    ids = {r["entity_id"] for r in rows} | {r["linked_entity_id"] for r in rows}
+    anchored = (
+        await anchored_orgs(db, sorted(i for i in ids if i))
+        if any(r["entity_type"] == "organization" for r in rows)
+        else set()
+    )
+    return [
+        {
+            **dict(r),
+            "dataset_owned": owned_link(
+                r["entity_type"],
+                r["entity_id"],
+                r["event_type_slug"],
+                r["linked_entity_type"],
+                r["linked_entity_id"],
+                anchored,
+            ),
+        }
+        for r in rows
+    ]
 
 
 def _parse_int(value: str) -> int | None:
@@ -261,7 +297,21 @@ def make_events_router(
         )
         if not row:
             raise HTTPException(status_code=404)
-        return row
+        return (await _with_ownership(db, [row]))[0]
+
+    def _locked_fallback(entity_id: str) -> RedirectResponse:
+        """#592: the non-HTMX refusal of a write to a link a dataset owns."""
+        return RedirectResponse(with_flash(detail_url(entity_id), "locked"), status_code=303)
+
+    async def _locked_rows(request, entity_id: str, db):
+        """#592: the button doors' HTMX refusal — the table as it was, and why."""
+        events = await fetch_entity_events(entity_id, entity_type, db)
+        return templates.TemplateResponse(
+            request,
+            tmpl_rows,
+            _ctx(entity_id, events=events),
+            headers=flash_trigger("warning", LINK_LOCKED_MSG),
+        )
 
     def _ctx(entity_id: str, **extra) -> dict:
         """Build template context with the correct entity-id key."""
@@ -344,10 +394,7 @@ def make_events_router(
             return _form_response(request, entity_id, None, event_types, error=date_error)
 
         # Validate event type constraints
-        etype_row = await db.fetchrow(
-            "SELECT requires_year, requires_linked_entity FROM entity_event_types WHERE id=$1",
-            event_type_id,
-        )
+        etype_row = await db.fetchrow(_EVENT_TYPE_QUERY, event_type_id)
         if not etype_row:
             raise HTTPException(status_code=400, detail="Unknown event type")
         if etype_row["requires_year"] and year_val is None:
@@ -387,6 +434,14 @@ def make_events_router(
                 )
             event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
             return _form_response(request, entity_id, None, event_types, error=linked_error)
+
+        if await dataset_owned_link(
+            db, entity_type, entity_id, etype_row["slug"], linked_type, linked_id
+        ):
+            if not is_htmx(request):
+                return _locked_fallback(entity_id)
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(request, entity_id, None, event_types, error=LINK_LOCKED_MSG)
 
         place_addr_id, addr_error = await _validate_event_place_address(db, event_place_address_id)
         if addr_error:
@@ -481,8 +536,16 @@ def make_events_router(
         user: AdminUser = Depends(get_admin_user),
         db=Depends(get_db),
     ):
-        """Return event edit form row."""
+        """Return event edit form row — or, for a link a dataset owns, the row and why."""
         row = await _get_event_or_404(event_id, entity_id, db)
+        if row["dataset_owned"]:
+            # CR 5: every save would be refused; serve no form that cannot save.
+            return templates.TemplateResponse(
+                request,
+                tmpl_read_row,
+                _ctx(entity_id, ev=row),
+                headers=flash_trigger("warning", LINK_LOCKED_MSG),
+            )
         event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
         linked_label = await _linked_label(db, row)
         return _form_response(request, entity_id, row, event_types, linked_label=linked_label)
@@ -538,10 +601,7 @@ def make_events_router(
             )
 
         # Validate event type constraints
-        etype_row = await db.fetchrow(
-            "SELECT requires_year, requires_linked_entity FROM entity_event_types WHERE id=$1",
-            event_type_id,
-        )
+        etype_row = await db.fetchrow(_EVENT_TYPE_QUERY, event_type_id)
         if not etype_row:
             raise HTTPException(status_code=400, detail="Unknown event type")
         if etype_row["requires_year"] and year_val is None:
@@ -599,6 +659,23 @@ def make_events_router(
                 existing,
                 event_types,
                 error=linked_error,
+                linked_label=existing_label,
+            )
+
+        # #592: as it is and as the edit would leave it — an edit can neither
+        # touch a link a dataset owns nor move a link into or out of the lock.
+        if existing["dataset_owned"] or await dataset_owned_link(
+            db, entity_type, entity_id, etype_row["slug"], linked_type, linked_id
+        ):
+            if not is_htmx(request):
+                return _locked_fallback(entity_id)
+            event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
+            return _form_response(
+                request,
+                entity_id,
+                existing,
+                event_types,
+                error=LINK_LOCKED_MSG,
                 linked_label=existing_label,
             )
 
@@ -695,6 +772,10 @@ def make_events_router(
         ev = await _get_event_or_404(event_id, entity_id, db)
         if ev["archived_at"]:
             raise HTTPException(status_code=409, detail="Event is already archived")
+        if ev["dataset_owned"]:
+            if not is_htmx(request):
+                return _locked_fallback(entity_id)
+            return await _locked_rows(request, entity_id, db)
         async with (
             db.transaction(),
             tracked(
@@ -730,6 +811,10 @@ def make_events_router(
         ev = await _get_event_or_404(event_id, entity_id, db)
         if not ev["archived_at"]:
             raise HTTPException(status_code=409, detail="Event is not archived")
+        if ev["dataset_owned"]:
+            if not is_htmx(request):
+                return _locked_fallback(entity_id)
+            return await _locked_rows(request, entity_id, db)
         async with (
             db.transaction(),
             tracked(
@@ -765,6 +850,16 @@ def make_events_router(
         ev = await _get_event_or_404(event_id, entity_id, db)
         if not ev["archived_at"]:
             raise HTTPException(status_code=409, detail="Event must be archived before deletion")
+        if ev["dataset_owned"]:
+            if not is_htmx(request):
+                return _locked_fallback(entity_id)
+            # The swap replaces the row: hand it back unchanged, with the reason.
+            return templates.TemplateResponse(
+                request,
+                tmpl_read_row,
+                _ctx(entity_id, ev=ev),
+                headers=flash_trigger("warning", LINK_LOCKED_MSG),
+            )
         # Drop the event's own citations first (no FK; would orphan otherwise, #319),
         # atomically with the event delete so a mid-op failure can't leave the event
         # citation-less (#319 CR).

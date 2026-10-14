@@ -20,7 +20,7 @@ Three steps, each file-to-file except the export:
 
 ```bash
 uv run "${env_args[@]}" python -m scripts.pull_datasets                       # 1. snapshots (#496)
-uv run --group mapping "${env_args[@]}" python -m scripts.export_pm_tables    # 2. producer_crosswalk + curation_overlay → _pm/*.parquet (read-only; DSN echoed)
+uv run --group mapping "${env_args[@]}" python -m scripts.export_pm_tables    # 2. PM's tables (scripts/export_pm_tables.py TABLES) → _pm/*.parquet (read-only; DSN echoed)
 uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 3. dbt build → data/desired_state/*.parquet
 ```
 
@@ -42,12 +42,14 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   only a habit. The check is `build_desired_state.py`'s, not `run_dbt`'s: every
   fixture build goes through `run_dbt` against a store that states no contract,
   so a hand-run of it builds unchecked.
-- **Models never open a database.** PM's two tables cross the seam as Parquet
+- **Models never open a database.** PM's tables — the crosswalk, the overlay,
+  the role-type vocabulary and (#592) `organizations.active` — cross the seam as Parquet
   (step 2), so `dbt build` is hermetic and its tests run in the unit tier on
   fixtures. Neither step 2 nor 3 carries `--execute`: nothing writes a database.
 - **`manifest.yml` is the contract #499 reads** — per table: key, retraction
   policy (`none` / `report` / `archive`), owned columns, and for events the
-  owned types. `desired_entity_events` owns `dissolved` only; the 315 other org
+  owned types. `desired_entity_events` owns `dissolved`;
+  `desired_organization_lineage` owns the three org links (#592); the other org
   events in PM have no producer column and are never diffed.
 - **Output types are declared, never inferred (#569).** Each table's `types`
   in `manifest.yml` names every exported column's duckdb type. duckdb types a
@@ -60,7 +62,19 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   (`coalesce(long_name, name)` — no dba), acronym, a row-scoped parent claim
   (House/Senate/Joint/chambers only), and `dissolved` from `last_biennium`
   (year = first year + 1; none at the dataset's newest biennium). usa-wa's
-  `active` (1.1.0) is published but not taken — whether it should be is #592.
+  `active` is **not taken** (#592): PM keeps `organizations.active`, and the warn
+  test `org_active_divergence` names the anchored orgs with no `last_biennium`
+  (Joint/Other, parties, chambers) where usa-wa's flag differs — a curator acts
+  through `set_org_active`. Committees are left to `dissolved`, so a biennium
+  rollover's all-inactive night raises nothing. The export carries PM's flag
+  (`_pm/organizations.parquet`) for it.
+- **Org links (#592):** `org_lineage`'s `succeeded_by` / `merged_with` /
+  `split_from`, one row per link whose **both** orgs are in scope; only the year
+  is owned (PM keeps month and day). A link with an end that is a create,
+  archived, a tombstone or unpublished is named by `unresolved_org_lineage` and
+  lands the night after its create executes. No overlay: such a link is
+  **locked** — admin and the observation API refuse it — so a correction goes
+  upstream to usa-wa. An unknown slug halts the build.
 - **The overlay wins by presence.** An *active* `curation_overlay` row (a pin)
   overrides the mapped value even when its value is null (the row then drops
   out); an unpinned one is archived and applies nowhere. Its vocabulary —
@@ -87,6 +101,9 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   `overlay_field_unmapped`: a curator row naming a field no model maps, applied
   nowhere. `overlay_value_malformed`: a pinned value its slot cannot read (a
   non-integer dissolved year, a non-date assignment date), applied nowhere.
+  `unresolved_org_lineage` (#592): a published link with an end out of scope, no
+  claim. `org_active_divergence` (#592): usa-wa's `active` differs from PM's on
+  an org with no `last_biennium`, a hint, nothing applied.
   `unresolved_assignment_roles`: a span whose role_key names no published role,
   kept (dropping it would archive a live tenure) but never created.
   `role_create_pm_would_refuse` (#529): a role PM has no row for that its own
@@ -173,6 +190,19 @@ versions are the ones it offered (`currency`, #535).
   and the relationships the #301 trigger archives with it, which a restore does
   not revive. A date that shrinks a span's window clamps its relationships, or
   archives those left with no window.
+- **Org links (#592).** A child binding archives too: a link between two
+  in-scope orgs that the snapshot dropped (usa-wa superseded it) is an
+  `archive` of that `entity_events` row, counted under `archives` — so the
+  nightly blocks until a supervised `--allow-archives N`. That N spans link and
+  assignment archives alike: size it from `summary.md`'s by-table counts, not
+  from one table's triage. It stamps no anchor
+  (the orgs stay) and never restores: a link usa-wa publishes again is a fresh
+  `insert`. A link to an org no anchor names is invisible (`anchored:
+  [linked_pm_id]`), and so is every other event type. The pre-merge dry run
+  (2026-10-13, prod read-only) measured 161 `noop` and one `update` — the Civic
+  Health edge, dated 2026 — beside the assignment entries the nightly already
+  carried; the update lands with the next supervised execute (the nightly unit
+  never executes; #656).
 - **Roles (#529).** A role the snapshot drops archives too — unless live rows
   still name it that this plan does not archive, which makes it a `conflict`
   naming them (`dependents`). The ordinary case is a re-key, where usa-wa drops

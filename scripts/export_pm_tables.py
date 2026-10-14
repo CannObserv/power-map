@@ -81,6 +81,13 @@ TABLES: dict[str, TableSpec] = {
         columns=("id", "slug", "requires_qualifier", "forbids_qualifier"),
         types=("TEXT", "TEXT", "BOOLEAN", "BOOLEAN"),
     ),
+    # #592: PM's own `active`, which the applier never writes — read only by the
+    # warn test naming orgs where usa-wa's flag disagrees.
+    "organizations": TableSpec(
+        name="organizations",
+        columns=("id", "active", "archived_at"),
+        types=("TEXT", "BOOLEAN", "TIMESTAMPTZ"),
+    ),
 }
 
 Fetcher = Callable[[TableSpec], Awaitable[list[tuple]]]

@@ -144,6 +144,9 @@ retract's `linked_entity` is now refused `identity_immutable` (the stored link n
 the survivor), and a collapsed twin's `pm_event_id` answers `event_not_found`; the
 loser's 410 `merged_into` is the id to follow. Guard: `test_merge_identity_sweep.py`
 fails a merge module with more person/org DELETEs than `rehome_entity_events` calls.
+The re-home is a system operation, not curation: it moves dataset-owned links
+(#592) like any other, unrefused, and the next applier run reconciles them against
+`org_lineage` — a moved link the dataset no longer names is archived (gated).
 
 ---
 

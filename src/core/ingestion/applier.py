@@ -16,7 +16,7 @@ integration tier against asyncpg.
 import dataclasses
 import json
 import re
-from collections.abc import Container, Iterable, Mapping, Sequence
+from collections.abc import Callable, Container, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -1401,7 +1401,9 @@ async def _diff_child(
     unarchived rows — none is an `insert`, one compares the owned columns,
     more than one is a `conflict`. Under `retraction: report`, an owned event
     type on an in-scope parent that the snapshot no longer carries is a
-    `retract` entry; every other live row is invisible.
+    `retract` entry; under `retraction: archive` (#592) it is an `archive` of
+    that row. Either way a row whose `anchored` key column names a PM row out of
+    scope is not the producer's, and every other live row is invisible.
     """
     target = spec.target
     columns = target.columns  # desired column → PM column
@@ -1409,7 +1411,8 @@ async def _diff_child(
     # Every in-scope parent when absence is reported (an owned type PM holds
     # that the snapshot dropped), else only the parents the desired rows name.
     # Both are within scope, so nothing outside the crosswalk is ever read.
-    if spec.retraction == "report":
+    absence = spec.retraction in ("report", "archive")
+    if absence:
         parents = sorted(
             {scope.resolve(spec.entity, p) for p in scope.in_scope(spec.entity)} - {None}
         )
@@ -1539,28 +1542,65 @@ async def _diff_child(
                 kind = "update" if changes else "noop"
                 entries.append(_entry(spec, row, kind, row_id=m.get("id"), changes=changes))
 
-    if spec.retraction == "report" and spec.owned_event_types and target.match == "key":
-        type_desired = target.key_columns[0]
-        type_pm = columns[type_desired]
-        owned_values = {pm_value({type_desired: t}, type_desired) for t in spec.owned_event_types}
-        reverse = {v: k for k, v in lookups.get(type_desired, {}).items()}
-        for producer_id in sorted(scope.in_scope(spec.entity)):
-            pm_id = scope.resolve(spec.entity, producer_id)
-            for r in candidates(pm_id):
-                if r.get(type_pm) not in owned_values:
-                    continue
-                key = tuple(sorted((columns[c], r.get(columns[c])) for c in target.key_columns))
-                if (pm_id, key) in seen:
-                    continue
-                row = {"producer_id": producer_id, spec.pm_key: pm_id}
-                row[type_desired] = reverse.get(r.get(type_pm), r.get(type_pm))
-                entries.append(
-                    _entry(
-                        spec,
-                        row,
-                        "retract",
-                        row_id=r.get("id"),
-                        reason="absent from the snapshot; policy is report, nothing is written",
-                    )
+    if absence and spec.owned_event_types and target.match == "key":
+        entries.extend(_absent_children(spec, scope, candidates, seen, pm_value, lookups))
+    return entries
+
+
+def _absent_children(
+    spec: TableSpec,
+    scope: Scope,
+    candidates: Callable[[str], list[dict]],
+    seen: set[tuple[str, tuple]],
+    pm_value: Callable[[dict, str], object],
+    lookups: Mapping[str, Mapping[str, str]],
+) -> list[Entry]:
+    """The owned-type rows of in-scope parents the snapshot no longer carries.
+
+    `retraction: report` names each as a `retract` and writes nothing; `archive`
+    (#592) archives it, gated as an archive. A row whose `anchored` key column
+    names a PM row outside scope is not the producer's to retract — a link to an
+    org no anchor names is PM's own. Its entry carries every key column, as the
+    desired row it stands in for would.
+    """
+    target = spec.target
+    columns = target.columns
+    type_desired = target.key_columns[0]
+    type_pm = columns[type_desired]
+    # A type PM's vocabulary lacks can have no live row to retract: skipped, not
+    # an error — an error is for a desired row naming it, which pm_value raises.
+    vocab = lookups.get(type_desired)
+    owned = [t for t in spec.owned_event_types if vocab is None or t in vocab]
+    owned_values = {pm_value({type_desired: t}, type_desired) for t in owned}
+    reverse = {c: {v: k for k, v in lookups[c].items()} for c in target.key_columns if c in lookups}
+    in_scope = {scope.resolve(spec.entity, p) for p in scope.in_scope(spec.entity)} - {None}
+    archiving = spec.retraction == "archive"
+    entries: list[Entry] = []
+    for producer_id in sorted(scope.in_scope(spec.entity)):
+        pm_id = scope.resolve(spec.entity, producer_id)
+        for r in candidates(pm_id):
+            if r.get(type_pm) not in owned_values:
+                continue
+            if any(r.get(columns[c]) not in in_scope for c in target.anchored):
+                continue
+            key = tuple(sorted((columns[c], r.get(columns[c])) for c in target.key_columns))
+            if (pm_id, key) in seen:
+                continue
+            row = {"producer_id": producer_id, spec.pm_key: pm_id}
+            for c in target.key_columns:
+                value = r.get(columns[c])
+                row[c] = reverse[c].get(value, value) if c in reverse else value
+            entries.append(
+                _entry(
+                    spec,
+                    row,
+                    "archive" if archiving else "retract",
+                    row_id=r.get("id"),
+                    reason=(
+                        "absent from the snapshot; archived, gated as an archive"
+                        if archiving
+                        else "absent from the snapshot; policy is report, nothing is written"
+                    ),
                 )
+            )
     return entries

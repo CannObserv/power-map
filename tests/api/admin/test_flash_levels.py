@@ -150,6 +150,7 @@ def test_shared_flash_messages_levels_match_taxonomy():
         "removed": "success",
         "invalid": "warning",
         "exists": "warning",
+        "locked": "warning",
         "saved_pinned": "success",
         "removed_pinned": "success",
         "pinned": "success",

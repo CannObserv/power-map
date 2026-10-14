@@ -28,10 +28,13 @@ from pathlib import Path
 
 import yaml
 
+from src.core.dataset_ownership import DATASET_OWNED_LINK_TYPES
+
 __all__ = [
     "MANIFEST_PATH",
     "MATCHES",
     "MERGE_PRIMITIVES",
+    "OVERLAY_LOCKED",
     "OVERLAY_SHAPES",
     "RETRACTIONS",
     "SHAPES",
@@ -144,6 +147,9 @@ class Target:
     lookups: dict[str, dict[str, str]] = field(default_factory=dict)  # desired col → table/from/to
     insert_defaults: dict[str, object] = field(default_factory=dict)  # PM column → literal
     archived: str | None = None  # key: match among rows where this is null
+    # key (#592): key columns naming a row of the binding's entity. A PM row whose
+    # value is out of scope is not the producer's: absence never reaches it
+    anchored: list[str] = field(default_factory=list)
     hint_on_create: bool = False
     primitive: str | None = None  # merge: the core merge it acts through; None = report-only
     # entity (#527): desired column → what a create writes; the PM columns of the
@@ -189,6 +195,9 @@ class TableSpec:
 
 # The shapes that carry a producer-owned value a curator can pin (#498).
 OVERLAY_SHAPES = ("column", "child")
+# #592: the overlay a binding names when its values are locked rather than
+# pinned — a child binding owning only `DATASET_OWNED_LINK_TYPES`.
+OVERLAY_LOCKED = "none"
 
 
 @dataclass(frozen=True)
@@ -297,6 +306,7 @@ def _target(name: str, raw: object) -> Target:
         match=raw.get("match"),
         type_column=raw.get("type_column"),
         canonical=raw.get("canonical"),
+        anchored=list(raw.get("anchored") or []),
         key_columns=list(raw.get("key_columns") or []),
         constants=dict(raw.get("constants") or {}),
         lookups={k: dict(v) for k, v in (raw.get("lookups") or {}).items()},
@@ -365,6 +375,9 @@ def _target(name: str, raw: object) -> Target:
         for col in target.key_columns:
             if col not in target.columns:
                 raise ManifestError(f"{where}: key column {col!r} is not in target.columns")
+    for col in target.anchored:
+        if col not in target.key_columns:
+            raise ManifestError(f"{where}: anchored column {col!r} is not a key column")
     for col, lookup in target.lookups.items():
         if col not in target.columns:
             raise ManifestError(f"{where}: lookup {col!r} is not in target.columns")
@@ -402,11 +415,22 @@ def _table(name: str, raw: object) -> TableSpec:
         raise ManifestError(
             f"{name}: only an archiving binding names dependents — nothing else leaves a row behind"
         )
-    if retraction == "archive":
+    owned_event_types = [str(t) for t in raw.get("owned_event_types") or []]
+    if retraction == "archive" and target.shape == "child":
+        # #592: a child archive acts on the owned event types and nothing else —
+        # without them it would reach every unmatched row of the parent — and
+        # sets the column its match already reads past.
+        if target.match != "key" or not owned_event_types:
+            raise ManifestError(
+                f"{name}: a child binding archives only its owned_event_types, matched by key"
+            )
+        if not target.archived:
+            raise ManifestError(f"{name}: a child archive names the archived column it sets")
+    elif retraction == "archive":
         # Archiving is an entity's policy (#527), and its restore is fallible on a
         # partial identity index (#424) — so the index is named, or nothing checks it.
         if target.shape != "entity":
-            raise ManifestError(f"{name}: retraction archive is for an entity binding")
+            raise ManifestError(f"{name}: retraction archive is for an entity or child binding")
         if not target.unique_live:
             raise ManifestError(
                 f"{name}: retraction archive names unique_live — a restore must be checked"
@@ -422,7 +446,20 @@ def _table(name: str, raw: object) -> TableSpec:
         )
     if target.shape not in OVERLAY_SHAPES and overlay is not None:
         raise ManifestError(f"{name}: an overlay field on a {target.shape} table pins nothing")
-    if isinstance(overlay, dict):
+    if overlay == OVERLAY_LOCKED:
+        # #592: a link is locked, not pinned — every PM write door refuses it —
+        # which holds only for the types the lock knows.
+        if (
+            target.shape != "child"
+            or not owned_event_types
+            or not set(owned_event_types) <= DATASET_OWNED_LINK_TYPES
+        ):
+            raise ManifestError(
+                f"{name}: overlay none is for a child binding owning only the locked link"
+                f" types {sorted(DATASET_OWNED_LINK_TYPES)}"
+            )
+        overlays: dict[str, str] = {}
+    elif isinstance(overlay, dict):
         if set(overlay) != set(owned):
             raise ManifestError(
                 f"{name}: an overlay map pins exactly the owned columns {sorted(owned)},"
@@ -440,7 +477,7 @@ def _table(name: str, raw: object) -> TableSpec:
         pm_key=str(_require(raw, "pm_key", name)),
         retraction=str(retraction),
         owned_columns=owned,
-        owned_event_types=list(raw.get("owned_event_types") or []),
+        owned_event_types=owned_event_types,
         target=target,
         types=types,
         overlays=overlays,

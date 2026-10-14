@@ -212,6 +212,10 @@ DESIRED_SPECS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("pm_id", "producer_id", "entity_type", "event_type", "event_year"),
         ("TEXT", "TEXT", "TEXT", "TEXT", "INTEGER"),
     ),
+    "desired_organization_lineage": (
+        ("pm_id", "producer_id", "event_type", "linked_pm_id", "linked_producer_id", "event_year"),
+        ("TEXT",) * 5 + ("INTEGER",),
+    ),
     "desired_role_assignments": (
         ("pm_id", "producer_id", "person_producer_id", "role_producer_id", "start_date"),
         ("TEXT", "TEXT", "TEXT", "TEXT", "DATE"),

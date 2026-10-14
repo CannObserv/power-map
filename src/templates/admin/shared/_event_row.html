@@ -46,6 +46,10 @@
     {% else %}
       <span class="badge badge--active">Active</span>
     {% endif %}
+    {# #592: a link a dataset owns is read-only here; it is fixed upstream. #}
+    {% if ev.dataset_owned %}
+      <span class="badge badge--pinned">usa-wa<span class="sr-only">: from its org_lineage dataset, read-only here; change it upstream</span></span>
+    {% endif %}
   </td>
   <td style="text-align:right;white-space:nowrap">
     {# Toggle handled by citations.js (data-citations-toggle): one open at a time,
@@ -58,7 +62,9 @@
             hx-target="#{{ _ev_row_prefix }}-{{ ev.id }}"
             hx-swap="afterend"
             data-citations-toggle="citations-subrow-{{ ev.id }}">Cite<span id="cite-count-{{ ev.id }}">{% if ev.citation_count %} ({{ ev.citation_count }}){% endif %}</span></button>
-    {% if not ev.archived_at %}
+    {% if ev.dataset_owned %}
+    {# no edit, archive or delete: every door refuses a dataset-owned link #}
+    {% elif not ev.archived_at %}
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Edit {{ ev.event_type_name }} event"
             hx-get="{{ _ev_url_base }}/events/{{ ev.id }}/edit-row/"
