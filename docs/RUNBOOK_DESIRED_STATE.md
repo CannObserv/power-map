@@ -86,9 +86,9 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   moves a producer-owned value pins it (`docs/ADMIN_OVERLAY.md`). A pin reaches
   the desired state at the next export and build — the chain's steps 2 and 3 —
   so the export must run first after a deploy that changes its columns.
-- **A person published with a blank name** (usa-wa#364 had five, since fixed).
-  Staging trims and nullifies; the build **warns** rather than halts; identity
-  lands and no name is asserted, so PM's own legal name stands.
+- **A blank published name warns, never halts** (usa-wa#364 had five, since
+  fixed). Staging trims and nullifies; identity lands and no name is asserted,
+  so PM's own legal name stands.
 - **Every warning is a named no-claim, never a halt** — one bad row, producer's
   or curator's, costs only its own claim. `not_null_stg_usa_wa__persons_name_full`
   / `…organizations_name`: blank name, identity lands, no name asserted.
