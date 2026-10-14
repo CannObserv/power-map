@@ -536,8 +536,16 @@ def make_events_router(
         user: AdminUser = Depends(get_admin_user),
         db=Depends(get_db),
     ):
-        """Return event edit form row."""
+        """Return event edit form row — or, for a link a dataset owns, the row and why."""
         row = await _get_event_or_404(event_id, entity_id, db)
+        if row["dataset_owned"]:
+            # CR 5: every save would be refused; serve no form that cannot save.
+            return templates.TemplateResponse(
+                request,
+                tmpl_read_row,
+                _ctx(entity_id, ev=row),
+                headers=flash_trigger("warning", LINK_LOCKED_MSG),
+            )
         event_types = await db.fetch(_EVENT_TYPES_QUERY, entity_type)
         linked_label = await _linked_label(db, row)
         return _form_response(request, entity_id, row, event_types, linked_label=linked_label)

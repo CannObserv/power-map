@@ -300,3 +300,14 @@ async def test_a_locked_link_renders_read_only_with_its_owner(client, db, orgs):
     assert "usa-wa" in row_of[locked]
     assert "/edit-row/" not in row_of[locked] and "/archive/" not in row_of[locked]
     assert "/edit-row/" in row_of[own] and "/archive/" in row_of[own]
+
+
+async def test_the_edit_form_of_a_locked_link_is_not_served(client, db, orgs):
+    """CR 5: a form that can never save is a dead end; hand back the row and why."""
+    row = await _link(db, orgs["a"], "succeeded_by", orgs["b"])
+
+    r = await client.get(f"/admin/orgs/{orgs['a']}/events/{row}/edit-row/", headers=HTMX_HEADERS)
+
+    assert r.status_code == 200
+    assert "warning" in r.headers["HX-Trigger"] and LOCKED in r.headers["HX-Trigger"]
+    assert "<form" not in r.text and f'id="org-event-row-{row}"' in r.text
