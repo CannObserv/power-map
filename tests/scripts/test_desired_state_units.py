@@ -17,6 +17,7 @@ import re
 from datetime import timedelta
 from pathlib import Path
 
+from scripts.status_checkin import parse_exit_kinds
 from src.core.ingestion.datasets import PULL_MAX_AGE
 
 INFRA = Path(__file__).resolve().parents[2] / "infra"
@@ -103,3 +104,13 @@ def test_the_pull_age_bound_tells_a_missed_pull_from_a_taken_one():
     earliest_missed = (timedelta(days=1) + chain) - (pull + _jitter(PULL_TIMER))
 
     assert latest_fresh < PULL_MAX_AGE < earliest_missed
+
+
+def test_an_unapplied_wait_alerts_by_its_own_name():
+    """#656: exit 4 (entries waiting past the grace) fails the unit, so co-status
+    hears of it, and names it apart from stale's 3 — a different person's job."""
+    env = _lines(SERVICE, "Environment")
+    (raw,) = [v.split("=", 1)[1] for v in env if v.startswith("STATUS_EXIT_KINDS=")]
+
+    assert parse_exit_kinds(raw) == {"3": "needs-a-person", "4": "unapplied"}
+    assert _lines(SERVICE, "SuccessExitStatus") == []

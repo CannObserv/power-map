@@ -269,6 +269,17 @@ versions are the ones it offered (`currency`, #535).
   org-cycle guard) is the same rollback. A refused `--execute` is recorded as
   mode `refused`, which is not a dry run and so restarts the streak: attempts at
   the gate never add up to opening it, and only the nightly chain builds it.
+- **Entries waiting longer than three days exit 4 (#656).** The nightly never
+  executes, so a clean streak waits like a blocked one: 10-04's sat unapplied
+  until 10-14, every night exit 0. A dry run whose actionable entries first
+  appeared more than `UNAPPLIED_GRACE` (3 days) ago exits **4**, kind
+  `unapplied` in co-status, and its journal names the first run they appeared
+  in. They appeared at the first run after the last catch-up: a dry run with
+  nothing actionable, or a clean rows-phase execute (a merge phase leaves the
+  rows). Stale's 3 outranks it, and an execute never exits 4. Clear it by
+  working the diff and running the supervised execute above, or by
+  re-classifying entries a person holds on purpose (an overlay pin). Waiting
+  does not clear it.
 - **A run built while usa-wa was behind its heartbeat deadline neither opens nor
   extends the streak (#551).** `BUILD.json` carries `producer.stale`, judged at
   build time against the `stale_after` the pull recorded; the ledger line

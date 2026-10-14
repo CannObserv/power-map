@@ -29,8 +29,12 @@ EnvironmentFile=-/home/exedev/power-map/.env
 #   3. apply_desired_state — the DRY RUN: diff against live Postgres, write
 #                           data/applier/<run-id>/ and a ledger line. Exit 0 for
 #                           clean or blocked (both recorded — the streak #501 waits
-#                           on is counted here), 3 when a person is needed (stale).
-#                           --execute is never on this unit: it is a person's flag.
+#                           on is counted here), 3 when a person is needed (stale),
+#                           4 when entries have waited unapplied past the 3-day
+#                           grace (#656): clean or blocked, nothing applies them
+#                           but a supervised execute — --execute is never on this
+#                           unit: it is a person's flag. Not a SuccessExitStatus:
+#                           the wait is the alert.
 #
 # `--group mapping` on every step: the API service's own `uv sync` prunes the
 # group from this checkout's venv, and `uv run --group` reinstalls it exactly.
@@ -46,7 +50,7 @@ ExecStart=uv run --group mapping python -m scripts.apply_desired_state
 # the unit (243).
 # co-status monitor: co-power-map-desired-state (CannObserv/status#36)
 Environment=STATUS_MONITOR_ID=01M4RF3TQTTWRF76HXRTCSQF9C
-Environment=STATUS_EXIT_KINDS=3:needs-a-person
+Environment=STATUS_EXIT_KINDS=3:needs-a-person,4:unapplied
 LoadCredential=status-checkin:/etc/power-map/status-api.key
 SetCredential=status-checkin:\n
 ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n
