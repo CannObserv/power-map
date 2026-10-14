@@ -62,6 +62,7 @@ When submitting a `POST /people/observations` or `POST /orgs/observations`, an o
 **Implicit behaviors:**
 
 - **`applies_to` enforcement.** Submitting a person-only event type (e.g. `birth`) via `POST /orgs/observations` returns `disposition: rejected`.
+- **Dataset-owned links (#592).** A `succeeded_by` / `merged_with` / `split_from` link between two orgs a subscribed dataset anchors is that dataset's: create, refine and `op="retract"` on one return `disposition: rejected`, `reason: event_owned_by_dataset`. Correct it at the dataset.
 - **Append-only.** Conflicting observations from different sources both land. Two observations claiming `birth` with different years each create a separate event row; resolution is editorial (admin UI).
 - **Dedup.** Exact match on `(event_type_id, event_year, event_month, event_day, event_hour, event_minute, event_second, linked_entity_id)` — re-submitting the identical event claim is a no-op.
 - **Partial date precision chain.** `event_month` requires `event_year`; `event_day` requires `event_month`; and so on down to `event_second`. Violating this chain results in `disposition: rejected`.
