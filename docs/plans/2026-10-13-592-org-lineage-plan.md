@@ -78,11 +78,11 @@ TDD, bottom-up along the data flow: pin and staging, then the mart, then the man
 10. **Review and ship.**
     - CR rounds, then a PR whose body has no closing keyword.
     - Then, each separately authorized: merge, pull into main, and restart; pull datasets, then build.
-    - The nightly streak then executes. Verify `event_year = 2026`, post the decisions on #592, and close it.
+    - A supervised execute then applies the update (the nightly unit is dry-only; #656 tracks the block ahead of it). Verify `event_year = 2026`, post the decisions on #592, and close it.
 
 ## Open questions / risks
 
 - **Live API writers.** Before step 7 ships, check `api_request_log` for observation event writes of these three types on anchored orgs in the last 90 days. A live caller would start getting `REJECTED`. None is expected: usa-wa stopped writing through the API at the #501 cutover.
 - **Step 9 dry run touches prod read-only.** It reads the prod DB through the applier's dry-run path and writes its ledger under the worktree's `data/applier/`, never main's. The worktree setup symlinks only `data/cannabis_observer`, so the ledger can't leak into the production streak. I'll confirm that path before running it.
 - **Edit-row lock semantics.** If a curator edits an unlocked event's slug to `succeeded_by` between two anchored orgs, it is refused, which is intended. The flash has to say why, because the curator started from an unlocked row.
-- **Nightly streak.** The Civic Health update changes the run's digest once, which resets the streak. The execute lands about three nightly runs after deploy, unless a supervised execute is authorized sooner.
+- **Nightly streak.** The Civic Health update changes the run's digest once, which resets the streak. No run executes on its own (the unit is dry-only), and the nightly has been blocked since 10-09 by assignment entries (#656): the update waits for that supervised execute.

@@ -102,7 +102,7 @@ Only the year is owned. PM keeps month and day, as it does for `dissolved`.
 
 `desired_entity_events` (`owned_event_types: [dissolved]`) is unchanged. Its owned set and the new one don't overlap, so each binding sees only its own types.
 
-**Expected first run:** 161 `noop`, 1 `update` (Civic Health, `event_year` null → 2026), 0 inserts, 0 archives, verdict `clean`. `v_org_lifespan.ended_on` for 35341 stays `2026-01-31`: the `dissolved` 2026-01 event is earlier than the 2026-12-31 a year-only link derives.
+**Expected first run:** 161 `noop`, 1 `update` (Civic Health, `event_year` null → 2026), 0 inserts, 0 archives from the lineage binding. The run's verdict is not the binding's to decide: the pre-merge dry run (2026-10-13) was `blocked` by assignment entries the nightly already carried (#656). The update lands with the next supervised execute; the nightly unit is dry-only. `v_org_lifespan.ended_on` for 35341 stays `2026-01-31`: the `dissolved` 2026-01 event is earlier than the 2026-12-31 a year-only link derives.
 
 **Accepted as-is:**
 - Applier link writes do not expire the org dup-count cache. Its 5-minute TTL self-heals, and the run is a nightly batch.
@@ -184,7 +184,7 @@ Only the year is owned. PM keeps month and day, as it does for `dissolved`.
 2. Pull into main, then restart `power-map`.
 3. `scripts.pull_datasets`, which lands `org_lineage`. #553: pull after the deploy, before the build.
 4. Dry run: expect 161 noop / 1 update / 0 archives, `clean`.
-5. The nightly streak executes.
+5. A supervised execute applies it: the nightly unit is dry-only, and since 10-09 it is blocked by assignment entries (#656).
 6. Verify `event_year = 2026` on the Civic Health edge.
 7. Post the decisions on #592, then close it.
 
