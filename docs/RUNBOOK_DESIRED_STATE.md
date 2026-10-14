@@ -20,7 +20,7 @@ Three steps, each file-to-file except the export:
 
 ```bash
 uv run "${env_args[@]}" python -m scripts.pull_datasets                       # 1. snapshots (#496)
-uv run --group mapping "${env_args[@]}" python -m scripts.export_pm_tables    # 2. producer_crosswalk + curation_overlay → _pm/*.parquet (read-only; DSN echoed)
+uv run --group mapping "${env_args[@]}" python -m scripts.export_pm_tables    # 2. PM's tables (scripts/export_pm_tables.py TABLES) → _pm/*.parquet (read-only; DSN echoed)
 uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 3. dbt build → data/desired_state/*.parquet
 ```
 
@@ -42,7 +42,8 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   only a habit. The check is `build_desired_state.py`'s, not `run_dbt`'s: every
   fixture build goes through `run_dbt` against a store that states no contract,
   so a hand-run of it builds unchecked.
-- **Models never open a database.** PM's two tables cross the seam as Parquet
+- **Models never open a database.** PM's tables — the crosswalk, the overlay,
+  the role-type vocabulary and (#592) `organizations.active` — cross the seam as Parquet
   (step 2), so `dbt build` is hermetic and its tests run in the unit tier on
   fixtures. Neither step 2 nor 3 carries `--execute`: nothing writes a database.
 - **`manifest.yml` is the contract #499 reads** — per table: key, retraction
