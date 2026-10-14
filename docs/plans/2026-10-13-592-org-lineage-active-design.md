@@ -115,16 +115,18 @@ Only the year is owned. PM keeps month and day, as it does for `dissolved`.
 - its subject org is in scope
 - its linked entity is an org that is also in scope
 
-"In scope" means a live anchor in `producer_crosswalk`, the same test as `src.core.curation_overlay.in_scope`.
+"In scope" means an anchor in `producer_crosswalk` with `source = PRODUCER_SOURCE` and a resolution in `IN_SCOPE` (`live`, `merged`): the applier's own row scope, which reads one source's crosswalk (CR 2). That is narrower than `src.core.curation_overlay.in_scope`, which ignores the source, and a self-link is never owned.
 
-**Predicate.** One core function, `dataset_owned_link(conn, entity_type, entity_id, slug, linked_type, linked_id) -> bool`, in `src/core/` (WA-free). Admin cannot read the manifest, because the mapping package imports dbt. A drift test therefore pins the constant to the manifest's `owned_event_types` for `desired_organization_lineage`, the same pattern as the overlay-slot registry test.
+**Predicate.** One core function, `dataset_owned_link(conn, entity_type, entity_id, slug, linked_type, linked_id) -> bool`, in `src/core/dataset_ownership.py` (WA-free), built on a pure `owned_link(…, anchored)` and a batch `anchored_orgs(conn, ids)` so a list renders with one anchor read. Admin cannot read the manifest, because the mapping package imports dbt. A drift test therefore pins the constant to the manifest's `owned_event_types` for `desired_organization_lineage`, the same pattern as the overlay-slot registry test.
 
 **Doors.** Every door checks the row's state after the write; an edit also checks its state before. Without that, an edit could move an unlocked event into a locked one, or free a locked one by changing its type or link.
 
 | Door | Behaviour on a dataset-owned link |
 |---|---|
-| Admin `POST /admin/orgs/{pred}/link-successor/{succ}/` (also the dup-detection "link as successors" modal) | Refused. Warning flash: "Links between usa-wa organizations come from its org_lineage dataset; change it upstream." The non-HTMX path redirects with that flash, keeping `test_mutation_fallback_sweep.py` green. |
-| Events panel: add, edit-row, archive, unarchive, hard delete (`_events_shared.py`) | Same refusal, same fallback. The row renders read-only with a `usa-wa` badge instead of its edit and archive controls. |
+| Admin `POST /admin/orgs/{pred}/link-successor/{succ}/` (also the dup-detection "link as successors" modal) | Refused. Warning flash: "Links between usa-wa organizations come from its org_lineage dataset; change it upstream." The non-HTMX path redirects with `?flash=locked`, keeping `test_mutation_fallback_sweep.py` green. |
+| Events panel: add, edit-row (`POST`) | Refused with that message as the form's inline error, the panel's pattern for a rejected save; non-HTMX, the `locked` redirect. |
+| Events panel: edit-row (`GET`) | No form: the read row comes back with the warning flash, since no save of it could succeed (CR 5). |
+| Events panel: archive, unarchive, hard delete | Warning flash with the table (archive/unarchive) or the row (delete) unchanged; non-HTMX, the `locked` redirect. The row renders read-only with a `usa-wa` badge instead of its edit, archive and delete controls. |
 | Observation API: event create, refine and `op="retract"` on an organization | `REJECTED`, with the new `EventRejectReason.EVENT_OWNED_BY_DATASET` (`event_owned_by_dataset`). Otherwise the next run would archive the write, and a gated archive blocks the nightly. |
 
 **Not locked:**
