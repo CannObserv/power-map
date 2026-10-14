@@ -23,6 +23,7 @@ from src.core.ingestion.applier_report import (  # noqa: E402
     diff_digest,
     ledger_line,
     may_execute,
+    pending_since,
     read_ledger,
     run_id_for,
     verdict_for,
@@ -579,3 +580,69 @@ def test_the_markdown_says_the_inputs_were_behind_the_publisher(tmp_path):
     body = (tmp_path / "run" / SUMMARY_MD).read_text()
 
     assert "behind usa-wa" in body and NEW in body and "streak" in body
+
+
+# --- unapplied entries (#656) -------------------------------------------------
+
+
+def _at(run_id, day, *, actionable=1, mode="dry", verdict="blocked", phase="rows"):
+    """A ledger line started on 2026-10-``day`` with ``actionable`` pending entries."""
+    line = _line(run_id, mode=mode, verdict=verdict)
+    line["started_at"] = f"2026-10-{day:02d}T09:30:00.000000Z"
+    line["phase"] = phase
+    line["counts"] = {"noop": 25000, "create": 0, "update": actionable}
+    return line
+
+
+def test_a_ledger_whose_last_run_has_nothing_to_write_has_nothing_pending():
+    assert pending_since([_at("r1", 1), _at("r2", 2, actionable=0, verdict="clean")]) is None
+    assert pending_since([]) is None
+
+
+def test_entries_are_pending_from_the_first_run_after_the_last_catch_up():
+    """#656: 10-04 → 10-08 was a clean streak no one executed; the alert has to
+    measure from when the entries appeared, not from when a run was last blocked."""
+    ledger = [
+        _at("r1", 1, actionable=0, verdict="clean"),
+        _at("r2", 4, verdict="clean"),
+        _at("r3", 9),
+        _at("r4", 13),
+    ]
+
+    assert pending_since(ledger) == "2026-10-04T09:30:00.000000Z"
+
+
+def test_a_clean_rows_execute_is_a_catch_up():
+    """It re-diffed to nothing in its own transaction before it committed."""
+    ledger = [
+        _at("r1", 1),
+        _at("r2", 2, mode="execute", verdict="clean"),
+        _at("r3", 3),
+    ]
+
+    assert pending_since(ledger) == "2026-10-03T09:30:00.000000Z"
+
+
+def test_an_execute_that_wrote_nothing_it_was_waiting_on_is_not_a_catch_up():
+    """A rolled-back or refused execute landed nothing; a merge phase folds the
+    merges and leaves every row entry for the next diff."""
+    ledger = [
+        _at("r1", 1),
+        _at("r2", 2, mode="execute", verdict="rolled_back"),
+        _at("r3", 3, mode="refused"),
+        _at("r4", 4, mode="execute", verdict="clean", phase="merge"),
+        _at("r5", 5),
+    ]
+
+    assert pending_since(ledger) == "2026-10-01T09:30:00.000000Z"
+
+
+def test_a_ledger_that_never_caught_up_is_pending_from_its_first_line():
+    assert pending_since([_at("r1", 1), _at("r2", 2)]) == "2026-10-01T09:30:00.000000Z"
+
+
+def test_a_line_from_before_the_phase_key_executed_rows():
+    """Pre-#514 lines carry `phase: null`; every execute then was a rows execute."""
+    ledger = [_at("r1", 1), _at("r2", 2, mode="execute", verdict="clean", phase=None), _at("r3", 3)]
+
+    assert pending_since(ledger) == "2026-10-03T09:30:00.000000Z"

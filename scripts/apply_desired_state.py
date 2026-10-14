@@ -19,7 +19,9 @@ stale only, and its execute folds the merges and writes nothing else.
 Exit codes: 0 a dry run completed (verdict clean or blocked — both recorded,
 neither fails the timer) or an execute applied and verified; 1 an execute was
 refused or rolled back; 2 usage; 3 a person is needed now — a stale desired
-state, a missing table, a load error.
+state, a missing table, a load error; 4 a dry run whose entries have waited
+unapplied longer than `UNAPPLIED_GRACE` (#656) — the nightly unit never
+executes, so clean or blocked, only a person ends the wait.
 
 Usage:
     uv run --group mapping "${env_args[@]}" python -m scripts.apply_desired_state
@@ -37,7 +39,7 @@ import asyncio
 import dataclasses
 import sys
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import asyncpg
@@ -53,6 +55,7 @@ from src.core.ingestion.applier_report import (
     inputs_behind,
     ledger_line,
     may_execute,
+    pending_since,
     producer_stale,
     read_ledger,
     run_id_for,
@@ -74,6 +77,10 @@ SOURCE = PRODUCER_SOURCE  # the seed's value; a mismatch here scopes zero rows
 EXIT_OK = 0
 EXIT_REFUSED = 1
 EXIT_NEEDS_A_PERSON = 3
+EXIT_UNAPPLIED = 4
+# How long a dry run's entries may wait for a supervised execute before the
+# nightly exits EXIT_UNAPPLIED (#656): the streak's three nights, and no more.
+UNAPPLIED_GRACE = timedelta(days=3)
 
 
 def thresholds_with(
@@ -221,7 +228,26 @@ async def run(
     _log_summary(summary, out / run_id, ledger_path, streak)
     if verdict.verdict == "stale" and code == EXIT_OK:
         code = EXIT_NEEDS_A_PERSON
+    if mode == "dry" and code == EXIT_OK and _unapplied_too_long(ledger_path, started):
+        code = EXIT_UNAPPLIED
     return code
+
+
+def _unapplied_too_long(ledger_path: Path, started: datetime) -> bool:
+    """Have this run's entries waited longer than the grace (#656)? Logs since when."""
+    since = pending_since(read_ledger(ledger_path))
+    if since is None:
+        return False
+    waited = started - datetime.fromisoformat(since)
+    if waited <= UNAPPLIED_GRACE:
+        return False
+    logger.warning(
+        "  entries pending since %s (%d day(s)) wait on a supervised --execute;"
+        " see docs/RUNBOOK_DESIRED_STATE.md",
+        since,
+        waited.days,
+    )
+    return True
 
 
 def _log_summary(summary: dict, run_dir: Path, ledger_path: Path, streak: int) -> None:

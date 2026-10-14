@@ -60,6 +60,7 @@ __all__ = [
     "inputs_behind",
     "ledger_line",
     "may_execute",
+    "pending_since",
     "producer_stale",
     "read_ledger",
     "run_id_for",
@@ -449,3 +450,37 @@ def may_execute(ledger: Sequence[dict], *, digest: str, streak: int) -> tuple[bo
     if len(recent) < streak:
         return False, f"only {len(recent)} of {streak} dry runs recorded"
     return True, f"{streak} consecutive clean dry runs with this digest"
+
+
+def _caught_up(line: dict) -> bool:
+    """Did PM match the desired state when this run ended (#656)?
+
+    A dry run with nothing actionable, or an execute that committed its rows:
+    it re-diffed to nothing inside its own transaction. A merge phase folds the
+    merges and leaves every row entry for the next diff, so it is not one; a
+    line from before #514 carries no phase, and every execute then wrote rows.
+    """
+    if line.get("mode") == "dry":
+        counts = line.get("counts") or {}
+        return not any(n for kind, n in counts.items() if kind != "noop")
+    return (
+        line.get("mode") == "execute"
+        and line.get("verdict") == "clean"
+        and line.get("phase") != "merge"
+    )
+
+
+def pending_since(ledger: Sequence[dict]) -> str | None:
+    """When the entries the last run reports first appeared, or None (#656).
+
+    The ``started_at`` of the first run after the last catch-up — the first run
+    of the ledger when there was none. None when the last run caught up, or the
+    ledger is empty. A clean streak is still pending: the nightly unit never
+    executes, so only this tells a settled diff nobody applied from none at all.
+    """
+    lines = list(ledger)
+    if not lines or _caught_up(lines[-1]):
+        return None
+    caught = [i for i, ln in enumerate(lines) if _caught_up(ln)]
+    first = caught[-1] + 1 if caught else 0
+    return lines[first].get("started_at")

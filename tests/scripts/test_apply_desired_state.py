@@ -19,7 +19,7 @@ pytest.importorskip("duckdb")
 
 from scripts import apply_desired_state as cli  # noqa: E402
 from src.core.ingestion.applier import ApplierError  # noqa: E402
-from src.core.ingestion.applier_report import LEDGER, read_ledger  # noqa: E402
+from src.core.ingestion.applier_report import LEDGER, append_ledger, read_ledger  # noqa: E402
 from src.core.ingestion.crosswalk import PRODUCER_SOURCE  # noqa: E402
 from src.core.ingestion.mapping import load_manifest  # noqa: E402
 from tests.core.ingestion.applier_fakes import FakeConn, FakeLiveStore, write_desired  # noqa: E402
@@ -528,3 +528,75 @@ async def test_a_refused_execute_names_every_reason_not_only_the_last(world, cap
     assert "dry runs recorded" in line
     assert "this run is blocked" in line
     assert "behind usa-wa" in line
+
+
+# --- unapplied entries (#656) -------------------------------------------------
+
+
+def _pending_from(world, moment):
+    """A ledger whose entries have waited, unapplied, since ``moment``."""
+    append_ledger(
+        world["out"] / LEDGER,
+        {
+            "run_id": "earlier",
+            "started_at": moment.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            "mode": "dry",
+            "verdict": "clean",
+            "phase": "rows",
+            "digest": "d0",
+            "counts": {"noop": 1, "update": 40},
+        },
+    )
+
+
+async def test_a_dry_run_whose_entries_wait_past_the_grace_exits_four(world, caplog):
+    """#656: 10-04's clean streak sat unexecuted, then blocked, for ten days, and
+    every night exited 0 — a person heard of it only by reading the ledger."""
+    _pending_from(world, datetime(2026, 9, 7, 9, 30, tzinfo=UTC))
+    write_desired(world["desired"], desired_people=[{"pm_id": None, "producer_id": P3}])
+
+    with caplog.at_level("WARNING", logger="scripts.apply_desired_state"):
+        code = await _run(world, _store())
+
+    assert code == cli.EXIT_UNAPPLIED == 4
+    assert any("2026-09-07T09:30:00" in r.getMessage() for r in caplog.records)
+
+
+async def test_a_clean_streak_nobody_executed_alerts_too(world):
+    _pending_from(world, datetime(2026, 9, 7, 9, 30, tzinfo=UTC))
+    write_desired(world["desired"], desired_people=[{"pm_id": None, "producer_id": P3}])
+
+    code = await _run(world, _store(), thresholds=cli.thresholds_with(allow_creates=1))
+
+    assert code == 4
+    assert read_ledger(world["out"] / LEDGER)[-1]["verdict"] == "clean"
+
+
+async def test_entries_inside_the_grace_still_exit_zero(world):
+    _pending_from(world, datetime(2026, 9, 9, 9, 30, tzinfo=UTC))
+    write_desired(world["desired"], desired_people=[{"pm_id": None, "producer_id": P3}])
+
+    assert await _run(world, _store()) == 0
+
+
+async def test_a_run_with_nothing_to_write_ends_the_wait(world):
+    _pending_from(world, datetime(2026, 9, 1, 9, 30, tzinfo=UTC))
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+    store = _store(crosswalk=[xw(P1, PM1)], people=[{"id": PM1, "archived_at": None}])
+
+    assert await _run(world, store) == 0
+
+
+async def test_stale_outranks_unapplied(world):
+    _pending_from(world, datetime(2026, 9, 1, 9, 30, tzinfo=UTC))
+    write_desired(world["desired"], desired_people=[{"pm_id": PM1, "producer_id": P1}])
+
+    assert await _run(world, _store(crosswalk=[xw(P1, "01M9", "merged")])) == 3
+
+
+async def test_an_execute_is_never_answered_with_the_unapplied_code(world):
+    """The person running it is the alert's audience; a refusal says why itself."""
+    _pending_from(world, datetime(2026, 9, 1, 9, 30, tzinfo=UTC))
+    write_desired(world["desired"], desired_people=[{"pm_id": None, "producer_id": P3}])
+
+    assert await _run(world, _store(), execute=True, conn=FakeConn()) == 1
