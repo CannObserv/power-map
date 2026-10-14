@@ -1,8 +1,10 @@
 """The models against the real landed snapshot (#497 step 7).
 
-Fixtures prove the rules; this proves the rules meet the data. It asserts the
-measurements the design doc rests on, so a divergence here is a finding for
-#501, never something to fix in a model to make the number come out.
+Fixtures prove the rules; this proves the rules meet the data. The design doc's
+measurements seeded these pins; #655 re-measured them after producer fixes and
+curator pins moved the store. A divergence is a finding — trace it to a producer
+or curation change before re-pinning, never fix a model to make the number come
+out.
 
 Needs the store the nightly puller lands plus the read-only crosswalk export
 (`scripts/pull_datasets.py`, `scripts/export_pm_tables.py`); absent either, it
@@ -82,7 +84,7 @@ def _count(con, sql: str) -> int:
     return con.execute(sql).fetchone()[0]
 
 
-def test_persons_reproduce_the_design_measurements(real):
+def test_persons_match_the_measured_store(real):
     anchored = _count(real, "SELECT count(*) FROM desired_people WHERE pm_id IS NOT NULL")
     creates = _count(real, "SELECT count(*) FROM desired_people WHERE pm_id IS NULL")
     names = _count(real, "SELECT count(*) FROM desired_person_names")
@@ -103,7 +105,7 @@ def test_persons_reproduce_the_design_measurements(real):
     assert _count(real, "SELECT count(*) FROM desired_person_merges") == 0
 
 
-def test_organizations_reproduce_the_design_measurements(real):
+def test_organizations_match_the_measured_store(real):
     anchored = _count(real, "SELECT count(*) FROM desired_organizations WHERE pm_id IS NOT NULL")
     creates = _count(real, "SELECT count(*) FROM desired_organizations WHERE pm_id IS NULL")
 

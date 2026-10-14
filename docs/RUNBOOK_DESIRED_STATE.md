@@ -116,8 +116,9 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   `desired_role_assignment_dates_current_has_no_end`, a current span with an
   end date, which the database's CHECK would refuse.
 - **The real-snapshot check** (`tests/core/ingestion/mapping/test_real_snapshot.py`,
-  `-m integration`) asserts the design doc's measurements against the landed
-  store and skips by name when steps 1–2 have not been run in that checkout.
+  `-m integration`) asserts measured counts (seeded by the design doc,
+  re-measured by #655) against the landed store and skips by name when steps 1–2
+  have not been run in that checkout.
 
 Design and measurements: `docs/plans/2026-09-10-mapping-project-design.md`.
 
