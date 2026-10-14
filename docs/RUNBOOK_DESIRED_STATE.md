@@ -195,8 +195,10 @@ versions are the ones it offered (`currency`, #535).
   nightly blocks until a supervised `--allow-archives N`. It stamps no anchor
   (the orgs stay) and never restores: a link usa-wa publishes again is a fresh
   `insert`. A link to an org no anchor names is invisible (`anchored:
-  [linked_pm_id]`), and so is every other event type. The first run after
-  #592 was 161 `noop` and one `update` — the Civic Health edge, dated 2026.
+  [linked_pm_id]`), and so is every other event type. The pre-merge dry run
+  (2026-10-13, prod read-only) measured 161 `noop` and one `update` — the Civic
+  Health edge, dated 2026 — beside the assignment entries the nightly already
+  carried; the update lands with the first execute that run allows.
 - **Roles (#529).** A role the snapshot drops archives too — unless live rows
   still name it that this plan does not archive, which makes it a `conflict`
   naming them (`dependents`). The ordinary case is a re-key, where usa-wa drops
