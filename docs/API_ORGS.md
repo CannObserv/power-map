@@ -52,6 +52,10 @@ Each result is the answer `getOrg` would give that id, discriminated on `outcome
 | `gone` | `410` with `merged_into: null` | `id`, `deleted_at` |
 | `not_found` | `404` — includes a string that is not an org id | `id` |
 
+Text Postgres cannot store — NUL, a lone UTF-16 surrogate — is outside this
+contract until #663 sets one API-wide rule for it: a lone surrogate currently
+fails the whole call (`500`), as it does on every route.
+
 - **One bad id never fails the batch.** Only the envelope can `422`: `ids`
   empty or over 100 (counted before the dedupe), or a non-string value.
 - **ETags are interchangeable with `getOrg`'s.** `etags[id]` is compared exactly

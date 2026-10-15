@@ -501,8 +501,10 @@ async def batch_get_orgs(
     does not grow with the number of ids, except one merge walk per ``merged``.
     """
     ids = list(dict.fromkeys(body.ids))
-    # Postgres text cannot hold NUL: such an id is no org, and querying it
-    # would fail the whole batch.
+    # Interim until #663: Postgres text cannot hold NUL, so querying such an id
+    # would fail the whole batch. #663 replaces this route-local guard with one
+    # API-wide boundary rule (NUL and lone surrogates alike) and settles the
+    # batch's answer for both.
     queryable = [i for i in ids if "\x00" not in i]
     rows = await _fetch_org_rows(db, queryable)
 

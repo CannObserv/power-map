@@ -7579,7 +7579,7 @@
             "maxItems": 100,
             "minItems": 1,
             "title": "Ids",
-            "description": "Org ids to read, 1–100. Any string: one that is not an org id is `not_found`."
+            "description": "Org ids to read, 1–100. A string that is not an org id is `not_found`. Text Postgres cannot store (NUL, lone surrogates) is handled by #663's rule."
           },
           "etags": {
             "additionalProperties": {
