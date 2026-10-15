@@ -60,12 +60,15 @@ Many orgs in one call (up to 100 ids), each result its own class:
 ```python
 from power_map_client.generated.api.public_api import batch_get_orgs
 from power_map_client.generated.models import (
-    OrgBatchGetRequest, OrgBatchGetRequestEtags,
+    OrgBatchGetRequest, OrgBatchGetRequestEtags, OrgBatchGetResponse,
     OrgBatchGone, OrgBatchMerged, OrgBatchNotFound, OrgBatchNotModified, OrgBatchOk,
 )
 
 body = OrgBatchGetRequest(ids=ids, etags=OrgBatchGetRequestEtags.from_dict(known_etags))
-for result in batch_get_orgs.sync(client=client, body=body).results:
+r = batch_get_orgs.sync_detailed(client=client, body=body)
+if not isinstance(r.parsed, OrgBatchGetResponse):
+    ...  # 401/403/429 → ErrorDetail; 422 (over 100 ids or etags) → HTTPValidationError
+for result in r.parsed.results:
     if isinstance(result, OrgBatchOk):
         ...  # result.org is get_org's OrgDetail; result.etag its ETag
     elif isinstance(result, OrgBatchNotModified):
