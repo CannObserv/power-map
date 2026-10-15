@@ -677,7 +677,7 @@ async def _org_details(db: Any, rows: list[Any]) -> list[dict[str, Any]]:
     """
     if not rows:
         return []
-    arrays = await _fetch_detail_arrays([r["id"] for r in rows], db)
+    arrays = await _fetch_detail_arrays(db, [r["id"] for r in rows])
     bases = [_org_row_to_dict(r) for r in rows]
     await _annotate_succession(db, bases)
 
@@ -711,7 +711,7 @@ async def _org_details(db: Any, rows: list[Any]) -> list[dict[str, Any]]:
     return details
 
 
-async def _fetch_detail_arrays(org_ids: list[str], db: Any) -> dict[str, dict[str, list]]:
+async def _fetch_detail_arrays(db: Any, org_ids: list[str]) -> dict[str, dict[str, list]]:
     """Fetch names, acronyms, identifiers, and jurisdiction affiliations for many orgs.
 
     Four queries whatever the number of orgs. Returns ``{org_id: {"names": [...],
