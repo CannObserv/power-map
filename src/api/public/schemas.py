@@ -1222,10 +1222,12 @@ class OrgBatchGetRequest(BaseModel):
     )
     etags: dict[str, str] = Field(
         default_factory=dict,
+        max_length=100,
         description=(
-            "Per-id `If-None-Match` value. An id whose ETag still matches answers "
-            "`not_modified`. Compared exactly as `getOrg` compares the header, so "
-            "either endpoint's ETag revalidates on the other. Keys not in `ids` are ignored."
+            "Per-id `If-None-Match` value, at most 100 entries. An id whose ETag "
+            "still matches answers `not_modified`. Compared exactly as `getOrg` "
+            "compares the header, so either endpoint's ETag revalidates on the "
+            "other. Keys not in `ids` are ignored."
         ),
     )
 

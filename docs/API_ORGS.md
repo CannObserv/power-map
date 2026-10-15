@@ -39,7 +39,7 @@ Supports conditional requests. Every 200 response includes `ETag`, `Last-Modifie
 ### Batch read — `POST /api/v1/orgs/batch-get` (#654)
 
 `getOrg` for up to 100 ids per call, for a follower that re-reads every org it
-links. Body `{"ids": [...], "etags": {"<id>": "<etag>"}}`; `etags` is optional.
+links. Body `{"ids": [...], "etags": {"<id>": "<etag>"}}`; `etags` is optional, at most 100 entries.
 Returns `{results: [...]}`: one result per **distinct** id, in request order
 (a repeated id is dropped after its first occurrence), each carrying its `id`.
 Each result is the answer `getOrg` would give that id, discriminated on `outcome`:
@@ -57,7 +57,8 @@ contract until #663 sets one API-wide rule for it: a lone surrogate currently
 fails the whole call (`500`), as it does on every route.
 
 - **One bad id never fails the batch.** Only the envelope can `422`: `ids`
-  empty or over 100 (counted before the dedupe), or a non-string value.
+  empty or over 100 (counted before the dedupe), `etags` over 100 entries, or a
+  non-string value.
 - **ETags are interchangeable with `getOrg`'s.** `etags[id]` is compared exactly
   as `If-None-Match` is (weak comparison, tag lists, `*` — § Conditional requests
   in `PUBLIC_API.md`), against the same `"<id>-<updated_at_ms>"` tag. An `etags`

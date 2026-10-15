@@ -7586,8 +7586,9 @@
               "type": "string"
             },
             "type": "object",
+            "maxProperties": 100,
             "title": "Etags",
-            "description": "Per-id `If-None-Match` value. An id whose ETag still matches answers `not_modified`. Compared exactly as `getOrg` compares the header, so either endpoint's ETag revalidates on the other. Keys not in `ids` are ignored."
+            "description": "Per-id `If-None-Match` value, at most 100 entries. An id whose ETag still matches answers `not_modified`. Compared exactly as `getOrg` compares the header, so either endpoint's ETag revalidates on the other. Keys not in `ids` are ignored."
           }
         },
         "type": "object",

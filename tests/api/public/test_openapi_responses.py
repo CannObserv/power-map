@@ -290,4 +290,5 @@ def test_org_batch_get_caps_ids_at_100():
     req = app.openapi()["components"]["schemas"]["OrgBatchGetRequest"]
     assert req["properties"]["ids"]["minItems"] == 1
     assert req["properties"]["ids"]["maxItems"] == 100
+    assert req["properties"]["etags"]["maxProperties"] == 100
     assert req["required"] == ["ids"]

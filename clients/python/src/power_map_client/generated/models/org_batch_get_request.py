@@ -26,9 +26,9 @@ class OrgBatchGetRequest:
         Attributes:
             ids (list[str]): Org ids to read, 1–100. A string that is not an org id is `not_found`. Text Postgres cannot
                 store (NUL, lone surrogates) is handled by #663's rule.
-            etags (OrgBatchGetRequestEtags | Unset): Per-id `If-None-Match` value. An id whose ETag still matches answers
-                `not_modified`. Compared exactly as `getOrg` compares the header, so either endpoint's ETag revalidates on the
-                other. Keys not in `ids` are ignored.
+            etags (OrgBatchGetRequestEtags | Unset): Per-id `If-None-Match` value, at most 100 entries. An id whose ETag
+                still matches answers `not_modified`. Compared exactly as `getOrg` compares the header, so either endpoint's
+                ETag revalidates on the other. Keys not in `ids` are ignored.
     """
 
     ids: list[str]
