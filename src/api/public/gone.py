@@ -50,6 +50,22 @@ DETAIL_RESPONSES: Final = MappingProxyType(
 )
 
 
+async def resolve_merged_into(
+    db: asyncpg.Connection, entity_type: str, tombstone: asyncpg.Record
+) -> str | None:
+    """The ``merged_into`` a ``410`` names for *tombstone*: the live end of its
+    merge chain, or ``None`` when there is nothing to re-anchor to.
+
+    Shared with the batch read (#654), so its ``merged`` / ``gone`` split is the
+    detail GET's ``merged_into`` by construction.
+    """
+    if tombstone["merged_into"] is None:
+        return None
+    # The walk returns pm_id=None for a chain ending in a delete, a missing
+    # row or a cycle — all of which leave nothing to re-anchor to.
+    return (await walk_merge_history(db, entity_type, tombstone["merged_into"])).pm_id
+
+
 async def not_found_or_gone(
     db: asyncpg.Connection, entity_type: str, entity_id: str, detail: str
 ) -> JSONResponse:
@@ -62,17 +78,11 @@ async def not_found_or_gone(
     if tombstone is None:
         raise HTTPException(status_code=404, detail=detail)
 
-    merged_into = None
-    if tombstone["merged_into"] is not None:
-        # The walk returns pm_id=None for a chain ending in a delete, a missing
-        # row or a cycle — all of which leave nothing to re-anchor to.
-        merged_into = (await walk_merge_history(db, entity_type, tombstone["merged_into"])).pm_id
-
     body = EntityGone(
         id=entity_id,
         entity_type=entity_type,
         deleted_at=tombstone["deleted_at"],
-        merged_into=merged_into,
+        merged_into=await resolve_merged_into(db, entity_type, tombstone),
     )
     return JSONResponse(
         status_code=410,

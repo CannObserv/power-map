@@ -1200,6 +1200,100 @@ class EntityGone(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Batch org read (#654)
+# ---------------------------------------------------------------------------
+
+
+class OrgBatchGetRequest(BaseModel):
+    """Request body for POST /api/v1/orgs/batch-get (#654).
+
+    Many ``getOrg`` reads in one call and one read-bucket token. Duplicate ids
+    are deduped, first occurrence wins (the ``verify`` precedent). The cap is
+    on the raw list, before the dedupe.
+    """
+
+    ids: list[str] = Field(
+        min_length=1,
+        max_length=100,
+        description="Org ids to read, 1–100. Any string: one that is not an org id is `not_found`.",
+    )
+    etags: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Per-id `If-None-Match` value. An id whose ETag still matches answers "
+            "`not_modified`. Compared exactly as `getOrg` compares the header, so "
+            "either endpoint's ETag revalidates on the other. Keys not in `ids` are ignored."
+        ),
+    )
+
+
+class OrgBatchOk(BaseModel):
+    """``getOrg``'s ``200``: the org (archived included) and its ETag."""
+
+    outcome: Literal["ok"]
+    id: str
+    etag: str
+    org: OrgDetail
+
+
+class OrgBatchNotModified(BaseModel):
+    """``getOrg``'s ``304``: the caller's ETag for this id still matches."""
+
+    outcome: Literal["not_modified"]
+    id: str
+    etag: str
+
+
+class OrgBatchMerged(BaseModel):
+    """``getOrg``'s ``410`` with ``merged_into`` set: re-anchor to ``merged_into``."""
+
+    outcome: Literal["merged"]
+    id: str
+    merged_into: str = Field(
+        description="The live end of the merge chain. May name an archived org."
+    )
+    deleted_at: datetime
+
+    @field_serializer("deleted_at")
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
+        return fmt_ts(v)
+
+
+class OrgBatchGone(BaseModel):
+    """``getOrg``'s ``410`` with ``merged_into: null``: deleted, or merged down a
+    chain that ends in a delete."""
+
+    outcome: Literal["gone"]
+    id: str
+    deleted_at: datetime
+
+    @field_serializer("deleted_at")
+    def _serialize_ts(self, v: datetime) -> TimestampStr:
+        return fmt_ts(v)
+
+
+class OrgBatchNotFound(BaseModel):
+    """``getOrg``'s ``404``: PM has no record of the id (malformed ids included)."""
+
+    outcome: Literal["not_found"]
+    id: str
+
+
+OrgBatchResult = Annotated[
+    OrgBatchOk | OrgBatchNotModified | OrgBatchMerged | OrgBatchGone | OrgBatchNotFound,
+    Field(discriminator="outcome"),
+]
+
+
+class OrgBatchGetResponse(BaseModel):
+    """Response for POST /api/v1/orgs/batch-get: one result per distinct id, in
+    request order. ``outcome`` selects the variant; a new outcome would be a
+    breaking change for a generated client."""
+
+    results: list[OrgBatchResult]
+
+
+# ---------------------------------------------------------------------------
 # Error bodies and the API root (#618)
 # ---------------------------------------------------------------------------
 

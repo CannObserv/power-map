@@ -6,6 +6,10 @@ statuses a consumer branches on: a typed 401/403 for auth, and for a detail read
 200, 304 when revalidating with ``If-None-Match``, and 410 with ``EntityGone``.
 The 401/403 tests run in the unit tier, with ``get_db`` mocked. The rest need
 the test DB and use the rollback connection (#288).
+
+The batch read (#654) is tested here, through the client, because its result
+shape is the consumer's deliverable: each outcome must parse into its own class,
+and an ``ok`` must carry exactly what ``get_org`` returns for the same id.
 """
 
 import hashlib
@@ -16,10 +20,19 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport
 from power_map_client import Client, connect
-from power_map_client.generated.api.public_api import get_org, search_orgs
+from power_map_client.generated.api.public_api import batch_get_orgs, get_org, search_orgs
 from power_map_client.generated.models import (
     EntityGone,
     ErrorDetail,
+    HTTPValidationError,
+    OrgBatchGetRequest,
+    OrgBatchGetRequestEtags,
+    OrgBatchGetResponse,
+    OrgBatchGone,
+    OrgBatchMerged,
+    OrgBatchNotFound,
+    OrgBatchNotModified,
+    OrgBatchOk,
     OrgDetail,
     OrgSearchResponse,
 )
@@ -152,3 +165,107 @@ async def test_unknown_org_is_a_typed_404(sdk):
     r = await get_org.asyncio_detailed(org_id=generate_id(), client=sdk)
     assert r.status_code == 404
     assert isinstance(r.parsed, ErrorDetail)
+
+
+# ---------------------------------------------------------------------------
+# Batch read (#654): one call, one outcome per id, each its own class
+# ---------------------------------------------------------------------------
+
+
+async def _batch(sdk, ids: list[str], etags: dict[str, str] | None = None):
+    body = OrgBatchGetRequest(ids=ids)
+    if etags is not None:
+        body.etags = OrgBatchGetRequestEtags.from_dict(etags)
+    r = await batch_get_orgs.asyncio_detailed(client=sdk, body=body)
+    assert r.status_code == 200, r.content
+    assert isinstance(r.parsed, OrgBatchGetResponse)
+    return r.parsed.results
+
+
+async def _tombstone(db, entity_id: str, merged_into: str | None) -> None:
+    await db.execute(
+        "INSERT INTO deleted_entities (entity_type, entity_id, merged_into)"
+        " VALUES ('organization',$1,$2)",
+        entity_id,
+        merged_into,
+    )
+
+
+@pytest.mark.integration
+async def test_batch_ok_is_exactly_get_org(sdk, db):
+    """An ``ok`` carries get_org's body and ETag for the same id — archived too."""
+    live = await _org(db, "Quillfeather Batch Live Board")
+    archived = await _org(db, "Quillfeather Batch Archived Board")
+    await db.execute("UPDATE organizations SET archived_at = now() WHERE id = $1", archived)
+
+    results = await _batch(sdk, [live, archived])
+
+    assert [r.id for r in results] == [live, archived]
+    for result in results:
+        assert isinstance(result, OrgBatchOk)
+        single = await get_org.asyncio_detailed(org_id=result.id, client=sdk)
+        assert result.org == single.parsed
+        assert result.etag == single.headers["etag"]
+    assert results[1].org.archived_at is not None
+
+
+@pytest.mark.integration
+async def test_batch_etags_revalidate_both_ways(sdk, db):
+    """A get_org ETag revalidates in the batch, and a batch ETag against get_org."""
+    fresh = await _org(db, "Quillfeather Batch Fresh Board")
+    cached = await _org(db, "Quillfeather Batch Cached Board")
+    tag = (await get_org.asyncio_detailed(org_id=cached, client=sdk)).headers["etag"]
+
+    results = await _batch(sdk, [fresh, cached], {cached: tag, fresh: '"stale-0"'})
+
+    assert isinstance(results[0], OrgBatchOk)
+    assert results[1] == OrgBatchNotModified(outcome="not_modified", id=cached, etag=tag)
+    again = await get_org.asyncio_detailed(org_id=fresh, client=sdk, if_none_match=results[0].etag)
+    assert again.status_code == 304
+
+
+@pytest.mark.integration
+async def test_batch_retired_and_unknown_ids_match_get_org(sdk, db):
+    """410 → merged / gone, 404 → not_found; a malformed id is just not_found."""
+    winner = await _org(db, "Quillfeather Batch Survivor")
+    merged, deleted, dead_end, mid, unknown = (generate_id() for _ in range(5))
+    await _tombstone(db, merged, winner)
+    await _tombstone(db, deleted, None)
+    await _tombstone(db, dead_end, mid)  # chain ends in a delete → no successor
+    await _tombstone(db, mid, None)
+
+    ids = [merged, deleted, dead_end, unknown, "not-a-ulid", "nul\x00id"]
+    results = await _batch(sdk, ids)
+
+    assert [r.id for r in results] == ids
+    m, d, de, u, bad, nul = results
+    assert isinstance(m, OrgBatchMerged)
+    assert m.merged_into == winner
+    assert isinstance(d, OrgBatchGone)
+    assert isinstance(de, OrgBatchGone)
+    assert isinstance(u, OrgBatchNotFound)
+    assert isinstance(bad, OrgBatchNotFound)
+    assert isinstance(nul, OrgBatchNotFound)  # Postgres text cannot hold NUL
+    for result in (m, d, de):
+        single = await get_org.asyncio_detailed(org_id=result.id, client=sdk)
+        assert single.status_code == 410
+        assert result.deleted_at == single.parsed.deleted_at
+    for result in (u, bad):
+        assert (await get_org.asyncio_detailed(org_id=result.id, client=sdk)).status_code == 404
+
+
+@pytest.mark.integration
+async def test_batch_dedupes_in_request_order(sdk, db):
+    a = await _org(db, "Quillfeather Batch Dedupe A")
+    b = await _org(db, "Quillfeather Batch Dedupe B")
+    results = await _batch(sdk, [b, a, b])
+    assert [r.id for r in results] == [b, a]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("count", [0, 101])
+async def test_batch_size_outside_1_to_100_is_a_typed_422(sdk, count):
+    body = OrgBatchGetRequest(ids=[generate_id() for _ in range(count)])
+    r = await batch_get_orgs.asyncio_detailed(client=sdk, body=body)
+    assert r.status_code == 422
+    assert isinstance(r.parsed, HTTPValidationError)

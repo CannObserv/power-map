@@ -252,3 +252,42 @@ def test_if_none_match_parameters_share_no_objects():
         if p["name"] == "If-None-Match"
     ]
     assert len({id(p["schema"]) for p in params}) == len(params)
+
+
+_BATCH_OUTCOMES = {
+    "ok": "OrgBatchOk",
+    "not_modified": "OrgBatchNotModified",
+    "merged": "OrgBatchMerged",
+    "gone": "OrgBatchGone",
+    "not_found": "OrgBatchNotFound",
+}
+
+
+def test_org_batch_get_results_are_a_discriminated_union():
+    """batch-get results (#654) are a ``oneOf`` discriminated on ``outcome``, one
+    variant per ``getOrg`` answer, so the generated client parses each into its
+    own class with no optional fields to UNSET-check."""
+    openapi = app.openapi()
+    op = openapi["paths"]["/api/v1/orgs/batch-get"]["post"]
+    assert op["operationId"] == "batchGetOrgs"
+    assert _body_ref(op["responses"]["200"]) == "#/components/schemas/OrgBatchGetResponse"
+
+    schemas = openapi["components"]["schemas"]
+    items = schemas["OrgBatchGetResponse"]["properties"]["results"]["items"]
+    assert items["discriminator"]["propertyName"] == "outcome"
+    assert items["discriminator"]["mapping"] == {
+        k: f"#/components/schemas/{v}" for k, v in _BATCH_OUTCOMES.items()
+    }
+    for name in _BATCH_OUTCOMES.values():
+        assert {"outcome", "id"} <= set(schemas[name]["required"]), name
+    ok = schemas["OrgBatchOk"]
+    assert set(ok["required"]) == {"outcome", "id", "etag", "org"}
+    assert ok["properties"]["org"]["$ref"] == "#/components/schemas/OrgDetail"
+    assert set(schemas["OrgBatchMerged"]["required"]) >= {"merged_into", "deleted_at"}
+
+
+def test_org_batch_get_caps_ids_at_100():
+    req = app.openapi()["components"]["schemas"]["OrgBatchGetRequest"]
+    assert req["properties"]["ids"]["minItems"] == 1
+    assert req["properties"]["ids"]["maxItems"] == 100
+    assert req["required"] == ["ids"]
