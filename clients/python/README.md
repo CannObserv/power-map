@@ -55,6 +55,27 @@ elif r.status_code in (401, 403, 404, 429):
 r = get_org.sync_detailed(org_id="01H...", client=client, if_none_match=etag)
 ```
 
+Many orgs in one call (up to 100 ids), each result its own class:
+
+```python
+from power_map_client.generated.api.public_api import batch_get_orgs
+from power_map_client.generated.models import (
+    OrgBatchGetRequest, OrgBatchGetRequestEtags,
+    OrgBatchGone, OrgBatchMerged, OrgBatchNotFound, OrgBatchNotModified, OrgBatchOk,
+)
+
+body = OrgBatchGetRequest(ids=ids, etags=OrgBatchGetRequestEtags.from_dict(known_etags))
+for result in batch_get_orgs.sync(client=client, body=body).results:
+    if isinstance(result, OrgBatchOk):
+        ...  # result.org is get_org's OrgDetail; result.etag its ETag
+    elif isinstance(result, OrgBatchNotModified):
+        ...
+    elif isinstance(result, OrgBatchMerged):
+        ...  # re-anchor to result.merged_into
+    elif isinstance(result, (OrgBatchGone, OrgBatchNotFound)):
+        ...
+```
+
 Every function comes in four forms: `sync`, `sync_detailed`, `asyncio` and
 `asyncio_detailed`. Use the `_detailed` forms when the status code matters. Each
 response the API declares has a type: `ErrorDetail` (`{detail}`) for

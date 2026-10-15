@@ -16,6 +16,7 @@ implicit rules this collection follows. Auth, pagination and conditional request
 |--------|------|------|-------------|
 | `GET` | `/api/v1/orgs/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `jurisdiction` (slug or ULID — filters to orgs with a `governing` affiliation for that jurisdiction), `include_archived`, `limit`, `offset`. |
 | `GET` | `/api/v1/orgs/{id}` | API key | Detail by ULID. Returns names, acronyms, identifiers, jurisdiction affiliations, `active`, `created_at`, and `updated_at`. ETag caching — see `docs/PUBLIC_API.md` § Caching — detail endpoints. Merged/deleted id → `410` + `merged_into` (§ Retired ids). |
+| `POST` | `/api/v1/orgs/batch-get` | API key | Many detail reads in one call and **one read-bucket token** (#654): one `getOrg` outcome per distinct id. See § Batch read. |
 | `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. ETag caching — see the events response-shape section. |
 | `POST` | `/api/v1/orgs/observations` | `observations:write` scope | Submit an organization identity observation. |
 
@@ -34,6 +35,36 @@ Returns the base search-result fields plus:
 | `updated_at` | ISO 8601 UTC timestamp |
 
 Supports conditional requests. Every 200 response includes `ETag`, `Last-Modified`, `Cache-Control: no-cache`, and `Vary: X-API-Key` headers. Pass the ETag back as `If-None-Match` to receive 304 on cache hit. `updated_at` advances whenever any child table (names, acronyms, identifiers, affiliations) changes — and when an entity event **linking to** this org changes (#469), so the succession fields below never go stale under the ETag.
+
+### Batch read — `POST /api/v1/orgs/batch-get` (#654)
+
+`getOrg` for up to 100 ids per call, for a follower that re-reads every org it
+links. Body `{"ids": [...], "etags": {"<id>": "<etag>"}}`; `etags` is optional.
+Returns `{results: [...]}`: one result per **distinct** id, in request order
+(a repeated id is dropped after its first occurrence), each carrying its `id`.
+Each result is the answer `getOrg` would give that id, discriminated on `outcome`:
+
+| `outcome` | `getOrg` equivalent | Fields |
+|---|---|---|
+| `ok` | `200` — archived orgs included | `id`, `etag`, `org` (the exact `OrgDetail`) |
+| `not_modified` | `304` — `etags[id]` still matches | `id`, `etag` |
+| `merged` | `410` with `merged_into` | `id`, `merged_into` (live end of the chain), `deleted_at` |
+| `gone` | `410` with `merged_into: null` | `id`, `deleted_at` |
+| `not_found` | `404` — includes a string that is not an org id | `id` |
+
+- **One bad id never fails the batch.** Only the envelope can `422`: `ids`
+  empty or over 100 (counted before the dedupe), or a non-string value.
+- **ETags are interchangeable with `getOrg`'s.** `etags[id]` is compared exactly
+  as `If-None-Match` is (weak comparison, tag lists, `*` — § Conditional requests
+  in `PUBLIC_API.md`), against the same `"<id>-<updated_at_ms>"` tag. An `etags`
+  key not in `ids` is ignored. There is no whole-batch `304`, and the response
+  itself carries no `ETag`.
+- **Set-based.** The query count does not grow with the number of ids, except
+  one merge-chain walk per `merged` result.
+- **Generated client.** `batch_get_orgs` parses each result into its own class
+  (`OrgBatchOk`, `OrgBatchNotModified`, `OrgBatchMerged`, `OrgBatchGone`,
+  `OrgBatchNotFound`), so dispatch with `isinstance`. A new `outcome` would be a
+  breaking change: an older client cannot parse it.
 
 ### Succession annotation (#469)
 
