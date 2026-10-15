@@ -85,6 +85,7 @@ To add a new external skill repo: follow the `managing-skills` skill.
 | `using-git-worktrees` | `gregoryfoster-skills` | create worktree, new worktree, destroy worktree, wt ² |
 | `managing-skills` | `gregoryfoster-skills` | add skill repo, add external skills, manage skills |
 | `orchestrating-issue-backlog` | `gregoryfoster-skills` | orchestrate backlog, prioritize issues, plan issue execution, clear backlog |
+| `coordinating-epics` | `gregoryfoster-skills` | coordinate the epic, burn down, check-in, I finished #N, next issue, what's next on the epic |
 | `curating-context` | `gregoryfoster-skills` | curate context, context budget, hone AGENTS.md, trim AGENTS.md, prune context |
 | `init-socraticode` | `gregoryfoster-skills` | init socraticode, set up code search, index this project, socraticode setup ³ |
 | `init-project-fastapi` | `gregoryfoster-skills` | init project, bootstrap project, new fastapi project, set up foundation ³ |
