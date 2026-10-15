@@ -1,12 +1,16 @@
 """The models against the real landed snapshot (#497 step 7).
 
-Fixtures prove the rules; this proves the rules meet the data. It asserts the
-measurements the design doc rests on, so a divergence here is a finding for
-#501, never something to fix in a model to make the number come out.
+Fixtures prove the rules; this proves the rules meet the data. The design doc's
+measurements seeded these pins; #655 re-measured them after producer fixes and
+curator pins moved the store. A divergence is a finding — trace it to a producer
+or curation change before re-pinning, never fix a model to make the number come
+out.
 
 Needs the store the nightly puller lands plus the read-only crosswalk export
 (`scripts/pull_datasets.py`, `scripts/export_pm_tables.py`); absent either, it
-skips by name rather than passing vacuously. It never opens a database.
+skips by name rather than passing vacuously. It never opens a database, yet the
+`integration` marker gate still skips it unless `TEST_DATABASE_URL` is set — run
+it with the `env_args` idiom (`docs/COMMANDS.md`).
 """
 
 import shutil
@@ -70,8 +74,9 @@ def real(tmp_path_factory):
     assert result.success, getattr(result, "exception", None)
     statuses = {str(r.status) for r in result.result.results}
     assert statuses <= {"success", "pass", "warn"}, statuses
+    # usa-wa#364 filled the blank legislator names, so the build warns on nothing.
     warned = sorted(r.node.name for r in result.result.results if str(r.status) == "warn")
-    assert warned == ["not_null_stg_usa_wa__persons_name_full"], warned
+    assert warned == [], warned
     con = duckdb.connect(str(db), read_only=True)
     yield con
     con.close()
@@ -81,7 +86,7 @@ def _count(con, sql: str) -> int:
     return con.execute(sql).fetchone()[0]
 
 
-def test_persons_reproduce_the_design_measurements(real):
+def test_persons_match_the_measured_store(real):
     anchored = _count(real, "SELECT count(*) FROM desired_people WHERE pm_id IS NOT NULL")
     creates = _count(real, "SELECT count(*) FROM desired_people WHERE pm_id IS NULL")
     names = _count(real, "SELECT count(*) FROM desired_person_names")
@@ -91,31 +96,37 @@ def test_persons_reproduce_the_design_measurements(real):
         "SELECT count(*) FROM int_person_identity WHERE name_full IS NULL AND NOT is_tombstone",
     )
 
-    assert anchored == 3118, f"anchored persons: {anchored}"
-    assert creates == 17, f"person creates: {creates}"
-    # Five anchored legislators are published with a blank name (usa-wa defect,
-    # recorded on #497): identity lands, no name is asserted, PM's stands.
-    assert nameless == 5, f"nameless producer persons: {nameless}"
+    # usa-wa#378 tombstoned 18 duplicates (#501): the 17 creates, all twins of
+    # anchored people, and one anchored loser, now resolved `merged`.
+    assert anchored == 3117, f"anchored persons: {anchored}"
+    assert creates == 0, f"person creates: {creates}"
+    # A blank published name would land identity and assert no name, leaving
+    # PM's to stand; usa-wa#364 fixed the five the design measured.
+    assert nameless == 0, f"nameless producer persons: {nameless}"
     assert names == anchored + creates - nameless
     assert _count(real, "SELECT count(*) FROM desired_person_merges") == 0
 
 
-def test_organizations_reproduce_the_design_measurements(real):
+def test_organizations_match_the_measured_store(real):
     anchored = _count(real, "SELECT count(*) FROM desired_organizations WHERE pm_id IS NOT NULL")
     creates = _count(real, "SELECT count(*) FROM desired_organizations WHERE pm_id IS NULL")
 
-    assert anchored == 219, f"anchored orgs: {anchored}"
+    # 220: the re-established Joint Select Committee on Civic Health (#591).
+    assert anchored == 220, f"anchored orgs: {anchored}"
     assert creates == 0, f"org creates: {creates}"
-    assert _count(real, "SELECT count(*) FROM desired_organization_names") == 219
+    assert _count(real, "SELECT count(*) FROM desired_organization_names") == 220
     assert _count(real, "SELECT count(*) FROM desired_organization_acronyms") == 186
     assert _count(real, "SELECT count(*) FROM desired_organization_merges") == 0
 
 
 def test_parents_are_claimed_for_house_senate_joint_and_chambers(real):
-    """101 House + 85 Senate + 18 Joint + 2 chambers = 206; 'Other' and '' claim none."""
+    """101 House + 85 Senate + 19 Joint + 2 chambers = 207; 'Other' and '' claim none.
+
+    The 19th Joint is the re-established Civic Health committee (#591).
+    """
     claimed = _count(real, "SELECT count(*) FROM desired_organization_parents")
 
-    assert claimed == 206, f"parent claims: {claimed}"
+    assert claimed == 207, f"parent claims: {claimed}"
 
 
 def test_dissolved_events_match_pm_and_the_current_biennium_is_live(real):
@@ -131,7 +142,9 @@ def test_dissolved_events_match_pm_and_the_current_biennium_is_live(real):
              AND i.producer_id NOT IN (SELECT producer_id FROM desired_entity_events)""",
     )
 
-    assert events == 152, f"dissolved events: {events}"
+    # 152 produced + the old Civic Health committee's overlay pin, dissolved 2026
+    # (#591). Neither Civic Health row has a biennium, so the live count holds.
+    assert events == 153, f"dissolved events: {events}"
     assert types == {"dissolved"}
     assert still_live == 34, f"orgs at the current biennium: {still_live}"
 

@@ -86,9 +86,9 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   moves a producer-owned value pins it (`docs/ADMIN_OVERLAY.md`). A pin reaches
   the desired state at the next export and build — the chain's steps 2 and 3 —
   so the export must run first after a deploy that changes its columns.
-- **Five persons are published with a blank name** (usa-wa#364). Staging trims
-  and nullifies; the build **warns** rather than halts; identity lands and no
-  name is asserted, so PM's own legal name stands.
+- **A blank published name warns, never halts** (usa-wa#364 had five, since
+  fixed). Staging trims and nullifies; identity lands and no name is asserted,
+  so PM's own legal name stands.
 - **Every warning is a named no-claim, never a halt** — one bad row, producer's
   or curator's, costs only its own claim. `not_null_stg_usa_wa__persons_name_full`
   / `…organizations_name`: blank name, identity lands, no name asserted.
@@ -116,8 +116,9 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   `desired_role_assignment_dates_current_has_no_end`, a current span with an
   end date, which the database's CHECK would refuse.
 - **The real-snapshot check** (`tests/core/ingestion/mapping/test_real_snapshot.py`,
-  `-m integration`) asserts the design doc's measurements against the landed
-  store and skips by name when steps 1–2 have not been run in that checkout.
+  `-m integration`) asserts measured counts (seeded by the design doc,
+  re-measured by #655) against the landed store and skips by name when steps 1–2
+  have not been run in that checkout.
 
 Design and measurements: `docs/plans/2026-09-10-mapping-project-design.md`.
 

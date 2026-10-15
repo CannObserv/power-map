@@ -44,8 +44,8 @@ pass as coverage. `EXPECTED_WARNINGS` pins exactly which dbt warnings a build
 may raise (the blank-name case); a new warning fails the test.
 
 `test_real_snapshot.py` is marked `integration`: it builds against the landed
-store plus the read-only crosswalk export and asserts the design doc's
-measurements. It never opens a database, and it **skips by name** when the
+store plus the read-only crosswalk export and asserts measured counts (seeded
+by the design doc, re-measured by #655). It never opens a database, and it **skips by name** when the
 store or the export is absent in that checkout — provision with
 `scripts/pull_datasets.py` and `scripts/export_pm_tables.py`.
 
