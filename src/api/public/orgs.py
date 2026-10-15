@@ -505,10 +505,12 @@ async def batch_get_orgs(
     # would fail the whole batch. #663 replaces this route-local guard with one
     # API-wide boundary rule (NUL and lone surrogates alike) and settles the
     # batch's answer for both.
-    queryable = [i for i in ids if "\x00" not in i]
+    results: dict[str, OrgBatchResult] = {
+        i: OrgBatchNotFound(outcome="not_found", id=i) for i in ids if "\x00" in i
+    }
+    queryable = [i for i in ids if i not in results]
     rows = await _fetch_org_rows(db, queryable)
 
-    results: dict[str, OrgBatchResult] = {}
     fresh: list[tuple[Any, str]] = []
     for org_id, row in rows.items():
         etag = make_etag(row["id"], row["updated_at"])
@@ -528,9 +530,7 @@ async def batch_get_orgs(
     for org_id in misses:
         results[org_id] = await _retired_result(db, org_id, tombstones.get(org_id))
 
-    return OrgBatchGetResponse(
-        results=[results.get(i) or OrgBatchNotFound(outcome="not_found", id=i) for i in ids]
-    )
+    return OrgBatchGetResponse(results=[results[i] for i in ids])
 
 
 async def _retired_result(db: Any, org_id: str, tombstone: Any) -> OrgBatchResult:
