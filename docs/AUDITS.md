@@ -519,8 +519,9 @@ three times in three weeks. Both scripts are stdlib-only and run by
   in the journal.
 - **`prune_disk.py --execute`**, Sun 05:30 UTC: stale VS Code server builds, CLIs
   and `.obsolete` extensions, unpinned `~/.npm/_npx` installs, then the npm and
-  uv caches. Anything a live process uses stays. A window still running a
-  removed extension version needs *Reload Window*.
+  uv caches. Anything a live process uses stays, and so does anything touched in
+  the last hour (`--grace-minutes`, #669), logged as `withheld:`. A window still
+  running a removed extension version needs *Reload Window*.
 
 ```bash
 /usr/bin/python3 scripts/check_disk_headroom.py --alert-at 1   # prove it fires
