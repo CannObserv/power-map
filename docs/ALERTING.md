@@ -13,7 +13,8 @@ roster in [COMMANDS.md § Scheduled timers](COMMANDS.md#scheduled-timers);
 Each of the 15 `power-map-*.timer` services runs
 `scripts/status_checkin.py` as `ExecStopPost=` against its own co-status monitor
 (tenant `co-power-map`, CannObserv/status#36; the unit's comment names it;
-the two disk timers' monitors, #665, are pending, so their hook skips, logged). The
+the two disk timers' monitors are pending on CannObserv/status#48, so their hook
+skips, logged). The
 hook reads systemd's verdict: `SERVICE_RESULT=success` is `ok`, a declared
 `SuccessExitStatus=4` warning included (schema-parity's reference-ahead,
 infra-drift's comment-only); anything else is `alert`, its `kind` systemd's

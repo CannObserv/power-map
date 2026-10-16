@@ -38,9 +38,10 @@ ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 # the hook skipped; this stays as the switch a re-provisioning would flip back.
 MONITOR_IDS_PENDING = False
 # Units whose monitor is requested but not yet provisioned (#665's two disk
-# timers): each carries an empty id, so the hook skips, logged. Remove a name
-# once its id lands in the unit.
+# timers, requested on CannObserv/status#48): each carries an empty id, so the
+# hook skips, logged. Remove a name once its id lands in the unit.
 PENDING_MONITORS = frozenset({"power-map-disk-headroom", "power-map-disk-prune"})
+PENDING_REQUEST = "CannObserv/status#48"
 
 
 def directives(path: Path) -> dict[str, list[tuple[str, str]]]:
@@ -122,6 +123,14 @@ def test_monitor_ids_are_distinct_ulids_or_all_pending():
     assert all(i == "" for i in pending.values()), pending
     assert all(ULID.match(i) for i in provisioned), provisioned
     assert len(set(provisioned)) == len(provisioned)
+
+
+@pytest.mark.parametrize("stem", sorted(PENDING_MONITORS))
+def test_a_pending_unit_names_the_request_its_id_will_come_from(stem):
+    assert (
+        f"# co-status monitor: co-{stem} ({PENDING_REQUEST};"
+        in (INFRA / f"{stem}.service").read_text()
+    )
 
 
 def test_every_pending_monitor_names_a_real_timer():

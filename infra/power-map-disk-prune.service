@@ -30,7 +30,7 @@ IOSchedulingClass=idle
 # The key is a credential, never an env var; SetCredential= (a lone newline,
 # read as "no key") is the fallback that keeps a missing key file from failing
 # the unit (243).
-# co-status monitor: co-power-map-disk-prune (requested on #665; empty until provisioned)
+# co-status monitor: co-power-map-disk-prune (CannObserv/status#48; empty until provisioned)
 Environment=STATUS_MONITOR_ID=
 LoadCredential=status-checkin:/etc/power-map/status-api.key
 SetCredential=status-checkin:\n
