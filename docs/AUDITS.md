@@ -525,7 +525,7 @@ journal lists the known growth paths, largest first.
 - Claude Code extension versions that VS Code marked `.obsolete`;
 - `~/.npm/_npx` installs, except the one for the repo's `SOCRATICODE_SPEC`.
 
-It then runs `npm cache clean --force` and `uv cache prune`. Anything a running
+It then runs `npm cache clean --force` and `uv cache prune --force`. Anything a running
 process uses stays: an exe, a cwd, a mapped file or an open fd, all read from
 `/proc`. An open window whose extension host loaded a now-removed obsolete
 version needs *Reload Window*.

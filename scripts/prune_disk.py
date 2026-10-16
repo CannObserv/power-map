@@ -12,8 +12,11 @@ things kept refilling it after every manual cleanup:
 - **npx installs**, ``~/.npm/_npx/<hash>``: ~460M per SocratiCode spec. npm's
   ``cache clean`` never touches them.
 
-Then ``npm cache clean --force`` and ``uv cache prune`` (unreachable objects
-only; a wheel a lockfile needs is re-downloaded on the next sync).
+Then ``npm cache clean --force`` and ``uv cache prune --force`` (unreachable
+objects only; a wheel a lockfile needs is re-downloaded on the next sync).
+``--force`` skips uv's in-use lock, which production's ``uv run uvicorn`` holds
+permanently; the cost is a narrow race with a ``uv sync`` mid-install, which
+then fails and is re-run.
 
 **Anything a running process uses stays:** an exe, a cwd, a mapped file or an
 open fd under the path, read from ``/proc`` and never from process arguments
@@ -55,9 +58,12 @@ logger = logging.getLogger("prune_disk")
 
 REPO = Path(__file__).resolve().parents[1]
 SETTINGS = REPO / ".claude" / "settings.json"
+# `uv cache prune` waits for every other uv process to release the cache, and
+# production's `uv run uvicorn` never does, so it needs --force. It still only
+# removes unreachable objects; the venvs keep their hardlinked copies.
 CACHE_COMMANDS: tuple[tuple[str, ...], ...] = (
     ("npm", "cache", "clean", "--force"),
-    ("uv", "cache", "prune"),
+    ("uv", "cache", "prune", "--force"),
 )
 CACHE_TIMEOUT_SECONDS = 600
 

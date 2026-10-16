@@ -303,9 +303,14 @@ def test_a_missing_cache_tool_fails_the_run(tmp_path: Path):
 
 
 def test_the_cache_commands_are_npm_clean_and_uv_prune():
+    """``uv cache prune`` without ``--force`` waits for every other uv process.
+
+    Production runs ``uv run uvicorn`` for good, so it would wait the whole
+    timeout every week and page (CR 1, measured against a scratch cache).
+    """
     assert [list(c) for c in CACHE_COMMANDS] == [
         ["npm", "cache", "clean", "--force"],
-        ["uv", "cache", "prune"],
+        ["uv", "cache", "prune", "--force"],
     ]
 
 
