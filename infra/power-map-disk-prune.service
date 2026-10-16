@@ -1,0 +1,37 @@
+[Unit]
+Description=power-map weekly root-disk prune (issue #665)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+#
+# Removes what grows here and nothing else removes: VS Code server builds and
+# code-* CLIs past the newest, Claude Code extension versions VS Code marked
+# obsolete, and npx installs other than the pinned SOCRATICODE_SPEC (the repo's
+# and the VS Code machine setting's).
+# Anything a running process uses (exe, cwd, mapped file, open fd) stays. Then
+# `npm cache clean --force` and `uv cache prune --force` (production's
+# `uv run uvicorn` holds uv's cache lock for good). Exits 1 if a removal or a
+# cache command failed; the rest still runs. Dry run without --execute.
+#
+# /usr/bin/python3 straight from the file, not `uv run`: it must work on a disk
+# too full for uv, and `uv cache prune` must not wait on its own launcher's lock.
+ExecStart=/usr/bin/python3 /home/exedev/power-map/scripts/prune_disk.py --execute
+TimeoutStartSec=1800
+# Housekeeping on the production VM: yield CPU and disk to the API.
+Nice=10
+IOSchedulingClass=idle
+
+# After every run, ok or alert, a check-in with co-status (#566): a failed run
+# reaches a person through Notifier, and a run that never happens goes `missing`.
+# Best-effort (`-`, and the hook always exits 0); never changes this unit's result.
+# The key is a credential, never an env var; SetCredential= (a lone newline,
+# read as "no key") is the fallback that keeps a missing key file from failing
+# the unit (243).
+# co-status monitor: co-power-map-disk-prune (CannObserv/status#48)
+Environment=STATUS_MONITOR_ID=01M52M7N35TTYQBCWPKMS4SPF9
+LoadCredential=status-checkin:/etc/power-map/status-api.key
+SetCredential=status-checkin:\n
+ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

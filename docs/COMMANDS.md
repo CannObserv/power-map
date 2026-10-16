@@ -458,6 +458,7 @@ row names**; this is a roster, not a reference.
 |---|---|---|---|
 | `power-map-ready` | 2 min | `check_ready.py` — probes `/ready`; exit 3 only when two attempts fail | [AUDITS.md](AUDITS.md) |
 | `power-map-egress-ip` | 5 min | `check_egress_ip.py` — egress IP vs the cluster's live Trusted Sources | [AUDITS.md](AUDITS.md) |
+| `power-map-disk-headroom` | 10 min | `check_disk_headroom.py` — exit 3 at ≥ 85% of `/` | [AUDITS.md](AUDITS.md) |
 | `power-map-anomaly` | hourly | `check_api_anomalies.py` — per-key request-rate threshold | [AUDITS.md](AUDITS.md) |
 | `power-map-datasets-pull` | 09:00 UTC | `pull_datasets.py` — lands usa-wa snapshots; writes no DB rows | [RUNBOOKS.md](RUNBOOKS.md) |
 | `power-map-desired-state` | 09:30 UTC | export → build → apply, the applier **dry run**; a failed step stops the chain; exit 4 = entries unapplied > 3 days (#656) | [RUNBOOK_DESIRED_STATE.md](RUNBOOK_DESIRED_STATE.md) |
@@ -469,6 +470,7 @@ row names**; this is a roster, not a reference.
 | `power-map-infra-drift` | daily | `check_infra_drift.py` — `infra/` vs the installed copies | [AUDITS.md](AUDITS.md) |
 | `power-map-openapi-parity` | daily | `check_openapi_parity.py` — served vs committed `openapi.json`, and its `v<version>` tag | [AUDITS.md](AUDITS.md) |
 | `power-map-a11y` | Sun 04:00 UTC | `run-a11y-sweep.sh` — both a11y tiers against the test DB | [TESTING.md](TESTING.md) |
+| `power-map-disk-prune` | Sun 05:30 UTC | `prune_disk.py --execute` — stale VS Code builds, npx installs, caches | [AUDITS.md](AUDITS.md) |
 
 An audit timer exits **3** on a finding, which is what puts it in
 `systemctl --failed` (exit 4 fails openapi-parity, a tag finding, but is a

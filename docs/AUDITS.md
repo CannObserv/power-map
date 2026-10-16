@@ -10,9 +10,10 @@ anomaly (#294), schema parity (#315/#331), ancillary orphans (#324/#326/#319) an
 seat occupancy (#506). Those five exit 3 on findings (seat occupancy only above
 its baseline), so a run surfaces in `systemctl --failed` (#363), and each carries
 its own install block below. The org-lifecycle (#307) and
-duplicate-assignment (#311) audits are on-demand: no timer, no exit-3. Four
+duplicate-assignment (#311) audits are on-demand: no timer, no exit-3. Five
 guards at the end carry timers too: readiness (#347), egress IP (#410), OpenAPI
-parity (#618) and infra drift (#560). Every timer, these and the rest in
+parity (#618), infra drift (#560) and root-disk headroom (#665), the last with
+its weekly prune. Every timer, these and the rest in
 `docs/COMMANDS.md` § Scheduled timers, checks in with co-status after each run,
 so a failure or a missed run reaches a person: [ALERTING.md](ALERTING.md).
 
@@ -505,4 +506,23 @@ touch production, so the fix stays a person's.
 ```bash
 uv run python -m scripts.check_infra_drift   # compare once, now
 sudo journalctl -u power-map-infra-drift -f
+```
+
+## Root-disk headroom guard and weekly prune (issue #665)
+
+Host guards. `/`, `/home` and `/tmp` share one 19G volume, which reached 98–100%
+three times in three weeks. Both scripts are stdlib-only and run by
+`/usr/bin/python3`; each module docstring holds the reasoning.
+
+- **`check_disk_headroom.py`**, every 10 min: `/`'s Use% as `df` reads it. Exit 3
+  (`low-headroom`) at or above `--alert-at` (85), with the largest growth paths
+  in the journal.
+- **`prune_disk.py --execute`**, Sun 05:30 UTC: stale VS Code server builds, CLIs
+  and `.obsolete` extensions, unpinned `~/.npm/_npx` installs, then the npm and
+  uv caches. Anything a live process uses stays. A window still running a
+  removed extension version needs *Reload Window*.
+
+```bash
+/usr/bin/python3 scripts/check_disk_headroom.py --alert-at 1   # prove it fires
+/usr/bin/python3 scripts/prune_disk.py                         # the plan, no change
 ```

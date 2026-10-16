@@ -66,6 +66,10 @@ testpaths = ["tests"]
 addopts = "-v --tb=short -m 'not integration and not browser'"
 asyncio_mode = "auto"
 asyncio_default_test_loop_scope = "session"
+# One run's basetemp, and none after a green run: the default three runs
+# (~480M each) filled the shared 19G root volume (#665).
+tmp_path_retention_count = 1
+tmp_path_retention_policy = "failed"
 markers = [
     "integration: marks tests that hit live external services; excluded by default (run with -m integration)",
     "browser: marks Playwright real-browser tests (axe sweeps + flow smoke; #300/#367/#368); excluded by default, never pre-commit (run with -m browser after `uv sync --group browser && playwright install chromium`)",

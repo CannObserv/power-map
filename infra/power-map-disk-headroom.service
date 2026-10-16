@@ -1,0 +1,33 @@
+[Unit]
+Description=power-map root-disk headroom guard (issue #665)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+#
+# Reads `/`'s Use% the way df does and exits 3 at or above --alert-at, so the
+# unit shows in `systemctl --failed` and checks in `low-headroom` below; the
+# journal names the largest known consumers. The next green run's `ok` clears
+# the fault. `/`, `/home` and `/tmp` are one 19G volume: it hit 100% on
+# 2026-09-25 and 98% twice since, and each time the first signal was a failing
+# agent session, while a full root also starves power-map.service and journald.
+#
+# /usr/bin/python3 straight from the file, not `uv run`: a nearly full disk is
+# when uv may fail to write what it needs. Prove it fires with --alert-at 1.
+ExecStart=/usr/bin/python3 /home/exedev/power-map/scripts/check_disk_headroom.py --alert-at 85
+TimeoutStartSec=120
+
+# After every run, ok or alert, a check-in with co-status (#566): a failed run
+# reaches a person through Notifier, and a run that never happens goes `missing`.
+# Best-effort (`-`, and the hook always exits 0); never changes this unit's result.
+# The key is a credential, never an env var; SetCredential= (a lone newline,
+# read as "no key") is the fallback that keeps a missing key file from failing
+# the unit (243).
+# co-status monitor: co-power-map-disk-headroom (CannObserv/status#48)
+Environment=STATUS_MONITOR_ID=01M52M7N1YTZACE291C78X61BT
+Environment=STATUS_EXIT_KINDS=3:low-headroom
+LoadCredential=status-checkin:/etc/power-map/status-api.key
+SetCredential=status-checkin:\n
+ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n
