@@ -67,7 +67,8 @@ from power_map_client.generated.models import (
 body = OrgBatchGetRequest(ids=ids, etags=OrgBatchGetRequestEtags.from_dict(known_etags))
 r = batch_get_orgs.sync_detailed(client=client, body=body)
 if not isinstance(r.parsed, OrgBatchGetResponse):
-    ...  # 401/403/429 → ErrorDetail; 422 (over 100 ids or etags) → HTTPValidationError
+    # 401/403/429 → ErrorDetail; 422 (over 100 ids or etags) → HTTPValidationError
+    raise RuntimeError(f"batch-get failed: {r.status_code}")
 for result in r.parsed.results:
     if isinstance(result, OrgBatchOk):
         ...  # result.org is get_org's OrgDetail; result.etag its ETag
