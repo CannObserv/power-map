@@ -266,10 +266,8 @@ def withhold_reason(path: Path, cutoff: float, bound: int = WALK_DIR_BOUND) -> s
         root = path.lstat()
     except OSError as exc:
         return f"unreadable ({exc.strerror})"
-    if _touched(root) > cutoff:
-        return "recently touched"
     if not stat.S_ISDIR(root.st_mode):
-        return None
+        return "recently touched" if _touched(root) > cutoff else None
     errors: list[OSError] = []
     for seen, (dirpath, _dirs, _files) in enumerate(os.walk(path, onerror=errors.append), 1):
         if seen > bound:
