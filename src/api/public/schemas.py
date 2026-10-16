@@ -1216,8 +1216,9 @@ class OrgBatchGetRequest(BaseModel):
         min_length=1,
         max_length=100,
         description=(
-            "Org ids to read, 1–100. A string that is not an org id is `not_found`. "
-            "Text Postgres cannot store (NUL, lone surrogates) is handled by #663's rule."
+            "Org ids to read, 1–100. A string that is not an org id is `not_found`, "
+            "and so, for now, is one containing NUL. A lone UTF-16 surrogate fails "
+            "the whole call (500) until #663 sets the API-wide rule for both."
         ),
     )
     etags: dict[str, str] = Field(
