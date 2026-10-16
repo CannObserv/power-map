@@ -9,7 +9,8 @@ WorkingDirectory=/home/exedev/power-map
 #
 # Removes what grows here and nothing else removes: VS Code server builds and
 # code-* CLIs past the newest, Claude Code extension versions VS Code marked
-# obsolete, and npx installs other than the repo's pinned SOCRATICODE_SPEC.
+# obsolete, and npx installs other than the pinned SOCRATICODE_SPEC (the repo's
+# and the VS Code machine setting's).
 # Anything a running process uses (exe, cwd, mapped file, open fd) stays. Then
 # `npm cache clean --force` and `uv cache prune --force` (production's
 # `uv run uvicorn` holds uv's cache lock for good). Exits 1 if a removal or a

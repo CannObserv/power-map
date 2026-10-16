@@ -23,6 +23,7 @@ import pytest
 from scripts.prune_disk import (
     CACHE_COMMANDS,
     in_use,
+    launch_specs,
     live_paths,
     main,
     npx_dir_name,
@@ -224,6 +225,47 @@ def test_pinned_specs_tolerates_a_missing_or_bad_file(tmp_path: Path):
     bad = tmp_path / "bad.json"
     bad.write_text("[")
     assert pinned_specs(bad) == set()
+
+
+def _machine_settings(home: Path, body: str) -> Path:
+    path = home / ".vscode-server" / "data" / "Machine" / "settings.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(body)
+    return path
+
+
+def test_launch_specs_reads_the_vscode_machine_setting(tmp_path: Path):
+    """What reaches the session's launch is this setting, not the repo's (#559)."""
+    env = [{"name": "OTHER", "value": "x"}, {"name": "SOCRATICODE_SPEC", "value": "socraticode@9"}]
+    path = _machine_settings(tmp_path, json.dumps({"claudeCode.environmentVariables": env}))
+    assert launch_specs(path) == {"socraticode@9"}
+
+
+@pytest.mark.parametrize(
+    "body",
+    ["{", "[]", "{}", '{"claudeCode.environmentVariables": {"SOCRATICODE_SPEC": "x"}}'],
+    ids=["unparseable", "not-an-object", "no-setting", "dict-form"],
+)
+def test_launch_specs_tolerates_a_malformed_machine_setting(tmp_path: Path, body: str):
+    assert launch_specs(_machine_settings(tmp_path, body)) == set()
+
+
+def test_launch_specs_tolerates_no_machine_setting(tmp_path: Path):
+    assert launch_specs(tmp_path / "missing.json") == set()
+
+
+def test_execute_keeps_the_launched_spec_when_the_repo_declares_another(tmp_path: Path):
+    """Idle, with the two pins diverged: the install the next session launches stays."""
+    home = _home(tmp_path)
+    env = [{"name": "SOCRATICODE_SPEC", "value": "socraticode@2.0.0"}]
+    _machine_settings(home, json.dumps({"claudeCode.environmentVariables": env}))
+    launched = home / ".npm" / "_npx" / npx_dir_name("socraticode@2.0.0")
+    launched.mkdir()
+    declared = tmp_path / "settings.json"
+    declared.write_text(json.dumps({"env": {"SOCRATICODE_SPEC": "socraticode@1.15.0"}}))
+    assert main(["--execute"], home=home, live_fn=set, run=_Runner(), settings=declared) == 0
+    assert launched.exists()
+    assert not (home / ".npm" / "_npx" / "dead000000000000").exists()
 
 
 def test_the_repo_pins_a_socraticode_spec():

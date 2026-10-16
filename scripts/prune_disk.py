@@ -23,8 +23,9 @@ open fd under the path, read from ``/proc`` and never from process arguments
 (a session's shell command line carries ``GH_TOKEN``). On top of that, each
 kind keeps what the next session reaches for: the newest server by VS Code's
 ``lru.json``, the newest ``code-*`` CLI, the extension version
-``extensions.json`` registers, and the npx install of the repo's pinned
-``SOCRATICODE_SPEC`` (npx names the dir by a hash of the spec). An extension
+``extensions.json`` registers, and the npx install of each pinned
+``SOCRATICODE_SPEC``, the repo's and the VS Code machine setting's (npx names
+the dir by a hash of the spec). An extension
 host that loaded an obsolete version with no live binary loses that extension
 until *Reload Window*; VS Code's own restart cleanup does the same.
 
@@ -187,6 +188,27 @@ def pinned_specs(settings: Path) -> set[str]:
     return {spec} if isinstance(spec, str) and spec else set()
 
 
+def launch_specs(machine_settings: Path) -> set[str]:
+    """``SOCRATICODE_SPEC`` from VS Code's ``claudeCode.environmentVariables``.
+
+    That machine setting is what reaches the session server's launch; the
+    repo's value is only what preflight compares it against (#559). Keeping
+    both protects the next session's install even when the two diverge.
+    """
+    data = _read_json(machine_settings)
+    env = data.get("claudeCode.environmentVariables") if isinstance(data, dict) else None
+    if not isinstance(env, list):
+        return set()
+    return {
+        e["value"]
+        for e in env
+        if isinstance(e, dict)
+        and e.get("name") == "SOCRATICODE_SPEC"
+        and isinstance(e.get("value"), str)
+        and e["value"]
+    }
+
+
 def npx_installs(npm: Path, live: set[str], keep_specs: Iterable[str]) -> list[Path]:
     """npx install dirs that are neither in use nor the pinned spec's."""
     npx = npm / "_npx"
@@ -293,7 +315,8 @@ def main(
     """Plan, and with ``--execute`` prune; return the exit code."""
     args = build_parser().parse_args(argv)
     home = home or Path.home()
-    keep_specs = pinned_specs(settings)
+    machine = home / ".vscode-server" / "data" / "Machine" / "settings.json"
+    keep_specs = pinned_specs(settings) | launch_specs(machine)
     targets = plan(home, live_fn(), keep_specs)
     verb = "removing" if args.execute else "would remove"
     total = 0

@@ -523,7 +523,7 @@ journal lists the known growth paths, largest first.
 **`scripts/prune_disk.py`** runs Sundays at 05:30 UTC, as `exedev`. It removes:
 - VS Code server builds and `code-*` CLIs, except the newest;
 - Claude Code extension versions that VS Code marked `.obsolete`;
-- `~/.npm/_npx` installs, except the one for the repo's `SOCRATICODE_SPEC`.
+- `~/.npm/_npx` installs, except those for the pinned `SOCRATICODE_SPEC` (the repo's and the VS Code machine setting's).
 
 It then runs `npm cache clean --force` and `uv cache prune --force`. Anything a running
 process uses stays: an exe, a cwd, a mapped file or an open fd, all read from
