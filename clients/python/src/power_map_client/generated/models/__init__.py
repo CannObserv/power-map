@@ -95,6 +95,14 @@ from .observation_response_entity_type_type_0 import ObservationResponseEntityTy
 from .observation_role_assignment import ObservationRoleAssignment
 from .org_acronym import OrgAcronym
 from .org_affiliation_type import OrgAffiliationType
+from .org_batch_get_request import OrgBatchGetRequest
+from .org_batch_get_request_etags import OrgBatchGetRequestEtags
+from .org_batch_get_response import OrgBatchGetResponse
+from .org_batch_gone import OrgBatchGone
+from .org_batch_merged import OrgBatchMerged
+from .org_batch_not_found import OrgBatchNotFound
+from .org_batch_not_modified import OrgBatchNotModified
+from .org_batch_ok import OrgBatchOk
 from .org_detail import OrgDetail
 from .org_event_observations_request import OrgEventObservationsRequest
 from .org_identifier import OrgIdentifier
@@ -229,6 +237,14 @@ __all__ = (
     "OrgAcronym",
     "OrgAffiliationType",
     "OrganizationObservationRequest",
+    "OrgBatchGetRequest",
+    "OrgBatchGetRequestEtags",
+    "OrgBatchGetResponse",
+    "OrgBatchGone",
+    "OrgBatchMerged",
+    "OrgBatchNotFound",
+    "OrgBatchNotModified",
+    "OrgBatchOk",
     "OrgDetail",
     "OrgEventObservationsRequest",
     "OrgIdentifier",

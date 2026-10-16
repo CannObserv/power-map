@@ -14,12 +14,13 @@ from src.api.public.deps import (
     require_scope,
     stamped_transaction,
 )
-from src.api.public.etag import conditional_response, make_etag
+from src.api.public.etag import conditional_response, if_none_match_matches, make_etag
 from src.api.public.events import (
     events_collection_validator,
     row_to_event,
 )
-from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
+from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone, resolve_merged_into
+from src.api.public.ratelimit import BUCKET_EXTRA_KEY
 from src.api.public.responses import NOT_FOUND, NOT_MODIFIED_OR_NOT_FOUND
 from src.api.public.schemas import (
     CitationObservationResult,
@@ -28,11 +29,20 @@ from src.api.public.schemas import (
     EventObservationsResponse,
     ObservationResponse,
     OrganizationObservationRequest,
+    OrgBatchGetRequest,
+    OrgBatchGetResponse,
+    OrgBatchGone,
+    OrgBatchMerged,
+    OrgBatchNotFound,
+    OrgBatchNotModified,
+    OrgBatchOk,
+    OrgBatchResult,
     OrgDetail,
     OrgEventObservationsRequest,
     OrgSearchResponse,
 )
 from src.core.citations import write_citations
+from src.core.merge_history import fetch_tombstones
 from src.core.observation import (
     Disposition,
     IdentifierConflict,
@@ -470,6 +480,71 @@ async def _search_by_jurisdiction(
     }
 
 
+@router.post(
+    "/batch-get",
+    response_model=OrgBatchGetResponse,
+    operation_id="batchGetOrgs",
+    openapi_extra={BUCKET_EXTRA_KEY: "read"},
+)
+async def batch_get_orgs(
+    body: OrgBatchGetRequest,
+    _: str = Depends(require_api_key),
+    db=Depends(get_db),
+) -> OrgBatchGetResponse:
+    """Read many orgs in one call: one ``getOrg`` answer per distinct id (#654).
+
+    Each result is the outcome ``getOrg`` would give that id: ``ok`` (200, the
+    same body and ETag), ``not_modified`` (304 against ``etags[id]``),
+    ``merged`` / ``gone`` (410 with or without ``merged_into``), ``not_found``
+    (404). One bad id never fails the batch. Results come in request order,
+    duplicates dropped after their first occurrence. Set-based: the query count
+    does not grow with the number of ids, except one merge walk per ``merged``.
+    """
+    ids = list(dict.fromkeys(body.ids))
+    # Interim until #663: Postgres text cannot hold NUL, so querying such an id
+    # would fail the whole batch. #663 replaces this route-local guard with one
+    # API-wide boundary rule (NUL and lone surrogates alike) and settles the
+    # batch's answer for both.
+    results: dict[str, OrgBatchResult] = {
+        i: OrgBatchNotFound(outcome="not_found", id=i) for i in ids if "\x00" in i
+    }
+    queryable = [i for i in ids if i not in results]
+    rows = await _fetch_org_rows(db, queryable)
+
+    fresh: list[tuple[Any, str]] = []
+    for org_id, row in rows.items():
+        etag = make_etag(row["id"], row["updated_at"])
+        if if_none_match_matches(body.etags.get(org_id), etag):
+            results[org_id] = OrgBatchNotModified(outcome="not_modified", id=org_id, etag=etag)
+        else:
+            fresh.append((row, etag))
+
+    details = await _org_details(db, [row for row, _ in fresh])
+    for (row, etag), detail in zip(fresh, details, strict=True):
+        results[row["id"]] = OrgBatchOk(
+            outcome="ok", id=row["id"], etag=etag, org=OrgDetail.model_validate(detail)
+        )
+
+    misses = [i for i in queryable if i not in rows]
+    tombstones = await fetch_tombstones(db, "organization", misses) if misses else {}
+    for org_id in misses:
+        results[org_id] = await _retired_result(db, org_id, tombstones.get(org_id))
+
+    return OrgBatchGetResponse(results=[results[i] for i in ids])
+
+
+async def _retired_result(db: Any, org_id: str, tombstone: Any) -> OrgBatchResult:
+    """The batch outcome for an id with no live row: ``getOrg``'s 410 or 404."""
+    if tombstone is None:
+        return OrgBatchNotFound(outcome="not_found", id=org_id)
+    merged_into = await resolve_merged_into(db, "organization", tombstone)
+    if merged_into is None:
+        return OrgBatchGone(outcome="gone", id=org_id, deleted_at=tombstone["deleted_at"])
+    return OrgBatchMerged(
+        outcome="merged", id=org_id, merged_into=merged_into, deleted_at=tombstone["deleted_at"]
+    )
+
+
 @router.get(
     "/{org_id}",
     response_model=OrgDetail,
@@ -484,24 +559,7 @@ async def get_org(
     db=Depends(get_db),
 ) -> Any:
     """Return full org record with names, acronyms, and identifiers."""
-    row = await db.fetchrow(
-        """
-        SELECT
-            o.id,
-            o.parent_id,
-            o.archived_at,
-            o.active,
-            o.created_at,
-            o.updated_at,
-            n.name,
-            a.acronym
-        FROM organizations o
-        LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
-        LEFT JOIN organization_acronyms a ON a.organization_id = o.id AND a.is_canonical = TRUE
-        WHERE o.id = $1
-        """,
-        org_id,
-    )
+    row = (await _fetch_org_rows(db, [org_id])).get(org_id)
     if not row:
         return await not_found_or_gone(db, "organization", org_id, "Organization not found")
 
@@ -510,33 +568,7 @@ async def get_org(
     if cached is not None:
         return cached
 
-    names, acronyms, identifiers, affiliations = await _fetch_detail_arrays(org_id, db)
-
-    base = _org_row_to_dict(row)
-    await _annotate_succession(db, [base])
-
-    return {
-        **base,
-        # active is detail-only (#240) — added here, not in _org_row_to_dict
-        # (shared with search, whose queries do not select o.active).
-        "active": row["active"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
-        "names": [dict(n) for n in names],
-        "acronyms": [dict(a) for a in acronyms],
-        "identifiers": [dict(i) for i in identifiers],
-        "jurisdiction_affiliations": [
-            {
-                "jurisdiction_id": r["jurisdiction_id"],
-                "affiliation_type": {
-                    "id": r["affiliation_type_id"],
-                    "slug": r["affiliation_type_slug"],
-                    "display_name": r["affiliation_type_display_name"],
-                },
-            }
-            for r in affiliations
-        ],
-    }
+    return (await _org_details(db, [row]))[0]
 
 
 @router.get(
@@ -610,48 +642,137 @@ async def list_org_events(
     }
 
 
-async def _fetch_detail_arrays(org_id: str, db: Any) -> tuple:
-    """Fetch names, acronyms, identifiers, and jurisdiction affiliations for an org."""
+async def _fetch_org_rows(db: Any, org_ids: list[str]) -> dict[str, Any]:
+    """Fetch the org rows (canonical name + acronym joined) for *org_ids*, keyed by id.
+
+    The row carries ``updated_at``, so a caller computes the ETag from it before
+    fetching anything else (version-first, see ``collection_etag``).
+    """
+    rows = await db.fetch(
+        """
+        SELECT
+            o.id,
+            o.parent_id,
+            o.archived_at,
+            o.active,
+            o.created_at,
+            o.updated_at,
+            n.name,
+            a.acronym
+        FROM organizations o
+        LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
+        LEFT JOIN organization_acronyms a ON a.organization_id = o.id AND a.is_canonical = TRUE
+        WHERE o.id = ANY($1::text[])
+        """,
+        org_ids,
+    )
+    return {r["id"]: r for r in rows}
+
+
+async def _org_details(db: Any, rows: list[Any]) -> list[dict[str, Any]]:
+    """Build the ``OrgDetail`` payload for each org row, in order.
+
+    The one place the detail payload is assembled — ``getOrg`` passes one row,
+    the batch read (#654) many — so the two cannot drift.
+    """
+    if not rows:
+        return []
+    arrays = await _fetch_detail_arrays(db, [r["id"] for r in rows])
+    bases = [_org_row_to_dict(r) for r in rows]
+    await _annotate_succession(db, bases)
+
+    details = []
+    for row, base in zip(rows, bases, strict=True):
+        a = arrays[row["id"]]
+        details.append(
+            {
+                **base,
+                # active is detail-only (#240) — added here, not in _org_row_to_dict
+                # (shared with search, whose queries do not select o.active).
+                "active": row["active"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "names": a["names"],
+                "acronyms": a["acronyms"],
+                "identifiers": a["identifiers"],
+                "jurisdiction_affiliations": [
+                    {
+                        "jurisdiction_id": r["jurisdiction_id"],
+                        "affiliation_type": {
+                            "id": r["affiliation_type_id"],
+                            "slug": r["affiliation_type_slug"],
+                            "display_name": r["affiliation_type_display_name"],
+                        },
+                    }
+                    for r in a["affiliations"]
+                ],
+            }
+        )
+    return details
+
+
+async def _fetch_detail_arrays(db: Any, org_ids: list[str]) -> dict[str, dict[str, list]]:
+    """Fetch names, acronyms, identifiers, and jurisdiction affiliations for many orgs.
+
+    Four queries whatever the number of orgs. Returns ``{org_id: {"names": [...],
+    "acronyms": [...], "identifiers": [...], "affiliations": [...]}}``, each list
+    in the per-org order ``getOrg`` has always used.
+    """
     names = await db.fetch(
         """
-        SELECT id, name, name_type, is_canonical, effective_start, effective_end
+        SELECT organization_id, id, name, name_type, is_canonical, effective_start, effective_end
         FROM organization_names
-        WHERE organization_id = $1
-        ORDER BY is_canonical DESC, name_type, name
+        WHERE organization_id = ANY($1::text[])
+        ORDER BY organization_id, is_canonical DESC, name_type, name
         """,
-        org_id,
+        org_ids,
     )
     acronyms = await db.fetch(
         """
-        SELECT id, acronym, is_canonical
+        SELECT organization_id, id, acronym, is_canonical
         FROM organization_acronyms
-        WHERE organization_id = $1
-        ORDER BY is_canonical DESC, acronym
+        WHERE organization_id = ANY($1::text[])
+        ORDER BY organization_id, is_canonical DESC, acronym
         """,
-        org_id,
+        org_ids,
     )
     identifiers = await db.fetch(
         """
-        SELECT i.id, i.entity_identifier_type_id AS type_id, t.slug AS type_slug, i.value
+        SELECT i.entity_id AS organization_id,
+               i.id, i.entity_identifier_type_id AS type_id, t.slug AS type_slug, i.value
         FROM identifiers i
         JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
-        WHERE i.entity_id = $1 AND t.entity_type = 'organization' AND NOT t.is_internal
-        ORDER BY t.slug, i.value
+        WHERE i.entity_id = ANY($1::text[]) AND t.entity_type = 'organization'
+          AND NOT t.is_internal
+        ORDER BY i.entity_id, t.slug, i.value
         """,
-        org_id,
+        org_ids,
     )
     affiliations = await db.fetch(
         """
         SELECT
+            aff.organization_id,
             aff.jurisdiction_id,
             at_.id  AS affiliation_type_id,
             at_.slug AS affiliation_type_slug,
             at_.display_name AS affiliation_type_display_name
         FROM organization_jurisdiction_affiliations aff
         JOIN organization_jurisdiction_affiliation_types at_ ON at_.id = aff.affiliation_type_id
-        WHERE aff.organization_id = $1
-        ORDER BY at_.slug, aff.jurisdiction_id
+        WHERE aff.organization_id = ANY($1::text[])
+        ORDER BY aff.organization_id, at_.slug, aff.jurisdiction_id
         """,
-        org_id,
+        org_ids,
     )
-    return names, acronyms, identifiers, affiliations
+    out: dict[str, dict[str, list]] = {
+        i: {"names": [], "acronyms": [], "identifiers": [], "affiliations": []} for i in org_ids
+    }
+    for key, rows in (
+        ("names", names),
+        ("acronyms", acronyms),
+        ("identifiers", identifiers),
+        ("affiliations", affiliations),
+    ):
+        for r in rows:
+            item = dict(r)
+            out[item.pop("organization_id")][key].append(item)
+    return out

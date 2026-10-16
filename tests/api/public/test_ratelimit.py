@@ -84,6 +84,7 @@ def test_app_derives_read_paths_from_route_metadata():
         "/api/v1/people/verify",
         "/api/v1/people/verify-batch",
         "/api/v1/people/embeddings/presence",
+        "/api/v1/orgs/batch-get",
     }
     assert rl._post_read_paths == marked
 

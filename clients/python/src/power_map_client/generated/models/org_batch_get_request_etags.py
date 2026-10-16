@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any, TypeVar
+
+from attrs import define as _attrs_define
+from attrs import field as _attrs_field
+
+T = TypeVar("T", bound="OrgBatchGetRequestEtags")
+
+
+@_attrs_define
+class OrgBatchGetRequestEtags:
+    """Per-id `If-None-Match` value, at most 100 entries. An id whose ETag still matches answers `not_modified`. Compared
+    exactly as `getOrg` compares the header, so either endpoint's ETag revalidates on the other. Keys not in `ids` are
+    ignored.
+
+    """
+
+    additional_properties: dict[str, str] = _attrs_field(init=False, factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+
+        field_dict: dict[str, Any] = {}
+        field_dict.update(self.additional_properties)
+
+        return field_dict
+
+    @classmethod
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        d = dict(src_dict)
+        org_batch_get_request_etags = cls()
+
+        org_batch_get_request_etags.additional_properties = d
+        return org_batch_get_request_etags
+
+    @property
+    def additional_keys(self) -> list[str]:
+        return list(self.additional_properties.keys())
+
+    def __getitem__(self, key: str) -> str:
+        return self.additional_properties[key]
+
+    def __setitem__(self, key: str, value: str) -> None:
+        self.additional_properties[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.additional_properties[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.additional_properties

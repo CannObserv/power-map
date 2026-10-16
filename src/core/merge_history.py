@@ -52,6 +52,19 @@ async def fetch_tombstone(
     )
 
 
+async def fetch_tombstones(
+    db: asyncpg.Connection, entity_type: str, entity_ids: list[str]
+) -> dict[str, asyncpg.Record]:
+    """:func:`fetch_tombstone` for many ids in one query, keyed by ``entity_id``."""
+    rows = await db.fetch(
+        "SELECT entity_id, deleted_at, merged_into FROM deleted_entities"
+        " WHERE entity_type = $1 AND entity_id = ANY($2::text[])",
+        entity_type,
+        entity_ids,
+    )
+    return {r["entity_id"]: r for r in rows}
+
+
 async def walk_merge_history(
     db: asyncpg.Connection, entity_type: str, entity_id: str
 ) -> Resolution:

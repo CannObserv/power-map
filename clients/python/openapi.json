@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "power-map",
-    "version": "0.64.0"
+    "version": "0.65.0"
   },
   "paths": {
     "/health": {
@@ -3193,6 +3193,85 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/orgs/batch-get": {
+      "post": {
+        "tags": [
+          "public-api",
+          "public-api"
+        ],
+        "summary": "Batch Get Orgs",
+        "description": "Read many orgs in one call: one ``getOrg`` answer per distinct id (#654).\n\nEach result is the outcome ``getOrg`` would give that id: ``ok`` (200, the\nsame body and ETag), ``not_modified`` (304 against ``etags[id]``),\n``merged`` / ``gone`` (410 with or without ``merged_into``), ``not_found``\n(404). One bad id never fails the batch. Results come in request order,\nduplicates dropped after their first occurrence. Set-based: the query count\ndoes not grow with the number of ids, except one merge walk per ``merged``.",
+        "operationId": "batchGetOrgs",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgBatchGetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgBatchGetResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No X-API-Key header, or the key lacks the route's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded — back off for Retry-After seconds. See PUBLIC_API.md § Rate Limits.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "x-rate-limit-bucket": "read"
       }
     },
     "/api/v1/orgs/{org_id}": {
@@ -7489,6 +7568,210 @@
         ],
         "title": "OrgAffiliationType",
         "description": "A type of org-jurisdiction affiliation from the lookup table."
+      },
+      "OrgBatchGetRequest": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Ids",
+            "description": "Org ids to read, 1–100. A string that is not an org id is `not_found`, and so, for now, is one containing NUL. A lone UTF-16 surrogate fails the whole call (500) until #663 sets the API-wide rule for both."
+          },
+          "etags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "maxProperties": 100,
+            "title": "Etags",
+            "description": "Per-id `If-None-Match` value, at most 100 entries. An id whose ETag still matches answers `not_modified`. Compared exactly as `getOrg` compares the header, so either endpoint's ETag revalidates on the other. Keys not in `ids` are ignored."
+          }
+        },
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "title": "OrgBatchGetRequest",
+        "description": "Request body for POST /api/v1/orgs/batch-get (#654).\n\nMany ``getOrg`` reads in one call and one read-bucket token. Duplicate ids\nare deduped, first occurrence wins (the ``verify`` precedent). The cap is\non the raw list, before the dedupe."
+      },
+      "OrgBatchGetResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/OrgBatchOk"
+                },
+                {
+                  "$ref": "#/components/schemas/OrgBatchNotModified"
+                },
+                {
+                  "$ref": "#/components/schemas/OrgBatchMerged"
+                },
+                {
+                  "$ref": "#/components/schemas/OrgBatchGone"
+                },
+                {
+                  "$ref": "#/components/schemas/OrgBatchNotFound"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "outcome",
+                "mapping": {
+                  "gone": "#/components/schemas/OrgBatchGone",
+                  "merged": "#/components/schemas/OrgBatchMerged",
+                  "not_found": "#/components/schemas/OrgBatchNotFound",
+                  "not_modified": "#/components/schemas/OrgBatchNotModified",
+                  "ok": "#/components/schemas/OrgBatchOk"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "title": "OrgBatchGetResponse",
+        "description": "Response for POST /api/v1/orgs/batch-get: one result per distinct id, in\nrequest order. ``outcome`` selects the variant; a new outcome would be a\nbreaking change for a generated client."
+      },
+      "OrgBatchGone": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "const": "gone",
+            "title": "Outcome"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Deleted At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome",
+          "id",
+          "deleted_at"
+        ],
+        "title": "OrgBatchGone",
+        "description": "``getOrg``'s ``410`` with ``merged_into: null``: deleted, or merged down a\nchain that ends in a delete."
+      },
+      "OrgBatchMerged": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "const": "merged",
+            "title": "Outcome"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "merged_into": {
+            "type": "string",
+            "title": "Merged Into",
+            "description": "The live end of the merge chain. May name an archived org."
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Deleted At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome",
+          "id",
+          "merged_into",
+          "deleted_at"
+        ],
+        "title": "OrgBatchMerged",
+        "description": "``getOrg``'s ``410`` with ``merged_into`` set: re-anchor to ``merged_into``."
+      },
+      "OrgBatchNotFound": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "const": "not_found",
+            "title": "Outcome"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome",
+          "id"
+        ],
+        "title": "OrgBatchNotFound",
+        "description": "``getOrg``'s ``404``: PM has no record of the id (malformed ids included)."
+      },
+      "OrgBatchNotModified": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "const": "not_modified",
+            "title": "Outcome"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "etag": {
+            "type": "string",
+            "title": "Etag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome",
+          "id",
+          "etag"
+        ],
+        "title": "OrgBatchNotModified",
+        "description": "``getOrg``'s ``304``: the caller's ETag for this id still matches."
+      },
+      "OrgBatchOk": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "const": "ok",
+            "title": "Outcome"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "etag": {
+            "type": "string",
+            "title": "Etag"
+          },
+          "org": {
+            "$ref": "#/components/schemas/OrgDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome",
+          "id",
+          "etag",
+          "org"
+        ],
+        "title": "OrgBatchOk",
+        "description": "``getOrg``'s ``200``: the org (archived included) and its ETag."
       },
       "OrgDetail": {
         "properties": {

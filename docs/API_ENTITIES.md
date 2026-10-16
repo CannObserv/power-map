@@ -12,7 +12,7 @@ Each resource has its own document — load the one you are working on, not the 
 | Resource | Document | Covers |
 |---|---|---|
 | People | [API_PEOPLE.md](API_PEOPLE.md) | list/detail filters, `POST /people/observations` |
-| Organizations | [API_ORGS.md](API_ORGS.md) | detail shape, renames and the name timeline, `POST /orgs/observations` |
+| Organizations | [API_ORGS.md](API_ORGS.md) | detail shape, batch read, renames and the name timeline, `POST /orgs/observations` |
 | Roles | [API_ROLES.md](API_ROLES.md) | list/detail, `GET /role-types`, `POST /roles/observations` |
 | Assignments | [API_ASSIGNMENTS.md](API_ASSIGNMENTS.md) | list/detail, `POST /assignments/observations` |
 | Jurisdictions | [API_JURISDICTIONS.md](API_JURISDICTIONS.md) | endpoints, `POST /jurisdictions/observations`, implicit behaviors |

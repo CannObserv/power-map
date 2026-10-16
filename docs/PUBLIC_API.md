@@ -39,7 +39,7 @@ Per-key token-bucket rate limiting is enforced at the application layer (#292). 
 
 | Bucket | Applies to | Sustained rate | Burst capacity |
 |--------|-----------|----------------|----------------|
-| read | `GET` / `HEAD`, plus the read-semantic POST endpoints: `POST /people/identify`, `POST /people/identify-batch`, `POST /people/verify`, `POST /people/verify-batch`, `POST /people/embeddings/presence` (#310 — they carry a body for size reasons but only read) | 2 req/s | 120 |
+| read | `GET` / `HEAD`, plus the read-semantic POST endpoints: `POST /people/identify`, `POST /people/identify-batch`, `POST /people/verify`, `POST /people/verify-batch`, `POST /people/embeddings/presence`, `POST /orgs/batch-get` (#310, #654 — they carry a body for size reasons but only read) | 2 req/s | 120 |
 | write | everything else | 1 req/s | 60 |
 
 An exhausted bucket returns **`429 Too Many Requests`** with:
@@ -122,6 +122,7 @@ An id that was **merged away or hard-deleted** answers `410` on the same five de
 - The live row is read first, so a restored id (#467) answers `200` again.
 - A `410` carries no `ETag`, sends `Cache-Control: no-cache` + `Vary: X-API-Key`, and is the same with or without `If-None-Match`.
 - Sub-resources (`/orgs/{id}/events`, …) still answer `404` for a retired id.
+- `POST /orgs/batch-get` reports the same answers per id as `merged` / `gone` / `not_found` outcomes (`API_ORGS.md` § Batch read).
 
 ---
 
@@ -133,6 +134,7 @@ An id that was **merged away or hard-deleted** answers `410` on the same five de
 | Endpoint | Validator |
 |---|---|
 | `GET /orgs/{id}`, `/people/{id}`, `/roles/{id}`, `/assignments/{id}`, `/jurisdictions/{id}` | `"<id>-<updated_at_ms>"` |
+| `POST /orgs/batch-get` — per id, in the body's `etags` map | `"<id>-<updated_at_ms>"`, shared with `GET /orgs/{id}` |
 | `GET /people/{id}/events`, `/orgs/{id}/events` | watermark |
 | `GET /citations/{entity_type}/{entity_id}` | watermark |
 | `GET /assignments/{pm_assignment_id}/relationships` | watermark |
