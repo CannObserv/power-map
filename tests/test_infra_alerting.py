@@ -37,10 +37,11 @@ ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 # unit's comment names its monitor. Pending, every unit carried an empty id and
 # the hook skipped; this stays as the switch a re-provisioning would flip back.
 MONITOR_IDS_PENDING = False
-# Units whose monitor is requested but not yet provisioned (#665's two disk
-# timers, requested on CannObserv/status#48): each carries an empty id, so the
-# hook skips, logged. Remove a name once its id lands in the unit.
-PENDING_MONITORS = frozenset({"power-map-disk-headroom", "power-map-disk-prune"})
+# Units whose monitor is requested but not yet provisioned: each carries an
+# empty id, so the hook skips, logged, and names its request. Empty since #665's
+# two disk monitors landed (CannObserv/status#48, 2026-10-16); a new timer adds
+# its name here until its id arrives.
+PENDING_MONITORS: frozenset[str] = frozenset()
 PENDING_REQUEST = "CannObserv/status#48"
 
 

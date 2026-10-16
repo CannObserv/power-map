@@ -30,8 +30,8 @@ IOSchedulingClass=idle
 # The key is a credential, never an env var; SetCredential= (a lone newline,
 # read as "no key") is the fallback that keeps a missing key file from failing
 # the unit (243).
-# co-status monitor: co-power-map-disk-prune (CannObserv/status#48; empty until provisioned)
-Environment=STATUS_MONITOR_ID=
+# co-status monitor: co-power-map-disk-prune (CannObserv/status#48)
+Environment=STATUS_MONITOR_ID=01M52M7N35TTYQBCWPKMS4SPF9
 LoadCredential=status-checkin:/etc/power-map/status-api.key
 SetCredential=status-checkin:\n
 ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n
