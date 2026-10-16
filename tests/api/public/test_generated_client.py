@@ -269,3 +269,14 @@ async def test_batch_size_outside_1_to_100_is_a_typed_422(sdk, count):
     r = await batch_get_orgs.asyncio_detailed(client=sdk, body=body)
     assert r.status_code == 422
     assert isinstance(r.parsed, HTTPValidationError)
+
+
+@pytest.mark.integration
+async def test_batch_etags_over_100_is_a_typed_422(sdk):
+    body = OrgBatchGetRequest(
+        ids=[generate_id()],
+        etags=OrgBatchGetRequestEtags.from_dict({generate_id(): '"x-0"' for _ in range(101)}),
+    )
+    r = await batch_get_orgs.asyncio_detailed(client=sdk, body=body)
+    assert r.status_code == 422
+    assert isinstance(r.parsed, HTTPValidationError)
