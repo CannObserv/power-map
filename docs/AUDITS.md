@@ -510,35 +510,19 @@ sudo journalctl -u power-map-infra-drift -f
 
 ## Root-disk headroom guard and weekly prune (issue #665)
 
-Host guards, not data audits. `/`, `/home` and `/tmp` are one 19G volume. It hit
-100% on 2026-09-25 and 98% on 2026-10-14 and 2026-10-15, and each time the first
-signal was a failing agent session. A full root starves the API, its timers and
-journald too.
+Host guards. `/`, `/home` and `/tmp` share one 19G volume, which reached 98–100%
+three times in three weeks. Both scripts are stdlib-only and run by
+`/usr/bin/python3`; each module docstring holds the reasoning.
 
-**`scripts/check_disk_headroom.py`** runs every 10 minutes. It reads `/`'s Use%
-as `df` does (root's reserved blocks count as used) and exits 3 at or above
-`--alert-at` (85 in the unit). That is a `low-headroom` check-in, and the
-journal lists the known growth paths, largest first.
-
-**`scripts/prune_disk.py`** runs Sundays at 05:30 UTC, as `exedev`. It removes:
-- VS Code server builds and `code-*` CLIs, except the newest;
-- Claude Code extension versions that VS Code marked `.obsolete`;
-- `~/.npm/_npx` installs, except those for the pinned `SOCRATICODE_SPEC` (the repo's and the VS Code machine setting's).
-
-It then runs `npm cache clean --force` and `uv cache prune --force`. Anything a running
-process uses stays: an exe, a cwd, a mapped file or an open fd, all read from
-`/proc`. An open window whose extension host loaded a now-removed obsolete
-version needs *Reload Window*.
-
-Both scripts are standard library only, run by `/usr/bin/python3`, never `uv
-run`. A nearly full disk is when uv may fail to write what it needs.
-
-The suite's own share is capped in `pyproject.toml`
-(`tmp_path_retention_count = 1`, `policy = "failed"`): a green run leaves no
-basetemp, where it used to leave ~480M, three runs kept.
+- **`check_disk_headroom.py`**, every 10 min: `/`'s Use% as `df` reads it. Exit 3
+  (`low-headroom`) at or above `--alert-at` (85), with the largest growth paths
+  in the journal.
+- **`prune_disk.py --execute`**, Sun 05:30 UTC: stale VS Code server builds, CLIs
+  and `.obsolete` extensions, unpinned `~/.npm/_npx` installs, then the npm and
+  uv caches. Anything a live process uses stays. A window still running a
+  removed extension version needs *Reload Window*.
 
 ```bash
 /usr/bin/python3 scripts/check_disk_headroom.py --alert-at 1   # prove it fires
 /usr/bin/python3 scripts/prune_disk.py                         # the plan, no change
-sudo journalctl -u power-map-disk-headroom -u power-map-disk-prune -f
 ```
