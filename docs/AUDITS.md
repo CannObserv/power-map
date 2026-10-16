@@ -10,9 +10,10 @@ anomaly (#294), schema parity (#315/#331), ancillary orphans (#324/#326/#319) an
 seat occupancy (#506). Those five exit 3 on findings (seat occupancy only above
 its baseline), so a run surfaces in `systemctl --failed` (#363), and each carries
 its own install block below. The org-lifecycle (#307) and
-duplicate-assignment (#311) audits are on-demand: no timer, no exit-3. Four
+duplicate-assignment (#311) audits are on-demand: no timer, no exit-3. Five
 guards at the end carry timers too: readiness (#347), egress IP (#410), OpenAPI
-parity (#618) and infra drift (#560). Every timer, these and the rest in
+parity (#618), infra drift (#560) and root-disk headroom (#665), the last with
+its weekly prune. Every timer, these and the rest in
 `docs/COMMANDS.md` § Scheduled timers, checks in with co-status after each run,
 so a failure or a missed run reaches a person: [ALERTING.md](ALERTING.md).
 
@@ -505,4 +506,39 @@ touch production, so the fix stays a person's.
 ```bash
 uv run python -m scripts.check_infra_drift   # compare once, now
 sudo journalctl -u power-map-infra-drift -f
+```
+
+## Root-disk headroom guard and weekly prune (issue #665)
+
+Host guards, not data audits. `/`, `/home` and `/tmp` are one 19G volume. It hit
+100% on 2026-09-25 and 98% on 2026-10-14 and 2026-10-15, and each time the first
+signal was a failing agent session. A full root starves the API, its timers and
+journald too.
+
+**`scripts/check_disk_headroom.py`** runs every 10 minutes. It reads `/`'s Use%
+as `df` does (root's reserved blocks count as used) and exits 3 at or above
+`--alert-at` (85 in the unit). That is a `low-headroom` check-in, and the
+journal lists the known growth paths, largest first.
+
+**`scripts/prune_disk.py`** runs Sundays at 05:30 UTC, as `exedev`. It removes:
+- VS Code server builds and `code-*` CLIs, except the newest;
+- Claude Code extension versions that VS Code marked `.obsolete`;
+- `~/.npm/_npx` installs, except the one for the repo's `SOCRATICODE_SPEC`.
+
+It then runs `npm cache clean --force` and `uv cache prune`. Anything a running
+process uses stays: an exe, a cwd, a mapped file or an open fd, all read from
+`/proc`. An open window whose extension host loaded a now-removed obsolete
+version needs *Reload Window*.
+
+Both scripts are standard library only, run by `/usr/bin/python3`, never `uv
+run`. A nearly full disk is when uv may fail to write what it needs.
+
+The suite's own share is capped in `pyproject.toml`
+(`tmp_path_retention_count = 1`, `policy = "failed"`): a green run leaves no
+basetemp, where it used to leave ~480M, three runs kept.
+
+```bash
+/usr/bin/python3 scripts/check_disk_headroom.py --alert-at 1   # prove it fires
+/usr/bin/python3 scripts/prune_disk.py                         # the plan, no change
+sudo journalctl -u power-map-disk-headroom -u power-map-disk-prune -f
 ```

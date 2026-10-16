@@ -37,6 +37,10 @@ ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 # unit's comment names its monitor. Pending, every unit carried an empty id and
 # the hook skipped; this stays as the switch a re-provisioning would flip back.
 MONITOR_IDS_PENDING = False
+# Units whose monitor is requested but not yet provisioned (#665's two disk
+# timers): each carries an empty id, so the hook skips, logged. Remove a name
+# once its id lands in the unit.
+PENDING_MONITORS = frozenset({"power-map-disk-headroom", "power-map-disk-prune"})
 
 
 def directives(path: Path) -> dict[str, list[tuple[str, str]]]:
@@ -68,9 +72,9 @@ def environment(path: Path) -> dict[str, str]:
     return env
 
 
-def test_there_are_thirteen_timers_each_with_a_service():
+def test_there_are_fifteen_timers_each_with_a_service():
     """status#36 holds one monitor per timer; a new timer needs a new monitor."""
-    assert len(TIMERS) == 13
+    assert len(TIMERS) == 15
     assert all(s.exists() for s in SERVICES)
 
 
@@ -109,12 +113,20 @@ def test_exit_kinds_parse_cleanly(service):
 
 
 def test_monitor_ids_are_distinct_ulids_or_all_pending():
-    ids = [environment(s)["STATUS_MONITOR_ID"] for s in SERVICES]
+    ids = {s.stem: environment(s)["STATUS_MONITOR_ID"] for s in SERVICES}
     if MONITOR_IDS_PENDING:
-        assert ids == [""] * len(SERVICES)
+        assert list(ids.values()) == [""] * len(SERVICES)
         return
-    assert all(ULID.match(i) for i in ids), ids
-    assert len(set(ids)) == len(ids)
+    pending = {stem: i for stem, i in ids.items() if stem in PENDING_MONITORS}
+    provisioned = [i for stem, i in ids.items() if stem not in PENDING_MONITORS]
+    assert all(i == "" for i in pending.values()), pending
+    assert all(ULID.match(i) for i in provisioned), provisioned
+    assert len(set(provisioned)) == len(provisioned)
+
+
+def test_every_pending_monitor_names_a_real_timer():
+    """A stale name here would let a provisioned unit keep an empty id unnoticed."""
+    assert PENDING_MONITORS <= {s.stem for s in SERVICES}
 
 
 @pytest.mark.parametrize("service", SERVICES, ids=lambda p: p.stem)

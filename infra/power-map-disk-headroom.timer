@@ -1,0 +1,15 @@
+[Unit]
+Description=power-map root-disk headroom guard, every 10 minutes (issue #665)
+
+[Timer]
+# Every 10 minutes. One full unit run writes ~480M at most, so from 85% (~2.8G
+# free) the disk needs several runs to fill: ten minutes is well inside that.
+OnCalendar=*:0/10
+AccuracySec=30s
+# Spread off the boundary the ready and egress-ip guards share.
+RandomizedDelaySec=30
+# A liveness poll, not a batch job: no replay of missed runs after a reboot.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

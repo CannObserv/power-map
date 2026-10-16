@@ -1,0 +1,12 @@
+[Unit]
+Description=power-map weekly root-disk prune (issue #665)
+
+[Timer]
+# Sundays 05:30 UTC: a quiet hour, after the 04:00 a11y sweep has finished. A
+# new VS Code server build lands about weekly, so weekly keeps pace with it.
+OnCalendar=Sun *-*-* 05:30:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

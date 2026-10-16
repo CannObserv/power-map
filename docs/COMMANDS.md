@@ -468,6 +468,8 @@ row names**; this is a roster, not a reference.
 | `power-map-assignment-rel-windows` | daily | `audit_assignment_relationship_windows.py` — drifted RA→RA edge windows | [AUDITS.md](AUDITS.md) |
 | `power-map-infra-drift` | daily | `check_infra_drift.py` — `infra/` vs the installed copies | [AUDITS.md](AUDITS.md) |
 | `power-map-openapi-parity` | daily | `check_openapi_parity.py` — served vs committed `openapi.json`, and its `v<version>` tag | [AUDITS.md](AUDITS.md) |
+| `power-map-disk-headroom` | 10 min | `check_disk_headroom.py` — `/` Use% like `df`; exit 3 at or above 85% | [AUDITS.md](AUDITS.md) |
+| `power-map-disk-prune` | Sun 05:30 UTC | `prune_disk.py --execute` — stale VS Code builds, obsolete extensions, dead npx installs, npm/uv caches | [AUDITS.md](AUDITS.md) |
 | `power-map-a11y` | Sun 04:00 UTC | `run-a11y-sweep.sh` — both a11y tiers against the test DB | [TESTING.md](TESTING.md) |
 
 An audit timer exits **3** on a finding, which is what puts it in
