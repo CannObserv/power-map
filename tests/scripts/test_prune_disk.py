@@ -488,10 +488,12 @@ def test_a_dry_run_names_what_the_grace_withholds(tmp_path: Path, caplog):
     assert "would remove 0.0B across 0 paths" in caplog.text
 
 
-def test_grace_minutes_rejects_a_negative_value(capsys):
+@pytest.mark.parametrize("value", ["-1", "abc"])
+def test_grace_minutes_rejects_anything_but_whole_minutes(value, capsys):
     with pytest.raises(SystemExit) as exc:
-        main(["--grace-minutes", "-1"])
+        main(["--grace-minutes", value])
     assert exc.value.code == 2
+    assert "_minutes" not in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("arg", ["--help"])

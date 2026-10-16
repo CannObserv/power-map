@@ -377,7 +377,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _minutes(value: str) -> int:
-    minutes = int(value)
+    try:
+        minutes = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a whole number of minutes") from None
     if minutes < 0:
         raise argparse.ArgumentTypeError("must be 0 or more")
     return minutes
