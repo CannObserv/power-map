@@ -461,6 +461,7 @@ def test_split_recent_keeps_order_and_names_each_reason(tmp_path: Path):
     assert remove == [old_a, old_b]
     assert [p for p, _ in withheld] == [fresh, missing]
     assert withheld[0][1] == "recently touched"
+    assert withheld[1][1].startswith("unreadable")
 
 
 def test_by_default_a_fresh_install_is_withheld_not_removed(tmp_path: Path, caplog):
