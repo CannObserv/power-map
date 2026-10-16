@@ -489,6 +489,45 @@ def test_a_dry_run_names_what_the_grace_withholds(tmp_path: Path, caplog):
     assert "would remove 0.0B across 0 paths" in caplog.text
 
 
+def _run_with_a_locked_npx(tmp_path: Path, argv: list[str], caplog) -> tuple[int, Path, _Runner]:
+    """``main`` two hours on, over a home whose stale npx tree holds a dir it can't list."""
+    caplog.set_level("INFO")
+    home = _home(tmp_path)
+    stuck = home / ".npm" / "_npx" / "dead000000000000"
+    (stuck / "root-owned").mkdir()
+    (stuck / "root-owned").chmod(0)
+    runner = _Runner()
+    try:
+        rc = main(
+            argv,
+            home=home,
+            live_fn=set,
+            run=runner,
+            settings=tmp_path / "x.json",
+            clock=lambda: time.time() + 7200,
+        )
+    finally:
+        (stuck / "root-owned").chmod(0o755)
+    return rc, stuck, runner
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root lists a mode-000 dir anyway")
+def test_execute_fails_the_run_when_a_stale_path_cannot_be_checked(tmp_path: Path, caplog):
+    """Before the grace, rmtree's PermissionError exited 1 and paged; a withhold mustn't hush it."""
+    rc, stuck, runner = _run_with_a_locked_npx(tmp_path, ["--execute"], caplog)
+    assert rc == 1
+    assert stuck.exists()
+    assert f"withheld: unreadable (Permission denied)  {stuck}" in caplog.text
+    assert runner.calls == [tuple(c) for c in CACHE_COMMANDS]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root lists a mode-000 dir anyway")
+def test_a_dry_run_reports_an_unchecked_path_without_failing(tmp_path: Path, caplog):
+    rc, stuck, _ = _run_with_a_locked_npx(tmp_path, [], caplog)
+    assert rc == 0
+    assert f"withheld: unreadable (Permission denied)  {stuck}" in caplog.text
+
+
 @pytest.mark.parametrize("value", ["-1", "abc"])
 def test_grace_minutes_rejects_anything_but_whole_minutes(value, capsys):
     with pytest.raises(SystemExit) as exc:

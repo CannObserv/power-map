@@ -47,7 +47,8 @@ Dry run by default (#402): it prints the plan with sizes. ``--execute`` removes
 and runs the cache commands.
 
 Exit codes: 0 = done (or nothing to do); 1 = a removal or a cache command
-failed (the rest still ran); 2 = usage error.
+failed, or a stale path could not be checked (the rest still ran); 2 = usage
+error.
 
 Usage:
     /usr/bin/python3 scripts/prune_disk.py              # the plan, sizes, no change
@@ -391,6 +392,7 @@ def main(
     live_fn: Callable[[], set[str]] = live_paths,
     run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     settings: Path = SETTINGS,
+    clock: Callable[[], float] = time.time,
 ) -> int:
     """Plan, and with ``--execute`` prune; return the exit code."""
     args = build_parser().parse_args(argv)
@@ -400,7 +402,7 @@ def main(
     targets = plan(home, live_fn(), keep_specs)
     withheld: list[tuple[Path, str]] = []
     if args.grace_minutes:
-        targets, withheld = split_recent(targets, time.time() - args.grace_minutes * 60)
+        targets, withheld = split_recent(targets, clock() - args.grace_minutes * 60)
     for path, reason in withheld:
         level = logging.INFO if reason == "recently touched" else logging.WARNING
         logger.log(level, "withheld: %s  %s", reason, path)
@@ -418,7 +420,9 @@ def main(
             logger.info("would run %s", " ".join(cmd))
         logger.info("dry run: nothing removed; pass --execute to prune")
         return 0
-    ok = all([_remove(p) for p in targets])
+    # An unchecked path is what rmtree used to fail on; it still fails the run.
+    ok = all(reason == "recently touched" for _, reason in withheld)
+    ok = all([_remove(p) for p in targets]) and ok
     ok = _run_cache_commands(run) and ok
     return 0 if ok else 1
 
