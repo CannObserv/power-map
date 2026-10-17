@@ -118,6 +118,8 @@ async def identify_person(
     op = meta.operator
     vec = _vec_str(body.embedding)
 
+    # An HNSW scan; it fills top_k past dead index entries only because every
+    # pool connection starts with hnsw.iterative_scan set (POOL_SERVER_SETTINGS, #664).
     rows = await db.fetch(
         f"""
         SELECT e.id           AS embedding_id,
