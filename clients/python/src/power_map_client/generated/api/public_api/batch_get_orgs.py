@@ -88,7 +88,8 @@ def sync_detailed(
     Each result is the outcome ``getOrg`` would give that id: ``ok`` (200, the
     same body and ETag), ``not_modified`` (304 against ``etags[id]``),
     ``merged`` / ``gone`` (410 with or without ``merged_into``), ``not_found``
-    (404). One bad id never fails the batch. Results come in request order,
+    (404). One bad id never fails the batch; text Postgres cannot store fails
+    the whole call with 422 at the boundary (#663). Results come in request order,
     duplicates dropped after their first occurrence. Set-based: the query count
     does not grow with the number of ids, except one merge walk per ``merged``.
 
@@ -130,7 +131,8 @@ def sync(
     Each result is the outcome ``getOrg`` would give that id: ``ok`` (200, the
     same body and ETag), ``not_modified`` (304 against ``etags[id]``),
     ``merged`` / ``gone`` (410 with or without ``merged_into``), ``not_found``
-    (404). One bad id never fails the batch. Results come in request order,
+    (404). One bad id never fails the batch; text Postgres cannot store fails
+    the whole call with 422 at the boundary (#663). Results come in request order,
     duplicates dropped after their first occurrence. Set-based: the query count
     does not grow with the number of ids, except one merge walk per ``merged``.
 
@@ -167,7 +169,8 @@ async def asyncio_detailed(
     Each result is the outcome ``getOrg`` would give that id: ``ok`` (200, the
     same body and ETag), ``not_modified`` (304 against ``etags[id]``),
     ``merged`` / ``gone`` (410 with or without ``merged_into``), ``not_found``
-    (404). One bad id never fails the batch. Results come in request order,
+    (404). One bad id never fails the batch; text Postgres cannot store fails
+    the whole call with 422 at the boundary (#663). Results come in request order,
     duplicates dropped after their first occurrence. Set-based: the query count
     does not grow with the number of ids, except one merge walk per ``merged``.
 
@@ -207,7 +210,8 @@ async def asyncio(
     Each result is the outcome ``getOrg`` would give that id: ``ok`` (200, the
     same body and ETag), ``not_modified`` (304 against ``etags[id]``),
     ``merged`` / ``gone`` (410 with or without ``merged_into``), ``not_found``
-    (404). One bad id never fails the batch. Results come in request order,
+    (404). One bad id never fails the batch; text Postgres cannot store fails
+    the whole call with 422 at the boundary (#663). Results come in request order,
     duplicates dropped after their first occurrence. Set-based: the query count
     does not grow with the number of ids, except one merge walk per ``merged``.
 

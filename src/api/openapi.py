@@ -1,9 +1,9 @@
-"""The published OpenAPI schema: FastAPI's, with two corrections (#618).
+"""The published OpenAPI schema: FastAPI's, with three corrections (#618, #663).
 
 ``/openapi.json`` is the contract ``clients/python`` is generated from, so a
 statement it gets wrong becomes a wrong type in every consumer. FastAPI derives
-the schema from the routes and gets two things wrong here. This module corrects
-both, in one place:
+the schema from the routes and gets three things wrong here. This module
+corrects them, in one place:
 
 - **The 422 body.** FastAPI declares ``HTTPValidationError`` as
   ``{detail: [ValidationError]}``. Routes that reject a request themselves raise
@@ -15,6 +15,9 @@ both, in one place:
   publish it. Every operation that declares ``304`` gets the optional header
   parameter that earns the ``304``, so a generated client takes it as an
   argument. It is derived from the 304 declaration and cannot drift from it.
+- **The 422 on parameterless routes.** FastAPI declares 422 only where a route
+  has inputs to validate, but text Postgres cannot store (#663) is rejected on
+  every route, an undeclared query param included. Every operation declares it.
 
 The result is cached on ``app.openapi_schema`` exactly as FastAPI caches its own.
 """
@@ -51,6 +54,23 @@ def _widen_validation_detail(schema: dict[str, Any]) -> None:
     }
 
 
+_VALIDATION_422: dict[str, Any] = {
+    "description": "Validation Error",
+    "content": {
+        "application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}
+    },
+}
+
+
+def _declare_validation_422(schema: dict[str, Any]) -> None:
+    """Declare FastAPI's validation 422 on every operation that lacks it."""
+    for operations in schema.get("paths", {}).values():
+        for operation in operations.values():
+            responses = operation.setdefault("responses", {})
+            if "422" not in responses:
+                responses["422"] = copy.deepcopy(_VALIDATION_422)
+
+
 def _add_if_none_match(schema: dict[str, Any]) -> None:
     """Publish the optional ``If-None-Match`` header on every 304-capable operation."""
     for operations in schema.get("paths", {}).values():
@@ -69,6 +89,7 @@ def install_public_openapi(app: FastAPI) -> None:
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
             schema = FastAPI.openapi(app)  # FastAPI's build; caches on app.openapi_schema
+            _declare_validation_422(schema)
             _widen_validation_detail(schema)
             _add_if_none_match(schema)
         return app.openapi_schema
