@@ -133,6 +133,16 @@ def test_form_body(client):
     _assert_422(r, ["body", "name"])
 
 
+def test_form_field_name(client):
+    c, _ = client
+    r = c.post(
+        "/admin/orgs/new/",
+        content=b"x%00y=1&name=ok",
+        headers={"content-type": "application/x-www-form-urlencoded"},
+    )
+    assert _assert_422(r, ["body", "x\\u0000y"])["input"] == "x\\u0000y"
+
+
 def test_multipart_form_body(client):
     c, _ = client
     r = c.post("/admin/orgs/new/", files={"name": (None, b"x\x00y")})
