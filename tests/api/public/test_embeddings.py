@@ -1339,7 +1339,7 @@ async def test_identify_batch_fills_top_k_past_archived_neighbours(
 @pytest.mark.parametrize(
     ("path", "body_key", "embedding"),
     [
-        ("/api/v1/people/identify", "embedding", lambda: _rand_embedding()),
+        ("/api/v1/people/identify", "embedding", _rand_embedding),
         ("/api/v1/people/identify-batch", "embeddings", lambda: [_rand_embedding()] * 2),
     ],
 )
