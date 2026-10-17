@@ -27,6 +27,10 @@ if [ -z "$client" ]; then
   exit 1
 fi
 
+if [ ! -f "$lockfile" ]; then
+  echo "check_version_sync: $lockfile not found (run npm install --package-lock-only)"
+  exit 1
+fi
 lock=$(jq -r .version "$lockfile")
 lock_pkg=$(jq -r '.packages[""].version' "$lockfile")
 if [ -z "$lock" ] || [ "$lock" = "null" ]; then

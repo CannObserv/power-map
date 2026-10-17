@@ -25,6 +25,7 @@ def _run(
     client_version: object = _SAME,
     lock_version: object = _SAME,
     lock_package_version: object = _SAME,
+    lockfile: bool = True,
 ) -> subprocess.CompletedProcess:
     if py_version is not None:
         (tmp_path / "pyproject.toml").write_text(f'version = "{py_version}"\n')
@@ -51,7 +52,8 @@ def _run(
         lock["version"] = lock_version
     if lock_package_version is not None:
         lock["packages"][""]["version"] = lock_package_version
-    (tmp_path / "package-lock.json").write_text(json.dumps(lock))
+    if lockfile:
+        (tmp_path / "package-lock.json").write_text(json.dumps(lock))
 
     return subprocess.run(
         ["bash", str(SCRIPT)],
@@ -125,6 +127,12 @@ def test_missing_lockfile_version_fails(tmp_path):
     result = _run(tmp_path, "1.0.0", "1.0.0", lock_version=None)
     assert result.returncode == 1
     assert "no version field found in package-lock.json" in result.stdout
+
+
+def test_missing_lockfile_fails_with_a_message(tmp_path):
+    result = _run(tmp_path, "1.0.0", "1.0.0", lockfile=False)
+    assert result.returncode == 1
+    assert "package-lock.json not found" in result.stdout
 
 
 def test_repo_lockfile_is_in_sync():
