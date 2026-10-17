@@ -10,6 +10,7 @@ decoded with ``errors="replace"``), so NUL is the value swept here.
 """
 
 import json
+import logging
 
 import pytest
 import pytest_asyncio
@@ -20,6 +21,7 @@ from starlette.convertors import StringConvertor
 
 from src.api.admin.deps import get_db
 from src.api.main import app
+from src.api.validation import reject_unstorable_text
 
 pytestmark = pytest.mark.integration
 
@@ -157,3 +159,31 @@ async def test_boosted_request_gets_json_422(client):
         "/admin/orgs/search/?q=x%00y", headers={**HTMX_HEADERS, "HX-Boosted": "true"}
     )
     _assert_json_422(r, ["query", "q"])
+
+
+# ---------------------------------------------------------------------------
+# Backstop: with the rule switched off, the database's refusal still answers 422
+# ---------------------------------------------------------------------------
+
+
+async def test_backstop_answers_through_a_real_route(client, caplog):
+    """The asyncpg error crosses get_db's yield and still reaches the handler."""
+
+    async def _rule_off():
+        return None
+
+    app.dependency_overrides[reject_unstorable_text] = _rule_off
+    try:
+        with caplog.at_level(logging.ERROR, logger="src.api.validation"):
+            r = await client.get("/admin/orgs/x%00y/", headers=AUTH_HEADERS)
+    finally:
+        app.dependency_overrides.pop(reject_unstorable_text, None)
+    _assert_json_422_loc_empty(r)
+    assert any(rec.levelno == logging.ERROR for rec in caplog.records), caplog.text
+
+
+def _assert_json_422_loc_empty(r):
+    assert r.status_code == 422, (r.status_code, r.text[:300])
+    (err,) = r.json()["detail"]
+    assert err["type"] == "string_unstorable"
+    assert err["loc"] == []
