@@ -55,6 +55,38 @@ def test_get_pool_raises_when_not_initialised():
         db_module._pool = original
 
 
+async def test_create_pool_scans_hnsw_iteratively():
+    """Pool connections start with ``hnsw.iterative_scan = strict_order`` (#664):
+    a startup parameter, so no route pays a round trip for it."""
+    fake = AsyncMock(return_value=MagicMock())
+    with (
+        patch.object(db_module.asyncpg, "create_pool", fake),
+        patch.object(db_module, "_pool", None),
+    ):
+        await db_module.create_pool("postgresql://unused")
+    assert fake.await_args.kwargs["server_settings"]["hnsw.iterative_scan"] == "strict_order"
+
+
+@pytest.mark.integration
+async def test_create_pool_iterative_scan_survives_connection_release(monkeypatch):
+    """The setting outlives the pool's ``RESET ALL`` on release: a startup
+    parameter is the session default, so a route's ``SET`` cannot leak past it."""
+    dsn = os.environ.get("TEST_DATABASE_URL")
+    if not dsn:
+        pytest.skip("TEST_DATABASE_URL not set")
+    monkeypatch.setenv("DB_POOL_MIN_SIZE", "1")
+    monkeypatch.setenv("DB_POOL_MAX_SIZE", "1")
+    with patch.object(db_module, "_pool", None):
+        pool = await db_module.create_pool(dsn)
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute("SET hnsw.iterative_scan = off")
+            async with pool.acquire() as conn:
+                assert await conn.fetchval("SHOW hnsw.iterative_scan") == "strict_order"
+        finally:
+            await pool.close()
+
+
 def _ready_pool(conn):
     """Mock pool whose acquire/release drive ``check_ready`` (#343)."""
     pool = MagicMock()

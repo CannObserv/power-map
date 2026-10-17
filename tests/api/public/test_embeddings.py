@@ -1131,12 +1131,14 @@ class _FetchSpy:
     def __init__(self, conn):
         self._conn = conn
         self.fetch_args: list[tuple] = []
+        self.queries: list[tuple[str, tuple]] = []
 
     def __getattr__(self, name):
         return getattr(self._conn, name)
 
     async def fetch(self, query, *args):
         self.fetch_args.append(args)
+        self.queries.append((query, args))
         return await self._conn.fetch(query, *args)
 
 
@@ -1165,10 +1167,15 @@ async def test_identify_batch_clamps_top_k_into_the_query(client, db, read_key, 
     assert limit == bound
 
 
-async def test_identify_batch_groups_match_single_identify(client, read_key, seeded_embeddings):
+async def test_identify_batch_groups_match_single_identify(client, db, read_key, seeded_embeddings):
     """Each group equals what ``/identify`` returns for that embedding alone —
-    same matches, same order, same per-match fields and nullability."""
+    same matches, same order, same per-match fields and nullability.
+
+    Compared under exact search (#664): at test-table size the planner gives the
+    two queries different plans, one HNSW and one not, and approximate recall
+    can differ from exact. The index path has its own test below."""
     _, _, embedding_ids, query_vec = seeded_embeddings
+    await db.execute("SET LOCAL enable_indexscan = off")
     embeddings = [_rand_embedding(), query_vec, _rand_embedding()]
 
     r = await client.post(
@@ -1222,6 +1229,116 @@ async def test_identify_batch_excludes_archived(client, db, read_key, seeded_emb
             f"UPDATE {_TABLE} SET archived_at = NULL WHERE id = ANY($1::text[])",
             embedding_ids,
         )
+
+
+_HNSW_INDEX = f"{_TABLE}_hnsw"
+
+
+async def _plan_hnsw(db) -> None:
+    """Steer the planner onto the HNSW path for the rest of the test transaction.
+
+    A test-sized table otherwise plans a seq scan or the ``person_id`` btree
+    plus a sort, neither approximate. A query shape the index cannot serve still
+    plans without it, so the index-path test below can fail.
+    """
+    await db.execute("SET LOCAL enable_seqscan = off")
+    await db.execute("SET LOCAL enable_sort = off")
+
+
+async def _archive_neighbourhood(db, person_id: str, query_vec: list[float], n: int = 60) -> None:
+    """Enrol ``n`` embeddings right around ``query_vec``, then archive them.
+
+    Archiving is an UPDATE, and the old row version stays in the HNSW index as a
+    dead entry until vacuum (#664). ``n`` exceeds ``hnsw.ef_search`` (40), so
+    every entry a non-iterative scan would collect is dead.
+    """
+    ids = [generate_id() for _ in range(n)]
+    await db.executemany(
+        f"INSERT INTO {_TABLE} (id, person_id, embedding, embedding_dim, activity_ms,"
+        " audio_sample_rate_hz, source_service, source_job_id, source_segment, recorded_at)"
+        " VALUES ($1, $2, $3::vector, $4, 500, 16000, 'archived664', 'job_archived', $5, now())",
+        [
+            (eid, person_id, _vec_str([x + random.gauss(0, 1e-3) for x in query_vec]), _DIM, seg)
+            for seg, eid in enumerate(ids)
+        ],
+    )
+    await db.execute(
+        f"UPDATE {_TABLE} SET archived_at = now() WHERE id = ANY($1::text[])",
+        ids,
+    )
+
+
+async def test_identify_fills_top_k_past_archived_neighbours(
+    client, db, read_key, seeded_embeddings
+):
+    """A query whose nearest index entries are all archived still gets ``top_k``
+    live matches: the scan keeps going past ``ef_search`` dead entries (#664)."""
+    pid0, _, _, _ = seeded_embeddings
+    query = _rand_embedding()
+    await _archive_neighbourhood(db, pid0, query)
+    await _plan_hnsw(db)
+
+    r = await client.post(
+        "/api/v1/people/identify",
+        json={"model_id": _MODEL_ID, "embedding": query, "top_k": 3},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    assert len(r.json()["matches"]) == 3
+
+
+async def test_identify_batch_fills_top_k_past_archived_neighbours(
+    client, db, read_key, seeded_embeddings
+):
+    """``/identify-batch``'s per-embedding scan fills ``top_k`` the same way (#664)."""
+    pid0, _, _, _ = seeded_embeddings
+    query = _rand_embedding()
+    await _archive_neighbourhood(db, pid0, query)
+    await _plan_hnsw(db)
+
+    r = await client.post(
+        "/api/v1/people/identify-batch",
+        json={"model_id": _MODEL_ID, "embeddings": [query], "top_k": 3},
+        headers={"X-API-Key": read_key},
+    )
+    assert r.status_code == 200
+    assert len(r.json()["results"][0]["matches"]) == 3
+
+
+@pytest.mark.parametrize(
+    ("path", "body_key", "embedding"),
+    [
+        ("/api/v1/people/identify", "embedding", lambda: _rand_embedding()),
+        ("/api/v1/people/identify-batch", "embeddings", lambda: [_rand_embedding()] * 2),
+    ],
+)
+async def test_identify_queries_can_use_the_hnsw_index(
+    client, db, read_key, seeded_embeddings, path, body_key, embedding
+):
+    """Both identify queries keep a shape the HNSW index serves — ORDER BY the
+    distance operator under LIMIT, inside the index's partial predicate (#638,
+    #664). Guards a fix that would make the scan exact by abandoning the index."""
+    spy = _FetchSpy(db)
+
+    async def _spy_db():
+        yield spy
+
+    previous = app.dependency_overrides[get_db]  # the ``client`` fixture's
+    app.dependency_overrides[get_db] = _spy_db
+    try:
+        r = await client.post(
+            path,
+            json={"model_id": _MODEL_ID, body_key: embedding(), "top_k": 3},
+            headers={"X-API-Key": read_key},
+        )
+    finally:
+        app.dependency_overrides[get_db] = previous
+    assert r.status_code == 200
+    ((query, args),) = [(q, a) for q, a in spy.queries if f"FROM {_TABLE}" in q]
+
+    await _plan_hnsw(db)
+    plan = "\n".join(row[0] for row in await db.fetch("EXPLAIN " + query, *args))
+    assert f"Index Scan using {_HNSW_INDEX}" in plan, plan
 
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ import asyncpg
 import pytest
 import pytest_asyncio
 
-from src.core.db import apply_schema
+from src.core.db import POOL_SERVER_SETTINGS, apply_schema
 from src.core.normalizers import address as addr_mod
 from tests import optional_groups, vendor_skills
 from tests.db_utils import reset_data_tables
@@ -95,7 +95,10 @@ async def db_pool():
             "db_pool requires TEST_DATABASE_URL — refusing to operate on a non-test database. "
             "Set TEST_DATABASE_URL in .env (see docs/COMMANDS.md)."
         )
-    pool = await asyncpg.create_pool(test_url, min_size=1, max_size=2)
+    # The app pool's startup parameters (#664), so endpoint tests scan as prod does.
+    pool = await asyncpg.create_pool(
+        test_url, min_size=1, max_size=2, server_settings=POOL_SERVER_SETTINGS
+    )
     try:
         async with pool.acquire() as conn:
             await apply_schema(conn)

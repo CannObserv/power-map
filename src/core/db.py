@@ -23,6 +23,14 @@ _pool: asyncpg.Pool | None = None
 
 SCHEMA_PATH = pathlib.Path(__file__).parent / "schema.sql"
 
+# Startup parameters for every pool connection. ``hnsw.iterative_scan`` (#664):
+# an HNSW scan otherwise stops after ``hnsw.ef_search`` candidates, dead index
+# entries (archived rows, until vacuum) included, so identify could return
+# fewer than ``top_k`` live matches. ``strict_order`` keeps scanning and keeps
+# distance order. A startup parameter costs no round trip per query and
+# survives the pool's ``RESET ALL`` on release.
+POOL_SERVER_SETTINGS: dict[str, str] = {"hnsw.iterative_scan": "strict_order"}
+
 
 # ---------------------------------------------------------------------------
 # Pool lifecycle
@@ -43,7 +51,12 @@ async def create_pool(dsn: str | None = None) -> asyncpg.Pool:
     resolved_dsn = dsn or os.environ["DATABASE_URL"]
     min_size = int(os.environ.get("DB_POOL_MIN_SIZE", "2"))
     max_size = int(os.environ.get("DB_POOL_MAX_SIZE", "5"))
-    _pool = await asyncpg.create_pool(resolved_dsn, min_size=min_size, max_size=max_size)
+    _pool = await asyncpg.create_pool(
+        resolved_dsn,
+        min_size=min_size,
+        max_size=max_size,
+        server_settings=POOL_SERVER_SETTINGS,
+    )
     logger.info("database pool created")
     return _pool
 
