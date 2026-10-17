@@ -1268,22 +1268,50 @@ async def _archive_neighbourhood(db, person_id: str, query_vec: list[float], n: 
     )
 
 
+async def _post_capturing_query(client, db, path: str, body: dict, read_key: str):
+    """POST through a ``_FetchSpy``; return the response and the route's
+    embeddings-table query with its args."""
+    spy = _FetchSpy(db)
+
+    async def _spy_db():
+        yield spy
+
+    previous = app.dependency_overrides[get_db]  # the ``client`` fixture's
+    app.dependency_overrides[get_db] = _spy_db
+    try:
+        r = await client.post(path, json=body, headers={"X-API-Key": read_key})
+    finally:
+        app.dependency_overrides[get_db] = previous
+    ((query, args),) = [(q, a) for q, a in spy.queries if f"FROM {_TABLE}" in q]
+    return r, query, args
+
+
+async def _assert_plans_hnsw(db, query: str, args: tuple) -> None:
+    """``query`` plans an HNSW index scan under the transaction's planner settings."""
+    plan = "\n".join(row[0] for row in await db.fetch("EXPLAIN " + query, *args))
+    assert f"Index Scan using {_HNSW_INDEX}" in plan, plan
+
+
 async def test_identify_fills_top_k_past_archived_neighbours(
     client, db, read_key, seeded_embeddings
 ):
     """A query whose nearest index entries are all archived still gets ``top_k``
-    live matches: the scan keeps going past ``ef_search`` dead entries (#664)."""
+    live matches: the scan keeps going past ``ef_search`` dead entries (#664).
+    The plan is asserted too — an exact plan would fill ``top_k`` without the fix."""
     pid0, _, _, _ = seeded_embeddings
     query = _rand_embedding()
     await _archive_neighbourhood(db, pid0, query)
     await _plan_hnsw(db)
 
-    r = await client.post(
+    r, sql, args = await _post_capturing_query(
+        client,
+        db,
         "/api/v1/people/identify",
-        json={"model_id": _MODEL_ID, "embedding": query, "top_k": 3},
-        headers={"X-API-Key": read_key},
+        {"model_id": _MODEL_ID, "embedding": query, "top_k": 3},
+        read_key,
     )
     assert r.status_code == 200
+    await _assert_plans_hnsw(db, sql, args)
     assert len(r.json()["matches"]) == 3
 
 
@@ -1296,12 +1324,15 @@ async def test_identify_batch_fills_top_k_past_archived_neighbours(
     await _archive_neighbourhood(db, pid0, query)
     await _plan_hnsw(db)
 
-    r = await client.post(
+    r, sql, args = await _post_capturing_query(
+        client,
+        db,
         "/api/v1/people/identify-batch",
-        json={"model_id": _MODEL_ID, "embeddings": [query], "top_k": 3},
-        headers={"X-API-Key": read_key},
+        {"model_id": _MODEL_ID, "embeddings": [query], "top_k": 3},
+        read_key,
     )
     assert r.status_code == 200
+    await _assert_plans_hnsw(db, sql, args)
     assert len(r.json()["results"][0]["matches"]) == 3
 
 
@@ -1318,27 +1349,13 @@ async def test_identify_queries_can_use_the_hnsw_index(
     """Both identify queries keep a shape the HNSW index serves — ORDER BY the
     distance operator under LIMIT, inside the index's partial predicate (#638,
     #664). Guards a fix that would make the scan exact by abandoning the index."""
-    spy = _FetchSpy(db)
-
-    async def _spy_db():
-        yield spy
-
-    previous = app.dependency_overrides[get_db]  # the ``client`` fixture's
-    app.dependency_overrides[get_db] = _spy_db
-    try:
-        r = await client.post(
-            path,
-            json={"model_id": _MODEL_ID, body_key: embedding(), "top_k": 3},
-            headers={"X-API-Key": read_key},
-        )
-    finally:
-        app.dependency_overrides[get_db] = previous
+    r, sql, args = await _post_capturing_query(
+        client, db, path, {"model_id": _MODEL_ID, body_key: embedding(), "top_k": 3}, read_key
+    )
     assert r.status_code == 200
-    ((query, args),) = [(q, a) for q, a in spy.queries if f"FROM {_TABLE}" in q]
 
     await _plan_hnsw(db)
-    plan = "\n".join(row[0] for row in await db.fetch("EXPLAIN " + query, *args))
-    assert f"Index Scan using {_HNSW_INDEX}" in plan, plan
+    await _assert_plans_hnsw(db, sql, args)
 
 
 # ---------------------------------------------------------------------------
