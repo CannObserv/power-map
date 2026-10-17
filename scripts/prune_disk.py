@@ -29,6 +29,16 @@ the dir by a hash of the spec). An extension
 host that loaded an obsolete version with no live binary loses that extension
 until *Reload Window*; VS Code's own restart cleanup does the same.
 
+**Anything touched within the grace window stays too** (``--grace-minutes``,
+default 60, as usa-wa's ``DISK_GC_GRACE_MINUTES``; #669). Liveness misses an
+install being written right now: a new server build or npx tree that nothing
+runs from yet. "Touched" is the newest ``max(mtime, ctime)`` of the path and
+every directory under it: VS Code's extractor restores archive mtimes (a CLI
+landed 2026-10-04 reads mtime 09-30), and ctime can't be backdated. Directories
+only, because each file created moves its parent's ctime, and a file still
+being written is held open. A path that can't be read, or whose walk passes
+100 000 directories, is withheld too. Every withheld path is logged.
+
 **Standard library only, run by ``/usr/bin/python3`` straight from the file**,
 so it works on a disk too full for ``uv run``, and so ``uv cache prune`` never
 waits on a cache lock held by the ``uv run`` that launched it.
@@ -37,7 +47,8 @@ Dry run by default (#402): it prints the plan with sizes. ``--execute`` removes
 and runs the cache commands.
 
 Exit codes: 0 = done (or nothing to do); 1 = a removal or a cache command
-failed (the rest still ran); 2 = usage error.
+failed, or a stale path could not be checked (the rest still ran); 2 = usage
+error.
 
 Usage:
     /usr/bin/python3 scripts/prune_disk.py              # the plan, sizes, no change
@@ -50,8 +61,10 @@ import json
 import logging
 import os
 import shutil
+import stat
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
@@ -67,6 +80,10 @@ CACHE_COMMANDS: tuple[tuple[str, ...], ...] = (
     ("uv", "cache", "prune", "--force"),
 )
 CACHE_TIMEOUT_SECONDS = 600
+# usa-wa's DISK_GC_GRACE_MINUTES (CannObserv/usa-wa#394).
+GRACE_MINUTES = 60
+# ~100x the largest tree measured (an npx install: 1033 dirs, a 14 ms walk).
+WALK_DIR_BOUND = 100_000
 
 
 # --- what is live ---------------------------------------------------------------
@@ -233,6 +250,54 @@ def plan(home: Path, live: set[str], keep_specs: set[str]) -> list[Path]:
     ]
 
 
+# --- what is still settling (#669) ----------------------------------------------
+
+
+def _touched(st: os.stat_result) -> float:
+    return max(st.st_mtime, st.st_ctime)
+
+
+def withhold_reason(path: Path, cutoff: float, bound: int = WALK_DIR_BOUND) -> str | None:
+    """Why ``path`` must stay although stale, or None once it has settled.
+
+    It stays when it or a directory under it was touched after ``cutoff``, and
+    whenever that can't be told: an unreadable entry, or a walk past ``bound``.
+    """
+    try:
+        root = path.lstat()
+    except OSError as exc:
+        return f"unreadable ({exc.strerror})"
+    if not stat.S_ISDIR(root.st_mode):
+        return "recently touched" if _touched(root) > cutoff else None
+    errors: list[OSError] = []
+    for seen, (dirpath, _dirs, _files) in enumerate(os.walk(path, onerror=errors.append), 1):
+        if seen > bound:
+            return f"walk bound hit (>{bound} dirs)"
+        try:
+            if _touched(os.lstat(dirpath)) > cutoff:
+                return "recently touched"
+        except OSError as exc:
+            errors.append(exc)
+    if errors:
+        return f"unreadable ({errors[0].strerror})"
+    return None
+
+
+def split_recent(
+    paths: Iterable[Path], cutoff: float, bound: int = WALK_DIR_BOUND
+) -> tuple[list[Path], list[tuple[Path, str]]]:
+    """``(remove, withheld)``: the settled paths, and each other one with its reason."""
+    remove: list[Path] = []
+    withheld: list[tuple[Path, str]] = []
+    for path in paths:
+        reason = withhold_reason(path, cutoff, bound)
+        if reason is None:
+            remove.append(path)
+        else:
+            withheld.append((path, reason))
+    return remove, withheld
+
+
 # --- doing it -------------------------------------------------------------------
 
 
@@ -301,7 +366,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--execute", action="store_true", help="remove and run the cache commands (default: plan)"
     )
+    parser.add_argument(
+        "--grace-minutes",
+        type=_minutes,
+        default=GRACE_MINUTES,
+        help=f"keep paths touched this recently; 0 disables (default: {GRACE_MINUTES})",
+    )
     return parser
+
+
+def _minutes(value: str) -> int:
+    try:
+        minutes = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a whole number of minutes") from None
+    if minutes < 0:
+        raise argparse.ArgumentTypeError("must be 0 or more")
+    return minutes
 
 
 def main(
@@ -311,6 +392,7 @@ def main(
     live_fn: Callable[[], set[str]] = live_paths,
     run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     settings: Path = SETTINGS,
+    clock: Callable[[], float] = time.time,
 ) -> int:
     """Plan, and with ``--execute`` prune; return the exit code."""
     args = build_parser().parse_args(argv)
@@ -318,19 +400,29 @@ def main(
     machine = home / ".vscode-server" / "data" / "Machine" / "settings.json"
     keep_specs = pinned_specs(settings) | launch_specs(machine)
     targets = plan(home, live_fn(), keep_specs)
+    withheld: list[tuple[Path, str]] = []
+    if args.grace_minutes:
+        targets, withheld = split_recent(targets, clock() - args.grace_minutes * 60)
+    for path, reason in withheld:
+        level = logging.INFO if reason == "recently touched" else logging.WARNING
+        logger.log(level, "withheld: %s  %s", reason, path)
     verb = "removing" if args.execute else "would remove"
     total = 0
     for path in targets:
         size = _size(path)
         total += size
         logger.info("%s %8s  %s", verb, _human(size), path)
-    logger.info("%s %s across %d paths", verb, _human(total), len(targets))
+    logger.info(
+        "%s %s across %d paths; %d withheld", verb, _human(total), len(targets), len(withheld)
+    )
     if not args.execute:
         for cmd in CACHE_COMMANDS:
             logger.info("would run %s", " ".join(cmd))
         logger.info("dry run: nothing removed; pass --execute to prune")
         return 0
-    ok = all([_remove(p) for p in targets])
+    # An unchecked path is what rmtree used to fail on; it still fails the run.
+    ok = all(reason == "recently touched" for _, reason in withheld)
+    ok = all([_remove(p) for p in targets]) and ok
     ok = _run_cache_commands(run) and ok
     return 0 if ok else 1
 

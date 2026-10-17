@@ -8,7 +8,9 @@ session is **anything a running process uses stays**: an exe, a cwd, a mapped
 file or an open fd under the path. On top of that, each kind keeps what the
 next session will reach for: the newest server by VS Code's own ``lru.json``,
 the newest CLI, the registered extension version, and the npx install of the
-repo's pinned ``SOCRATICODE_SPEC``.
+repo's pinned ``SOCRATICODE_SPEC``. And a path touched within the grace window
+(60 min, #669) stays too: it may be an install still being written, which no
+process names yet.
 
 Dry run by default (#402); ``--execute`` removes and runs the cache commands.
 """
@@ -16,12 +18,14 @@ Dry run by default (#402); ``--execute`` removes and runs the cache commands.
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
 
 from scripts.prune_disk import (
     CACHE_COMMANDS,
+    GRACE_MINUTES,
     in_use,
     launch_specs,
     live_paths,
@@ -30,8 +34,10 @@ from scripts.prune_disk import (
     npx_installs,
     obsolete_extensions,
     pinned_specs,
+    split_recent,
     vscode_clis,
     vscode_servers,
+    withhold_reason,
 )
 
 SERVER_A = "Stable-aaaa"
@@ -263,7 +269,8 @@ def test_execute_keeps_the_launched_spec_when_the_repo_declares_another(tmp_path
     launched.mkdir()
     declared = tmp_path / "settings.json"
     declared.write_text(json.dumps({"env": {"SOCRATICODE_SPEC": "socraticode@1.15.0"}}))
-    assert main(["--execute"], home=home, live_fn=set, run=_Runner(), settings=declared) == 0
+    argv = ["--execute", "--grace-minutes", "0"]
+    assert main(argv, home=home, live_fn=set, run=_Runner(), settings=declared) == 0
     assert launched.exists()
     assert not (home / ".npm" / "_npx" / "dead000000000000").exists()
 
@@ -295,8 +302,13 @@ class _Runner:
 
 
 def _main(tmp_path: Path, argv: list[str], runner: _Runner) -> int:
+    """``main`` over a fresh home, grace off: every tree here was made a moment ago."""
     return main(
-        argv, home=_home(tmp_path), live_fn=set, run=runner, settings=tmp_path / "none.json"
+        [*argv, "--grace-minutes", "0"],
+        home=_home(tmp_path),
+        live_fn=set,
+        run=runner,
+        settings=tmp_path / "none.json",
     )
 
 
@@ -335,7 +347,7 @@ def test_a_missing_cache_tool_fails_the_run(tmp_path: Path):
 
     _home(tmp_path)
     rc = main(
-        ["--execute"],
+        ["--execute", "--grace-minutes", "0"],
         home=tmp_path / "home",
         live_fn=set,
         run=missing,
@@ -361,11 +373,167 @@ def test_execute_never_removes_a_build_in_use(tmp_path: Path):
     home = _home(tmp_path)
     servers = home / ".vscode-server" / "cli" / "servers"
     live_now = {str(servers / SERVER_A / "server" / "node")}
-    assert (
-        main(["--execute"], home=home, live_fn=lambda: live_now, run=_Runner(), settings=home / "x")
-        == 0
-    )
+    argv = ["--execute", "--grace-minutes", "0"]
+    assert main(argv, home=home, live_fn=lambda: live_now, run=_Runner(), settings=home / "x") == 0
     assert (servers / SERVER_A).exists()
+
+
+# --- the grace window (#669) -------------------------------------------------------
+#
+# Liveness misses a tree being written right now: nothing runs from it yet. So
+# a path touched within the grace stays. "Touched" is max(mtime, ctime): VS Code
+# restores archive mtimes on extraction (a CLI read mtime 09-30, ctime 10-04,
+# the day it landed), and ctime can't be backdated.
+
+
+def _tree(root: Path) -> Path:
+    (root / "a" / "b" / "c").mkdir(parents=True)
+    (root / "a" / "b" / "c" / "node").write_bytes(b"x")
+    return root
+
+
+def _settled() -> float:
+    """A cutoff after everything made so far: the whole tree reads as settled."""
+    return time.time() + 60
+
+
+def test_the_default_grace_is_disk_gcs_hour():
+    """usa-wa's DISK_GC_GRACE_MINUTES (CannObserv/usa-wa#394)."""
+    assert GRACE_MINUTES == 60
+
+
+def test_a_settled_tree_is_not_withheld(tmp_path: Path):
+    assert withhold_reason(_tree(tmp_path / "t"), _settled()) is None
+
+
+def test_an_extracted_tree_with_archive_mtimes_is_recently_touched(tmp_path: Path):
+    """Every mtime weeks old, as an extractor leaves it; ctime says it just landed."""
+    root = _tree(tmp_path / "t")
+    for dirpath, dirnames, filenames in os.walk(root, topdown=False):
+        for name in filenames + dirnames:
+            os.utime(os.path.join(dirpath, name), (1, 1))
+        os.utime(dirpath, (1, 1))
+    assert withhold_reason(root, time.time() - 3600) == "recently touched"
+
+
+def test_a_file_with_an_archive_mtime_is_recently_touched(tmp_path: Path):
+    """A ``code-*`` CLI is a plain file: its own stat is what counts."""
+    cli = tmp_path / "code-new"
+    cli.write_bytes(b"x")
+    os.utime(cli, (1, 1))
+    assert withhold_reason(cli, time.time() - 3600) == "recently touched"
+
+
+def test_a_change_deep_in_a_settled_tree_withholds_it(tmp_path: Path):
+    root = _tree(tmp_path / "t")
+    cutoff = _settled()
+    os.utime(root / "a" / "b" / "c", (cutoff + 3600, cutoff + 3600))
+    assert withhold_reason(root, cutoff) == "recently touched"
+
+
+def test_an_unreadable_path_is_withheld(tmp_path: Path):
+    assert withhold_reason(tmp_path / "missing", _settled()).startswith("unreadable")
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root lists a mode-000 dir anyway")
+def test_an_unlistable_subdir_withholds_the_tree(tmp_path: Path):
+    root = _tree(tmp_path / "t")
+    locked = root / "a" / "b"
+    locked.chmod(0)
+    try:
+        assert withhold_reason(root, _settled()).startswith("unreadable")
+    finally:
+        locked.chmod(0o755)
+
+
+def test_a_tree_past_the_walk_bound_is_withheld(tmp_path: Path):
+    """Four dirs against a bound of two: unchecked means kept, never removed."""
+    reason = withhold_reason(_tree(tmp_path / "t"), _settled(), bound=2)
+    assert reason is not None and "bound" in reason
+
+
+def test_split_recent_keeps_order_and_names_each_reason(tmp_path: Path):
+    old_a, fresh, old_b = (_tree(tmp_path / n) for n in ("old-a", "fresh", "old-b"))
+    cutoff = _settled()
+    os.utime(fresh / "a", (cutoff + 3600, cutoff + 3600))
+    missing = tmp_path / "missing"
+    remove, withheld = split_recent([old_a, fresh, missing, old_b], cutoff)
+    assert remove == [old_a, old_b]
+    assert [p for p, _ in withheld] == [fresh, missing]
+    assert withheld[0][1] == "recently touched"
+    assert withheld[1][1].startswith("unreadable")
+
+
+def test_by_default_a_fresh_install_is_withheld_not_removed(tmp_path: Path, caplog):
+    """The race itself: a tree landed a moment ago, nothing runs from it yet."""
+    caplog.set_level("INFO")
+    home = _home(tmp_path)
+    runner = _Runner()
+    rc = main(["--execute"], home=home, live_fn=set, run=runner, settings=tmp_path / "x.json")
+    assert rc == 0
+    fresh_npx = home / ".npm" / "_npx" / "dead000000000000"
+    assert fresh_npx.exists()
+    assert (home / ".vscode-server" / "cli" / "servers" / SERVER_A).exists()
+    assert f"withheld: recently touched  {fresh_npx}" in caplog.text
+    assert "2 withheld" in caplog.text
+    assert runner.calls == [tuple(c) for c in CACHE_COMMANDS]
+
+
+def test_a_dry_run_names_what_the_grace_withholds(tmp_path: Path, caplog):
+    caplog.set_level("INFO")
+    home = _home(tmp_path)
+    assert main([], home=home, live_fn=set, run=_Runner(), settings=tmp_path / "x.json") == 0
+    assert f"withheld: recently touched  {home / '.npm' / '_npx' / 'dead000000000000'}" in (
+        caplog.text
+    )
+    assert "would remove 0.0B across 0 paths" in caplog.text
+
+
+def _run_with_a_locked_npx(tmp_path: Path, argv: list[str], caplog) -> tuple[int, Path, _Runner]:
+    """``main`` two hours on, over a home whose stale npx tree holds a dir it can't list."""
+    caplog.set_level("INFO")
+    home = _home(tmp_path)
+    stuck = home / ".npm" / "_npx" / "dead000000000000"
+    (stuck / "root-owned").mkdir()
+    (stuck / "root-owned").chmod(0)
+    runner = _Runner()
+    try:
+        rc = main(
+            argv,
+            home=home,
+            live_fn=set,
+            run=runner,
+            settings=tmp_path / "x.json",
+            clock=lambda: time.time() + 7200,
+        )
+    finally:
+        (stuck / "root-owned").chmod(0o755)
+    return rc, stuck, runner
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root lists a mode-000 dir anyway")
+def test_execute_fails_the_run_when_a_stale_path_cannot_be_checked(tmp_path: Path, caplog):
+    """Before the grace, rmtree's PermissionError exited 1 and paged; a withhold mustn't hush it."""
+    rc, stuck, runner = _run_with_a_locked_npx(tmp_path, ["--execute"], caplog)
+    assert rc == 1
+    assert stuck.exists()
+    assert f"withheld: unreadable (Permission denied)  {stuck}" in caplog.text
+    assert runner.calls == [tuple(c) for c in CACHE_COMMANDS]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root lists a mode-000 dir anyway")
+def test_a_dry_run_reports_an_unchecked_path_without_failing(tmp_path: Path, caplog):
+    rc, stuck, _ = _run_with_a_locked_npx(tmp_path, [], caplog)
+    assert rc == 0
+    assert f"withheld: unreadable (Permission denied)  {stuck}" in caplog.text
+
+
+@pytest.mark.parametrize("value", ["-1", "abc"])
+def test_grace_minutes_rejects_anything_but_whole_minutes(value, capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["--grace-minutes", value])
+    assert exc.value.code == 2
+    assert "_minutes" not in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("arg", ["--help"])

@@ -11,10 +11,12 @@ WorkingDirectory=/home/exedev/power-map
 # code-* CLIs past the newest, Claude Code extension versions VS Code marked
 # obsolete, and npx installs other than the pinned SOCRATICODE_SPEC (the repo's
 # and the VS Code machine setting's).
-# Anything a running process uses (exe, cwd, mapped file, open fd) stays. Then
+# Anything a running process uses (exe, cwd, mapped file, open fd) stays, and
+# so does anything touched in the last hour (--grace-minutes, #669). Then
 # `npm cache clean --force` and `uv cache prune --force` (production's
 # `uv run uvicorn` holds uv's cache lock for good). Exits 1 if a removal or a
-# cache command failed; the rest still runs. Dry run without --execute.
+# cache command failed, or a stale path could not be checked; the rest still
+# runs. Dry run without --execute.
 #
 # /usr/bin/python3 straight from the file, not `uv run`: it must work on a disk
 # too full for uv, and `uv cache prune` must not wait on its own launcher's lock.
