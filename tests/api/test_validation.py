@@ -153,6 +153,18 @@ def test_storable_lookalikes_reach_the_route(client, body):
     assert r.status_code != 422 or r.json()["detail"][0]["type"] != UNSTORABLE_TYPE
 
 
+def test_body_of_a_route_that_reads_none_is_not_checked(client):
+    # A route with no body field never reads the body, so its text cannot reach
+    # the DB; parsing it anyway would leak a multipart form's spooled files.
+    c, _ = client
+    r = c.post(
+        f"/api/v1/people/{'0' * 26}/embeddings/{'0' * 26}/restore?model_id=m",
+        content=b'{"probe": "\\u0000"}',
+        headers={"content-type": "application/json"},
+    )
+    assert r.status_code == 403  # reached auth (no key): the rule let it through
+
+
 def test_admin_htmx_gets_a_flash(client):
     c, _ = client
     r = c.get("/admin/orgs/search/?q=x%00y", headers={"HX-Request": "true"})

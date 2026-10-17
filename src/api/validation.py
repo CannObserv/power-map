@@ -5,15 +5,15 @@ Starlette renders JSON with ``allow_nan=False`` and as UTF-8, so an echoed
 ``input`` holding NaN/Infinity (#299) or a lone surrogate (#663) would crash the
 error response into a 500. Both are rewritten before rendering.
 
-**Unstorable text (#663).** NUL and lone surrogates (``src.core.storable_text``)
-never reach the database. ``reject_unstorable_text`` is installed once, as an
-app-wide dependency, so it runs on every route ahead of the route's own
-dependencies (auth, ``get_db``). It checks the path params, every query
-param, and a JSON or form body. FastAPI has already read and cached the body
-before it solves dependencies, so the check reads that copy and never buffers
-more. A JSON body is walked only when a byte-level pre-screen finds a candidate.
-A hit answers 422 with ``type: "string_unstorable"`` and a ``loc`` naming the
-field.
+**Unstorable text (#663).** NUL and lone surrogates
+(``src.core.storable_text``) never reach the database.
+``reject_unstorable_text`` is installed once, as an app-wide dependency, so it
+runs on every route ahead of the route's own dependencies (auth, ``get_db``).
+It checks the path params, every query param, and the JSON or form body of a
+route that declares one. FastAPI has already read and cached that body before
+it solves dependencies, so the check reads its copy and never buffers more. A
+JSON body is walked only when a byte-level pre-screen finds a candidate. A hit
+answers 422 with ``type: "string_unstorable"`` and a ``loc`` naming the field.
 
 The admin is an HTMX app, so an HTMX admin request gets the admin's form-error
 shape instead (``_names_shared._form_error_response``): 200, a warning flash,
@@ -124,7 +124,11 @@ async def reject_unstorable_text(request: Request) -> None:
             raise UnstorableTextError(("query", escape_unstorable(name)), name)
         if has_unstorable(value):
             raise UnstorableTextError(("query", name), value)
-    if request.method not in ("GET", "HEAD"):
+    # Only a body the route reads can reach the DB. Parsing one it never reads
+    # would also leave a multipart form's spooled files unclosed: FastAPI closes
+    # only the forms it parsed itself.
+    route = request.scope.get("route")
+    if getattr(route, "body_field", None) is not None:
         await _check_body(request)
 
 
