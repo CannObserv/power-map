@@ -59,7 +59,9 @@ screens and the dashboard API-activity panel.
   via `app.add_middleware`. Non-`/api/v1/*` paths early-return uncaptured.
 - **Identity** — read from `request.state.api_key_id`, which the auth deps
   (`require_api_key` / `require_key` / `require_scope`) stash on a successful key
-  resolve. Unauthenticated/invalid requests (401/403) log a row with a NULL key.
+  resolve. Unauthenticated/invalid requests (401/403) log a row with a NULL key,
+  and so does a request rejected for unstorable text (#663), valid key or not:
+  that rule runs before auth.
 - **Enrichment** — for the `observations` route group only, the middleware
   parses the response body into structured columns (`disposition`,
   `result_entity_id`, `entity_type`, `reason`). Any other group, or a non-JSON
