@@ -178,7 +178,7 @@ Uniformity is enforced in CI, not by convention (#440), so it is safe to parse o
 
 ## Unstorable text — `422` (#663)
 
-Text Postgres cannot store — NUL (U+0000) or a lone UTF-16 surrogate (U+D800–U+DFFF, e.g. `"\ud800"` in JSON) — is rejected on **every** route, wherever it arrives: a path segment, any query parameter (declared or not), or a JSON body, keys included. The answer is `422` with the standard validation body:
+Text Postgres cannot store — NUL (U+0000) or a lone UTF-16 surrogate (U+D800–U+DFFF, e.g. `"\ud800"` in JSON) — is rejected on **every** route, wherever it arrives: a path segment, any query parameter (declared or not), or the JSON body of a route that takes one, keys included. The answer is `422` with the standard validation body:
 
 ```json
 {"detail": [{"type": "string_unstorable", "loc": ["body", "ids", 1],
