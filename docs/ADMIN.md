@@ -146,6 +146,7 @@ Detail pages once injected their scripts via `{% block extra_head %}`. **Do not*
 - For non-HTMX inline flash: `message(level, body)` from `admin/macros/flash.html`
 - Always `markupsafe.escape()` DB-derived values before interpolating into `body`
 - `extra` co-emits additional HX-Trigger events (merged into one JSON object): `flash_trigger("success", "Saved.", extra={"myEvent": {...}})`
+- Unstorable text (#663): input carrying NUL never reaches a handler. The app-wide rule (`src/api/validation.py`) answers an HTMX request with `200` + a `warning` flash + `HX-Reswap: none`, and a non-HTMX one with JSON `422`
 
 **Level taxonomy (#353) — one convention per action class, HTMX HX-Trigger and non-HTMX fallback alike.** The level answers *"did the action succeed"*; the **body text** carries *what happened*. Same verb ⇒ same level across every admin surface (a Danger Zone delete and an ancillary delete both flash `success`; an HTMX rejection and its non-HTMX fallback both flash `warning`).
 

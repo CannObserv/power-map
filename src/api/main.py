@@ -1,13 +1,9 @@
 """FastAPI application entry point."""
 
-import math
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.encoders import jsonable_encoder
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 
@@ -24,6 +20,7 @@ from src.api.openapi import install_public_openapi
 from src.api.public import ratelimit
 from src.api.public.middleware import RequestLogMiddleware, drain_pending_writes
 from src.api.public.router import router as public_router
+from src.api.validation import install_validation_handlers, reject_unstorable_text
 from src.core.embedding_registry import EmbeddingRegistry
 from src.core.logging import configure_logging
 
@@ -54,35 +51,18 @@ async def lifespan(app: FastAPI):
 # Version derived from package metadata (#343) — never hardcode a third copy;
 # check-version-sync guards the declared sites (pyproject.toml, package.json,
 # clients/python/pyproject.toml), never a copy in code.
-app = FastAPI(title="power-map", version=APP_VERSION, lifespan=lifespan)
+# Text Postgres cannot store is rejected ahead of every route's own dependencies
+# (#663): one app-wide rule, so a new route is covered without opting in.
+app = FastAPI(
+    title="power-map",
+    version=APP_VERSION,
+    lifespan=lifespan,
+    dependencies=[Depends(reject_unstorable_text)],
+)
 # /openapi.json is the contract clients/python is generated from (#618).
 install_public_openapi(app)
-
-
-def _sanitize_nonfinite(obj: object) -> object:
-    """Replace non-finite floats with their string form for JSON encoding.
-
-    Starlette's JSONResponse renders with ``allow_nan=False``, so a 422 whose
-    echoed ``input`` contains NaN/Infinity (json.loads accepts those literals,
-    #299) would crash the error response into a 500.
-    """
-    if isinstance(obj, float) and not math.isfinite(obj):
-        return str(obj)
-    if isinstance(obj, list):
-        return [_sanitize_nonfinite(x) for x in obj]
-    if isinstance(obj, dict):
-        return {k: _sanitize_nonfinite(v) for k, v in obj.items()}
-    return obj
-
-
-@app.exception_handler(RequestValidationError)
-async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    """Default 422 shape, with non-finite floats in the payload made JSON-safe."""
-    return JSONResponse(
-        status_code=422,
-        content={"detail": _sanitize_nonfinite(jsonable_encoder(exc.errors()))},
-    )
-
+# The 422 body, made renderable (#299/#663), and the unstorable-text backstop.
+install_validation_handlers(app)
 
 # Capture public API request/response telemetry (#260). Early-returns for any
 # non-/api/v1 path, so admin/static traffic is untouched.

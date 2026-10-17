@@ -176,6 +176,23 @@ Uniformity is enforced in CI, not by convention (#440), so it is safe to parse o
 
 ---
 
+## Unstorable text — `422` (#663)
+
+Text Postgres cannot store — NUL (U+0000) or a lone UTF-16 surrogate (U+D800–U+DFFF, e.g. `"\ud800"` in JSON) — is rejected on **every** route, wherever it arrives: a path segment, any query parameter (declared or not), or a JSON body, keys included. The answer is `422` with the standard validation body:
+
+```json
+{"detail": [{"type": "string_unstorable", "loc": ["body", "ids", 1],
+             "msg": "Text contains a character that cannot be stored: …", "input": "x\\u0000y"}]}
+```
+
+- `loc` names the field. `input` echoes the value with each offending character written as literal `\u0000` / `\ud800` text, so the body always renders.
+- A well-formed surrogate pair (`"😀"`) and an escaped backslash (`"\\u0000"`) are ordinary text. Other control characters are accepted.
+- The check runs before authentication and before any work: such a request gets `422`, not `401`/`403`, and spends no rate-limit token.
+- Over HTTP a surrogate can arrive only in a JSON body: a server decodes `%ED%A0%80` in a URL to U+FFFD.
+- Every operation declares this `422` in the spec, parameterless ones included.
+
+---
+
 ## Versioning
 
 

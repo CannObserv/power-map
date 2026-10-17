@@ -501,15 +501,8 @@ async def batch_get_orgs(
     does not grow with the number of ids, except one merge walk per ``merged``.
     """
     ids = list(dict.fromkeys(body.ids))
-    # Interim until #663: Postgres text cannot hold NUL, so querying such an id
-    # would fail the whole batch. #663 replaces this route-local guard with one
-    # API-wide boundary rule (NUL and lone surrogates alike) and settles the
-    # batch's answer for both.
-    results: dict[str, OrgBatchResult] = {
-        i: OrgBatchNotFound(outcome="not_found", id=i) for i in ids if "\x00" in i
-    }
-    queryable = [i for i in ids if i not in results]
-    rows = await _fetch_org_rows(db, queryable)
+    results: dict[str, OrgBatchResult] = {}
+    rows = await _fetch_org_rows(db, ids)
 
     fresh: list[tuple[Any, str]] = []
     for org_id, row in rows.items():
@@ -525,7 +518,7 @@ async def batch_get_orgs(
             outcome="ok", id=row["id"], etag=etag, org=OrgDetail.model_validate(detail)
         )
 
-    misses = [i for i in queryable if i not in rows]
+    misses = [i for i in ids if i not in rows]
     tombstones = await fetch_tombstones(db, "organization", misses) if misses else {}
     for org_id in misses:
         results[org_id] = await _retired_result(db, org_id, tombstones.get(org_id))

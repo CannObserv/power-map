@@ -234,18 +234,17 @@ async def test_batch_retired_and_unknown_ids_match_get_org(sdk, db):
     await _tombstone(db, dead_end, mid)  # chain ends in a delete → no successor
     await _tombstone(db, mid, None)
 
-    ids = [merged, deleted, dead_end, unknown, "not-a-ulid", "nul\x00id"]
+    ids = [merged, deleted, dead_end, unknown, "not-a-ulid"]
     results = await _batch(sdk, ids)
 
     assert [r.id for r in results] == ids
-    m, d, de, u, bad, nul = results
+    m, d, de, u, bad = results
     assert isinstance(m, OrgBatchMerged)
     assert m.merged_into == winner
     assert isinstance(d, OrgBatchGone)
     assert isinstance(de, OrgBatchGone)
     assert isinstance(u, OrgBatchNotFound)
     assert isinstance(bad, OrgBatchNotFound)
-    assert isinstance(nul, OrgBatchNotFound)  # Postgres text cannot hold NUL
     for result in (m, d, de):
         single = await get_org.asyncio_detailed(org_id=result.id, client=sdk)
         assert single.status_code == 410
@@ -269,6 +268,18 @@ async def test_batch_size_outside_1_to_100_is_a_typed_422(sdk, count):
     r = await batch_get_orgs.asyncio_detailed(client=sdk, body=body)
     assert r.status_code == 422
     assert isinstance(r.parsed, HTTPValidationError)
+
+
+@pytest.mark.integration
+async def test_batch_with_a_nul_id_is_a_typed_422(sdk):
+    """Text Postgres cannot store fails the whole call, never one result (#663)."""
+    body = OrgBatchGetRequest(ids=[generate_id(), "nul\x00id"])
+    r = await batch_get_orgs.asyncio_detailed(client=sdk, body=body)
+    assert r.status_code == 422
+    assert isinstance(r.parsed, HTTPValidationError)
+    (error,) = r.parsed.detail
+    assert error.type_ == "string_unstorable"
+    assert error.loc == ["body", "ids", 1]
 
 
 @pytest.mark.integration

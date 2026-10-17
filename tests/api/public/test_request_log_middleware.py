@@ -19,6 +19,7 @@ from src.api.public.middleware import (
     route_group_for_path,
 )
 from src.core.db import generate_id
+from src.core.storable_text import find_unstorable
 
 
 async def _drain_pending_writes(timeout: float = 5.0):
@@ -633,3 +634,70 @@ async def test_observation_rejected_enriched(client, db, obs_key):
     assert row["disposition"] == "rejected"
     assert row["result_entity_id"] is None
     assert row["reason"] is not None
+
+
+# ---------------------------------------------------------------------------
+# #663 — text Postgres cannot store still logs a row, escaped
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("raw", [b'{"a": "x\\u0000y"}', b'{"a": ["\\ud800"]}', b'{"k\\u0000": 1}'])
+def test_jsonb_param_escapes_unstorable_text(raw):
+    stored = mw._body_to_jsonb_param(raw)
+    assert find_unstorable(json.loads(stored)) is None
+    assert "\\\\u" in stored  # kept, as a literal escape
+
+
+def test_jsonb_param_raw_surrogate_bytes_are_replaced():
+    # The capture decodes with errors="replace": raw ED A0 80 never survives as a surrogate.
+    stored = mw._body_to_jsonb_param(b'{"a": "\xed\xa0\x80"}')
+    assert json.loads(stored) == {"a": "\ufffd\ufffd\ufffd"}
+
+
+def test_jsonb_param_keeps_clean_json_verbatim():
+    assert mw._body_to_jsonb_param(b'{"a": "\\\\u0000", "b": 1}') == '{"a": "\\\\u0000", "b": 1}'
+
+
+def test_jsonb_param_escapes_unparsed_nul():
+    stored = mw._body_to_jsonb_param(b"not json \x00")
+    assert json.loads(stored) == {"_unparsed": "not json \\u0000"}
+
+
+def test_build_params_escapes_the_path():
+    scope = {"path": "/api/v1/orgs/x\x00y", "method": "GET", "headers": []}
+    params = RequestLogMiddleware(None)._build_params(scope, "other", False, [], 422, [], 1)
+    assert params[2] == "/api/v1/orgs/x\\u0000y"
+
+
+@pytest.mark.integration
+async def test_unstorable_path_still_logs_a_row(client, db):
+    tag = generate_id()
+    resp = await client.get(f"/api/v1/orgs/{tag}%00")
+    assert resp.status_code == 422
+    row = await _poll_row(
+        db, "SELECT * FROM api_request_log WHERE path=$1", f"/api/v1/orgs/{tag}\\u0000"
+    )
+    assert row is not None
+    assert row["status_code"] == 422
+    await db.execute("DELETE FROM api_request_log WHERE id=$1", row["id"])
+
+
+@pytest.mark.integration
+async def test_unstorable_observation_body_still_logs_both_bodies(client, db, obs_key):
+    raw, _ = obs_key
+    tag = generate_id()
+    resp = await client.post(
+        "/api/v1/people/observations",
+        content=json.dumps({"identifier_type": "person_wa_pdc", "identifier_value": tag + "\x00"}),
+        headers={"X-API-Key": raw, "content-type": "application/json"},
+    )
+    assert resp.status_code == 422
+    # The rule runs before auth, so the row carries no key: find it by its body.
+    row = await _poll_row(
+        db,
+        "SELECT * FROM api_request_log WHERE request_body->>'identifier_value' = $1",
+        tag + "\\u0000",
+    )
+    assert row is not None
+    assert json.loads(row["response_body"])["detail"][0]["input"] == tag + "\\u0000"
+    await db.execute("DELETE FROM api_request_log WHERE id=$1", row["id"])

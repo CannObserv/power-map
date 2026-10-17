@@ -16,6 +16,7 @@ Database tables and invariants live in `docs/SCHEMA.md`, write semantics in
 - Versioning: path-based (`/api/v1/`). Bump the prefix when introducing breaking changes
 - Response models: all routes must declare a Pydantic `response_model` (in `schemas.py`) and an explicit `operation_id`; `dict[str, Any]` return types are not allowed — OpenAPI schema must be fully typed
 - Error declarations (#618): every status a route can answer with is declared, so the generated client types it. 401/403/429 come from the router (`AUTH_RESPONSES`); a handler that raises 404 or 409 spreads `NOT_FOUND` / `CONFLICT` (`src/api/public/responses.py`) into `responses=`, typed as `ErrorDetail`. Swept by `test_raised_statuses_are_declared`. Any public-schema change is regenerated into `clients/python` in the same PR (`uv run python -m scripts.regenerate_client`; the drift test blocks the commit otherwise)
+- Unstorable text (#663): `reject_unstorable_text` (`src/api/validation.py`) is an **app-wide** dependency (`FastAPI(dependencies=[...])`), first on every route, public and admin alike. NUL or a lone surrogate (`src/core/storable_text.py`) in a path param, any query param, or a JSON/form body raises `UnstorableTextError`: `422`, `type: "string_unstorable"`, `loc` naming the field. Never a route-local guard or a per-field type. It reads the body FastAPI already cached (no extra buffering) and walks JSON only on a byte pre-screen hit. Backstop: asyncpg `CharacterNotInRepertoireError`, or `DataError` caused by `UnicodeEncodeError`, gets the same `422` plus an ERROR log, since it means the rule missed a surface. The 422 handler escapes echoed text (and NaN, #299) so the body always renders. Guards: `tests/api/test_validation.py` (every route carries the rule, first), plus the sweeps `tests/api/{public,admin}/test_unstorable_text.py`
 - List endpoints: return `{"data": [...], "meta": {"limit", "offset", "count", "has_more"}}`; fetch `limit + 1` rows to compute `has_more` without a `COUNT(*)` query; return only `limit` rows in `data`
 - Stable pagination: every paginated `ORDER BY` **must end with a unique column** (usually the PK, e.g. `, id` / `, o.id`). Ordering by non-unique keys alone (name, rank, `created_at`) lets Postgres return tied rows in a different order per query, so offset windows overlap and gap — consumers paging the full list silently skip and duplicate rows (#297). Append the tiebreaker even when a partial unique index makes ties rare (archived rows, jurisdictional variants), since offset pagination must be total-ordered across *all* returned rows
 - Single-resource endpoints: return the resource object directly (no envelope)
@@ -71,6 +72,8 @@ screens and the dashboard API-activity panel.
   Observation payloads carry PII (names, addresses, contacts); the 90-day
   retention window bounds that footprint, and the admin list surface shows
   metadata only — bodies are confined to the detail view (admin-authed).
+  Text Postgres cannot store (#663) in the path or a body is stored as its
+  literal `\u0000` / `\ud800` escape, so a rejected request still logs a row.
 - **`result_entity_id` has no FK** — the referenced entity may be hard-deleted or
   merged; the log record must survive. The UI resolves it to an admin link and
   shows "(removed)" on a 404.
