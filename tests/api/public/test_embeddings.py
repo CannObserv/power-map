@@ -1145,8 +1145,8 @@ class _FetchSpy:
 @pytest.mark.parametrize(("top_k", "bound"), [(999, 25), (0, 1), (-3, 1), (7, 7)])
 async def test_identify_batch_clamps_top_k_into_the_query(client, db, read_key, top_k, bound):
     """top_k is clamped to [1, 25] silently, like identify — asserted on the
-    LIMIT bound the route sends, since dead HNSW entries in the shared test DB
-    make match counts an unreliable witness."""
+    LIMIT bound the route sends: the test seeds no embeddings, so a match count
+    cannot witness the bound."""
     spy = _FetchSpy(db)
 
     async def _spy_db():
