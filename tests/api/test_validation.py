@@ -19,6 +19,7 @@ from starlette.requests import Request
 
 from src.api.deps import get_db
 from src.api.main import app
+from src.api.public.deps import require_api_key
 from src.api.validation import (
     UNSTORABLE_TYPE,
     reject_unstorable_text,
@@ -146,11 +147,13 @@ def test_multipart_form_body(client):
         b'{"ids": ["\\u00e9"]}',
     ],
 )
-def test_storable_lookalikes_reach_the_route(client, body):
+def test_storable_lookalikes_reach_the_route(client, body, monkeypatch):
     c, db = client
-    db.fetch.return_value = []
+    db.fetch.return_value = []  # no org rows, no tombstones: every id is not_found
+    monkeypatch.setitem(app.dependency_overrides, require_api_key, lambda: "key")
     r = c.post("/api/v1/orgs/batch-get", content=body, headers={"content-type": "application/json"})
-    assert r.status_code != 422 or r.json()["detail"][0]["type"] != UNSTORABLE_TYPE
+    assert r.status_code == 200, r.text
+    assert [x["outcome"] for x in r.json()["results"]] == ["not_found"]
 
 
 def test_body_of_a_route_that_reads_none_is_not_checked(client):
