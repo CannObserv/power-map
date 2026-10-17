@@ -39,7 +39,12 @@ import time
 
 import src.core.db as db
 from src.core.logging import get_logger
-from src.core.storable_text import escape_unstorable, escape_unstorable_deep, find_unstorable
+from src.core.storable_text import (
+    escape_unstorable,
+    escape_unstorable_deep,
+    find_unstorable,
+    json_may_hold_unstorable,
+)
 
 logger = get_logger(__name__)
 
@@ -187,7 +192,7 @@ def _body_to_jsonb_param(raw: bytes) -> str | None:
         parsed = json.loads(text)
     except ValueError:
         return json.dumps({"_unparsed": escape_unstorable(text)})
-    if find_unstorable(parsed) is not None:
+    if json_may_hold_unstorable(raw) and find_unstorable(parsed) is not None:
         # jsonb refuses a \u0000 escape and a lone surrogate (#663): store them
         # as literal escapes so the row of a rejected request still lands.
         return json.dumps(escape_unstorable_deep(parsed))

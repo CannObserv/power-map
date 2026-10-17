@@ -701,3 +701,12 @@ async def test_unstorable_observation_body_still_logs_both_bodies(client, db, ob
     assert row is not None
     assert json.loads(row["response_body"])["detail"][0]["input"] == tag + "\\u0000"
     await db.execute("DELETE FROM api_request_log WHERE id=$1", row["id"])
+
+
+def test_jsonb_param_skips_the_walk_for_a_clean_body(monkeypatch):
+    # The byte pre-screen guarantees storable text; only a candidate is walked.
+    def _no_walk(_obj):
+        raise AssertionError("walked a body the pre-screen cleared")
+
+    monkeypatch.setattr(mw, "find_unstorable", _no_walk)
+    assert mw._body_to_jsonb_param(b'{"a": [1, 2], "b": "ok"}') == '{"a": [1, 2], "b": "ok"}'
