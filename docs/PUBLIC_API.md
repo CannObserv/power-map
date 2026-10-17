@@ -187,7 +187,7 @@ Text Postgres cannot store — NUL (U+0000) or a lone UTF-16 surrogate (U+D800�
 
 - `loc` names the field. `input` echoes the value with each offending character written as literal `\u0000` / `\ud800` text, so the body always renders.
 - `loc` is `[]` and `input` is `null` in one case: the database itself refused the text, because the boundary check missed a surface. That's a server bug; the request is still answered as malformed.
-- A well-formed surrogate pair (`"😀"`) and an escaped backslash (`"\\u0000"`) are ordinary text. Other control characters are accepted.
+- A well-formed surrogate pair (`"\ud83d\ude00"`) and an escaped backslash (`"\\u0000"`) are ordinary text. Other control characters are accepted.
 - The check runs before authentication and before any work: such a request gets `422`, not `401`/`403`, and spends no rate-limit token.
 - Over HTTP a surrogate can arrive only in a JSON body: a server decodes `%ED%A0%80` in a URL to U+FFFD.
 - Every operation declares this `422` in the spec, parameterless ones included.
