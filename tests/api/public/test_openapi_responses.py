@@ -292,3 +292,21 @@ def test_org_batch_get_caps_ids_at_100():
     assert req["properties"]["ids"]["maxItems"] == 100
     assert req["properties"]["etags"]["maxProperties"] == 100
     assert req["required"] == ["ids"]
+
+
+def test_every_operation_declares_the_validation_422():
+    """Unstorable text answers 422 on every route (#663), parameterless ones included."""
+    schema = app.openapi()
+    ref = {"$ref": "#/components/schemas/HTTPValidationError"}
+    missing = [
+        f"{method.upper()} {path}"
+        for path, operations in schema["paths"].items()
+        for method, operation in operations.items()
+        if operation.get("responses", {})
+        .get("422", {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema")
+        != ref
+    ]
+    assert not missing, missing

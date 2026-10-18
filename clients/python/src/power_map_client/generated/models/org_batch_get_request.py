@@ -24,8 +24,8 @@ class OrgBatchGetRequest:
     on the raw list, before the dedupe.
 
         Attributes:
-            ids (list[str]): Org ids to read, 1–100. A string that is not an org id is `not_found`, and so, for now, is one
-                containing NUL. A lone UTF-16 surrogate fails the whole call (500) until #663 sets the API-wide rule for both.
+            ids (list[str]): Org ids to read, 1–100. A string that is not an org id is `not_found`. One containing NUL or a
+                lone UTF-16 surrogate fails the whole call with 422, as text Postgres cannot store does on every route.
             etags (OrgBatchGetRequestEtags | Unset): Per-id `If-None-Match` value, at most 100 entries. An id whose ETag
                 still matches answers `not_modified`. Compared exactly as `getOrg` compares the header, so either endpoint's
                 ETag revalidates on the other. Keys not in `ids` are ignored.

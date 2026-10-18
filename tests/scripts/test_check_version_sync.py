@@ -2,13 +2,20 @@
 
 Three sites carry the version: pyproject.toml, package.json and, since #618,
 clients/python/pyproject.toml (the generated client ships at the app's version).
+package-lock.json mirrors package.json in two fields, its root and ``packages[""]``
+(#672: it sat at 0.31.0 for thirty-odd bumps because nothing read it).
 """
 
+import json
+import re
 import subprocess
 from pathlib import Path
 
-SCRIPT = Path(__file__).parents[2] / "scripts" / "check_version_sync.sh"
-_SAME = object()  # client_version default: whatever pyproject.toml says
+import yaml
+
+ROOT = Path(__file__).parents[2]
+SCRIPT = ROOT / "scripts" / "check_version_sync.sh"
+_SAME = object()  # client_version / lock default: whatever the sibling file says
 
 
 def _run(
@@ -16,6 +23,9 @@ def _run(
     py_version: str | None,
     js_version: str | None,
     client_version: object = _SAME,
+    lock_version: object = _SAME,
+    lock_package_version: object = _SAME,
+    lockfile: bool = True,
 ) -> subprocess.CompletedProcess:
     if py_version is not None:
         (tmp_path / "pyproject.toml").write_text(f'version = "{py_version}"\n')
@@ -34,6 +44,16 @@ def _run(
         client.write_text(f'[project]\n# stamped\nversion = "{client_version}"\n')
     else:
         client.write_text("[project]\nname = 'x'\n")
+
+    lock_version = js_version if lock_version is _SAME else lock_version
+    lock_package_version = lock_version if lock_package_version is _SAME else lock_package_version
+    lock: dict = {"name": "x", "lockfileVersion": 3, "packages": {"": {"name": "x"}}}
+    if lock_version is not None:
+        lock["version"] = lock_version
+    if lock_package_version is not None:
+        lock["packages"][""]["version"] = lock_package_version
+    if lockfile:
+        (tmp_path / "package-lock.json").write_text(json.dumps(lock))
 
     return subprocess.run(
         ["bash", str(SCRIPT)],
@@ -87,3 +107,41 @@ def test_missing_client_version_fails(tmp_path):
     result = _run(tmp_path, "1.0.0", "1.0.0", client_version=None)
     assert result.returncode == 1
     assert "no version field found in clients/python/pyproject.toml" in result.stdout
+
+
+def test_mismatched_lockfile_root_version_fails(tmp_path):
+    result = _run(tmp_path, "1.2.3", "1.2.3", lock_version="0.31.0", lock_package_version="1.2.3")
+    assert result.returncode == 1
+    assert "package-lock.json=0.31.0" in result.stdout
+    # Regenerated, not edited: the message names the command that stamps it.
+    assert "npm install --package-lock-only" in result.stdout
+
+
+def test_mismatched_lockfile_package_version_fails(tmp_path):
+    result = _run(tmp_path, "1.2.3", "1.2.3", lock_package_version="0.31.0")
+    assert result.returncode == 1
+    assert 'package-lock.json packages[""]=0.31.0' in result.stdout
+
+
+def test_missing_lockfile_version_fails(tmp_path):
+    result = _run(tmp_path, "1.0.0", "1.0.0", lock_version=None)
+    assert result.returncode == 1
+    assert "no version field found in package-lock.json" in result.stdout
+
+
+def test_missing_lockfile_fails_with_a_message(tmp_path):
+    result = _run(tmp_path, "1.0.0", "1.0.0", lockfile=False)
+    assert result.returncode == 1
+    assert "package-lock.json not found" in result.stdout
+
+
+def test_repo_lockfile_is_in_sync():
+    lock = json.loads((ROOT / "package-lock.json").read_text())
+    version = json.loads((ROOT / "package.json").read_text())["version"]
+    assert lock["version"] == lock["packages"][""]["version"] == version
+
+
+def test_hook_runs_when_the_lockfile_changes():
+    config = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text())
+    (hook,) = [h for r in config["repos"] for h in r["hooks"] if h["id"] == "check-version-sync"]
+    assert re.search(hook["files"], "package-lock.json")

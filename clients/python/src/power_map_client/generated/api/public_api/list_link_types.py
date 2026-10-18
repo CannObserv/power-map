@@ -6,6 +6,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.error_detail import ErrorDetail
+from ...models.http_validation_error import HTTPValidationError
 from ...models.link_types_response import LinkTypesResponse
 from ...types import UNSET, Response, Unset
 
@@ -29,7 +30,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | ErrorDetail | LinkTypesResponse | None:
+) -> Any | ErrorDetail | HTTPValidationError | LinkTypesResponse | None:
     if response.status_code == 200:
         response_200 = LinkTypesResponse.from_dict(response.json())
 
@@ -49,6 +50,11 @@ def _parse_response(
 
         return response_403
 
+    if response.status_code == 422:
+        response_422 = HTTPValidationError.from_dict(response.json())
+
+        return response_422
+
     if response.status_code == 429:
         response_429 = ErrorDetail.from_dict(response.json())
 
@@ -62,7 +68,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | ErrorDetail | LinkTypesResponse]:
+) -> Response[Any | ErrorDetail | HTTPValidationError | LinkTypesResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -75,7 +81,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     if_none_match: str | Unset = UNSET,
-) -> Response[Any | ErrorDetail | LinkTypesResponse]:
+) -> Response[Any | ErrorDetail | HTTPValidationError | LinkTypesResponse]:
     """List Link Types
 
      Return all available link types.
@@ -88,7 +94,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ErrorDetail | LinkTypesResponse]
+        Response[Any | ErrorDetail | HTTPValidationError | LinkTypesResponse]
     """
 
     kwargs = _get_kwargs(
@@ -106,7 +112,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     if_none_match: str | Unset = UNSET,
-) -> Any | ErrorDetail | LinkTypesResponse | None:
+) -> Any | ErrorDetail | HTTPValidationError | LinkTypesResponse | None:
     """List Link Types
 
      Return all available link types.
@@ -119,7 +125,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ErrorDetail | LinkTypesResponse
+        Any | ErrorDetail | HTTPValidationError | LinkTypesResponse
     """
 
     return sync_detailed(
@@ -132,7 +138,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     if_none_match: str | Unset = UNSET,
-) -> Response[Any | ErrorDetail | LinkTypesResponse]:
+) -> Response[Any | ErrorDetail | HTTPValidationError | LinkTypesResponse]:
     """List Link Types
 
      Return all available link types.
@@ -145,7 +151,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ErrorDetail | LinkTypesResponse]
+        Response[Any | ErrorDetail | HTTPValidationError | LinkTypesResponse]
     """
 
     kwargs = _get_kwargs(
@@ -161,7 +167,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     if_none_match: str | Unset = UNSET,
-) -> Any | ErrorDetail | LinkTypesResponse | None:
+) -> Any | ErrorDetail | HTTPValidationError | LinkTypesResponse | None:
     """List Link Types
 
      Return all available link types.
@@ -174,7 +180,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ErrorDetail | LinkTypesResponse
+        Any | ErrorDetail | HTTPValidationError | LinkTypesResponse
     """
 
     return (

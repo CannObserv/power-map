@@ -39,6 +39,12 @@ import time
 
 import src.core.db as db
 from src.core.logging import get_logger
+from src.core.storable_text import (
+    escape_unstorable,
+    escape_unstorable_deep,
+    find_unstorable,
+    json_may_hold_unstorable,
+)
 
 logger = get_logger(__name__)
 
@@ -176,15 +182,20 @@ def _body_to_jsonb_param(raw: bytes) -> str | None:
 
     Valid JSON is stored verbatim. A non-JSON / malformed body is preserved
     inspectably as ``{"_unparsed": "<text>"}`` rather than dropped (#260 risk
-    decision: malformed payloads must still be debuggable).
+    decision: malformed payloads must still be debuggable). Text Postgres cannot
+    store (#663) is rewritten to its literal ``\\u0000`` / ``\\ud800`` escape.
     """
     if not raw:
         return None
     text = raw.decode("utf-8", errors="replace")
     try:
-        json.loads(text)
+        parsed = json.loads(text)
     except ValueError:
-        return json.dumps({"_unparsed": text})
+        return json.dumps({"_unparsed": escape_unstorable(text)})
+    if json_may_hold_unstorable(raw) and find_unstorable(parsed) is not None:
+        # jsonb refuses a \u0000 escape and a lone surrogate (#663): store them
+        # as literal escapes so the row of a rejected request still lands.
+        return json.dumps(escape_unstorable_deep(parsed))
     return text
 
 
@@ -320,7 +331,8 @@ class RequestLogMiddleware:
         response_chunks,
         latency_ms,
     ) -> tuple:
-        path = scope.get("path", "")
+        # The decoded path can hold NUL (#663); text cannot store it, so escape it.
+        path = escape_unstorable(scope.get("path", ""))
         method = scope.get("method", "")
         state = scope.get("state") or {}
         api_key_id = state.get("api_key_id")

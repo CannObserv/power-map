@@ -348,8 +348,8 @@ Uses `TEST_DATABASE_URL`, the same DB the integration suite applies the schema t
 
 ### Python client (#618)
 
-`clients/python/` is generated from the published schema. After a version bump or any change
-to the public schema, run `uv run python -m scripts.regenerate_client` and commit its diff.
+`clients/python/` is generated from the published schema. After a version bump (then also
+`npm install --package-lock-only`, #672) or any change to the public schema, run `uv run python -m scripts.regenerate_client` and commit its diff.
 The drift test blocks the commit until you do. Never edit `generated/` by hand. Details:
 [`clients/python/README.md`](../clients/python/README.md) § Development.
 

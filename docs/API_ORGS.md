@@ -53,13 +53,12 @@ discriminated on `outcome`:
 | `gone` | `410` with `merged_into: null` | `id`, `deleted_at` |
 | `not_found` | `404` — includes a string that is not an org id | `id` |
 
-Text Postgres cannot store is interim behaviour until #663 sets one API-wide
-rule for it: an id containing NUL answers `not_found`; a lone UTF-16 surrogate
-fails the whole call (`500`), as it does on the other public routes probed in #663.
-
 - **One bad id never fails the batch** — for any id Postgres can store. Only
   the envelope can `422`: `ids` empty or over 100 (counted before the dedupe),
-  `etags` over 100 entries, or a non-string value.
+  `etags` over 100 entries, a non-string value, or text Postgres cannot store —
+  NUL or a lone surrogate in an id or an `etags` key fails the whole call with
+  `type: "string_unstorable"` (`loc: ["body","ids",<i>]`), as on every route
+  (#663, `PUBLIC_API.md` § Unstorable text).
 - **ETags are interchangeable with `getOrg`'s.** `etags[id]` is compared exactly
   as `If-None-Match` is (weak comparison, tag lists, `*` — § Conditional requests
   in `PUBLIC_API.md`), against the same `"<id>-<updated_at_ms>"` tag. An `etags`

@@ -7,6 +7,7 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.api_root_response import ApiRootResponse
 from ...models.error_detail import ErrorDetail
+from ...models.http_validation_error import HTTPValidationError
 from ...types import Response
 
 
@@ -22,7 +23,7 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ApiRootResponse | ErrorDetail | None:
+) -> ApiRootResponse | ErrorDetail | HTTPValidationError | None:
     if response.status_code == 200:
         response_200 = ApiRootResponse.from_dict(response.json())
 
@@ -38,6 +39,11 @@ def _parse_response(
 
         return response_403
 
+    if response.status_code == 422:
+        response_422 = HTTPValidationError.from_dict(response.json())
+
+        return response_422
+
     if response.status_code == 429:
         response_429 = ErrorDetail.from_dict(response.json())
 
@@ -51,7 +57,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ApiRootResponse | ErrorDetail]:
+) -> Response[ApiRootResponse | ErrorDetail | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -63,7 +69,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[ApiRootResponse | ErrorDetail]:
+) -> Response[ApiRootResponse | ErrorDetail | HTTPValidationError]:
     """Api Root
 
      API health check — returns version info when key is valid.
@@ -73,7 +79,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiRootResponse | ErrorDetail]
+        Response[ApiRootResponse | ErrorDetail | HTTPValidationError]
     """
 
     kwargs = _get_kwargs()
@@ -88,7 +94,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-) -> ApiRootResponse | ErrorDetail | None:
+) -> ApiRootResponse | ErrorDetail | HTTPValidationError | None:
     """Api Root
 
      API health check — returns version info when key is valid.
@@ -98,7 +104,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiRootResponse | ErrorDetail
+        ApiRootResponse | ErrorDetail | HTTPValidationError
     """
 
     return sync_detailed(
@@ -109,7 +115,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-) -> Response[ApiRootResponse | ErrorDetail]:
+) -> Response[ApiRootResponse | ErrorDetail | HTTPValidationError]:
     """Api Root
 
      API health check — returns version info when key is valid.
@@ -119,7 +125,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiRootResponse | ErrorDetail]
+        Response[ApiRootResponse | ErrorDetail | HTTPValidationError]
     """
 
     kwargs = _get_kwargs()
@@ -132,7 +138,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-) -> ApiRootResponse | ErrorDetail | None:
+) -> ApiRootResponse | ErrorDetail | HTTPValidationError | None:
     """Api Root
 
      API health check — returns version info when key is valid.
@@ -142,7 +148,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiRootResponse | ErrorDetail
+        ApiRootResponse | ErrorDetail | HTTPValidationError
     """
 
     return (
