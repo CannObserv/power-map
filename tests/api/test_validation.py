@@ -9,6 +9,7 @@ import json
 import logging
 import math
 from unittest.mock import AsyncMock
+from urllib.parse import unquote
 
 import asyncpg
 import pytest
@@ -184,6 +185,31 @@ def test_admin_htmx_gets_a_flash(client):
     assert r.status_code == 200
     assert r.headers["HX-Reswap"] == "none"
     assert json.loads(r.headers["HX-Trigger"])["showFlash"]["level"] == "warning"
+
+
+async def test_percent_encoded_surrogate_arrives_as_replacement_chars():
+    # %ED%A0%80 is U+D800 as UTF-8 bytes. uvicorn decodes the path with
+    # urllib.parse.unquote and Starlette the query with parse_qsl, both
+    # errors="replace", so the app sees U+FFFD x3: storable text the rule passes.
+    path_value = unquote("%ED%A0%80")
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": f"/api/v1/orgs/{path_value}",
+            "path_params": {"org_id": path_value},
+            "headers": [],
+            "query_string": b"q=%ED%A0%80",
+        }
+    )
+    assert path_value == request.query_params["q"] == "\ufffd" * 3
+    await reject_unstorable_text(request)  # does not raise
+
+
+@pytest.mark.parametrize("url", ["/api/v1/orgs/%ED%A0%80", "/api/v1/orgs/search?q=%ED%A0%80"])
+def test_percent_encoded_surrogate_passes_the_rule(client, url):
+    c, _ = client
+    assert c.get(url).status_code == 403  # reached auth (no key): the rule let it through
 
 
 def test_public_htmx_header_is_ignored(client):
