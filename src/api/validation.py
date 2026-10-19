@@ -132,6 +132,10 @@ async def _check_body(request: Request) -> None:
             data = await request.json()  # FastAPI's cached parse when the route has a body
         except ValueError:
             return  # not JSON: FastAPI answers that itself, or the route never reads it
+        except RecursionError:
+            # Only a form route gets here: FastAPI did not parse its body, so
+            # this json.loads is ours, and the body is past even its limit.
+            raise JsonTooDeepError() from None
         if may_be_deep and json_depth_exceeds(data):
             raise JsonTooDeepError()  # before the walk, which recurses
         found = find_unstorable(data) if may_be_unstorable else None

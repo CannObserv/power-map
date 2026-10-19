@@ -346,6 +346,17 @@ def test_every_declared_json_body_fits_the_bound():
     assert {k: d for k, d in depths.items() if d > MAX_JSON_DEPTH} == {}
 
 
+@pytest.mark.parametrize("leaf", sorted(_LEAVES))
+def test_form_route_json_body_too_deep_to_parse_is_json_too_deep(client, leaf):
+    # FastAPI never parses a form route's body as JSON, so the rule's own
+    # uncached json.loads meets the depth, and its RecursionError is no
+    # ValueError (CR 1).
+    c, _ = client
+    r = c.post("/admin/orgs/new/", content=_deep_body(100_000, _LEAVES[leaf]), headers=_JSON)
+    assert r.status_code == 422, (r.status_code, r.text[:300])
+    assert r.json()["detail"][0]["type"] == TOO_DEEP_TYPE
+
+
 def test_body_too_deep_to_parse_is_fastapis_400(client):
     # Accepted limitation: past json.loads's own limit (9997) FastAPI fails the
     # parse itself, before any dependency runs. A 4xx all the same.
