@@ -13,7 +13,6 @@ import pytest_asyncio
 
 from src.core.db import generate_id
 from src.core.person_merge import PersonNotFoundError, merge_person_into, preview_person_merge
-from tests.db_utils import row_version
 
 pytestmark = [pytest.mark.integration]
 
@@ -228,17 +227,22 @@ async def test_preview_states_the_overlay_as_the_merge_will_write_it(db):
     assert preview["overlay"] == {"moved": ["name"], "archived": [], "history": ["pronouns"]}
 
 
+# Rows this transaction has inserted, updated or deleted, across every user table.
+_TXN_WRITES_SQL = (
+    "SELECT coalesce(sum(n_tup_ins + n_tup_upd + n_tup_del), 0) FROM pg_stat_xact_user_tables"
+)
+
+
 async def test_preview_writes_nothing(db):
+    """No table at all takes a write — not just the rows the merge would touch."""
     winner, loser = await _person(db, "Preview Idle A"), await _person(db, "Preview Idle B")
-    aid = await _assign(db, loser, await _role(db), "2001-01-01")
-    rows = (("people", winner), ("people", loser), ("role_assignments", aid))
-    before = [await row_version(db, t, i) for t, i in rows]
-    tombstones = await db.fetchval("SELECT count(*) FROM deleted_entities")
+    await _assign(db, loser, await _role(db), "2001-01-01")
+    before = await db.fetchval(_TXN_WRITES_SQL)
+    assert before > 0, "the counter must see this transaction's own setup writes"
 
     await preview_person_merge(db, winner_id=winner, loser_id=loser)
 
-    assert [await row_version(db, t, i) for t, i in rows] == before
-    assert await db.fetchval("SELECT count(*) FROM deleted_entities") == tombstones
+    assert await db.fetchval(_TXN_WRITES_SQL) == before
     assert await db.fetchval("SELECT count(*) FROM people WHERE id=$1", loser) == 1
 
 
