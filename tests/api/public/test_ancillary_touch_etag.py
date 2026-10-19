@@ -54,6 +54,10 @@ async def api_key(db):
 
 
 # ── parents: entity_type → (create, detail path) ─────────────────────────────
+#
+# A create returns ``(target_id, detail_id)``: the id the ancillary row names,
+# and the id whose detail ETag must move. They differ only for the two citable
+# sub-entities, whose citation trigger touches the owning entity instead.
 
 
 async def _org(db) -> str:
@@ -102,12 +106,49 @@ async def _jurisdiction(db) -> str:
     return jid
 
 
-_PARENTS: dict[str, tuple[Callable[..., Awaitable[str]], str]] = {
-    "organization": (_org, "/api/v1/orgs/{}"),
-    "person": (_person, "/api/v1/people/{}"),
-    "role": (_role, "/api/v1/roles/{}"),
-    "role_assignment": (_assignment, "/api/v1/assignments/{}"),
-    "jurisdiction": (_jurisdiction, "/api/v1/jurisdictions/{}"),
+async def _person_name(db) -> tuple[str, str]:
+    pid, nid = await _person(db), generate_id()
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, visibility)"
+        " VALUES ($1,$2,'ETag Probe','alias',FALSE,'public')",
+        nid,
+        pid,
+    )
+    return nid, pid
+
+
+async def _org_event(db) -> tuple[str, str]:
+    oid, eid = await _org(db), generate_id()
+    founded = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='founded'")
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
+        " VALUES ($1,'organization',$2,$3,1970)",
+        eid,
+        oid,
+        founded,
+    )
+    return eid, oid
+
+
+def _itself(create: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[tuple[str, str]]]:
+    """A top-level entity is both what the ancillary row names and whose ETag moves."""
+
+    async def _create(db) -> tuple[str, str]:
+        entity_id = await create(db)
+        return entity_id, entity_id
+
+    return _create
+
+
+_PARENTS: dict[str, tuple[Callable[..., Awaitable[tuple[str, str]]], str]] = {
+    "organization": (_itself(_org), "/api/v1/orgs/{}"),
+    "person": (_itself(_person), "/api/v1/people/{}"),
+    "role": (_itself(_role), "/api/v1/roles/{}"),
+    "role_assignment": (_itself(_assignment), "/api/v1/assignments/{}"),
+    "jurisdiction": (_itself(_jurisdiction), "/api/v1/jurisdictions/{}"),
+    # Citable sub-entities: the citation trigger touches the owner (#319).
+    "person_name": (_person_name, "/api/v1/people/{}"),
+    "entity_event": (_org_event, "/api/v1/orgs/{}"),
 }
 
 
@@ -187,35 +228,26 @@ _ANCILLARY = {
     "citations": _citation,
 }
 
+_TOP_LEVEL = ("organization", "person", "role", "role_assignment", "jurisdiction")
+
 # Every touch-triggered ancillary table, on every parent its trigger dispatches
-# to. A pair the schema rejects (a CHECK on entity_type) is not listed.
+# to — which is every entity type the table's CHECK admits. ``identifiers`` has
+# no role types and ``entity_addresses`` no assignment ones; ``citations`` adds
+# the two sub-entities its trigger resolves to their owner.
 _CASES = [
-    ("links", "organization"),
-    ("links", "person"),
-    ("links", "role"),
-    ("links", "role_assignment"),
-    ("links", "jurisdiction"),
-    ("contact_methods", "organization"),
-    ("contact_methods", "person"),
-    ("contact_methods", "role_assignment"),
-    ("identifiers", "organization"),
-    ("identifiers", "person"),
-    ("identifiers", "role_assignment"),
-    ("identifiers", "jurisdiction"),
-    ("entity_addresses", "organization"),
-    ("entity_addresses", "person"),
-    ("citations", "organization"),
-    ("citations", "person"),
-    ("citations", "role"),
-    ("citations", "role_assignment"),
+    *(("links", t) for t in _TOP_LEVEL),
+    *(("contact_methods", t) for t in _TOP_LEVEL),
+    *(("identifiers", t) for t in ("organization", "person", "role_assignment", "jurisdiction")),
+    *(("entity_addresses", t) for t in ("organization", "person", "role", "jurisdiction")),
+    *(("citations", t) for t in (*_TOP_LEVEL, "person_name", "entity_event")),
 ]
 
 
 @pytest.mark.parametrize(("table", "entity_type"), _CASES)
 async def test_ancillary_insert_changes_parent_etag(client, db, api_key, table, entity_type):
     create, path = _PARENTS[entity_type]
-    entity_id = await create(db)
-    url = path.format(entity_id)
+    entity_id, detail_id = await create(db)
+    url = path.format(detail_id)
     headers = {"X-API-Key": api_key}
 
     r1 = await client.get(url, headers=headers)
@@ -226,7 +258,7 @@ async def test_ancillary_insert_changes_parent_etag(client, db, api_key, table, 
     await _ANCILLARY[table](db, entity_type, entity_id)
 
     r2 = await client.get(url, headers=headers)
-    assert r2.headers["etag"] != etag1, f"{table} write left the {entity_type} ETag unchanged"
+    assert r2.headers["etag"] != etag1, f"{table} on {entity_type} left the parent ETag unchanged"
 
     r3 = await client.get(url, headers={**headers, "If-None-Match": etag1})
     assert r3.status_code == 200
