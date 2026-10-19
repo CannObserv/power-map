@@ -22,11 +22,15 @@ from src.api.deps import get_db
 from src.api.main import app
 from src.api.public.deps import require_api_key
 from src.api.validation import (
+    TOO_DEEP_INPUT,
+    TOO_DEEP_TYPE,
     UNSTORABLE_TYPE,
     reject_unstorable_text,
     unstorable_text_backstop,
     validation_error_response,
 )
+from src.core.json_depth import MAX_JSON_DEPTH
+from src.core.storable_text import escape_unstorable_deep
 
 
 @pytest.fixture
@@ -220,6 +224,137 @@ def test_public_htmx_header_is_ignored(client):
 
 
 # ---------------------------------------------------------------------------
+# A JSON body nested too deep to walk (#674)
+# ---------------------------------------------------------------------------
+
+_BATCH = "/api/v1/orgs/batch-get"
+_JSON = {"content-type": "application/json"}
+_LEAVES = {"ok": b'"ok"', "nul": b'"\\u0000"'}
+
+
+def _deep_body(depth: int, leaf: bytes) -> bytes:
+    """``{"ids": [[…leaf…]]}``: ``leaf`` in ``depth`` lists, ``depth + 1`` containers in all."""
+    return b'{"ids": ' + b"[" * depth + leaf + b"]" * depth + b"}"
+
+
+def _expected(depth: int, leaf: str, keyed: bool) -> str | int:
+    if depth + 1 > MAX_JSON_DEPTH:
+        return TOO_DEEP_TYPE  # the rule runs before auth and before the unstorable walk
+    if leaf == "nul":
+        return UNSTORABLE_TYPE
+    return "string_type" if keyed else 403  # Pydantic runs after auth
+
+
+@pytest.mark.parametrize("keyed", [False, True], ids=["no-key", "key"])
+@pytest.mark.parametrize("leaf", sorted(_LEAVES))
+@pytest.mark.parametrize("depth", [10, 500, 971, 972, 5000])
+def test_depth_sweep_never_5xx(client, monkeypatch, depth, leaf, keyed):
+    # From 972 levels jsonable_encoder recursed past the limit echoing the
+    # input; with a NUL leaf, find_unstorable did so from 971, before auth.
+    c, db = client
+    if keyed:
+        monkeypatch.setitem(app.dependency_overrides, require_api_key, lambda: "key")
+    r = c.post(_BATCH, content=_deep_body(depth, _LEAVES[leaf]), headers=_JSON)
+    expected = _expected(depth, leaf, keyed)
+    if expected == 403:
+        assert r.status_code == 403, (r.status_code, r.text[:300])
+        return
+    assert r.status_code == 422, (r.status_code, r.text[:300])
+    (err,) = r.json()["detail"]  # the 422 renders: it parses as JSON
+    assert err["type"] == expected
+    db.assert_not_called()
+
+
+@pytest.mark.parametrize("leaf", sorted(_LEAVES))
+def test_body_at_the_bound_passes_the_rule(client, monkeypatch, leaf):
+    c, _ = client
+    monkeypatch.setitem(app.dependency_overrides, require_api_key, lambda: "key")
+    r = c.post(_BATCH, content=_deep_body(MAX_JSON_DEPTH - 1, _LEAVES[leaf]), headers=_JSON)
+    assert r.status_code == 422, r.text
+    (err,) = r.json()["detail"]
+    assert err["type"] == _expected(MAX_JSON_DEPTH - 1, leaf, keyed=True)
+
+
+def test_body_past_the_bound_is_json_too_deep(client):
+    c, db = client
+    r = c.post(_BATCH, content=_deep_body(MAX_JSON_DEPTH, b'"ok"'), headers=_JSON)
+    assert r.status_code == 422, r.text  # not 403: no key, and the rule ran first
+    assert r.json()["detail"] == [
+        {
+            "type": TOO_DEEP_TYPE,
+            "loc": ["body"],
+            "msg": f"JSON body is nested deeper than {MAX_JSON_DEPTH} levels",
+            "input": {},
+            "ctx": {"max_depth": MAX_JSON_DEPTH},
+        }
+    ]
+    db.assert_not_called()
+
+
+def test_plus_json_body_past_the_bound_is_json_too_deep(client):
+    c, _ = client
+    r = c.post(
+        _BATCH,
+        content=_deep_body(MAX_JSON_DEPTH, b'"ok"'),
+        headers={"content-type": "application/vnd.probe+json"},
+    )
+    assert r.json()["detail"][0]["type"] == TOO_DEEP_TYPE
+
+
+def test_brackets_inside_strings_reach_the_route(client, monkeypatch):
+    # The byte pre-screen's candidate is confirmed on the parsed body.
+    c, db = client
+    db.fetch.return_value = []
+    monkeypatch.setitem(app.dependency_overrides, require_api_key, lambda: "key")
+    body = json.dumps({"ids": ["[" * (MAX_JSON_DEPTH + 1) + "{" * 10]}).encode()
+    r = c.post(_BATCH, content=body, headers=_JSON)
+    assert r.status_code == 200, r.text
+    assert [x["outcome"] for x in r.json()["results"]] == ["not_found"]
+
+
+def _schema_depth(schema: dict, components: dict, seen: frozenset = frozenset()) -> float:
+    """Containers a JSON value of ``schema`` can nest; ``inf`` when unbounded."""
+    if "$ref" in schema:
+        name = schema["$ref"].rsplit("/", 1)[-1]
+        if name in seen:
+            return math.inf
+        return _schema_depth(components[name], components, seen | {name})
+    variants = [s for k in ("anyOf", "oneOf", "allOf") for s in schema.get(k, [])]
+    depth = max((_schema_depth(s, components, seen) for s in variants), default=0)
+    if "items" in schema:
+        depth = max(depth, 1 + _schema_depth(schema["items"], components, seen))
+    if schema.get("type") == "object" or "properties" in schema:
+        extra = schema.get("additionalProperties")
+        inner = [_schema_depth(s, components, seen) for s in schema.get("properties", {}).values()]
+        inner.append(math.inf if extra is True else _schema_depth(extra or {}, components, seen))
+        depth = max(depth, 1 + max(inner))
+    return depth
+
+
+def test_every_declared_json_body_fits_the_bound():
+    # The bound rejects only bodies no route accepts (deepest today: 5). A
+    # schema past it, or a recursive one, needs the bound revisited first.
+    spec = app.openapi()
+    depths = {
+        f"{method.upper()} {path}": _schema_depth(media["schema"], spec["components"]["schemas"])
+        for path, ops in spec["paths"].items()
+        for method, op in ops.items()
+        for content_type, media in op.get("requestBody", {}).get("content", {}).items()
+        if "json" in content_type
+    }
+    assert depths, "no JSON bodies found: the walk is broken"
+    assert {k: d for k, d in depths.items() if d > MAX_JSON_DEPTH} == {}
+
+
+def test_body_too_deep_to_parse_is_fastapis_400(client):
+    # Accepted limitation: past json.loads's own limit (9997) FastAPI fails the
+    # parse itself, before any dependency runs. A 4xx all the same.
+    c, _ = client
+    r = c.post(_BATCH, content=_deep_body(10_000, b'"\\u0000"'), headers=_JSON)
+    assert r.status_code == 400, r.text
+
+
+# ---------------------------------------------------------------------------
 # The 422 always renders
 # ---------------------------------------------------------------------------
 
@@ -239,6 +374,32 @@ def test_validation_response_keeps_nonfinite_floats_renderable():
         [{"type": "x", "loc": ("body",), "msg": "m", "input": [math.nan, math.inf]}]
     )
     assert json.loads(validation_error_response(exc).body)["detail"][0]["input"] == ["nan", "inf"]
+
+
+def _nested(depth: int) -> object:
+    value: object = "\x00"
+    for _ in range(depth):
+        value = [value]
+    return value
+
+
+@pytest.mark.parametrize("depth", [MAX_JSON_DEPTH + 1, 972, 5000])
+def test_validation_response_replaces_a_too_deep_echo(depth):
+    # The backstop for whatever the boundary rule misses (#674).
+    exc = RequestValidationError(
+        [{"type": "string_type", "loc": ("body", "ids", 0), "msg": "m", "input": _nested(depth)}]
+    )
+    (err,) = json.loads(validation_error_response(exc).body)["detail"]
+    assert err["input"] == TOO_DEEP_INPUT
+    assert err["loc"] == ["body", "ids", 0]
+
+
+def test_validation_response_echoes_input_at_the_bound():
+    exc = RequestValidationError(
+        [{"type": "x", "loc": ("body",), "msg": "m", "input": _nested(MAX_JSON_DEPTH)}]
+    )
+    echoed = json.loads(validation_error_response(exc).body)["detail"][0]["input"]
+    assert json.dumps(echoed) == json.dumps(escape_unstorable_deep(_nested(MAX_JSON_DEPTH)))
 
 
 # ---------------------------------------------------------------------------

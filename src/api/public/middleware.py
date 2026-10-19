@@ -38,6 +38,7 @@ import os
 import time
 
 import src.core.db as db
+from src.core.json_depth import json_depth_exceeds, json_may_be_too_deep
 from src.core.logging import get_logger
 from src.core.storable_text import (
     escape_unstorable,
@@ -182,16 +183,21 @@ def _body_to_jsonb_param(raw: bytes) -> str | None:
 
     Valid JSON is stored verbatim. A non-JSON / malformed body is preserved
     inspectably as ``{"_unparsed": "<text>"}`` rather than dropped (#260 risk
-    decision: malformed payloads must still be debuggable). Text Postgres cannot
-    store (#663) is rewritten to its literal ``\\u0000`` / ``\\ud800`` escape.
+    decision: malformed payloads must still be debuggable). So is a body nested
+    too deep to walk (#674), which ``json.loads`` may also refuse with a
+    ``RecursionError``. Text Postgres cannot store (#663) is rewritten to its
+    literal ``\\u0000`` / ``\\ud800`` escape.
     """
     if not raw:
         return None
     text = raw.decode("utf-8", errors="replace")
+    unparsed = json.dumps({"_unparsed": escape_unstorable(text)})
     try:
         parsed = json.loads(text)
-    except ValueError:
-        return json.dumps({"_unparsed": escape_unstorable(text)})
+    except (ValueError, RecursionError):
+        return unparsed
+    if json_may_be_too_deep(raw) and json_depth_exceeds(parsed):
+        return unparsed
     if json_may_hold_unstorable(raw) and find_unstorable(parsed) is not None:
         # jsonb refuses a \u0000 escape and a lone surrogate (#663): store them
         # as literal escapes so the row of a rejected request still lands.
