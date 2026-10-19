@@ -1,14 +1,15 @@
 """Nothing live names the retired outbox, its stamp, or its prune (#651).
 
-``GET /changes`` retired in #502, and #651 dropped what fed it: the
-``entity_changes`` table, its writer functions and row triggers, the
-``stamped_transaction`` helper with its ``app.source_key_id`` GUC (#491), and
-the outbox leg of the prune (``scripts/prune_outbox.py`` → ``scripts/prune.py``).
+``GET /changes`` retired in #502, and #651 dropped what fed it: the outbox
+table, its two writer functions and seven row triggers, the stamped-transaction
+helper with the GUC it set (#491), and the outbox leg of the prune (whose
+script became ``scripts/prune.py``). :data:`RETIRED` spells each name.
 A live mention left behind is a claim about a table that is gone: a test that
 counts its rows, a doc that sends a reader to it, a comment that explains a
 trigger by what it no longer feeds.
 
-Scope is every regular file git tracks (or would track), with three exemptions:
+Scope is every regular file git tracks (or would track), this one included,
+with three exemptions:
 
 - **History.** ``docs/plans/`` and ``docs/archive/`` record what was decided and
   done; ``.skills/context-metrics.jsonl`` is append-only telemetry, and the
@@ -19,9 +20,8 @@ Scope is every regular file git tracks (or would track), with three exemptions:
 - **The drop itself.** ``schema.sql``'s retirement block has to name what it
   drops. Only the text between its two marker lines is exempt, so the rest of
   the file is still scanned.
-- **The two tests that prove the drop.** This file, and
-  ``tests/core/test_schema_outbox_retired.py``, which rebuilds the legacy
-  outbox to show ``apply_schema`` removes it.
+- **The test that proves the drop.** ``tests/core/test_schema_outbox_retired.py``
+  rebuilds the legacy outbox to show ``apply_schema`` removes it.
 
 The detector self-tests keep the sweep honest: a walk that scanned nothing, or
 a block marker that matched nothing, would look like a clean tree.
@@ -34,7 +34,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_SQL = "src/core/schema.sql"
 
-#: Assembled at runtime so this file's own source never spells a token whole.
+#: Assembled at runtime so this file's own source never spells a token whole —
+#: which is what lets the sweep scan this file like any other.
 RETIRED = re.compile(
     "|".join(
         [
@@ -54,7 +55,6 @@ EXEMPT_FILES = frozenset(
         ".skills/context-claims-ok",
         ".skills/context-loss-ok",
         ".skills/context-seams-ok",
-        "tests/test_outbox_retired_refs.py",
         "tests/core/test_schema_outbox_retired.py",
     }
 )
