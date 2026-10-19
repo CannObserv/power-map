@@ -201,10 +201,14 @@ async def request_detail(
 
 
 def _pretty(raw: str | None) -> str | None:
-    """Pretty-print a stored JSONB body (asyncpg returns jsonb as str)."""
+    """Pretty-print a stored JSONB body (asyncpg returns jsonb as str).
+
+    A body too deep for the recursive indenting encoder is shown raw (#674):
+    rows logged before the request log bounded depth can be.
+    """
     if raw is None:
         return None
     try:
         return json.dumps(json.loads(raw), indent=2, ensure_ascii=False)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         return raw
