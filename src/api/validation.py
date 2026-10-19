@@ -36,6 +36,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.responses import Response
 
 from src.api.admin.deps import flash_trigger, is_htmx
+from src.core.json_depth import MAX_JSON_DEPTH, json_depth_exceeds, json_may_be_too_deep
 from src.core.logging import get_logger
 from src.core.storable_text import (
     escape_unstorable,
@@ -52,6 +53,8 @@ UNSTORABLE_MSG = (
     "Text contains a character that cannot be stored: "
     "NUL (U+0000) or an unpaired surrogate (U+D800-U+DFFF)"
 )
+TOO_DEEP_TYPE = "json_too_deep"
+TOO_DEEP_INPUT = f"<nested deeper than {MAX_JSON_DEPTH} levels: not echoed>"
 _ADMIN_FLASH = "That text contains a character that cannot be stored (NUL). Remove it and retry."
 _FORM_TYPES = ("application/x-www-form-urlencoded", "multipart/form-data")
 
@@ -62,6 +65,23 @@ class UnstorableTextError(RequestValidationError):
     def __init__(self, loc: tuple, value: object) -> None:
         super().__init__(
             [{"type": UNSTORABLE_TYPE, "loc": loc, "msg": UNSTORABLE_MSG, "input": value}]
+        )
+
+
+class JsonTooDeepError(RequestValidationError):
+    """A JSON body nests deeper than ``MAX_JSON_DEPTH`` (#674)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            [
+                {
+                    "type": TOO_DEEP_TYPE,
+                    "loc": ("body",),
+                    "msg": f"JSON body is nested deeper than {MAX_JSON_DEPTH} levels",
+                    "input": {},
+                    "ctx": {"max_depth": MAX_JSON_DEPTH},
+                }
+            ]
         )
 
 
@@ -76,9 +96,17 @@ def _sanitize_nonfinite(obj: object) -> object:
     return obj
 
 
+def _bound_echo(error: dict) -> dict:
+    """``error`` with an ``input`` too deep to encode replaced by a placeholder (#674)."""
+    if json_depth_exceeds(error.get("input")):
+        return {**error, "input": TOO_DEEP_INPUT}
+    return error
+
+
 def validation_error_response(exc: RequestValidationError) -> JSONResponse:
     """The standard 422, with every echoed value made JSON- and UTF-8-safe."""
-    detail = escape_unstorable_deep(_sanitize_nonfinite(jsonable_encoder(exc.errors())))
+    errors = [_bound_echo(e) for e in exc.errors()]
+    detail = escape_unstorable_deep(_sanitize_nonfinite(jsonable_encoder(errors)))
     return JSONResponse(status_code=422, content={"detail": detail})
 
 
@@ -95,13 +123,22 @@ def _is_json(content_type: str) -> bool:
 async def _check_body(request: Request) -> None:
     content_type = request.headers.get("content-type", "")
     if _is_json(content_type):
-        if not json_may_hold_unstorable(await request.body()):
+        raw = await request.body()
+        may_be_deep = json_may_be_too_deep(raw)
+        may_be_unstorable = json_may_hold_unstorable(raw)
+        if not (may_be_deep or may_be_unstorable):
             return
         try:
             data = await request.json()  # FastAPI's cached parse when the route has a body
         except ValueError:
             return  # not JSON: FastAPI answers that itself, or the route never reads it
-        found = find_unstorable(data)
+        except RecursionError:
+            # Only a form route gets here: FastAPI did not parse its body, so
+            # this json.loads is ours, and the body is past even its limit.
+            raise JsonTooDeepError() from None
+        if may_be_deep and json_depth_exceeds(data):
+            raise JsonTooDeepError()  # before the walk, which recurses
+        found = find_unstorable(data) if may_be_unstorable else None
         if found is not None:
             loc, text = found
             raise UnstorableTextError(("body", *loc), text)
@@ -115,7 +152,10 @@ async def _check_body(request: Request) -> None:
 
 
 async def reject_unstorable_text(request: Request) -> None:
-    """Reject a request whose path, query or body holds unstorable text (#663)."""
+    """Reject a request whose path, query or body holds unstorable text (#663).
+
+    A JSON body too deep to walk is rejected first (#674).
+    """
     for name, value in request.path_params.items():
         if isinstance(value, str) and has_unstorable(value):
             raise UnstorableTextError(("path", name), value)

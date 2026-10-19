@@ -6,7 +6,7 @@ folds a well-formed surrogate pair into one astral code point, so any code unit
 left in that range is unpaired and cannot be encoded. Nothing else is in scope:
 other C0 controls are storable, and rejecting them would be a policy change.
 
-The API boundary rejects such text (``src.api.text_boundary``); the 422 handler
+The API boundary rejects such text (``src.api.validation``); the 422 handler
 and the request log escape it into the literal ``\\u0000`` form so the error
 renders and the log row lands.
 """

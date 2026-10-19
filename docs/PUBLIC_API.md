@@ -192,6 +192,17 @@ Text Postgres cannot store — NUL (U+0000) or a lone UTF-16 surrogate (U+D800�
 - Over HTTP a surrogate can arrive only in a JSON body: a server decodes `%ED%A0%80` in a URL to U+FFFD.
 - Every operation declares this `422` in the spec, parameterless ones included.
 
+### Nested too deep — `422` (#674)
+
+The JSON body of a route that takes one, nested more than **64** containers deep (`[`/`{`; the deepest body any route declares is 5), answers `422` before authentication, like unstorable text, and is not echoed:
+
+```json
+{"detail": [{"type": "json_too_deep", "loc": ["body"],
+             "msg": "JSON body is nested deeper than 64 levels", "input": {}, "ctx": {"max_depth": 64}}]}
+```
+
+Past about 10,000 levels the body cannot be parsed at all. A route that reads JSON then answers `400` `{"detail": "There was an error parsing the body"}` before the check runs; a form route still answers `json_too_deep`.
+
 ---
 
 ## Versioning

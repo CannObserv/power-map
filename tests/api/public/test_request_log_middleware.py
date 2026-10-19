@@ -19,6 +19,7 @@ from src.api.public.middleware import (
     route_group_for_path,
 )
 from src.core.db import generate_id
+from src.core.json_depth import MAX_JSON_DEPTH
 from src.core.storable_text import find_unstorable
 
 
@@ -709,4 +710,61 @@ def test_jsonb_param_skips_the_walk_for_a_clean_body(monkeypatch):
         raise AssertionError("walked a body the pre-screen cleared")
 
     monkeypatch.setattr(mw, "find_unstorable", _no_walk)
+    assert mw._body_to_jsonb_param(b'{"a": [1, 2], "b": "ok"}') == '{"a": [1, 2], "b": "ok"}'
+
+
+# ---------------------------------------------------------------------------
+# #674 — a body nested too deep to walk still logs a row, unparsed
+# ---------------------------------------------------------------------------
+
+
+def _deep(depth: int, leaf: bytes) -> bytes:
+    return b"[" * depth + leaf + b"]" * depth
+
+
+@pytest.mark.parametrize("leaf", [b'"ok"', b'"x\\u0000y"'])
+@pytest.mark.parametrize("depth", [MAX_JSON_DEPTH + 1, 972, 5000, 10_000])
+def test_jsonb_param_stores_a_too_deep_body_unparsed(depth, leaf):
+    # 5000 with a NUL leaf recursed past the limit in find_unstorable; 10000 in
+    # json.loads itself, whose RecursionError is not a ValueError. Either lost the row.
+    raw = _deep(depth, leaf)
+    stored = json.loads(mw._body_to_jsonb_param(raw))
+    assert list(stored) == ["_unparsed"]
+    assert find_unstorable(stored) is None
+    assert stored["_unparsed"].startswith("[" * depth)
+
+
+def test_jsonb_param_keeps_a_body_at_the_bound_verbatim():
+    raw = _deep(MAX_JSON_DEPTH, b'"ok"')
+    assert mw._body_to_jsonb_param(raw) == raw.decode()
+
+
+@pytest.mark.integration
+async def test_too_deep_observation_body_still_logs_a_row(client, db, obs_key):
+    raw, _ = obs_key
+    tag = generate_id()
+    body = b'{"identifier_value": "' + tag.encode() + b'", "x": ' + _deep(5000, b'"\\u0000"') + b"}"
+    resp = await client.post(
+        "/api/v1/people/observations",
+        content=body,
+        headers={"X-API-Key": raw, "content-type": "application/json"},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"][0]["type"] == "json_too_deep"
+    row = await _poll_row(
+        db,
+        "SELECT * FROM api_request_log WHERE request_body->>'_unparsed' LIKE $1",
+        f'%"{tag}"%',
+    )
+    assert row is not None
+    assert row["status_code"] == 422
+    await db.execute("DELETE FROM api_request_log WHERE id=$1", row["id"])
+
+
+def test_jsonb_param_builds_the_unparsed_form_only_when_needed(monkeypatch):
+    # The common case is a clean, shallow body: no extra pass over it (CR 2).
+    def _no_escape(_text):
+        raise AssertionError("escaped a body that is stored verbatim")
+
+    monkeypatch.setattr(mw, "escape_unstorable", _no_escape)
     assert mw._body_to_jsonb_param(b'{"a": [1, 2], "b": "ok"}') == '{"a": [1, 2], "b": "ok"}'

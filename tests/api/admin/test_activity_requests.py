@@ -381,3 +381,12 @@ async def test_sidebar_sublink_renders_on_non_activity_page(client, seeded_log):
     assert 'class="admin-sidebar__link" href="/admin/activity/requests/"' in resp.text
     # Not the current page here, so the sidebar link must not be marked active.
     assert 'href="/admin/activity/requests/" aria-current="page"' not in resp.text
+
+
+async def test_detail_renders_a_too_deep_body(client, db):
+    # Before #674 the request log stored deep bodies verbatim; pretty-printing
+    # one recursed past the limit and failed the page (CR 5).
+    deep = "[" * 2000 + '"x"' + "]" * 2000
+    log_id = await _insert_log(db, route_group="observations", request_body=deep)
+    resp = await client.get(f"{_BASE}{log_id}/", headers=AUTH_HEADERS)
+    assert resp.status_code == 200, resp.text[:300]

@@ -26,6 +26,7 @@ from src.api.admin.deps import (
     with_flash,
 )
 from src.core.db import generate_id
+from src.core.json_depth import loads_bounded
 from src.core.normalizers.address import get_address_normalizer
 
 templates = Jinja2Templates(directory="src/templates")
@@ -60,7 +61,7 @@ def _parse_normalizer_fields(
         raise ValueError(f"longitude must be a number, got {lon_str!r}")
     if comp_str:
         try:
-            json.loads(comp_str)
+            loads_bounded(comp_str)  # a form field: the request boundary never parses it
         except ValueError:
             raise ValueError("components must be valid JSON")
     _components = comp_str or None
