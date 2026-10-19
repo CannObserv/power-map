@@ -66,8 +66,9 @@ _PRUNABLE_TOMBSTONE = f"merged_into IS NULL AND {_expired('deleted_at')}"
 _COUNT_TOMBSTONES_SQL = f"SELECT COUNT(*) FROM deleted_entities WHERE {_PRUNABLE_TOMBSTONE}"
 _COUNT_REQUEST_LOG_SQL = f"SELECT COUNT(*) FROM api_request_log WHERE {_expired('occurred_at')}"
 
-# Batched DELETE via ``ctid IN (… LIMIT $2)``: ctid is the physical row id, so the
-# batch needs no index of its own on the expiry column.
+# Batched DELETE via ``ctid IN (… LIMIT $2)``: ctid is the physical row id, so a
+# bounded batch needs no key column (the planner may use the expiry index,
+# ``idx_deleted_entities_deleted_at`` here, for the inner scan).
 _PRUNE_TOMBSTONES_SQL = f"""
 DELETE FROM deleted_entities
 WHERE ctid IN (
