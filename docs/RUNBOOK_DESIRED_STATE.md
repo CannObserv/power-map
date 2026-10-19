@@ -320,7 +320,7 @@ versions are the ones it offered (`currency`, #535).
   so the applier never clears a PM value by writing NULL over it.
 - **Column scope is exact:** an `UPDATE` names only the changed owned columns;
   an `INSERT` names the parent, the changed columns and the manifest's insert
-  defaults. `updated_at`, the touch triggers and the outbox fire as for any
+  defaults. `updated_at` and the touch triggers fire as for any
   writer; no `source_key_id` is stamped. That makes the applier a **second door**
   to `organizations.parent_id`, beside the observation API's authoritative
   reparent: the `source_key_mismatch` gate (#334) guards that API, not the

@@ -361,7 +361,7 @@ async def _refine_row(
 async def _retract_relationship(
     conn, key_id: str | None, claim: RelationshipClaim
 ) -> RelationshipResult:
-    """id-addressed void (#322 model): archive so the outbox drops the anchor.
+    """id-addressed void (#322 model): archive so readers drop the anchor.
 
     - no ``pm_relationship_id`` → ``invalid`` (retract is always id-addressed)
     - id unresolved → ``relationship_not_found``

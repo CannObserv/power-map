@@ -1,8 +1,8 @@
 """citations table + touch-cascade trigger (#319).
 
 The identity unique index is NULLS NOT DISTINCT over active rows; the touch
-trigger signals the parent's entity_changes outbox for every write path (the
-#327 model), indirecting a person_name citation to its owning person and an
+trigger bumps the parent's ``updated_at`` (and so its ETag) for every write path
+(the #327 model), indirecting a person_name citation to its owning person and an
 entity_event citation to the event's owning entity.
 """
 
@@ -10,6 +10,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [pytest.mark.integration]
 
@@ -51,15 +52,6 @@ async def _cite(db, entity_type: str, entity_id: str, *, url="https://s/x", fiel
     return cid
 
 
-async def _signals(db, entity_type: str, entity_id: str) -> int:
-    return await db.fetchval(
-        "SELECT count(*) FROM entity_changes"
-        " WHERE entity_type=$1 AND entity_id=$2 AND change_kind='updated'",
-        entity_type,
-        entity_id,
-    )
-
-
 # ── identity index ────────────────────────────────────────────────────────────
 
 
@@ -93,17 +85,17 @@ async def test_check_url_or_title(db):
 
 async def test_insert_touches_top_level_entity(db):
     pid = await _person(db)
-    before = await _signals(db, "person", pid)
+    before = await row_version(db, "people", pid)
     await _cite(db, "person", pid)
-    assert await _signals(db, "person", pid) == before + 1
+    assert await row_version(db, "people", pid) != before
 
 
 async def test_delete_touches_entity(db):
     oid = await _org(db)
     cid = await _cite(db, "organization", oid, field="notes")
-    before = await _signals(db, "organization", oid)
+    before = await row_version(db, "organizations", oid)
     await db.execute("DELETE FROM citations WHERE id=$1", cid)
-    assert await _signals(db, "organization", oid) == before + 1
+    assert await row_version(db, "organizations", oid) != before
 
 
 async def test_person_name_citation_touches_owning_person(db):
@@ -114,9 +106,9 @@ async def test_person_name_citation_touches_owning_person(db):
         nid,
         pid,
     )
-    before = await _signals(db, "person", pid)
+    before = await row_version(db, "people", pid)
     await _cite(db, "person_name", nid, field="name")
-    assert await _signals(db, "person", pid) == before + 1
+    assert await row_version(db, "people", pid) != before
 
 
 async def test_entity_event_citation_touches_owning_entity(db):
@@ -128,6 +120,6 @@ async def test_entity_event_citation_touches_owning_entity(db):
         eid,
         oid,
     )
-    before = await _signals(db, "organization", oid)
+    before = await row_version(db, "organizations", oid)
     await _cite(db, "entity_event", eid, field="notes")
-    assert await _signals(db, "organization", oid) == before + 1
+    assert await row_version(db, "organizations", oid) != before

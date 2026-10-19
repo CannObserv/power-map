@@ -20,7 +20,8 @@ dead id belonged to the same person's seat, so they all re-home to one survivor)
 * Everything else → **manual**: reported, never touched.
 
 Re-home reuses ``migrate_role_assignment_ancillary`` (re-point, or dedup when the
-survivor already carries the row) and emits the survivor outbox signal.
+survivor already carries the row); the touch-triggered tables bump the
+survivor's ``updated_at`` on re-point (#327).
 
 Dry-run by default (report only). ``--execute`` applies re-home + purge and leaves
 every ``manual`` row untouched.
@@ -39,10 +40,7 @@ import asyncpg
 
 from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from scripts.archive_legacy_legislator_roles import filer_id_from_url
-from src.core.ancillary_migrate import (
-    TRIGGERLESS_ANCILLARY_TABLES,
-    migrate_role_assignment_ancillary,
-)
+from src.core.ancillary_migrate import migrate_role_assignment_ancillary
 from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -265,15 +263,6 @@ async def apply_cleanup(conn: asyncpg.Connection, groups: list[DeadGroup]) -> di
             moved = sum(m for m, _ in counts.values())
             deduped = sum(d for _, d in counts.values())
             stats["rehomed_rows"] += moved + deduped
-            # links/contact_methods/identifiers self-emit the survivor 'updated'
-            # via their touch triggers (#327); only a trigger-less move
-            # (field_confidence/import_provenance) needs a manual signal here.
-            if any(counts[t][0] for t in TRIGGERLESS_ANCILLARY_TABLES):
-                await conn.execute(
-                    "INSERT INTO entity_changes (entity_type, entity_id, change_kind)"
-                    " VALUES ('role_assignment', $1, 'updated')",
-                    group.target_id,
-                )
             continue
         for row in group.rows:
             disposition, _ = await _classify_unresolved(conn, row)

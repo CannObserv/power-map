@@ -1297,8 +1297,8 @@ async def test_merge_reassigns_unique_org_address(client, db):
     assert count == 1
 
 
-async def test_org_merge_entity_changes_records_merged_into(client, db):
-    """POST merge writes a deleted entity_changes row with merged_into=winner_id."""
+async def test_org_merge_tombstone_records_merged_into(client, db):
+    """POST merge writes the loser's tombstone with merged_into=winner_id."""
     winner_id, loser_id = generate_id(), generate_id()
 
     for oid, name in [(winner_id, "Merged-Into Winner"), (loser_id, "Merged-Into Loser")]:
@@ -1310,8 +1310,6 @@ async def test_org_merge_entity_changes_records_merged_into(client, db):
             oid,
             name,
         )
-    # must follow org/name inserts — their 'updated' events must be below this cursor
-    before_seq = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
 
     response = await client.post(
         f"/admin/orgs/{winner_id}/merge/{loser_id}/",
@@ -1321,14 +1319,11 @@ async def test_org_merge_entity_changes_records_merged_into(client, db):
     assert response.status_code == 303
 
     row = await db.fetchrow(
-        "SELECT change_kind, merged_into FROM entity_changes"
-        " WHERE entity_id=$1 AND id > $2"
-        " ORDER BY id DESC LIMIT 1",
+        "SELECT merged_into FROM deleted_entities"
+        " WHERE entity_type='organization' AND entity_id=$1",
         loser_id,
-        before_seq,
     )
     assert row is not None
-    assert row["change_kind"] == "deleted"
     assert row["merged_into"] == winner_id
 
 

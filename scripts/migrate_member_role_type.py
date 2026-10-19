@@ -10,8 +10,8 @@ heuristics):
 - org carries an ``org_wa_party`` identifier → ``party_member``
 - neither (or, defensively, both) → **skipped**, left untouched, reported for triage
 
-Only ``role_type_id`` changes; the ``roles`` UPDATE auto-emits a change-feed event
-(``trg_entity_changes_roles``). Idempotent — a reassigned role no longer matches
+Only ``role_type_id`` changes; the ``roles`` UPDATE advances ``updated_at``
+(``trg_updated_at_roles``). Idempotent — a reassigned role no longer matches
 ``member`` and is a no-op on re-run. Reassigns archived rows too, so no row
 references ``member`` afterward (its catalog row can then be dropped, #266 step 6).
 

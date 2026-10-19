@@ -1,7 +1,7 @@
 """Integration tests for the role_assignment_relationships edge (#301).
 
 Covers the schema-level guarantees: identity uniqueness, self-edge rejection,
-change-feed emission (own entity_type + touch both endpoints), and the endpoint
+the touch of both endpoints on every edge write, and the endpoint
 mutation cascade (archive / clamp-earlier-end / clamp-later-start / invert->archive).
 """
 
@@ -12,6 +12,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [pytest.mark.integration]
 
@@ -134,41 +135,38 @@ async def test_invalid_range_rejected(conn):
 
 
 # --------------------------------------------------------------------------- #
-# Change feed: own entity_type + touch both endpoints
+# Touch both endpoints
 # --------------------------------------------------------------------------- #
 
 
-async def _max_change_id(conn):
-    return await conn.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
-
-
-async def test_edge_emits_own_change_and_touches_both_endpoints(conn):
-    frm, to = await _two_assignments(conn)
-    baseline = await _max_change_id(conn)
-    eid = await _edge(conn, frm, to)
-    rows = await conn.fetch(
-        "SELECT entity_type, entity_id FROM entity_changes WHERE id > $1", baseline
+async def _endpoint_versions(conn, frm, to):
+    return (
+        await row_version(conn, "role_assignments", frm),
+        await row_version(conn, "role_assignments", to),
     )
-    pairs = {(r["entity_type"], r["entity_id"]) for r in rows}
-    assert ("role_assignment_relationship", eid) in pairs
-    assert ("role_assignment", frm) in pairs
-    assert ("role_assignment", to) in pairs
 
 
-async def test_edge_archive_surfaces_as_updated(conn):
+async def test_edge_insert_touches_both_endpoints(conn):
+    frm, to = await _two_assignments(conn)
+    before_frm, before_to = await _endpoint_versions(conn, frm, to)
+    await _edge(conn, frm, to)
+    after_frm, after_to = await _endpoint_versions(conn, frm, to)
+    assert after_frm != before_frm
+    assert after_to != before_to
+
+
+async def test_edge_archive_keeps_the_row_and_touches_both_endpoints(conn):
+    """Archive is an UPDATE: the edge stays readable and both endpoints' ETags move."""
     frm, to = await _two_assignments(conn)
     eid = await _edge(conn, frm, to)
-    baseline = await _max_change_id(conn)
+    before_frm, before_to = await _endpoint_versions(conn, frm, to)
     await conn.execute(
         "UPDATE role_assignment_relationships SET archived_at = NOW() WHERE id = $1", eid
     )
-    kinds = await conn.fetch(
-        """SELECT change_kind FROM entity_changes
-           WHERE id > $1 AND entity_type = 'role_assignment_relationship' AND entity_id = $2""",
-        baseline,
-        eid,
-    )
-    assert [r["change_kind"] for r in kinds] == ["updated"]
+    assert (await _edge_row(conn, eid))["archived_at"] is not None
+    after_frm, after_to = await _endpoint_versions(conn, frm, to)
+    assert after_frm != before_frm
+    assert after_to != before_to
 
 
 # --------------------------------------------------------------------------- #

@@ -8,6 +8,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [
     pytest.mark.integration,
@@ -1181,7 +1182,7 @@ async def test_rejected_on_identifier_of_archived_org(client, org_write_key, db)
         ubi_type_id,
         ubi_val,
     )
-    before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+    before = await row_version(db, "organizations", org_id)
 
     raw, _ = org_write_key
     r = await _post(
@@ -1212,20 +1213,15 @@ async def test_rejected_on_identifier_of_archived_org(client, org_write_key, db)
         )
         == 0
     )
-    assert (
-        await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_id=$1 AND id > $2", org_id, before
-        )
-        == 0
-    )
+    assert await row_version(db, "organizations", org_id) == before
 
 
-async def test_observation_active_change_emits_entity_change(client, org_write_key, db):
-    """An effective active toggle appends exactly one entity_changes 'updated' row."""
+async def test_observation_active_change_touches_org(client, org_write_key, db):
+    """An effective active toggle writes the org row."""
     org_id = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
     try:
-        before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+        before = await row_version(db, "organizations", org_id)
         raw, _ = org_write_key
         r = await _post(
             client,
@@ -1233,24 +1229,18 @@ async def test_observation_active_change_emits_entity_change(client, org_write_k
             {"identifier_type": "pm_org_id", "identifier_value": org_id, "active": False},
         )
         assert r.status_code == 200
-        rows = await db.fetch(
-            "SELECT change_kind FROM entity_changes"
-            " WHERE entity_id=$1 AND entity_type='organization' AND id > $2",
-            org_id,
-            before,
-        )
-        assert len(rows) == 1, f"expected 1 change row, got {len(rows)}"
-        assert rows[0]["change_kind"] == "updated"
+        assert await row_version(db, "organizations", org_id) != before
+        assert await db.fetchval("SELECT active FROM organizations WHERE id=$1", org_id) is False
     finally:
         await db.execute("DELETE FROM organizations WHERE id=$1", org_id)
 
 
-async def test_observation_active_noop_emits_no_entity_change(client, org_write_key, db):
-    """A redundant active assertion (value unchanged) emits no entity_changes row."""
+async def test_observation_active_noop_leaves_org_untouched(client, org_write_key, db):
+    """A redundant active assertion (value unchanged) writes nothing to the org row."""
     org_id = generate_id()
     await db.execute("INSERT INTO organizations (id, active) VALUES ($1, FALSE)", org_id)
     try:
-        before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+        before = await row_version(db, "organizations", org_id)
         raw, _ = org_write_key
         r = await _post(
             client,
@@ -1258,11 +1248,6 @@ async def test_observation_active_noop_emits_no_entity_change(client, org_write_
             {"identifier_type": "pm_org_id", "identifier_value": org_id, "active": False},
         )
         assert r.status_code == 200
-        rows = await db.fetch(
-            "SELECT 1 FROM entity_changes WHERE entity_id=$1 AND id > $2",
-            org_id,
-            before,
-        )
-        assert len(rows) == 0, f"expected no change rows for a no-op, got {len(rows)}"
+        assert await row_version(db, "organizations", org_id) == before
     finally:
         await db.execute("DELETE FROM organizations WHERE id=$1", org_id)

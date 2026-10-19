@@ -11,6 +11,7 @@ import pytest_asyncio
 
 from scripts.archive_legacy_legislator_roles import archive_legacy_legislator_roles
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [
     pytest.mark.integration,
@@ -541,7 +542,28 @@ async def test_unparseable_pdc_value_is_conflict_and_kept(db, orgs):
     assert await db.fetchval("SELECT entity_id FROM links WHERE id = $1", link) == legacy_assign
 
 
-async def test_migration_emits_outbox_events_for_target_and_person(db, orgs):
+async def _person_pdc_rows(db, person: str) -> tuple[int, int]:
+    """(filer identifiers, wa_pdc links) on the person."""
+    filers = await db.fetchval(
+        """
+        SELECT COUNT(*) FROM identifiers i
+        JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
+        WHERE t.slug = 'person_wa_pdc_filer' AND i.entity_id = $1
+        """,
+        person,
+    )
+    links = await db.fetchval(
+        """
+        SELECT COUNT(*) FROM links l
+        JOIN link_types lt ON lt.id = l.link_type_id
+        WHERE lt.slug = 'wa_pdc' AND l.entity_type = 'person' AND l.entity_id = $1
+        """,
+        person,
+    )
+    return filers, links
+
+
+async def test_migration_touches_target_and_person(db, orgs):
     person = await _person(db)
     legacy_role = await _legacy_role(db, orgs["senate"], "Senator, District 5")
     legacy_assign = await _assign(db, person, legacy_role)
@@ -550,27 +572,21 @@ async def test_migration_emits_outbox_events_for_target_and_person(db, orgs):
     await _link(db, legacy_assign, "https://sdc.wastateleg.org/test")
     await _role_pdc(db, legacy_assign, _PDC_URL)
 
-    async def _events(entity_id: str) -> int:
-        return await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_id = $1 AND change_kind = 'updated'",
-            entity_id,
-        )
-
-    target_before, person_before = await _events(target), await _events(person)
+    target_before = await row_version(db, "role_assignments", target)
+    person_before = await row_version(db, "people", person)
     await archive_legacy_legislator_roles(db, execute=True)
 
     # target gained links, person gained a filer identifier + wa_pdc link —
-    # both must surface on the outbox (observation.py convention)
-    assert await _events(target) > target_before
-    assert await _events(person) > person_before
+    # each insert's #327 touch trigger rewrites the parent row
+    assert await row_version(db, "role_assignments", target) != target_before
+    assert await row_version(db, "people", person) != person_before
 
 
-async def test_person_outbox_events_per_rescued_row(db, orgs):
+async def test_person_touched_by_rescue(db, orgs):
     person = await _person(db)
     # Two legacy assignments share one _PDC_URL, so the rescue inserts a single
     # filer identifier + a single wa_pdc link on the person (the second rescue
-    # dedups both). Under #327 each insert self-emits via its touch trigger →
-    # exactly two person 'updated' rows (identifier + link), not coalesced to one.
+    # dedups both); each insert touches the person via its #327 trigger.
     for district in (5, 7):
         legacy_role = await _legacy_role(db, orgs["senate"], f"Senator, District {district}")
         legacy_assign = await _assign(db, person, legacy_role)
@@ -578,23 +594,17 @@ async def test_person_outbox_events_per_rescued_row(db, orgs):
         await _assign(db, person, seat, current=True)
         await _role_pdc(db, legacy_assign, _PDC_URL)
 
-    before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_id = $1 AND change_kind = 'updated'",
-        person,
-    )
+    before = await row_version(db, "people", person)
     await archive_legacy_legislator_roles(db, execute=True)
-    after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_id = $1 AND change_kind = 'updated'",
-        person,
-    )
 
-    assert after == before + 2
+    assert await row_version(db, "people", person) != before
+    assert await _person_pdc_rows(db, person) == (1, 1)
 
 
-async def test_link_only_rescue_emits_single_person_event(db, orgs):
+async def test_link_only_rescue_touches_person(db, orgs):
     person = await _person(db)
     # filer identifier pre-exists → rescue inserts only the wa_pdc link, which
-    # self-emits one person 'updated' via trg_touch_entity_on_link_change (#327)
+    # touches the person via trg_touch_entity_on_link_change (#327)
     await db.execute(
         "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
         " VALUES ($1, $2, $3, $4)",
@@ -609,17 +619,11 @@ async def test_link_only_rescue_emits_single_person_event(db, orgs):
     await _assign(db, person, seat, current=True)
     await _role_pdc(db, legacy_assign, _PDC_URL)
 
-    before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_id = $1 AND change_kind = 'updated'",
-        person,
-    )
+    before = await row_version(db, "people", person)
     await archive_legacy_legislator_roles(db, execute=True)
-    after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_id = $1 AND change_kind = 'updated'",
-        person,
-    )
 
-    assert after == before + 1
+    assert await row_version(db, "people", person) != before
+    assert await _person_pdc_rows(db, person) == (1, 1)
 
 
 # ---------------------------------------------------------------------------

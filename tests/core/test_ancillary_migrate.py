@@ -4,7 +4,7 @@ Merge dedup hard-deletes duplicate role_assignments. Their polymorphic
 ancillary — links / contact_methods / field_confidence / identifiers, keyed on
 (entity_type='role_assignment', entity_id=<assignment_id>) with no FK — would be
 silently orphaned unless re-homed onto the surviving assignment first. These
-tests pin the re-point-or-dedup contract and the survivor outbox signal.
+tests pin the re-point-or-dedup contract and the survivor touch.
 """
 
 import asyncio
@@ -21,7 +21,7 @@ from src.core.ancillary_migrate import (
     rehome_role_ancillary,
 )
 from src.core.db import generate_id
-from tests.db_utils import trigger_disabled, until_lock_waiting
+from tests.db_utils import row_version, trigger_disabled, until_lock_waiting
 from tests.polymorphic_seeders import archived_entity
 
 pytestmark = [pytest.mark.integration]
@@ -221,105 +221,78 @@ async def test_identifier_scoped_to_role_assignment_type_only(db):
     assert await _entity_id(db, "identifiers", stray) == loser  # untouched
 
 
-# ── rehome_conflicting_assignment_ancillary (batch + outbox) ────────────────
+# ── rehome_conflicting_assignment_ancillary (batch + survivor touch) ───────
 
 
-async def test_batch_rehomes_pairs_and_emits_survivor_outbox(db):
+async def test_batch_rehomes_pairs_and_touches_survivor(db):
     loser, winner = await _assignment(db), await _assignment(db)
     await _add_contact(db, loser, "melanie.morgan@leg.wa.gov")
 
-    before = await db.fetchval(
-        "SELECT count(*) FROM entity_changes"
-        " WHERE entity_type='role_assignment' AND entity_id=$1 AND change_kind='updated'",
-        winner,
-    )
+    before = await row_version(db, "role_assignments", winner)
     await rehome_conflicting_assignment_ancillary(db, [(loser, winner)])
-    after = await db.fetchval(
-        "SELECT count(*) FROM entity_changes"
-        " WHERE entity_type='role_assignment' AND entity_id=$1 AND change_kind='updated'",
-        winner,
-    )
 
     assert await db.fetchval(
         "SELECT count(*) FROM contact_methods WHERE entity_type='role_assignment' AND entity_id=$1",
         winner,
     )
-    assert after == before + 1  # one survivor 'updated' signal
+    assert await row_version(db, "role_assignments", winner) != before  # touch trigger
 
 
-async def test_batch_no_outbox_when_only_dedup(db):
-    """Pure dedup (nothing moved) leaves the survivor row unchanged — no signal."""
+async def test_batch_no_touch_when_only_dedup(db):
+    """Pure dedup (nothing moved) leaves the survivor row unchanged."""
     loser, winner = await _assignment(db), await _assignment(db)
     await _add_contact(db, loser, "michelle.caldier@leg.wa.gov")
     await _add_contact(db, winner, "michelle.caldier@leg.wa.gov")
 
-    before = await db.fetchval(
-        "SELECT count(*) FROM entity_changes"
-        " WHERE entity_type='role_assignment' AND entity_id=$1 AND change_kind='updated'",
-        winner,
-    )
+    before = await row_version(db, "role_assignments", winner)
     await rehome_conflicting_assignment_ancillary(db, [(loser, winner)])
-    after = await db.fetchval(
-        "SELECT count(*) FROM entity_changes"
-        " WHERE entity_type='role_assignment' AND entity_id=$1 AND change_kind='updated'",
-        winner,
-    )
 
-    assert after == before  # nothing re-pointed → no outbox bump
+    assert await row_version(db, "role_assignments", winner) == before  # nothing re-pointed
 
 
-async def _ra_signals(db, aid) -> int:
-    return await db.fetchval(
-        "SELECT count(*) FROM entity_changes"
-        " WHERE entity_type='role_assignment' AND entity_id=$1 AND change_kind='updated'",
-        aid,
-    )
+async def test_batch_field_confidence_only_leaves_survivor_untouched(db):
+    """A field_confidence-only re-home moves the row but does not touch the survivor.
 
-
-async def test_batch_emits_survivor_signal_for_field_confidence_only(db):
-    """A field_confidence-only re-home still signals the survivor.
-
-    field_confidence has no touch trigger (#327), so its move is the one path
-    that must fall back to the gated manual emit in
-    ``rehome_conflicting_assignment_ancillary``. Guards against the gate being
-    inverted/emptied — a bug the contact-move test can't catch (the trigger
-    would still fire for it).
+    field_confidence has no touch trigger (#327) and appears in no detail
+    payload, so the move changes nothing a reader sees: the survivor's
+    ``updated_at`` and ETag stay put. The links test below is the contrast.
     """
     loser, winner = await _assignment(db), await _assignment(db)
     fid = await _add_fc(db, loser, "url", "fchash")
 
-    before = await _ra_signals(db, winner)
+    before = await row_version(db, "role_assignments", winner)
     await rehome_conflicting_assignment_ancillary(db, [(loser, winner)])
 
     assert await _entity_id(db, "field_confidence", fid) == winner  # re-pointed
-    # Exactly one manual survivor signal — no trigger, so no double either.
-    assert await _ra_signals(db, winner) == before + 1
+    assert await row_version(db, "role_assignments", winner) == before
 
 
-async def test_batch_emits_survivor_signal_for_import_provenance_only(db):
-    """import_provenance (append-only, trigger-less) move also signals the survivor."""
+async def test_batch_import_provenance_only_leaves_survivor_untouched(db):
+    """import_provenance (append-only, trigger-less) moves without touching the survivor."""
     loser, winner = await _assignment(db), await _assignment(db)
     pid = await _add_import_prov(db, loser)
 
-    before = await _ra_signals(db, winner)
+    before = await row_version(db, "role_assignments", winner)
     await rehome_conflicting_assignment_ancillary(db, [(loser, winner)])
 
     assert await _entity_id(db, "import_provenance", pid) == winner  # re-pointed wholesale
-    assert await _ra_signals(db, winner) == before + 1
+    assert await row_version(db, "role_assignments", winner) == before
 
 
-async def test_batch_contact_move_emits_exactly_one_no_double(db):
-    """A contact move signals via its touch trigger only — not trigger + manual.
+async def test_batch_links_move_touches_survivor(db):
+    """A links move touches the survivor through its touch trigger (#327).
 
-    Locks in that the gated manual emit does NOT also fire for a triggered table
-    (would be +2). Complements the field_confidence test above.
+    Contrast to the field_confidence test above: a triggered table's re-point
+    UPDATE bumps the survivor's ``updated_at``.
     """
     loser, winner = await _assignment(db), await _assignment(db)
-    await _add_contact(db, loser, "solo.contact@leg.wa.gov")
+    lid = await _add_link(db, loser, "https://solo.example/x")
 
-    before = await _ra_signals(db, winner)
+    before = await row_version(db, "role_assignments", winner)
     await rehome_conflicting_assignment_ancillary(db, [(loser, winner)])
-    assert await _ra_signals(db, winner) == before + 1  # trigger only, not doubled
+
+    assert await _entity_id(db, "links", lid) == winner
+    assert await row_version(db, "role_assignments", winner) != before
 
 
 # ── role-level ancillary (#326) ─────────────────────────────────────────────
@@ -356,28 +329,17 @@ async def _add_role_contact(db, rid, value):
     )
 
 
-async def _role_updated_signals(db, rid) -> int:
-    return await db.fetchval(
-        "SELECT count(*) FROM entity_changes"
-        " WHERE entity_type='role' AND entity_id=$1 AND change_kind='updated'",
-        rid,
-    )
-
-
-async def test_rehome_role_repoints_and_emits_signal(db):
+async def test_rehome_role_repoints_and_touches_survivor(db):
     loser, winner = await _role(db), await _role(db)
     await _add_role_link(db, loser, "https://loser.example/x")
     await _add_role_contact(db, loser, "loser@example.org")
-    # roles carry their own AFTER INSERT/UPDATE outbox trigger, so measure the
-    # helper's contribution as a delta over the baseline from role creation.
-    before = await _role_updated_signals(db, winner)
+    before = await row_version(db, "roles", winner)
 
     counts = await rehome_role_ancillary(db, loser, winner)
     assert counts["links"] == (1, 0)
     assert counts["contact_methods"] == (1, 0)
-    # #327: links/contact_methods now carry touch triggers, so each re-pointed
-    # row self-emits a survivor 'role' 'updated' — one per moved row (2 here),
-    # mirroring how entity_addresses already signals per re-homed address.
+    # #327: links/contact_methods carry touch triggers, so each re-pointed row
+    # bumps the survivor role's updated_at.
 
     assert (
         await db.fetchval(
@@ -391,19 +353,19 @@ async def test_rehome_role_repoints_and_emits_signal(db):
         )
         == 1
     )
-    assert await _role_updated_signals(db, winner) == before + 2
+    assert await row_version(db, "roles", winner) != before
 
 
-async def test_rehome_role_dedups_identical_and_skips_signal(db):
+async def test_rehome_role_dedups_identical_and_skips_touch(db):
     loser, winner = await _role(db), await _role(db)
     await _add_role_contact(db, loser, "dup@example.org")
     await _add_role_contact(db, winner, "dup@example.org")
-    before = await _role_updated_signals(db, winner)
+    before = await row_version(db, "roles", winner)
 
     counts = await rehome_role_ancillary(db, loser, winner)
     assert counts["contact_methods"] == (0, 1)  # deduped, not moved
-    # Pure dedup leaves the survivor row unchanged → no *additional* signal.
-    assert await _role_updated_signals(db, winner) == before
+    # Pure dedup leaves the survivor row unchanged.
+    assert await row_version(db, "roles", winner) == before
 
 
 async def test_delete_entity_ancillary_drops_role_rows(db):

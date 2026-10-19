@@ -10,9 +10,10 @@ sweep, after they had already sat in prod.
 The same silent-drift window exists for **functions and triggers** (#331): they
 are all ``CREATE OR REPLACE`` and self-heal on the next ``apply_schema`` (every
 ``systemctl restart power-map``), but between a partial apply / hand-applied
-hotfix and that restart, prod can run a stale body undetected. The change-feed
-trigger surface (~a dozen ``touch_parent_*`` functions + ``trg_touch_entity_*``
-triggers driving ``entity_changes``) is now load-bearing enough to guard.
+hotfix and that restart, prod can run a stale body undetected. The touch
+trigger surface (~a dozen ``touch_parent_*`` functions + ``trg_touch_*``
+triggers maintaining the ``updated_at`` every detail ETag keys on) is
+load-bearing enough to guard.
 
 This module is the reusable core of that sweep: snapshot every constraint,
 function, and trigger on a DB as ``{key: def}`` and diff a *reference* snapshot

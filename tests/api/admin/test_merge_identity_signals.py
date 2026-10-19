@@ -12,7 +12,7 @@ The contract these tests pin:
    row carrying `merged_into` = the survivor, so its detail GET answers `410` +
    `merged_into` (#607) — a rebind, not a bare drop.
 
-(A third clause, "subscriptions follow the entity", retired with the change feed
+(A third clause, "subscriptions follow the entity", retired with ``GET /changes``
 in #502.)
 """
 
@@ -221,17 +221,9 @@ async def test_org_merge_tombstones_dropped_duplicate_assignment(client, db):
     assert tomb is not None, "dropped assignment vanished with no tombstone"
     assert tomb["merged_into"] == survivor
 
-    change = await db.fetchrow(
-        "SELECT change_kind, merged_into FROM entity_changes"
-        " WHERE entity_type='role_assignment' AND entity_id=$1 AND change_kind='deleted'",
-        dropped,
-    )
-    assert change is not None, "no 'deleted' outbox row (the outbox retires in #651)"
-    assert change["merged_into"] == survivor
-
 
 async def test_org_merge_tombstones_emptied_loser_role(client, db):
-    """The loser role is hard-deleted; the feed learns which role replaced it."""
+    """The loser role is hard-deleted; its tombstone names the role that replaced it."""
     win_org, lose_org = await _org(db, "Role Tomb Win"), await _org(db, "Role Tomb Lose")
     win_role, lose_role = await _role(db, win_org), await _role(db, lose_org)
 
@@ -250,7 +242,7 @@ async def test_org_merge_tombstones_emptied_loser_role(client, db):
 
 
 async def test_role_merge_tombstones_and_preserves_ids(client, db):
-    """The org-detail role-merge route owes the same signals (#467)."""
+    """The org-detail role-merge route owes the same tombstones (#467)."""
     org = await _org(db, "Role Merge Signals Org")
     # Same-org role merge is not title-scoped: two distinct titles collapse into one.
     win_role, lose_role = await _role(db, org, "Chair"), await _role(db, org, "Chairman")

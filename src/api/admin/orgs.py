@@ -198,7 +198,7 @@ async def org_inline_active_post(
     Shares the archived + no-op guards with the public observation path via
     ``set_org_active`` (#241): the toggle is rejected with 409 on an archived org
     (the UI already disables the checkbox, so this only guards out-of-band POSTs)
-    and a redundant re-assertion is a true no-op (no entity_changes event). The
+    and a redundant re-assertion is a true no-op (no UPDATE, so no ETag change). The
     transaction holds the helper's ``FOR UPDATE`` lock until commit, keeping the
     archived check atomic against a concurrent archive. ``set_org_active`` is the
     single existence gate: a missing org raises OrgNotFound → 404.

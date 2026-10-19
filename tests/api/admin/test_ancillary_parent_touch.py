@@ -1,13 +1,15 @@
-"""Admin ancillary CRUD must emit a parent ``entity_changes`` 'updated' row (#327).
+"""Admin ancillary CRUD must touch the parent (#327).
 
-These are outcome tests: an admin create/update/delete of ``contact_methods`` /
-``links`` / ``identifiers`` must signal the parent, regardless of mechanism. #327
-makes that a DB touch-cascade trigger on ``contact_methods`` / ``links`` (all
-entity types) plus a ``role_assignment`` branch on the existing identifier
-trigger — the same model as ``entity_addresses`` — so every write path (admin,
-public observation, merge) signals uniformly and no admin-only app-layer emit is
-needed. Exercising a representative set of parent entity types per ancillary is
-sufficient; jurisdiction rides the identical polymorphic trigger as organization.
+Outcome tests: an admin create/update/delete of ``contact_methods`` / ``links``
+/ ``identifiers`` must bump the parent row's ``updated_at``, regardless of
+mechanism. #327 makes that a DB touch-cascade trigger on ``contact_methods`` /
+``links`` (all entity types) plus a ``role_assignment`` branch on the existing
+identifier trigger — the same model as ``entity_addresses`` — so every write
+path (admin, public observation, merge) touches uniformly and no admin-only
+app-layer touch is needed. Observable: the parent's ``row_version`` (``NOW()``
+is frozen inside the rollback transaction, so ``updated_at`` cannot answer).
+A representative set of parent entity types per ancillary is sufficient;
+jurisdiction rides the identical polymorphic trigger as organization.
 """
 
 import pytest
@@ -17,6 +19,7 @@ from httpx import ASGITransport, AsyncClient
 from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [pytest.mark.integration]
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
@@ -48,6 +51,14 @@ async def client(db):
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
+
+_TABLE = {
+    "organization": "organizations",
+    "person": "people",
+    "role": "roles",
+    "role_assignment": "role_assignments",
+}
 
 
 async def _make_entity(db, kind: str) -> tuple[str, str, str]:
@@ -89,31 +100,26 @@ async def _make_entity(db, kind: str) -> tuple[str, str, str]:
     raise ValueError(kind)
 
 
-async def _change_count(db, entity_type: str, entity_id: str) -> int:
-    return await db.fetchval(
-        "SELECT count(*) FROM entity_changes"
-        " WHERE entity_type=$1 AND entity_id=$2 AND change_kind='updated'",
-        entity_type,
-        entity_id,
-    )
+async def _version(db, entity_type: str, entity_id: str) -> str | None:
+    return await row_version(db, _TABLE[entity_type], entity_id)
 
 
 # ── contacts ─────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize("kind", ["organization", "person", "role", "role_assignment"])
-async def test_contacts_crud_emits_entity_change(client, db, kind):
+async def test_contacts_crud_touches_parent(client, db, kind):
     entity_id, entity_type, url = await _make_entity(db, kind)
 
     # create
-    before = await _change_count(db, entity_type, entity_id)
+    before = await _version(db, entity_type, entity_id)
     r = await client.post(
         f"{url}/contacts/",
         headers=HTMX_HEADERS,
         data={"contact_type": "email", "value": "a@example.gov"},
     )
     assert r.status_code == 200
-    assert await _change_count(db, entity_type, entity_id) == before + 1
+    assert await _version(db, entity_type, entity_id) != before
 
     cid = await db.fetchval(
         "SELECT id FROM contact_methods WHERE entity_type=$1 AND entity_id=$2",
@@ -122,65 +128,65 @@ async def test_contacts_crud_emits_entity_change(client, db, kind):
     )
 
     # update
-    before = await _change_count(db, entity_type, entity_id)
+    before = await _version(db, entity_type, entity_id)
     r = await client.post(
         f"{url}/contacts/{cid}/edit-row/",
         headers=HTMX_HEADERS,
         data={"value": "b@example.gov"},
     )
     assert r.status_code == 200
-    assert await _change_count(db, entity_type, entity_id) == before + 1
+    assert await _version(db, entity_type, entity_id) != before
 
     # delete
-    before = await _change_count(db, entity_type, entity_id)
+    before = await _version(db, entity_type, entity_id)
     r = await client.delete(f"{url}/contacts/{cid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
-    assert await _change_count(db, entity_type, entity_id) == before + 1
+    assert await _version(db, entity_type, entity_id) != before
 
 
 # ── links ────────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize("kind", ["organization", "person", "role", "role_assignment"])
-async def test_links_crud_emits_entity_change(client, db, kind):
+async def test_links_crud_touches_parent(client, db, kind):
     entity_id, entity_type, url = await _make_entity(db, kind)
     lt_id = await db.fetchval("SELECT id FROM link_types WHERE slug='website'")
 
     # create
-    before = await _change_count(db, entity_type, entity_id)
+    before = await _version(db, entity_type, entity_id)
     r = await client.post(
         f"{url}/links/",
         headers=HTMX_HEADERS,
         data={"url": "https://example.gov/a", "link_type_id": lt_id},
     )
     assert r.status_code == 200
-    assert await _change_count(db, entity_type, entity_id) == before + 1
+    assert await _version(db, entity_type, entity_id) != before
 
     lid = await db.fetchval(
         "SELECT id FROM links WHERE entity_type=$1 AND entity_id=$2", entity_type, entity_id
     )
 
     # update
-    before = await _change_count(db, entity_type, entity_id)
+    before = await _version(db, entity_type, entity_id)
     r = await client.post(
         f"{url}/links/{lid}/edit-row/",
         headers=HTMX_HEADERS,
         data={"url": "https://example.gov/b", "link_type_id": lt_id},
     )
     assert r.status_code == 200
-    assert await _change_count(db, entity_type, entity_id) == before + 1
+    assert await _version(db, entity_type, entity_id) != before
 
     # delete
-    before = await _change_count(db, entity_type, entity_id)
+    before = await _version(db, entity_type, entity_id)
     r = await client.delete(f"{url}/links/{lid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
-    assert await _change_count(db, entity_type, entity_id) == before + 1
+    assert await _version(db, entity_type, entity_id) != before
 
 
 # ── identifiers ──────────────────────────────────────────────────────────────
 
 
-async def test_identifiers_role_assignment_crud_emits_entity_change(client, db):
+async def test_identifiers_role_assignment_crud_touches_parent(client, db):
     """role_assignment is the identifier scope the touch trigger gained in #327."""
     entity_id, entity_type, url = await _make_entity(db, "role_assignment")
     type_id = await db.fetchval(
@@ -188,47 +194,45 @@ async def test_identifiers_role_assignment_crud_emits_entity_change(client, db):
         " WHERE entity_type='role_assignment' AND slug='role_wa_pdc'"
     )
 
-    before = await _change_count(db, entity_type, entity_id)
+    before = await _version(db, entity_type, entity_id)
     r = await client.post(
         f"{url}/identifiers/",
         headers=HTMX_HEADERS,
         data={"entity_identifier_type_id": type_id, "value": "12345"},
     )
     assert r.status_code == 200
-    assert await _change_count(db, entity_type, entity_id) == before + 1
+    assert await _version(db, entity_type, entity_id) != before
 
     iid = await db.fetchval("SELECT id FROM identifiers WHERE entity_id=$1", entity_id)
 
-    before = await _change_count(db, entity_type, entity_id)
+    before = await _version(db, entity_type, entity_id)
     r = await client.post(
         f"{url}/identifiers/{iid}/edit-row/",
         headers=HTMX_HEADERS,
         data={"entity_identifier_type_id": type_id, "value": "67890"},
     )
     assert r.status_code == 200
-    assert await _change_count(db, entity_type, entity_id) == before + 1
+    assert await _version(db, entity_type, entity_id) != before
 
-    before = await _change_count(db, entity_type, entity_id)
+    before = await _version(db, entity_type, entity_id)
     r = await client.delete(f"{url}/identifiers/{iid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
-    assert await _change_count(db, entity_type, entity_id) == before + 1
+    assert await _version(db, entity_type, entity_id) != before
 
 
-async def test_identifiers_org_emits_exactly_once_no_double(client, db):
-    """organization identifiers were already trigger-covered — a single mutation
-    emits exactly once, not twice (guards against a stray second app-layer emit)."""
+async def test_identifiers_org_touches_parent(client, db):
+    """organization identifiers were trigger-covered before #327 — still touched."""
     entity_id, entity_type, url = await _make_entity(db, "organization")
     type_id = await db.fetchval(
         "SELECT id FROM entity_identifier_types"
         " WHERE entity_type='organization' AND NOT is_internal ORDER BY slug LIMIT 1"
     )
 
-    before = await _change_count(db, entity_type, entity_id)
+    before = await _version(db, entity_type, entity_id)
     r = await client.post(
         f"{url}/identifiers/",
         headers=HTMX_HEADERS,
         data={"entity_identifier_type_id": type_id, "value": "ORG-1"},
     )
     assert r.status_code == 200
-    # Exactly one signal (from the trigger), not two.
-    assert await _change_count(db, entity_type, entity_id) == before + 1
+    assert await _version(db, entity_type, entity_id) != before

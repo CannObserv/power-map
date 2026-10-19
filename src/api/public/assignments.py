@@ -10,7 +10,6 @@ from src.api.public.deps import (
     AuthedKey,
     require_api_key,
     require_scope,
-    stamped_transaction,
 )
 from src.api.public.etag import conditional_response, make_etag
 from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
@@ -228,7 +227,7 @@ async def submit_assignment_observation(
         if req.op == "retract":
             if not is_pm_native:
                 raise ObservationRejected("invalid")
-            async with stamped_transaction(db, auth.key_id):
+            async with db.transaction():
                 disposition = await retract_assignment(
                     db,
                     req.identifier_value,
@@ -237,7 +236,7 @@ async def submit_assignment_observation(
                     source_key_id=auth.key_id,
                 )
             # A retract against an already-archived tenure is answered
-            # `auto-attached` (idempotent, no outbox emit). #477: say so — the
+            # `auto-attached` (idempotent, no write). #477: say so — the
             # producer is re-emitting a retract PM already applied.
             return ObservationResponse(
                 disposition=disposition.value,
@@ -248,7 +247,7 @@ async def submit_assignment_observation(
         # Resolution + all writes share one transaction so any rejection or
         # constraint failure rolls the whole observation back — nothing
         # half-written (a REJECTED disposition is raised to trigger rollback).
-        async with stamped_transaction(db, auth.key_id):
+        async with db.transaction():
             if is_pm_native:
                 assignment_id, _, disposition, reason = await resolve_entity(
                     db, "pm_assignment_id", req.identifier_value

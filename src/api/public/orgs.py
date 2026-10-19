@@ -12,7 +12,6 @@ from src.api.public.deps import (
     identifier_filter,
     require_api_key,
     require_scope,
-    stamped_transaction,
 )
 from src.api.public.etag import conditional_response, if_none_match_matches, make_etag
 from src.api.public.events import (
@@ -83,7 +82,7 @@ async def submit_org_observation(
         # people route for the full rationale: resolve_entity creates on an
         # unseen identifier, so running it outside left a bare Organization committed
         # behind a "rejected" response that withheld entity_id.
-        async with stamped_transaction(db, auth.key_id):
+        async with db.transaction():
             entity_id, entity_type, disposition, reason = await resolve_entity(
                 db, request.identifier_type, request.identifier_value
             )
@@ -204,7 +203,7 @@ async def submit_org_event_observations(
     if not exists:
         raise HTTPException(status_code=404, detail="organization not found")
 
-    async with stamped_transaction(db, auth.key_id):
+    async with db.transaction():
         results = await apply_event_observations(
             db, org_id, "organization", auth.key_id, request.events
         )

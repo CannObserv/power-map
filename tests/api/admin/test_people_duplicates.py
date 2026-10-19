@@ -1105,13 +1105,10 @@ async def test_merge_deduplicates_shared_person_contact(client, db):
     assert {r["value"] for r in rows} == {"+13605550100", "+13605550200"}
 
 
-async def test_person_merge_entity_changes_records_merged_into(client, db):
-    """POST merge writes a deleted entity_changes row with merged_into=winner_id."""
+async def test_person_merge_tombstone_records_merged_into(client, db):
+    """POST merge writes the loser's tombstone with merged_into=winner_id."""
     winner_id = await _make_person(db, "Merged-Into Winner Person")
     loser_id = await _make_person(db, "Merged-Into Loser Person")
-    # must follow _make_person calls — their 'updated' events must be below this cursor
-    before_seq = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
-
     response = await client.post(
         f"/admin/people/{winner_id}/merge/{loser_id}/",
         headers=AUTH_HEADERS,
@@ -1120,14 +1117,10 @@ async def test_person_merge_entity_changes_records_merged_into(client, db):
     assert response.status_code == 303
 
     row = await db.fetchrow(
-        "SELECT change_kind, merged_into FROM entity_changes"
-        " WHERE entity_id=$1 AND id > $2"
-        " ORDER BY id DESC LIMIT 1",
+        "SELECT merged_into FROM deleted_entities WHERE entity_type='person' AND entity_id=$1",
         loser_id,
-        before_seq,
     )
     assert row is not None
-    assert row["change_kind"] == "deleted"
     assert row["merged_into"] == winner_id
 
 

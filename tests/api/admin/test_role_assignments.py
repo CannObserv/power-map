@@ -389,7 +389,7 @@ async def test_hard_delete_archived_ra(client, db, ra_id):
 
 async def test_hard_delete_archived_ra_writes_tombstone(client, db, ra_id):
     """Hard delete of an archived role assignment writes a deleted_entities
-    tombstone and propagates a 'deleted' entity_changes row (issue #277)."""
+    tombstone (issue #277)."""
     await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
     response = await client.delete(
         f"/admin/role-assignments/{ra_id}/",
@@ -400,14 +400,6 @@ async def test_hard_delete_archived_ra_writes_tombstone(client, db, ra_id):
     assert (
         await db.fetchval(
             "SELECT 1 FROM deleted_entities WHERE entity_type='role_assignment' AND entity_id=$1",
-            ra_id,
-        )
-        == 1
-    )
-    assert (
-        await db.fetchval(
-            "SELECT 1 FROM entity_changes"
-            " WHERE entity_type='role_assignment' AND entity_id=$1 AND change_kind='deleted'",
             ra_id,
         )
         == 1

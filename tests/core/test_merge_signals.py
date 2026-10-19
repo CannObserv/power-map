@@ -4,7 +4,7 @@ The route-level tests exercise the helper incidentally, through whichever merge
 path calls it. These pin the contract directly: what it does with an empty pair
 list, what it rejects, and what it does on a second application — the properties
 a caller relies on but no single merge test asserts. (The subscription mirror
-tested beside it retired with the change feed, #502.)
+once tested beside it retired in #502.)
 """
 
 import pytest
@@ -42,8 +42,8 @@ async def org_pair(db):
 # ---------------------------------------------------------------------------
 
 
-async def test_tombstone_writes_the_row_and_the_outbox_signal(db, org_pair):
-    """One `deleted_entities` row per pair; its INSERT trigger emits the outbox row."""
+async def test_tombstone_writes_the_row(db, org_pair):
+    """One `deleted_entities` row per pair, naming the winner."""
     loser, winner = org_pair
     await record_merge_tombstones(db, "organization", [(loser, winner)])
 
@@ -51,13 +51,6 @@ async def test_tombstone_writes_the_row_and_the_outbox_signal(db, org_pair):
         await db.fetchval(
             "SELECT merged_into FROM deleted_entities WHERE entity_type='organization'"
             " AND entity_id=$1",
-            loser,
-        )
-        == winner
-    )
-    assert (
-        await db.fetchval(
-            "SELECT merged_into FROM entity_changes WHERE entity_id=$1 AND change_kind='deleted'",
             loser,
         )
         == winner

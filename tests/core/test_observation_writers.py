@@ -40,6 +40,7 @@ from src.core.observation import (
     write_pronouns,
     write_role_assignments,
 )
+from tests.db_utils import row_version
 
 pytestmark = [
     pytest.mark.integration,
@@ -904,19 +905,15 @@ async def test_write_links_by_id(db, person_id):
     assert rows[0]["link_type_id"] == lt["id"]
 
 
-async def test_write_links_insert_writes_entity_changes(db):
-    """Initial INSERT of a link writes an entity_changes row."""
+async def test_write_links_insert_touches_parent(db):
+    """Initial INSERT of a link touches the parent person row."""
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
-    before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
-    )
+    before = await row_version(db, "people", pid)
     link = ObservationLink(url="https://example.com/new", link_type_slug="website")
     await write_links(db, pid, "person", [link])
-    after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
-    )
-    assert after - before == 1
+    after = await row_version(db, "people", pid)
+    assert after != before
 
 
 # ---------------------------------------------------------------------------
@@ -964,30 +961,24 @@ async def test_write_contact_methods_email(db, person_id):
     assert rows[0]["value"].endswith("@example.com")
 
 
-async def test_write_contact_methods_insert_writes_entity_changes(db):
-    """Initial INSERT of a contact method writes an entity_changes row."""
+async def test_write_contact_methods_insert_touches_parent(db):
+    """Initial INSERT of a contact method touches the parent person row."""
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
-    before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
-    )
+    before = await row_version(db, "people", pid)
     cm = ObservationContactMethod(contact_type="phone", value="(206) 555-0100")
     await write_contact_methods(db, pid, "person", [cm])
-    after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
-    )
-    assert after - before == 1
+    after = await row_version(db, "people", pid)
+    assert after != before
 
 
 async def test_write_contact_methods_null_fill_updates_label(db):
-    """display_label NULL-filled from re-observation; entity_changes row written."""
+    """display_label NULL-filled from re-observation; parent row touched."""
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
     cm1 = ObservationContactMethod(contact_type="phone", value="(206) 555-0101")
     await write_contact_methods(db, pid, "person", [cm1])
-    before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
-    )
+    before = await row_version(db, "people", pid)
     cm2 = ObservationContactMethod(
         contact_type="phone", value="(206) 555-0101", display_label="Main"
     )
@@ -996,24 +987,20 @@ async def test_write_contact_methods_null_fill_updates_label(db):
         "SELECT display_label FROM contact_methods WHERE entity_type='person' AND entity_id=$1",
         pid,
     )
-    after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
-    )
+    after = await row_version(db, "people", pid)
     assert row["display_label"] == "Main"
-    assert after - before == 1
+    assert after != before
 
 
 async def test_write_contact_methods_existing_label_not_overwritten(db):
-    """Non-NULL display_label is not overwritten; no entity_changes row written."""
+    """Non-NULL display_label is not overwritten; parent row untouched."""
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
     cm1 = ObservationContactMethod(
         contact_type="phone", value="(206) 555-0102", display_label="Office"
     )
     await write_contact_methods(db, pid, "person", [cm1])
-    before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
-    )
+    before = await row_version(db, "people", pid)
     cm2 = ObservationContactMethod(
         contact_type="phone", value="(206) 555-0102", display_label="Mobile"
     )
@@ -1022,51 +1009,41 @@ async def test_write_contact_methods_existing_label_not_overwritten(db):
         "SELECT display_label FROM contact_methods WHERE entity_type='person' AND entity_id=$1",
         pid,
     )
-    after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
-    )
+    after = await row_version(db, "people", pid)
     assert row["display_label"] == "Office"
-    assert after - before == 0
+    assert after == before
 
 
 async def test_write_contact_methods_null_fill_idempotent(db):
-    """Second re-observation after label already filled → no new entity_changes."""
+    """Second re-observation after label already filled → parent row untouched."""
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
     cm1 = ObservationContactMethod(contact_type="phone", value="(206) 555-0103")
     await write_contact_methods(db, pid, "person", [cm1])
     cm2 = ObservationContactMethod(contact_type="phone", value="(206) 555-0103", display_label="WA")
     await write_contact_methods(db, pid, "person", [cm2])
-    before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
-    )
+    before = await row_version(db, "people", pid)
     await write_contact_methods(db, pid, "person", [cm2])
-    after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
-    )
-    assert after - before == 0
+    after = await row_version(db, "people", pid)
+    assert after == before
 
 
 async def test_write_contact_methods_empty_string_label_skipped(db):
-    """Empty string display_label is not written; no entity_changes row emitted."""
+    """Empty string display_label is not written; parent row untouched."""
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
     cm1 = ObservationContactMethod(contact_type="phone", value="(206) 555-0104")
     await write_contact_methods(db, pid, "person", [cm1])
-    before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
-    )
+    before = await row_version(db, "people", pid)
     cm2 = ObservationContactMethod(contact_type="phone", value="(206) 555-0104", display_label="")
     await write_contact_methods(db, pid, "person", [cm2])
     row = await db.fetchrow(
         "SELECT display_label FROM contact_methods WHERE entity_type='person' AND entity_id=$1",
         pid,
     )
-    after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='person' AND entity_id=$1", pid
-    )
+    after = await row_version(db, "people", pid)
     assert row["display_label"] is None
-    assert after - before == 0
+    assert after == before
 
 
 async def test_write_contact_methods_initial_empty_string_stored_as_null(db):
@@ -1122,33 +1099,24 @@ async def test_write_addresses_duplicate_noop(db, org_id, local_address_normaliz
     assert len(rows) == 1
 
 
-async def test_write_addresses_insert_writes_entity_changes(db, local_address_normalizer):
-    """Initial INSERT of an address writes an entity_changes row."""
+async def test_write_addresses_insert_touches_parent(db, local_address_normalizer):
+    """Initial INSERT of an address touches the parent org row."""
     oid = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
-    before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-        oid,
-    )
+    before = await row_version(db, "organizations", oid)
     addr = ObservationAddress(raw_input="456 Pine St, Seattle, WA 98101", address_type="physical")
     await write_addresses(db, oid, "organization", [addr])
-    after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-        oid,
-    )
-    assert after - before == 1
+    after = await row_version(db, "organizations", oid)
+    assert after != before
 
 
 async def test_write_addresses_null_fill_updates_display_name(db, local_address_normalizer):
-    """display_name NULL-filled from re-observation; entity_changes row written."""
+    """display_name NULL-filled from re-observation; parent row touched."""
     oid = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
     addr1 = ObservationAddress(raw_input="789 Oak Ave, Seattle, WA 98101", address_type="mailing")
     await write_addresses(db, oid, "organization", [addr1])
-    before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-        oid,
-    )
+    before = await row_version(db, "organizations", oid)
     addr2 = ObservationAddress(
         raw_input="789 Oak Ave, Seattle, WA 98101", address_type="mailing", display_name="HQ"
     )
@@ -1158,26 +1126,20 @@ async def test_write_addresses_null_fill_updates_display_name(db, local_address_
         " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
         oid,
     )
-    after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-        oid,
-    )
+    after = await row_version(db, "organizations", oid)
     assert row["display_name"] == "HQ"
-    assert after - before == 1
+    assert after != before
 
 
 async def test_write_addresses_existing_display_name_not_overwritten(db, local_address_normalizer):
-    """Non-NULL display_name is not overwritten; no entity_changes row written."""
+    """Non-NULL display_name is not overwritten; parent row untouched."""
     oid = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
     addr1 = ObservationAddress(
         raw_input="321 Elm St, Seattle, WA 98101", address_type="mailing", display_name="Branch"
     )
     await write_addresses(db, oid, "organization", [addr1])
-    before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-        oid,
-    )
+    before = await row_version(db, "organizations", oid)
     addr2 = ObservationAddress(
         raw_input="321 Elm St, Seattle, WA 98101", address_type="mailing", display_name="HQ"
     )
@@ -1187,16 +1149,13 @@ async def test_write_addresses_existing_display_name_not_overwritten(db, local_a
         " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
         oid,
     )
-    after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-        oid,
-    )
+    after = await row_version(db, "organizations", oid)
     assert row["display_name"] == "Branch"
-    assert after - before == 0
+    assert after == before
 
 
 async def test_write_addresses_null_fill_idempotent(db, local_address_normalizer):
-    """Second re-observation after display_name already filled → no new entity_changes."""
+    """Second re-observation after display_name already filled → parent row untouched."""
     oid = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
     addr1 = ObservationAddress(raw_input="654 Maple Dr, Seattle, WA 98101", address_type="other")
@@ -1205,28 +1164,19 @@ async def test_write_addresses_null_fill_idempotent(db, local_address_normalizer
         raw_input="654 Maple Dr, Seattle, WA 98101", address_type="other", display_name="Annex"
     )
     await write_addresses(db, oid, "organization", [addr2])
-    before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-        oid,
-    )
+    before = await row_version(db, "organizations", oid)
     await write_addresses(db, oid, "organization", [addr2])
-    after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-        oid,
-    )
-    assert after - before == 0
+    after = await row_version(db, "organizations", oid)
+    assert after == before
 
 
 async def test_write_addresses_empty_string_display_name_skipped(db, local_address_normalizer):
-    """Empty string display_name is not written; no entity_changes row emitted."""
+    """Empty string display_name is not written; parent row untouched."""
     oid = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
     addr1 = ObservationAddress(raw_input="987 Cedar Rd, Seattle, WA 98101", address_type="mailing")
     await write_addresses(db, oid, "organization", [addr1])
-    before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-        oid,
-    )
+    before = await row_version(db, "organizations", oid)
     addr2 = ObservationAddress(
         raw_input="987 Cedar Rd, Seattle, WA 98101", address_type="mailing", display_name=""
     )
@@ -1236,12 +1186,9 @@ async def test_write_addresses_empty_string_display_name_skipped(db, local_addre
         " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
         oid,
     )
-    after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='organization' AND entity_id=$1",
-        oid,
-    )
+    after = await row_version(db, "organizations", oid)
     assert row["display_name"] is None
-    assert after - before == 0
+    assert after == before
 
 
 async def test_write_addresses_initial_empty_string_stored_as_null(db, local_address_normalizer):
@@ -1658,10 +1605,7 @@ async def test_update_assignment_fields_identical_claims_unowned_row(
         role_id,
         date(2013, 1, 14),
     )
-    changes_before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='role_assignment' AND entity_id=$1",
-        ra_id,
-    )
+    version_before = await row_version(db, "role_assignments", ra_id)
 
     claimed = await update_assignment_fields(
         db, ra_id, start_date=date(2013, 1, 14), source_key_id=api_key_id
@@ -1677,19 +1621,15 @@ async def test_update_assignment_fields_identical_claims_unowned_row(
     assert row["start_date"] == date(2013, 1, 14)
     assert row["end_date"] is None
     assert row["is_current"] is True
-    # A claim is a real change: the #327 touch trigger fires, so a subscriber
-    # sees the provenance stamp like any other update. The BIGSERIAL outbox is
-    # the pin, NOT updated_at — set_updated_at() writes now(), which is
-    # transaction-start time and therefore constant across the whole test under
-    # the rollback fixture. The INSERT above and this UPDATE get the same
-    # microsecond no matter what the code does, so a comparison there can only
-    # ever be vacuous or wrong (it was wrong). Same reasoning as
-    # `_outbox_count` in tests/api/public/test_observations_assignments.py.
-    changes_after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='role_assignment' AND entity_id=$1",
-        ra_id,
-    )
-    assert changes_after == changes_before + 1
+    # A claim is a real change: the row is UPDATEd, so its ETag moves like any
+    # other update. The row version (ctid) is the pin, NOT updated_at —
+    # set_updated_at() writes now(), which is transaction-start time and
+    # therefore constant across the whole test under the rollback fixture. The
+    # INSERT above and this UPDATE get the same microsecond no matter what the
+    # code does, so a comparison there can only ever be vacuous or wrong (it
+    # was wrong). See `row_version` in tests/db_utils.py.
+    version_after = await row_version(db, "role_assignments", ra_id)
+    assert version_after != version_before
 
 
 async def test_update_assignment_fields_identical_same_source_stays_quiet(
@@ -1706,26 +1646,20 @@ async def test_update_assignment_fields_identical_same_source_stays_quiet(
         date(2013, 1, 14),
         api_key_id,
     )
-    changes_before = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='role_assignment' AND entity_id=$1",
-        ra_id,
-    )
+    version_before = await row_version(db, "role_assignments", ra_id)
 
     claimed = await update_assignment_fields(
         db, ra_id, start_date=date(2013, 1, 14), source_key_id=api_key_id
     )
 
     assert claimed is False
-    # "Wrote nothing" is pinned by the outbox, again not by updated_at: the
-    # trigger is unconditional, so an UPDATE of any kind would emit a row here.
+    # "Wrote nothing" is pinned by the row version, again not by updated_at:
+    # an UPDATE of any kind writes a new tuple, so its ctid would move here.
     # An `updated_at` equality check would have passed whether or not the row was
     # written — transaction-constant now() makes it vacuous in the no-op
     # direction exactly as it makes it unsatisfiable in the claim direction.
-    changes_after = await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='role_assignment' AND entity_id=$1",
-        ra_id,
-    )
-    assert changes_after == changes_before
+    version_after = await row_version(db, "role_assignments", ra_id)
+    assert version_after == version_before
     owner = await db.fetchval("SELECT source_key_id FROM role_assignments WHERE id=$1", ra_id)
     assert owner == api_key_id
 
@@ -2281,7 +2215,6 @@ async def test_heal_survives_concurrent_slot_claim(db, db_pool):
             # still open (CR5 #46).
             await _settle_racer(tr, task, committed=racer_committed)
             await other.execute("DELETE FROM person_names WHERE person_id=$1", pid)
-            await other.execute("DELETE FROM entity_changes WHERE entity_id=$1", pid)
             await other.execute("DELETE FROM people WHERE id=$1", pid)
 
 
@@ -2364,5 +2297,4 @@ async def test_write_names_person_insert_falls_back_when_slot_lost(db_pool):
             # also drops the person_name_parts row, which cascades from it.
             await obs_tr.rollback()
             await other.execute("DELETE FROM person_names WHERE person_id=$1", pid)
-            await other.execute("DELETE FROM entity_changes WHERE entity_id=$1", pid)
             await other.execute("DELETE FROM people WHERE id=$1", pid)

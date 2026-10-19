@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [pytest.mark.integration]
 
@@ -17,14 +18,6 @@ _INSERT_AFF = (
     "INSERT INTO organization_jurisdiction_affiliations"
     " (id, organization_id, jurisdiction_id, affiliation_type_id) VALUES ($1,$2,$3,$4)"
 )
-
-
-async def _jurisdiction_change_count(conn, jurisdiction_id):
-    """Count change-feed rows for a jurisdiction on the given connection."""
-    return await conn.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_type='jurisdiction' AND entity_id=$1",
-        jurisdiction_id,
-    )
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -211,30 +204,28 @@ async def test_org_affiliation_delete(client, jur_and_org, aff_type_id, db):
 
 
 # ---------------------------------------------------------------------------
-# Change-feed propagation to the jurisdiction side (touch trigger)
+# Touch propagation to the jurisdiction side (touch trigger)
 # ---------------------------------------------------------------------------
 
 
-async def test_affiliation_add_emits_jurisdiction_change_feed(client, jur_and_org, aff_type_id, db):
-    before = await _jurisdiction_change_count(db, jur_and_org["jur"])
+async def test_affiliation_add_touches_jurisdiction(client, jur_and_org, aff_type_id, db):
+    before = await row_version(db, "jurisdictions", jur_and_org["jur"])
     r = await client.post(
         f"/admin/jurisdictions/{jur_and_org['jur']}/affiliations/",
         headers=HX,
         data={"organization_id": jur_and_org["org"], "affiliation_type_id": aff_type_id},
     )
     assert r.status_code == 200
-    # the affiliated jurisdiction (not just the org) surfaces on the change feed
-    assert await _jurisdiction_change_count(db, jur_and_org["jur"]) > before
+    # the affiliated jurisdiction (not just the org) is touched
+    assert await row_version(db, "jurisdictions", jur_and_org["jur"]) != before
 
 
-async def test_affiliation_delete_emits_jurisdiction_change_feed(
-    client, jur_and_org, aff_type_id, db
-):
+async def test_affiliation_delete_touches_jurisdiction(client, jur_and_org, aff_type_id, db):
     aid = generate_id()
     await db.execute(_INSERT_AFF, aid, jur_and_org["org"], jur_and_org["jur"], aff_type_id)
-    before = await _jurisdiction_change_count(db, jur_and_org["jur"])
+    before = await row_version(db, "jurisdictions", jur_and_org["jur"])
     r = await client.request(
         "DELETE", f"/admin/orgs/{jur_and_org['org']}/jurisdiction-affiliations/{aid}/", headers=HX
     )
     assert r.status_code == 200
-    assert await _jurisdiction_change_count(db, jur_and_org["jur"]) > before
+    assert await row_version(db, "jurisdictions", jur_and_org["jur"]) != before

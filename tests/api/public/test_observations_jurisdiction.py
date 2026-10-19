@@ -7,6 +7,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [
     pytest.mark.integration,
@@ -431,7 +432,7 @@ async def test_rejected_on_identifier_of_archived_jurisdiction(client, jur_write
         eit_id,
         ocd,
     )
-    before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+    before = await row_version(db, "jurisdictions", jur_id)
 
     raw, _ = jur_write_key
     r = await _post(
@@ -455,12 +456,7 @@ async def test_rejected_on_identifier_of_archived_jurisdiction(client, jur_write
         )
         == 0
     )
-    assert (
-        await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_id=$1 AND id > $2", jur_id, before
-        )
-        == 0
-    )
+    assert await row_version(db, "jurisdictions", jur_id) == before
 
 
 async def test_slug_collision_returns_rejected(client, jur_write_key, db):

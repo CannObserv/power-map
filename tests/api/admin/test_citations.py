@@ -11,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [pytest.mark.integration]
 
@@ -284,25 +285,16 @@ async def test_entity_event_inline_panel_and_create(client, db):
 
 
 async def test_person_name_citation_touches_owning_person_via_admin(client, db):
-    # Admin create on a name self-emits the owning person's 'updated' signal (trigger).
+    # Admin create on a name touches the owning person (trigger).
     nid = await _seed_name(db)
     pid = await db.fetchval("SELECT person_id FROM person_names WHERE id=$1", nid)
-    before = await db.fetchval(
-        "SELECT count(*) FROM entity_changes WHERE entity_type='person'"
-        " AND entity_id=$1 AND change_kind='updated'",
-        pid,
-    )
+    before = await row_version(db, "people", pid)
     await client.post(
         f"/admin/person-names/{nid}/citations/",
         headers=HTMX,
         data={"field_name": "name", "url": "https://s/n"},
     )
-    after = await db.fetchval(
-        "SELECT count(*) FROM entity_changes WHERE entity_type='person'"
-        " AND entity_id=$1 AND change_kind='updated'",
-        pid,
-    )
-    assert after > before
+    assert await row_version(db, "people", pid) != before
 
 
 async def test_name_and_event_rows_show_cite_button(client, db):

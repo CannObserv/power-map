@@ -8,6 +8,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [
     pytest.mark.integration,
@@ -1105,16 +1106,6 @@ async def test_attach_matching_values_nothing_unapplied(client, write_key, obs_e
 # ---------------------------------------------------------------------------
 
 
-async def _outbox_count(db, assignment_id):
-    """entity_changes rows for an assignment — the BIGSERIAL outbox is a true
-    in-transaction observable (unlike now(), which is transaction-constant under
-    the rollback client, so updated_at can't distinguish a bump from a no-op)."""
-    return await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_id=$1 AND entity_type='role_assignment'",
-        assignment_id,
-    )
-
-
 async def _seed_assignment(client, raw, db, obs_entities, start_date, **extra):
     """Create an assignment on a dedicated role so the test owns its identity slot."""
     role_id = generate_id()
@@ -1152,7 +1143,7 @@ async def test_retract_archives_assignment(client, write_key, obs_entities, db):
     raw, _ = write_key
     aid, _ = await _seed_assignment(client, raw, db, obs_entities, "2001-01-08")
 
-    before = await _outbox_count(db, aid)
+    before = await row_version(db, "role_assignments", aid)
     r = await _post(client, raw, _retract(aid))
     assert r.status_code == 200, r.text
     body = r.json()
@@ -1162,23 +1153,22 @@ async def test_retract_archives_assignment(client, write_key, obs_entities, db):
 
     archived = await db.fetchval("SELECT archived_at FROM role_assignments WHERE id=$1", aid)
     assert archived is not None
-    # the archive is an UPDATE → trg_entity_changes_role_assignments → outbox row
-    # (subscribers mirror archived_at and drop the anchor)
-    assert await _outbox_count(db, aid) > before
+    # the archive is an UPDATE → new row version
+    assert await row_version(db, "role_assignments", aid) != before
 
 
-async def test_retract_re_emit_is_noop_no_outbox(client, write_key, obs_entities, db):
-    """Re-retracting an already-archived assignment → auto-attached, no new outbox row.
+async def test_retract_re_emit_is_noop_no_touch(client, write_key, obs_entities, db):
+    """Re-retracting an already-archived assignment → auto-attached, row not touched.
 
     A stateful producer keeps sending the retract every cycle; the second one must
-    skip the UPDATE (no producer<->PM ping-pong) — proven by a steady outbox count.
+    skip the UPDATE (no producer<->PM ping-pong) — proven by a steady row version.
     """
     raw, _ = write_key
     aid, _ = await _seed_assignment(client, raw, db, obs_entities, "2002-01-14")
 
     r1 = await _post(client, raw, _retract(aid))
     assert r1.json()["disposition"] == "retracted"
-    after_first = await _outbox_count(db, aid)
+    after_first = await row_version(db, "role_assignments", aid)
 
     r2 = await _post(client, raw, _retract(aid))
     assert r2.status_code == 200, r2.text
@@ -1188,7 +1178,7 @@ async def test_retract_re_emit_is_noop_no_outbox(client, write_key, obs_entities
     # #477: the re-emitted retract is answered "auto-attached" too. Without the
     # flag a producer cannot tell that from a fresh attach to a live row.
     assert body["attached_archived"] is True
-    assert await _outbox_count(db, aid) == after_first  # no-op, no emit
+    assert await row_version(db, "role_assignments", aid) == after_first  # no-op
 
 
 async def test_retract_without_pm_assignment_id_invalid(client, write_key, obs_entities, db):
@@ -1379,8 +1369,8 @@ async def test_reobserve_after_retract_skips_ancillary(
 ):
     """#391 CR1: the anti-resurrection attach must not write the rest of the
     payload onto the retracted row. Ancillary on a soft-deleted assignment is
-    meaningless and each new row fires the #327 touch trigger — an outbox emit
-    for an entity subscribers have already dropped. Withheld names come back in
+    meaningless and each new row fires the #327 touch trigger — an updated_at
+    bump on an entity producers have already retracted. Withheld names come back in
     `unapplied` so the producer can stop retrying (the #311 honest-signaling rule).
     """
     raw, _ = write_key
@@ -1636,7 +1626,7 @@ async def test_natural_key_identical_attach_claims_nothing(client, write_key, ob
     payload = {"start_date": "2015-01-12", "end_date": "2017-01-08", "is_current": False}
     asgn_id, role_id = await _seed_assignment(client, raw, db, obs_entities, **payload)
     await db.execute("UPDATE role_assignments SET source_key_id=NULL WHERE id=$1", asgn_id)
-    outbox_before = await _outbox_count(db, asgn_id)
+    version_before = await row_version(db, "role_assignments", asgn_id)
 
     r = await _post(
         client,
@@ -1651,4 +1641,4 @@ async def test_natural_key_identical_attach_claims_nothing(client, write_key, ob
     assert body.get("unapplied") in (None, [])
     owner = await db.fetchval("SELECT source_key_id FROM role_assignments WHERE id=$1", asgn_id)
     assert owner is None
-    assert await _outbox_count(db, asgn_id) == outbox_before
+    assert await row_version(db, "role_assignments", asgn_id) == version_before

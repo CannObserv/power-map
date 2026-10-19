@@ -2,7 +2,7 @@
 
 Two entity types keep ancillary rows with **no FK**, so a merge or direct DELETE
 can silently orphan them — rows pointing at an id that no longer exists, invisible
-to every UI and to the change feed:
+to every UI and every read:
 
 - **role_assignment (#324):** ``links`` / ``contact_methods`` / ``field_confidence``
   / ``identifiers`` / ``import_provenance`` keyed on
@@ -21,13 +21,13 @@ is append-only and always re-points (never dedups). An admin hard delete — of 
 entity type — instead drops the rows outright (:func:`delete_entity_ancillary`,
 #605), relying on the entity's own 'deleted' tombstone.
 
-**Survivor signal (#327).** ``links`` / ``contact_methods`` / ``identifiers`` now
-carry touch-cascade triggers, so a re-point ``UPDATE`` self-emits an
-``entity_changes`` 'updated' for the survivor (one per moved row). Only the
-trigger-less telemetry tables — ``field_confidence`` and ``import_provenance``
-(written per-ingestion, deliberately not triggered) — still need a manual emit,
-gated on a move of one of those (:data:`TRIGGERLESS_ANCILLARY_TABLES`). ``rehome_role_ancillary``
-touches only triggered tables, so it emits nothing manually at all.
+**Survivor ETag (#327).** ``links`` / ``contact_methods`` / ``identifiers`` /
+``citations`` carry touch-cascade triggers, so a re-point ``UPDATE`` bumps the
+survivor's ``updated_at`` and with it the detail ETag (#392). The telemetry
+tables ``field_confidence`` and ``import_provenance`` (written per-ingestion,
+deliberately not triggered) appear in no detail payload, so moving one changes
+nothing a reader sees and needs no touch. Until #651 a move of one of those
+wrote a manual change-outbox row; the outbox is gone, and so is that emit.
 
 **Curator overrides (#514).** ``curation_overlay`` is the same hazard for every
 entity type the producer crosswalk scopes (person / organization / role /
@@ -45,13 +45,6 @@ from typing import NamedTuple
 import asyncpg
 
 from src.core.citations import CITABLE_ENTITY_TABLES
-
-# Ancillary tables with NO touch-cascade trigger (#327): a re-point does not
-# self-emit, so a survivor whose only change is one of these needs a manual
-# entity_changes signal. Everything else (links/contact_methods/identifiers) is
-# trigger-driven. Kept trigger-less on purpose — both are written per-ingestion,
-# so a trigger would emit an 'updated' on every audit/confidence row.
-TRIGGERLESS_ANCILLARY_TABLES = frozenset({"field_confidence", "import_provenance"})
 
 
 class _AncillarySpec(NamedTuple):
@@ -181,8 +174,7 @@ async def migrate_role_assignment_ancillary(
     ``to_id``; ``deduped`` rows are deleted because ``to_id`` already carries an
     identical row. Append-only specs (``key_fields=None``, e.g. ``import_provenance``)
     re-point every row and never dedup, so their ``deduped`` count is always 0.
-    Does not emit outbox signals — callers do, via
-    :func:`rehome_conflicting_assignment_ancillary`.
+    The triggered tables' touch bumps ``to_id``'s ``updated_at`` (#327).
     """
     return await _migrate_specs(db, _SPECS, from_id, to_id)
 
@@ -190,37 +182,24 @@ async def migrate_role_assignment_ancillary(
 async def rehome_conflicting_assignment_ancillary(
     db: asyncpg.Connection, pairs: list[tuple[str, str]]
 ) -> dict[str, tuple[int, int]]:
-    """Migrate ancillary for every ``(loser, winner)`` pair; signal changed survivors.
+    """Migrate ancillary (and citations) for every ``(loser, winner)`` pair.
 
-    Call this immediately before a merge hard-deletes the loser assignments. The
-    survivor is signalled via ``entity_changes`` 'updated' when its ancillary
-    actually moved (a pure dedup changes nothing on the survivor, so no signal):
-    re-pointing a ``links`` / ``contact_methods`` / ``identifiers`` row self-emits
-    through that table's touch trigger (#327), while a ``field_confidence`` /
-    ``import_provenance`` move (trigger-less) gets a manual emit here. Returns
-    per-table ``(moved, deduped)`` totals across all pairs.
+    Call this immediately before a merge hard-deletes the loser assignments.
+    Re-pointing a ``links`` / ``contact_methods`` / ``identifiers`` / ``citations``
+    row bumps the survivor's ``updated_at`` through that table's touch trigger
+    (#327); a pure dedup changes nothing on the survivor. Returns per-table
+    ``(moved, deduped)`` totals across all pairs.
     """
     totals: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-    touched_survivors: set[str] = set()
     for loser_id, winner_id in pairs:
         counts = await migrate_role_assignment_ancillary(db, loser_id, winner_id)
         # Citations (#319) on the deleted assignment move to the survivor too;
-        # NULL-safe identity, self-emitting touch trigger (no manual signal).
+        # NULL-safe identity, touch-triggered like the rest.
         c_moved, c_deduped = await migrate_citations(db, "role_assignment", loser_id, winner_id)
         counts["citations"] = (c_moved, c_deduped)
         for table, (moved, deduped) in counts.items():
             totals[table][0] += moved
             totals[table][1] += deduped
-            # Triggered tables self-emit on re-point (#327); only a trigger-less
-            # move needs a manual survivor signal.
-            if moved and table in TRIGGERLESS_ANCILLARY_TABLES:
-                touched_survivors.add(winner_id)
-    for winner_id in touched_survivors:
-        await db.execute(
-            "INSERT INTO entity_changes (entity_type, entity_id, change_kind)"
-            " VALUES ('role_assignment', $1, 'updated')",
-            winner_id,
-        )
     return {table: (counts[0], counts[1]) for table, counts in totals.items()}
 
 
@@ -233,11 +212,10 @@ async def rehome_conflicting_assignment_ancillary(
 # assignment would silently CASCADE-delete its active edges (a staffer/principal
 # relationship vanishing). Every merge that hard-deletes an assignment must
 # re-home the loser's *active* edges onto the survivor BEFORE the delete. Archived
-# edges are left to CASCADE (already retracted — they emitted their 'updated' +
-# archived_at on retract). The re-point UPDATE self-emits the edge's own change row
-# (trg_entity_changes_* is INSERT/UPDATE) plus touches both endpoints; a dedup /
-# CASCADE hard-delete fires only the touch trigger (the change trigger is not a
-# DELETE trigger) — so a hard-deleted edge leaves no per-edge tombstone. The
+# edges are left to CASCADE (already retracted). The re-point UPDATE advances the
+# edge's own updated_at and touches both endpoints; a dedup / CASCADE hard-delete
+# fires only the endpoint touch — so a hard-deleted edge leaves no per-edge
+# tombstone. The
 # parenthetical that used to stand here — "exactly how merged role_assignments are
 # handled (the parent person/org tombstone covers it)" — was the assumption #467
 # disproved: a consumer anchored on an assignment id reads that id, not its
@@ -260,11 +238,10 @@ async def rehome_assignment_relationships(
     ``from``/``to``/``rel_type``) — those are deleted (the winner's copy wins),
     mirroring the ancillary dedup. Call immediately before the merge hard-deletes
     the loser assignments; the FK ``ON DELETE CASCADE`` then cleans up only the
-    now-archived remainder. No manual outbox emit: the re-point UPDATE self-emits the
-    edge's change row + touches both endpoints, while a dedup / CASCADE hard-delete
-    fires only the touch trigger (``trg_entity_changes_*`` is INSERT/UPDATE-only, so a
-    hard-deleted edge emits no per-edge tombstone — consistent with merged
-    role_assignments, whose parent person/org tombstone covers them).
+    now-archived remainder. The re-point UPDATE advances the edge's ``updated_at``
+    and touches both endpoints; a dedup / CASCADE hard-delete fires only the
+    endpoint touch, so a hard-deleted edge leaves no per-edge tombstone (an edge
+    is reachable only through its endpoints, both announced).
     """
     for loser_id, winner_id in pairs:
         if loser_id == winner_id:
@@ -358,9 +335,9 @@ async def rehome_role_ancillary(
     Mirrors :func:`rehome_conflicting_assignment_ancillary` for the role case: each
     row is re-pointed onto ``winner_id`` or deleted when the winner already carries
     an identical one. Both role specs (``links`` / ``contact_methods``) carry touch
-    triggers (#327), so a re-point self-emits the survivor 'role' 'updated' signal
-    (one per moved row) — no manual emit here. Returns per-table ``(moved, deduped)``.
-    Role citations (#319) re-home alongside (NULL-safe, self-emitting trigger).
+    triggers (#327), so a re-point bumps the survivor role's ``updated_at``.
+    Returns per-table ``(moved, deduped)``. Role citations (#319) re-home alongside
+    (NULL-safe, touch-triggered).
     """
     result = await _migrate_specs(db, _ROLE_SPECS, loser_id, winner_id)
     result["citations"] = await migrate_citations(db, "role", loser_id, winner_id)
@@ -377,7 +354,7 @@ async def rehome_role_ancillary(
 # NULLS NOT DISTINCT (mirrors uq_citation_identity over active rows) — so the
 # generic _AncillarySpec machinery (exact ``=`` on non-null keys) can't serve it;
 # the migrator below is NULL-safe. Citations carry a touch-cascade trigger, so a
-# re-point self-emits the survivor 'updated' signal — no manual emit here.
+# re-point bumps the survivor's ``updated_at`` with no help from here.
 # ---------------------------------------------------------------------------
 
 
@@ -391,7 +368,7 @@ async def migrate_citations(
     (would otherwise violate ``uq_citation_identity``); everything else re-points.
     Archived rows always re-point — they're outside the active unique index, so no
     collision is possible. Both DELETE and UPDATE fire the citation touch trigger,
-    so the survivor's 'updated' signal is emitted automatically.
+    so the survivor's ``updated_at`` advances automatically.
     """
     moved = deduped = 0
     rows = await db.fetch(
@@ -426,7 +403,7 @@ async def rehome_citations(
     """Migrate citations for every ``(loser, winner)`` pair of one entity type.
 
     Call immediately before a merge hard-deletes the losers. Returns aggregate
-    ``(moved, deduped)``. The touch trigger self-emits every survivor signal.
+    ``(moved, deduped)``. The touch trigger bumps every survivor's ``updated_at``.
     """
     moved = deduped = 0
     for loser_id, winner_id in pairs:
@@ -472,7 +449,7 @@ async def delete_event_citations_for_owner(
 # (`linked_entity_type`, `linked_entity_id`, e.g. a predecessor's `succeeded_by`).
 # A merge hard-deletes the loser, so it re-points both onto the survivor. The
 # touch trigger bumps the owner and both the old and new linked org on every
-# re-point, so no manual signal is needed.
+# re-point, so no manual touch is needed.
 # ---------------------------------------------------------------------------
 
 #: The entity types `entity_events` can own or link (its two CHECKs).
@@ -756,8 +733,8 @@ async def delete_entity_ancillary(db: asyncpg.Connection, entity_type: str, enti
     entity row ``FOR UPDATE`` first, so no identifier can land between it and
     the ``DELETE`` for ``refuse_delete_while_identified`` to refuse (#630). The route's
     'deleted' tombstone announces the removal, so no per-table signal is
-    needed. Outliving the entity on purpose: ``deleted_entities`` and
-    ``entity_changes`` (the tombstone and its outbox). Another entity's event
+    needed. Outliving the entity on purpose: its ``deleted_entities``
+    tombstone. Another entity's event
     linking here is not this entity's to drop: the route refuses the delete
     first, via ``inbound_link_conflict`` (#608).
 

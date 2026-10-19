@@ -19,6 +19,7 @@ from src.core.ancillary_migrate import (
     rehome_role_ancillary,
 )
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [pytest.mark.integration]
 
@@ -105,21 +106,12 @@ async def test_archived_loser_always_repoints(db):
     assert await _owner(db, cid) == winner
 
 
-async def test_repoint_signals_survivor(db):
+async def test_repoint_touches_survivor(db):
     loser, winner = await _person(db), await _person(db)
     await _cite(db, "person", loser, field="notes")
-    before = await db.fetchval(
-        "SELECT count(*) FROM entity_changes WHERE entity_type='person'"
-        " AND entity_id=$1 AND change_kind='updated'",
-        winner,
-    )
+    before = await row_version(db, "people", winner)
     await rehome_citations(db, "person", [(loser, winner)])
-    after = await db.fetchval(
-        "SELECT count(*) FROM entity_changes WHERE entity_type='person'"
-        " AND entity_id=$1 AND change_kind='updated'",
-        winner,
-    )
-    assert after == before + 1  # touch trigger self-emits on re-point
+    assert await row_version(db, "people", winner) != before  # touch trigger on re-point
 
 
 # ── wiring into role_assignment / role re-home ────────────────────────────────

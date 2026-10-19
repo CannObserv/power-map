@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [
     pytest.mark.integration,
@@ -198,6 +199,7 @@ async def test_merge_rehomes_loser_role_contacts_and_links(client, role_pair, db
         role_b,
         lt_id,
     )
+    before = await row_version(db, "roles", role_a)
 
     response = await client.post(
         f"/admin/orgs/{org_id}/roles/{role_a}/merge/{role_b}/",
@@ -231,15 +233,8 @@ async def test_merge_rehomes_loser_role_contacts_and_links(client, role_pair, db
         )
         == 1
     )
-    # Winner signalled to subscribers (no touch-cascade trigger on these tables).
-    assert (
-        await db.fetchval(
-            "SELECT count(*) FROM entity_changes"
-            " WHERE entity_type='role' AND entity_id=$1 AND change_kind='updated'",
-            role_a,
-        )
-        >= 1
-    )
+    # Winner touched: its updated_at moves with the re-homed rows.
+    assert await row_version(db, "roles", role_a) != before
 
 
 # ── Merge preview modal (#255) ───────────────────────────────────────────────

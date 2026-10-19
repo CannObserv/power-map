@@ -7,6 +7,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [
     pytest.mark.integration,
@@ -181,7 +182,7 @@ async def test_rejected_on_identifier_of_archived_person(client, ppl_write_key, 
         eit_id,
         value,
     )
-    before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+    before = await row_version(db, "people", person_id)
 
     raw, _ = ppl_write_key
     r = await _post(
@@ -207,14 +208,7 @@ async def test_rejected_on_identifier_of_archived_person(client, ppl_write_key, 
         )
         == 0
     )
-    assert (
-        await db.fetchval(
-            "SELECT COUNT(*) FROM entity_changes WHERE entity_id=$1 AND id > $2",
-            person_id,
-            before,
-        )
-        == 0
-    )
+    assert await row_version(db, "people", person_id) == before
 
 
 # ---------------------------------------------------------------------------

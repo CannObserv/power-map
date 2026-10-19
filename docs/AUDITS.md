@@ -114,9 +114,9 @@ Merge = links/contact methods/addresses/identifiers move to the survivor
 **archived** (never deleted) with a provenance note that names the survivor and
 records the span the merge dropped — `Archived as duplicate of {id} (#311
 audit). Span was {start}..{end}.` (`end` reads `open` when undated). The archive
-UPDATE hits the `entity_changes` outbox so subscribed producers drop stale
-anchors. Undated tenures and disjoint terms (returning legislators) are never
-flagged.
+UPDATE bumps its `updated_at`, so the orphan's detail ETag changes and a
+re-read shows it archived. Undated tenures and disjoint terms (returning
+legislators) are never flagged.
 
 The 21 pre-#476 archivals stay as they are — they match the producer's own
 newest assertions; no data repair is in scope.
@@ -183,7 +183,7 @@ sudo journalctl -u power-map-anomaly -f          # WARNINGs per anomalous key
 default `DATABASE_URL`), and exits 3 when prod is missing or disagrees on any
 reference object — the `CREATE TABLE IF NOT EXISTS` inline-constraint drift class
 (#307/#312 CHECKs, #315's FK `ON DELETE` action) plus the `CREATE OR REPLACE`
-function/trigger body-drift window (#331; the change-feed `touch_parent_*` /
+function/trigger body-drift window (#331; the ETag-cascade `touch_parent_*` /
 `trg_touch_entity_*` surface). Compares the **full def**, not just presence, so
 FK actions, CHECK bodies, and function/trigger bodies are in scope. The
 per-kind report namespaces objects `constraint.*` / `function.*` / `trigger.*`.

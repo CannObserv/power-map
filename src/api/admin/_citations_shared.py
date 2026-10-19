@@ -5,9 +5,9 @@ contact/link templates — one shared template set (``admin/citations/partials/*
 serves every entity, parameterized by a ``cit_base`` URL and ``detail_url``.
 
 Admin writes go through **direct SQL** (ungated by the ``source_key_id`` provenance
-gate — curators may edit producer-sourced citations) and self-emit the parent
-``entity_changes`` 'updated' via ``trg_touch_entity_on_citation_change`` (#327
-model — no app-layer emit). ``field_name`` is validated against ``CITABLE_FIELDS``;
+gate — curators may edit producer-sourced citations) and bump the parent's
+``updated_at`` via ``trg_touch_entity_on_citation_change`` (#327 model — no
+app-layer touch). ``field_name`` is validated against ``CITABLE_FIELDS``;
 admin delete is a hard delete (curator removing a mistaken row).
 """
 
