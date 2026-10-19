@@ -357,12 +357,18 @@ def test_form_route_json_body_too_deep_to_parse_is_json_too_deep(client, leaf):
     assert r.json()["detail"][0]["type"] == TOO_DEEP_TYPE
 
 
-def test_body_too_deep_to_parse_is_fastapis_400(client):
-    # Accepted limitation: past json.loads's own limit (9997) FastAPI fails the
-    # parse itself, before any dependency runs. A 4xx all the same.
+def test_body_too_deep_to_parse_is_never_5xx(client):
+    # Accepted limitation: past json.loads's own limit FastAPI fails the parse
+    # itself, before any dependency runs, and answers 400. That limit is the
+    # interpreter's C stack, so a deeper-parsing Python answers json_too_deep
+    # instead (CR 3). Either is a 4xx.
     c, _ = client
     r = c.post(_BATCH, content=_deep_body(10_000, b'"\\u0000"'), headers=_JSON)
-    assert r.status_code == 400, r.text
+    if r.status_code == 400:
+        assert r.json() == {"detail": "There was an error parsing the body"}
+    else:
+        assert r.status_code == 422, (r.status_code, r.text[:300])
+        assert r.json()["detail"][0]["type"] == TOO_DEEP_TYPE
 
 
 # ---------------------------------------------------------------------------
