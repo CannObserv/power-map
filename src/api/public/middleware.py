@@ -178,6 +178,11 @@ def route_group_for_path(path: str) -> str:
     return "other"
 
 
+def _unparsed(text: str) -> str:
+    """A body stored as text, not JSON, with unstorable characters escaped."""
+    return json.dumps({"_unparsed": escape_unstorable(text)})
+
+
 def _body_to_jsonb_param(raw: bytes) -> str | None:
     """Return a JSONB-castable string for a raw body, or None when empty.
 
@@ -191,13 +196,12 @@ def _body_to_jsonb_param(raw: bytes) -> str | None:
     if not raw:
         return None
     text = raw.decode("utf-8", errors="replace")
-    unparsed = json.dumps({"_unparsed": escape_unstorable(text)})
     try:
         parsed = json.loads(text)
     except (ValueError, RecursionError):
-        return unparsed
+        return _unparsed(text)
     if json_may_be_too_deep(raw) and json_depth_exceeds(parsed):
-        return unparsed
+        return _unparsed(text)
     if json_may_hold_unstorable(raw) and find_unstorable(parsed) is not None:
         # jsonb refuses a \u0000 escape and a lone surrogate (#663): store them
         # as literal escapes so the row of a rejected request still lands.

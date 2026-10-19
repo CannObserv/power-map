@@ -759,3 +759,12 @@ async def test_too_deep_observation_body_still_logs_a_row(client, db, obs_key):
     assert row is not None
     assert row["status_code"] == 422
     await db.execute("DELETE FROM api_request_log WHERE id=$1", row["id"])
+
+
+def test_jsonb_param_builds_the_unparsed_form_only_when_needed(monkeypatch):
+    # The common case is a clean, shallow body: no extra pass over it (CR 2).
+    def _no_escape(_text):
+        raise AssertionError("escaped a body that is stored verbatim")
+
+    monkeypatch.setattr(mw, "escape_unstorable", _no_escape)
+    assert mw._body_to_jsonb_param(b'{"a": [1, 2], "b": "ok"}') == '{"a": [1, 2], "b": "ok"}'
