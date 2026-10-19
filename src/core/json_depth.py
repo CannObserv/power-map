@@ -6,11 +6,14 @@ the result — ``jsonable_encoder``, ``find_unstorable``, ``escape_unstorable_de
 shared by every place that walks a decoded body: the API boundary rejects a
 body past it, the 422 handler will not echo an ``input`` past it, and the
 request log stores such a body unparsed. Each checks with ``json_depth_exceeds``,
-which is iterative, so the check itself is safe at any depth.
+which is iterative, so the check itself is safe at any depth. JSON that
+arrives inside a form field, which the boundary never parses, goes through
+``loads_bounded``.
 
 Depth counts nested containers: ``"ok"`` is 0, ``[]`` is 1, ``{"a": []}`` is 2.
 """
 
+import json
 from typing import Any
 
 MAX_JSON_DEPTH = 64
@@ -41,3 +44,19 @@ def json_may_be_too_deep(raw: bytes) -> bool:
     so a hit is only a candidate, confirmed by ``json_depth_exceeds``.
     """
     return raw.count(b"[") + raw.count(b"{") > MAX_JSON_DEPTH
+
+
+def loads_bounded(text: str) -> Any:
+    """``json.loads``, refusing a value nested past ``MAX_JSON_DEPTH`` with a ValueError.
+
+    Past ``json.loads``'s own limit it raises ``RecursionError``, which is not a
+    ``ValueError``; that is folded in too, so one ``except ValueError`` covers all.
+    """
+    too_deep = f"JSON is nested deeper than {MAX_JSON_DEPTH} levels"
+    try:
+        value = json.loads(text)
+    except RecursionError:
+        raise ValueError(too_deep) from None
+    if json_depth_exceeds(value):
+        raise ValueError(too_deep)
+    return value

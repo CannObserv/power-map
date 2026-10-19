@@ -4,7 +4,12 @@ import json
 
 import pytest
 
-from src.core.json_depth import MAX_JSON_DEPTH, json_depth_exceeds, json_may_be_too_deep
+from src.core.json_depth import (
+    MAX_JSON_DEPTH,
+    json_depth_exceeds,
+    json_may_be_too_deep,
+    loads_bounded,
+)
 
 
 def _nested(depth: int, leaf: object = "ok") -> object:
@@ -68,3 +73,20 @@ def test_prescreen_counts_brackets_inside_strings_as_candidates():
     raw = json.dumps({"s": "[" * (MAX_JSON_DEPTH + 1)}).encode()
     assert json_may_be_too_deep(raw)
     assert not json_depth_exceeds(json.loads(raw))
+
+
+def test_loads_bounded_parses_json_at_the_bound():
+    text = json.dumps(_nested(MAX_JSON_DEPTH))
+    assert loads_bounded(text) == _nested(MAX_JSON_DEPTH)
+
+
+@pytest.mark.parametrize("depth", [MAX_JSON_DEPTH + 1, 5000, 100_000])
+def test_loads_bounded_refuses_json_past_the_bound_as_value_error(depth):
+    # 100,000 is past json.loads's own limit: its RecursionError is no ValueError.
+    with pytest.raises(ValueError, match="nested deeper"):
+        loads_bounded("[" * depth + "]" * depth)
+
+
+def test_loads_bounded_keeps_json_decode_errors():
+    with pytest.raises(json.JSONDecodeError):
+        loads_bounded("{bad json")
