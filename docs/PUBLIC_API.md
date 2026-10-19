@@ -194,14 +194,14 @@ Text Postgres cannot store — NUL (U+0000) or a lone UTF-16 surrogate (U+D800�
 
 ### Nested too deep — `422` (#674)
 
-A JSON body nested more than **64** containers deep (`[`/`{`; the deepest body any route declares is 5) answers `422` before authentication, like unstorable text, and is not echoed:
+The JSON body of a route that takes one, nested more than **64** containers deep (`[`/`{`; the deepest body any route declares is 5), answers `422` before authentication, like unstorable text, and is not echoed:
 
 ```json
 {"detail": [{"type": "json_too_deep", "loc": ["body"],
              "msg": "JSON body is nested deeper than 64 levels", "input": {}, "ctx": {"max_depth": 64}}]}
 ```
 
-Past about 10,000 levels the body cannot be parsed at all, and the answer is `400` `{"detail": "There was an error parsing the body"}`.
+Past about 10,000 levels the body cannot be parsed at all. A route that reads JSON then answers `400` `{"detail": "There was an error parsing the body"}` before the check runs; a form route still answers `json_too_deep`.
 
 ---
 
