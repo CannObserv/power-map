@@ -6,15 +6,17 @@ branching and summed drift-count return across constraints/functions/triggers,
 the PG-major version skip for the version-sensitive kinds, the two
 misconfiguration guards (empty reference, reference == target) that keep the
 monitor from passing vacuously, the reference-ahead classification against the
-deployed ``schema.sql`` and its per-object run streak (#632), and ``main()``'s
-exit codes (3 failure, 4 reference ahead only). No live DB: ``asyncpg.connect``
-and the ``snapshot_*`` helpers are stubbed so each URL resolves to an injected
-per-kind snapshot, and the deployed schema is SQL text.
+deployed ``schema.sql`` and its per-object run streak (#632), the database
+CONNECT allowlist (#680), and ``main()``'s exit codes (3 failure, 4 reference
+ahead only). No live DB: ``asyncpg.connect`` and the ``snapshot_*`` helpers are
+stubbed so each URL resolves to an injected per-kind snapshot, and the deployed
+schema is SQL text.
 """
 
 import asyncio
 import json
 import logging
+import re
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -147,7 +149,13 @@ def run_audit(state_path):
     """``audit.run`` with this test's state file and, by default, ``_DEPLOYED`` on ``_DAY``."""
 
     def _run(
-        reference_url=_REF, target_url=_PROD, *, deployed=_DEPLOYED, escalate_after=3, today=_DAY
+        reference_url=_REF,
+        target_url=_PROD,
+        *,
+        deployed=_DEPLOYED,
+        escalate_after=3,
+        today=_DAY,
+        connect_allowlist=None,
     ):
         return asyncio.run(
             audit.run(
@@ -157,6 +165,7 @@ def run_audit(state_path):
                 state_path=state_path,
                 escalate_after=escalate_after,
                 today=today,
+                connect_allowlist=connect_allowlist,
             )
         )
 
@@ -296,6 +305,8 @@ def _fake_run(result):
         (audit.AuditResult(ahead=("function.f()",), escalated=("function.f()",)), 3),
         (audit.AuditResult(drift_count=1, ahead=("function.f()",)), 3),
         (audit.AuditResult(ahead=("function.f()",)), 4),
+        (audit.AuditResult(acl_drift=("db: unexpected PUBLIC",)), 3),
+        (audit.AuditResult(ahead=("function.f()",), acl_drift=("db: missing r",)), 3),
     ],
 )
 def test_main_exit_codes(monkeypatch, tmp_path, result, code):
@@ -651,3 +662,149 @@ def test_unit_counts_reference_ahead_as_success():
     unit = Path(__file__).resolve().parents[2] / "infra" / "power-map-schema-parity.service"
     lines = unit.read_text().splitlines()
     assert f"SuccessExitStatus={audit.EXIT_REFERENCE_AHEAD}" in lines
+
+
+# --- database CONNECT allowlist (#680) ----------------------------------------
+# Each database admits its owner, the users of the DSNs that name it, and DO's
+# metrics role; nobody else, PUBLIC included.
+
+_APP = "postgresql://app_user:pw@db.example.invalid:25060/prod_db?sslmode=verify-full"
+_MIGS = "postgresql://migs_user:pw@db.example.invalid:25060/prod_db?sslmode=verify-full"
+_TEST = "postgresql://test%5Fuser:pw@db.example.invalid:25060/test_db?sslmode=verify-full"
+_ALLOWLIST = {
+    "prod_db": frozenset({"app_user", "migs_user", audit.MONITOR_ROLE}),
+    "test_db": frozenset({"test_user", audit.MONITOR_ROLE}),
+}
+_LIVE_ACL = {db: ("doadmin", roles | {"doadmin"}) for db, roles in _ALLOWLIST.items()}
+
+
+def test_the_allowlist_comes_from_the_dsns():
+    """One DSN per role: its database admits its user, and every one admits the monitor."""
+    assert audit.connect_allowlist([_APP, _MIGS, _TEST]) == _ALLOWLIST
+
+
+def test_the_monitor_role_is_the_one_the_writer_grants():
+    """The writer grants it and this audit expects it: one name in both."""
+    script = Path(audit.__file__).resolve().parent / "write-db-secrets.sh"
+    assert f'MONITOR_ROLE="{audit.MONITOR_ROLE}"' in script.read_text().splitlines()
+
+
+def test_a_database_that_admits_exactly_its_roles_is_clean():
+    """The owner holds CONNECT by ownership; it is never drift."""
+    assert audit.connect_acl_drift(_ALLOWLIST, _LIVE_ACL) == ()
+
+
+@pytest.mark.parametrize(
+    ("db", "grantees", "line"),
+    [
+        ("prod_db", {"PUBLIC"}, "prod_db: unexpected PUBLIC"),
+        ("test_db", {"app_user"}, "test_db: unexpected app_user"),
+    ],
+)
+def test_a_grantee_beyond_the_allowlist_is_drift(db, grantees, line):
+    """A reset to PostgreSQL's default shows as PUBLIC; any other extra role by name."""
+    owner, roles = _LIVE_ACL[db]
+    assert audit.connect_acl_drift(_ALLOWLIST, _LIVE_ACL | {db: (owner, roles | grantees)}) == (
+        line,
+    )
+
+
+def test_a_role_without_connect_is_drift():
+    """A fresh cluster's missing monitor grant fails daily until the writer re-runs."""
+    owner, roles = _LIVE_ACL["test_db"]
+    live = _LIVE_ACL | {"test_db": (owner, roles - {audit.MONITOR_ROLE})}
+    assert audit.connect_acl_drift(_ALLOWLIST, live) == (f"test_db: missing {audit.MONITOR_ROLE}",)
+
+
+def test_a_database_that_is_not_there_is_drift():
+    live = {"prod_db": _LIVE_ACL["prod_db"]}
+    assert audit.connect_acl_drift(_ALLOWLIST, live) == ("test_db: not found",)
+
+
+class _AclConn:
+    """Records the one query ``snapshot_connect_acl`` sends."""
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.sent = []
+
+    async def fetch(self, sql, *args):
+        self.sent.append((sql, args))
+        return self.rows
+
+
+def test_the_snapshot_reads_the_default_acl_when_datacl_is_null():
+    """A NULL datacl is PostgreSQL's default, PUBLIC included: it must not read as empty."""
+    conn = _AclConn([{"datname": "prod_db", "owner": "doadmin", "grantees": ["PUBLIC", "doadmin"]}])
+    snapshot = asyncio.run(audit.snapshot_connect_acl(conn, ["test_db", "prod_db"]))
+    assert snapshot == {"prod_db": ("doadmin", frozenset({"PUBLIC", "doadmin"}))}
+    [(sql, args)] = conn.sent
+    assert "coalesce(d.datacl, acldefault('d', d.datdba))" in sql
+    assert "a.grantee = 0" in sql and "'PUBLIC'" in sql
+    assert args == (["prod_db", "test_db"],)
+
+
+@pytest.fixture
+def stub_acl(monkeypatch):
+    """Wire ``snapshot_connect_acl`` to an injected ACL; record the DSN it read through."""
+    seen = {"acl": dict(_LIVE_ACL), "dsns": []}
+
+    async def fake(conn, databases):
+        seen["dsns"].append(conn.dsn)
+        return {db: acl for db, acl in seen["acl"].items() if db in databases}
+
+    monkeypatch.setattr(audit, "snapshot_connect_acl", fake)
+    return seen
+
+
+def test_run_checks_the_allowlist_on_the_target(stub_dbs, stub_acl, run_audit, caplog):
+    stub_dbs({_REF: _snap(constraint={_CK: _SET_NULL}), _PROD: _snap(constraint={_CK: _SET_NULL})})
+    with caplog.at_level(logging.INFO, logger=audit.logger.name):
+        result = run_audit(connect_allowlist=_ALLOWLIST)
+    assert result.exit_code == 0
+    assert stub_acl["dsns"] == [_PROD]
+    assert "CONNECT allowlist OK" in caplog.text
+
+
+def test_run_fails_when_a_database_admits_public(stub_dbs, stub_acl, run_audit, caplog):
+    """DO's control plane may reset database ACLs (unknown, #680): that is drift, exit 3."""
+    stub_dbs({_REF: _snap(constraint={_CK: _SET_NULL}), _PROD: _snap(constraint={_CK: _SET_NULL})})
+    owner, roles = _LIVE_ACL["prod_db"]
+    stub_acl["acl"]["prod_db"] = (owner, roles | {"PUBLIC"})
+    with caplog.at_level(logging.WARNING, logger=audit.logger.name):
+        result = run_audit(connect_allowlist=_ALLOWLIST)
+    assert result.acl_drift == ("prod_db: unexpected PUBLIC",)
+    assert result.exit_code == 3
+    assert "CONNECT allowlist DRIFT" in caplog.text
+    assert "write-db-secrets.sh" in caplog.text
+
+
+def test_run_without_an_allowlist_reads_no_acl(stub_dbs, stub_acl, run_audit):
+    stub_dbs({_REF: _snap(constraint={_CK: _SET_NULL}), _PROD: _snap(constraint={_CK: _SET_NULL})})
+    assert run_audit().exit_code == 0
+    assert stub_acl["dsns"] == []
+
+
+def test_main_builds_the_allowlist_from_the_units_dsns(monkeypatch, tmp_path):
+    """The unit's env file carries all three DSNs; each is one role on one database."""
+    seen = {}
+
+    async def fake_run(**kwargs):
+        seen.update(kwargs)
+        return audit.AuditResult()
+
+    monkeypatch.setenv("DATABASE_URL", _APP)
+    monkeypatch.setenv("MIGRATIONS_DATABASE_URL", _MIGS)
+    monkeypatch.setenv("TEST_DATABASE_URL", _TEST)
+    monkeypatch.setattr(audit, "run", fake_run)
+    monkeypatch.setattr(
+        sys, "argv", ["audit", "--reference-url", _REF, "--state-file", str(tmp_path / "s.json")]
+    )
+    audit.main()
+    assert seen["connect_allowlist"] == _ALLOWLIST
+
+
+def test_the_unit_documents_the_allowlist_check():
+    """The unit's comment is what an operator reads when it fails."""
+    unit = Path(__file__).resolve().parents[2] / "infra" / "power-map-schema-parity.service"
+    assert re.search(r"CONNECT allowlist.*#680", unit.read_text(), re.DOTALL)
