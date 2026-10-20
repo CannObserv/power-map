@@ -19,7 +19,7 @@ import shutil
 import stat
 import subprocess
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import pytest
 
@@ -81,9 +81,9 @@ def _outputs(ca_pem: str) -> dict:
         "production_user_name": "app_user",
         "production_user_password": "p@ss/word",
         "production_migrations_name": "migrations_user",
-        "production_migrations_password": "m1grate",
+        "production_migrations_password": "m1:gr#ate",
         "test_user_name": "test_user",
-        "test_user_password": "t3st",
+        "test_user_password": "t3st?&=",
         "db_ca_certificate": ca_pem,
     }
     return {k: {"value": v, "sensitive": False, "type": "string"} for k, v in values.items()}
@@ -181,6 +181,13 @@ def test_every_written_dsn_verifies_the_server(tmp_path: Path, ca_pem: str) -> N
     for dsn in dsns.values():
         _assert_verify_full(dsn)
     assert urlparse(dsns["DATABASE_URL"]).password == "p%40ss%2Fword"
+    raw = {
+        "DATABASE_URL": "p@ss/word",
+        "MIGRATIONS_DATABASE_URL": "m1:gr#ate",
+        "TEST_DATABASE_URL": "t3st?&=",
+    }
+    # The smoke tests connect from the raw parts, not this string: it must decode back.
+    assert {k: unquote(urlparse(v).password or "") for k, v in dsns.items()} == raw
     assert "ADDRESS_VALIDATOR_API_KEY=keep-me" in (fake_etc / ".env").read_text()
 
 
@@ -278,7 +285,7 @@ def test_a_dsn_that_cannot_connect_fails_before_the_env_file_changes(
 
 
 # Every password _outputs() hands the script, raw and URL-encoded.
-SECRETS = ("p@ss/word", "p%40ss%2Fword", "m1grate", "t3st", "adm1n")
+SECRETS = ("p@ss/word", "p%40ss%2Fword", "m1:gr#ate", "m1%3Agr%23ate", "t3st?&=", "adm1n")
 
 
 def test_no_password_reaches_a_command_line(tmp_path: Path, ca_pem: str) -> None:
