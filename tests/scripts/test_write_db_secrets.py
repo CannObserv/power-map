@@ -208,6 +208,29 @@ def test_replaces_the_ca_atomically(tmp_path: Path, ca_pem: str) -> None:
     assert not (fake_etc / "do-ca.crt.new").exists()
 
 
+def test_replaces_the_env_file_atomically_and_never_world_readable(
+    tmp_path: Path, ca_pem: str
+) -> None:
+    """tee into the live file truncates it first, and on a fresh host creates it 0644.
+
+    A full disk mid-write would lose every secret in it; a timer starting
+    mid-write would read half of it. Stage it, lock it down while still empty,
+    fill it, rename it.
+    """
+    result, fake_etc, log = _run(tmp_path, _outputs(ca_pem))
+    assert result.returncode == 0, result.stderr
+
+    env, staged = "/etc/power-map/.env", "/etc/power-map/.env.new"
+    assert f"sudo tee {env}" not in log
+    locked = log.index(f"sudo chmod 640 {staged}")
+    owned = log.index(f"sudo chown root:exedev {staged}")
+    filled = log.index(f"sudo tee {staged}")
+    renamed = log.index(f"sudo mv -f {staged} {env}")
+    assert locked < filled and owned < filled < renamed
+    assert stat.S_IMODE((fake_etc / ".env").stat().st_mode) == 0o640
+    assert not (fake_etc / ".env.new").exists()
+
+
 def test_its_own_connections_prove_the_staged_ca_before_it_goes_live(
     tmp_path: Path, ca_pem: str
 ) -> None:

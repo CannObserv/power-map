@@ -162,18 +162,26 @@ sudo mv -f "$CA_STAGED" "$CA_FILE"
 # Preserve non-DSN keys (ADDRESS_VALIDATOR_*, etc.) from the existing file so
 # a re-run after terraform apply doesn't silently drop credentials this script
 # doesn't own.
+#
+# Staged, locked down while still empty, then renamed: tee into the live file
+# would truncate it first (a full disk would lose every secret in it), create it
+# 0644 on a fresh host until a later chmod, and let a timer starting mid-write
+# read half of it.
 echo "==> Writing $ENV_FILE"
+ENV_STAGED="$ENV_FILE.new"
 PRESERVED=""
 if sudo test -f "$ENV_FILE"; then
     PRESERVED=$(sudo grep -v -E "^(DATABASE_URL|MIGRATIONS_DATABASE_URL|TEST_DATABASE_URL)=" "$ENV_FILE" || true)
 fi
+sudo touch "$ENV_STAGED"
+sudo chmod 640 "$ENV_STAGED"
+sudo chown root:exedev "$ENV_STAGED"
 {
     printf 'DATABASE_URL=%s\n' "${DATABASE_URL}"
     printf 'MIGRATIONS_DATABASE_URL=%s\n' "${MIGRATIONS_DATABASE_URL}"
     printf 'TEST_DATABASE_URL=%s\n' "${TEST_DATABASE_URL}"
     if [[ -n "$PRESERVED" ]]; then printf '%s\n' "$PRESERVED"; fi
-} | sudo tee "$ENV_FILE" > /dev/null
-sudo chmod 640 "$ENV_FILE"
-sudo chown root:exedev "$ENV_FILE"
+} | sudo tee "$ENV_STAGED" > /dev/null
+sudo mv -f "$ENV_STAGED" "$ENV_FILE"
 
 echo "==> Done"
