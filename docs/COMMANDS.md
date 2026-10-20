@@ -20,9 +20,7 @@ npm install
 uv run pre-commit install
 ```
 
-Database is on DO managed PostgreSQL — production, dev and tests alike; no local PostgreSQL server is installed or supported (#576, #579). See § Provisioning for first-time setup.
-
-`/etc/power-map/.env` and the cluster CA beside it, `do-ca.crt`, come from `bash scripts/write-db-secrets.sh` (§ Provisioning step 4); TLS, roles, rotation → `docs/RUNBOOK_DB_TRIAGE.md` § Connection boundary.
+Database: DO managed PostgreSQL for production, dev and tests; no local server is supported (#576, #579). `/etc/power-map/.env` and the cluster CA beside it, `do-ca.crt`, come from `bash scripts/write-db-secrets.sh` (§ Provisioning step 4); TLS, roles, rotation → `docs/RUNBOOK_DB_TRIAGE.md`.
 
 ---
 
