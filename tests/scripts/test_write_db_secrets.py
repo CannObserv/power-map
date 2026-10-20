@@ -41,6 +41,8 @@ exec "${args[@]}"
 PSQL_SHIM = """#!/usr/bin/env bash
 echo "psql $1" >> "$SHIM_LOG"
 cat > /dev/null
+# Refuse one connection, as a wrong password or CA would.
+[ -n "${PSQL_FAIL_ON:-}" ] && [[ "$1" == *"$PSQL_FAIL_ON"* ]] && exit 2
 exit 0
 """
 
@@ -81,7 +83,9 @@ def _outputs(ca_pem: str) -> dict:
     return {k: {"value": v, "sensitive": False, "type": "string"} for k, v in values.items()}
 
 
-def _run(tmp_path: Path, outputs: dict) -> tuple[subprocess.CompletedProcess, Path, list[str]]:
+def _run(
+    tmp_path: Path, outputs: dict, psql_fail_on: str = ""
+) -> tuple[subprocess.CompletedProcess, Path, list[str]]:
     """Run a copy of the script against shims; return (result, fake /etc/power-map, log)."""
     root = tmp_path / "checkout"
     (root / "scripts").mkdir(parents=True)
@@ -112,6 +116,7 @@ def _run(tmp_path: Path, outputs: dict) -> tuple[subprocess.CompletedProcess, Pa
         "FAKE_ETC": str(fake_etc),
         "SHIM_LOG": str(log),
         "TF_OUTPUT_JSON": str(tf_json),
+        "PSQL_FAIL_ON": psql_fail_on,
     }
     result = subprocess.run(
         ["bash", str(root / "scripts" / SCRIPT.name)],
@@ -192,6 +197,21 @@ def test_its_own_connections_verify_the_server_after_the_ca_lands(
         _assert_verify_full(log[i].removeprefix("psql "))
     ca_written = log.index(f"sudo mv -f {CA_PATH}.new {CA_PATH}")
     assert ca_written < psql_calls[0]
+
+
+@pytest.mark.parametrize("user", ["app_user", "migrations_user", "test_user"])
+def test_a_dsn_that_cannot_connect_fails_before_the_env_file_changes(
+    tmp_path: Path, ca_pem: str, user: str
+) -> None:
+    """A smoke test that fails must fail the script, and leave the old DSNs in place.
+
+    Otherwise a rotation writes a dead DSN, reports Done, and the next restart's
+    ExecStartPre takes the service down.
+    """
+    result, fake_etc, log = _run(tmp_path, _outputs(ca_pem), psql_fail_on=f"//{user}:")
+    assert result.returncode != 0
+    assert (fake_etc / ".env").read_text().startswith("DATABASE_URL=old")
+    assert not [line for line in log if line.startswith("sudo tee /etc/power-map/.env")]
 
 
 def test_refuses_a_ca_that_is_not_a_certificate(tmp_path: Path) -> None:

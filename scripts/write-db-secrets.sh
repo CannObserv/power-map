@@ -2,9 +2,9 @@
 # Write DO managed-DB credentials to /etc/power-map/.env.
 #
 # Reads Terraform outputs, installs the cluster CA, URL-encodes passwords,
-# applies schema-level grants via doadmin, then writes DATABASE_URL /
-# MIGRATIONS_DATABASE_URL / TEST_DATABASE_URL. Idempotent — safe to re-run after
-# terraform apply.
+# applies schema-level grants via doadmin, smoke-tests the new DSNs, then writes
+# DATABASE_URL / MIGRATIONS_DATABASE_URL / TEST_DATABASE_URL. Idempotent — safe
+# to re-run after terraform apply.
 #
 # Every DSN it writes, and every connection it makes, is sslmode=verify-full
 # against the cluster CA (#667): Trusted Sources admits an exe.dev egress IP other
@@ -126,7 +126,20 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO ${TEST_USER};
 SQL
 
-# ── 6. Write /etc/power-map/.env ──────────────────────────────────────────────
+# ── 6. Smoke-test the new DSNs, before they replace the old ones ─────────────
+# A DSN that cannot connect (password, CA, hostname) must never reach the env
+# file: the next restart's ExecStartPre would fail and :8000 stay down. Each is
+# a hard failure — `psql … && echo` would not trip set -e.
+echo "==> Verifying connections"
+for var in DATABASE_URL MIGRATIONS_DATABASE_URL TEST_DATABASE_URL; do
+    if ! psql "${!var}" -c "SELECT 1" > /dev/null; then
+        echo "ERROR: $var cannot connect; $ENV_FILE left unchanged" >&2
+        exit 1
+    fi
+    echo "    OK: $var"
+done
+
+# ── 7. Write /etc/power-map/.env ──────────────────────────────────────────────
 # Preserve non-DSN keys (ADDRESS_VALIDATOR_*, etc.) from the existing file so
 # a re-run after terraform apply doesn't silently drop credentials this script
 # doesn't own.
@@ -143,12 +156,5 @@ fi
 } | sudo tee "$ENV_FILE" > /dev/null
 sudo chmod 640 "$ENV_FILE"
 sudo chown root:exedev "$ENV_FILE"
-
-
-# ── 7. Smoke-test the written DSNs ────────────────────────────────────────────
-echo "==> Verifying connections"
-psql "$DATABASE_URL"            -c "SELECT 1" > /dev/null && echo "    OK: DATABASE_URL"
-psql "$MIGRATIONS_DATABASE_URL" -c "SELECT 1" > /dev/null && echo "    OK: MIGRATIONS_DATABASE_URL"
-psql "$TEST_DATABASE_URL"       -c "SELECT 1" > /dev/null && echo "    OK: TEST_DATABASE_URL"
 
 echo "==> Done"
