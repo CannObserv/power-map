@@ -90,9 +90,12 @@ def _outputs(ca_pem: str) -> dict:
 
 
 def _run(
-    tmp_path: Path, outputs: dict, psql_fail_on: str = ""
+    tmp_path: Path, outputs: dict, psql_fail_on: str = "", fresh_host: bool = False
 ) -> tuple[subprocess.CompletedProcess, Path, list[str]]:
-    """Run a copy of the script against shims; return (result, fake /etc/power-map, log)."""
+    """Run a copy of the script against shims; return (result, fake /etc/power-map, log).
+
+    By default the host already has an env file and a CA; *fresh_host* has neither.
+    """
     root = tmp_path / "checkout"
     (root / "scripts").mkdir(parents=True)
     shutil.copy2(SCRIPT, root / "scripts" / SCRIPT.name)
@@ -116,8 +119,9 @@ def _run(
 
     fake_etc = tmp_path / "etc-power-map"
     fake_etc.mkdir()
-    (fake_etc / ".env").write_text("DATABASE_URL=old\nADDRESS_VALIDATOR_API_KEY=keep-me\n")
-    (fake_etc / "do-ca.crt").write_text(OLD_CA)
+    if not fresh_host:
+        (fake_etc / ".env").write_text("DATABASE_URL=old\nADDRESS_VALIDATOR_API_KEY=keep-me\n")
+        (fake_etc / "do-ca.crt").write_text(OLD_CA)
     tf_json = tmp_path / "tf-output.json"
     tf_json.write_text(json.dumps(outputs))
     log = tmp_path / "shim.log"
@@ -236,6 +240,19 @@ def test_replaces_the_env_file_atomically_and_never_world_readable(
     assert locked < filled and owned < filled < renamed
     assert stat.S_IMODE((fake_etc / ".env").stat().st_mode) == 0o640
     assert not (fake_etc / ".env.new").exists()
+
+
+def test_provisions_a_fresh_host(tmp_path: Path, ca_pem: str) -> None:
+    """First-time provisioning: no env file to preserve from, no CA to replace."""
+    result, fake_etc, _ = _run(tmp_path, _outputs(ca_pem), fresh_host=True)
+    assert result.returncode == 0, result.stderr
+
+    env = fake_etc / ".env"
+    assert stat.S_IMODE(env.stat().st_mode) == 0o640
+    keys = [line.split("=", 1)[0] for line in env.read_text().splitlines()]
+    assert keys == ["DATABASE_URL", "MIGRATIONS_DATABASE_URL", "TEST_DATABASE_URL"]
+    assert (fake_etc / "do-ca.crt").read_text().strip() == ca_pem.strip()
+    assert sorted(f.name for f in fake_etc.iterdir()) == [".env", "do-ca.crt"]
 
 
 def test_its_own_connections_prove_the_staged_ca_before_it_goes_live(
