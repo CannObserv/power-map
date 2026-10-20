@@ -21,7 +21,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TF_DIR="$SCRIPT_DIR/../infra/terraform"
 ENV_FILE="/etc/power-map/.env"
 CA_FILE="/etc/power-map/do-ca.crt"
+CA_STAGED="$CA_FILE.new"
+# The DSNs it writes name the live CA; its own connections name the staged one,
+# so the new CA is proven before anything else reads it.
 TLS_QUERY="sslmode=verify-full&sslrootcert=${CA_FILE}"
+CONNECT_TLS="sslmode=verify-full&sslrootcert=${CA_STAGED}"
 
 # ── 0. Preflight: terraform must be able to reach state ───────────────────────
 # On 2026-08-09 both gitignored credential files turned out to be absent from
@@ -57,22 +61,20 @@ TEST_PASS=$(echo "$TF_JSON"  | jq -r '.test_user_password.value')
 DOADMIN_URI=$(echo "$TF_JSON" | jq -r '.doadmin_uri.value')
 CA_PEM=$(echo "$TF_JSON"     | jq -r '.db_ca_certificate.value')
 
-# ── 1b. Install the cluster CA ────────────────────────────────────────────────
-# Before any connection: every one below verifies the server against it. Not a
-# secret, and the units run as exedev, so 0644 root:root. A missing or garbled
-# output would fail every verify-full connection, so check it first.
+# ── 1b. Stage the cluster CA ──────────────────────────────────────────────────
+# Every connection below verifies the server against the staged copy; it goes
+# live (step 7) only once they all have. Not a secret, and the units run as
+# exedev, so 0644 root:root. A missing or garbled output would fail every
+# verify-full connection, so check it first.
 if ! printf '%s\n' "$CA_PEM" | openssl x509 -noout 2>/dev/null; then
     echo "ERROR: terraform output db_ca_certificate is not a PEM certificate" >&2
     echo "  Refresh the outputs (terraform apply -refresh-only) and re-run." >&2
     exit 2
 fi
-# Staged then renamed: a re-run (credential rotation) races live connects, which
-# must never read a half-written CA.
-echo "==> Installing $CA_FILE"
-printf '%s\n' "$CA_PEM" | sudo tee "$CA_FILE.new" > /dev/null
-sudo chmod 644 "$CA_FILE.new"
-sudo chown root:root "$CA_FILE.new"
-sudo mv -f "$CA_FILE.new" "$CA_FILE"
+echo "==> Staging $CA_STAGED"
+printf '%s\n' "$CA_PEM" | sudo tee "$CA_STAGED" > /dev/null
+sudo chmod 644 "$CA_STAGED"
+sudo chown root:root "$CA_STAGED"
 
 # ── 2. URL-encode passwords ───────────────────────────────────────────────────
 # No password ever goes on a command line: /proc/*/cmdline is world-readable,
@@ -105,7 +107,7 @@ print(unquote(u.password or ""))'
 pg() {  # pg <user> <password> <database> [psql args…]
     local user=$1 pass=$2 db=$3
     shift 3
-    PGPASSWORD="$pass" psql "postgresql://${user}@${HOST}:${PORT}/${db}?${TLS_QUERY}" "$@"
+    PGPASSWORD="$pass" psql "postgresql://${user}@${HOST}:${PORT}/${db}?${CONNECT_TLS}" "$@"
 }
 
 # ── 5. Schema-level grants ────────────────────────────────────────────────────
@@ -150,7 +152,13 @@ smoke DATABASE_URL            "$PROD_USER" "$PROD_PASS" co_pm_db_production
 smoke MIGRATIONS_DATABASE_URL "$MIGS_USER" "$MIGS_PASS" co_pm_db_production
 smoke TEST_DATABASE_URL       "$TEST_USER" "$TEST_PASS" co_pm_db_test
 
-# ── 7. Write /etc/power-map/.env ──────────────────────────────────────────────
+# ── 7. Make the CA live ───────────────────────────────────────────────────────
+# Renamed, not rewritten: a re-run (credential rotation) races live connects,
+# which must never read a half-written CA — nor one nothing has connected through.
+echo "==> Installing $CA_FILE"
+sudo mv -f "$CA_STAGED" "$CA_FILE"
+
+# ── 8. Write /etc/power-map/.env ──────────────────────────────────────────────
 # Preserve non-DSN keys (ADDRESS_VALIDATOR_*, etc.) from the existing file so
 # a re-run after terraform apply doesn't silently drop credentials this script
 # doesn't own.

@@ -27,6 +27,7 @@ REPO = Path(__file__).parents[2]
 SCRIPT = REPO / "scripts" / "write-db-secrets.sh"
 CA_PATH = "/etc/power-map/do-ca.crt"
 
+OLD_CA = "the CA the host already trusts\n"
 DOADMIN_URI = "postgresql://doadmin:adm1n@db.example.invalid:25060/defaultdb?sslmode=require"
 
 SUDO_SHIM = """#!/usr/bin/env bash
@@ -116,6 +117,7 @@ def _run(
     fake_etc = tmp_path / "etc-power-map"
     fake_etc.mkdir()
     (fake_etc / ".env").write_text("DATABASE_URL=old\nADDRESS_VALIDATOR_API_KEY=keep-me\n")
+    (fake_etc / "do-ca.crt").write_text(OLD_CA)
     tf_json = tmp_path / "tf-output.json"
     tf_json.write_text(json.dumps(outputs))
     log = tmp_path / "shim.log"
@@ -157,11 +159,11 @@ def _psql_calls(log: list[str]) -> list[tuple[int, str, str]]:
     return calls
 
 
-def _assert_verify_full(dsn: str) -> None:
-    """*dsn* verifies the server against the cluster CA, and asks nothing weaker."""
+def _assert_verify_full(dsn: str, ca: str = CA_PATH) -> None:
+    """*dsn* verifies the server against *ca*, and asks nothing weaker."""
     query = parse_qs(urlparse(dsn).query)
     assert query.get("sslmode") == ["verify-full"], dsn
-    assert query.get("sslrootcert") == [CA_PATH], dsn
+    assert query.get("sslrootcert") == [ca], dsn
 
 
 @pytest.fixture
@@ -206,19 +208,24 @@ def test_replaces_the_ca_atomically(tmp_path: Path, ca_pem: str) -> None:
     assert not (fake_etc / "do-ca.crt.new").exists()
 
 
-def test_its_own_connections_verify_the_server_after_the_ca_lands(
+def test_its_own_connections_prove_the_staged_ca_before_it_goes_live(
     tmp_path: Path, ca_pem: str
 ) -> None:
-    """Grants (doadmin) and the smoke test run verify-full, never before the CA exists."""
+    """Grants and smoke tests verify against the *staged* CA; it is renamed in only after.
+
+    The live CA is what the running service's new connections read: a CA nothing
+    has connected through yet must not replace it.
+    """
     result, _, log = _run(tmp_path, _outputs(ca_pem))
     assert result.returncode == 0, result.stderr
 
     calls = _psql_calls(log)
     assert len(calls) == 5, log  # 2 grant runs + 3 smoke tests
+    staged = log.index(f"sudo tee {CA_PATH}.new")
     for _, uri, _ in calls:
-        _assert_verify_full(uri)
-    ca_written = log.index(f"sudo mv -f {CA_PATH}.new {CA_PATH}")
-    assert ca_written < calls[0][0]
+        _assert_verify_full(uri, ca=f"{CA_PATH}.new")
+    live = log.index(f"sudo mv -f {CA_PATH}.new {CA_PATH}")
+    assert staged < calls[0][0] and calls[-1][0] < live
 
 
 def test_a_failed_grant_fails_the_script(tmp_path: Path, ca_pem: str) -> None:
@@ -244,6 +251,7 @@ def test_a_dsn_that_cannot_connect_fails_before_the_env_file_changes(
     assert result.returncode != 0
     assert (fake_etc / ".env").read_text().startswith("DATABASE_URL=old")
     assert not [line for line in log if line.startswith("sudo tee /etc/power-map/.env")]
+    assert (fake_etc / "do-ca.crt").read_text() == OLD_CA
 
 
 # Every password _outputs() hands the script, raw and URL-encoded.
@@ -268,7 +276,7 @@ def test_refuses_a_ca_that_is_not_a_certificate(tmp_path: Path) -> None:
     result, fake_etc, log = _run(tmp_path, _outputs("null"))
     assert result.returncode == 2
     assert "db_ca_certificate" in result.stderr
-    assert not (fake_etc / "do-ca.crt").exists()
+    assert (fake_etc / "do-ca.crt").read_text() == OLD_CA
     assert (fake_etc / ".env").read_text().startswith("DATABASE_URL=old")
     assert not [line for line in log if line.startswith("psql ")]
 
