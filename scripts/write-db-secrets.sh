@@ -75,8 +75,10 @@ sudo chown root:root "$CA_FILE.new"
 sudo mv -f "$CA_FILE.new" "$CA_FILE"
 
 # ── 2. URL-encode passwords ───────────────────────────────────────────────────
+# No password ever goes on a command line: /proc/*/cmdline is world-readable,
+# /proc/*/environ is owner-only. Each one travels in the environment or on stdin.
 url_encode() {
-    python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$1"
+    PW="$1" python3 -c "import os, urllib.parse; print(urllib.parse.quote(os.environ['PW'], safe=''))"
 }
 
 PROD_PASS_ENC=$(url_encode "$PROD_PASS")
@@ -88,27 +90,30 @@ DATABASE_URL="postgresql://${PROD_USER}:${PROD_PASS_ENC}@${HOST}:${PORT}/co_pm_d
 MIGRATIONS_DATABASE_URL="postgresql://${MIGS_USER}:${MIGS_PASS_ENC}@${HOST}:${PORT}/co_pm_db_production?${TLS_QUERY}"
 TEST_DATABASE_URL="postgresql://${TEST_USER}:${TEST_PASS_ENC}@${HOST}:${PORT}/co_pm_db_test?${TLS_QUERY}"
 
-# ── 4. Build per-database doadmin URIs ───────────────────────────────────────
-# The cluster URI targets defaultdb; substitute the database name for grants,
-# and its TLS query for ours — verify-full, like every other connection here.
-make_doadmin_uri() {
-    python3 - "$DOADMIN_URI" "$1" "$TLS_QUERY" <<'PYEOF'
-import sys
-from urllib.parse import urlparse, urlunparse
-u = urlparse(sys.argv[1])
-print(urlunparse(u._replace(path=f"/{sys.argv[2]}", query=sys.argv[3])))
-PYEOF
-}
+# ── 4. Connections, password in PGPASSWORD ───────────────────────────────────
+# doadmin's user and password come out of the cluster URI through the
+# environment and stdout. Every connection is verify-full against the CA.
+{ read -r DOADMIN_USER; read -r DOADMIN_PASS; } < <(
+    DOADMIN_URI="$DOADMIN_URI" python3 -c '
+import os
+from urllib.parse import unquote, urlparse
+u = urlparse(os.environ["DOADMIN_URI"])
+print(unquote(u.username or ""))
+print(unquote(u.password or ""))'
+)
 
-DOADMIN_PROD_URI=$(make_doadmin_uri "co_pm_db_production")
-DOADMIN_TEST_URI=$(make_doadmin_uri "co_pm_db_test")
+pg() {  # pg <user> <password> <database> [psql args…]
+    local user=$1 pass=$2 db=$3
+    shift 3
+    PGPASSWORD="$pass" psql "postgresql://${user}@${HOST}:${PORT}/${db}?${TLS_QUERY}" "$@"
+}
 
 # ── 5. Schema-level grants ────────────────────────────────────────────────────
 # ON_ERROR_STOP: without it psql exits 0 on a failed statement, and a grant that
 # did not apply would pass for one that did.
 # Production DB: migrations user owns schema; app user gets DML only.
 echo "==> Applying grants on co_pm_db_production"
-psql "$DOADMIN_PROD_URI" -v ON_ERROR_STOP=1 <<SQL
+pg "$DOADMIN_USER" "$DOADMIN_PASS" co_pm_db_production -v ON_ERROR_STOP=1 <<SQL
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 
 GRANT USAGE, CREATE ON SCHEMA public TO ${MIGS_USER};
@@ -123,7 +128,7 @@ SQL
 
 # Test DB: test user owns schema; full DDL required for apply_schema + TRUNCATE.
 echo "==> Applying grants on co_pm_db_test"
-psql "$DOADMIN_TEST_URI" -v ON_ERROR_STOP=1 <<SQL
+pg "$DOADMIN_USER" "$DOADMIN_PASS" co_pm_db_test -v ON_ERROR_STOP=1 <<SQL
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO ${TEST_USER};
 SQL
@@ -131,15 +136,19 @@ SQL
 # ── 6. Smoke-test the new DSNs, before they replace the old ones ─────────────
 # A DSN that cannot connect (password, CA, hostname) must never reach the env
 # file: the next restart's ExecStartPre would fail and :8000 stay down. Each is
-# a hard failure — `psql … && echo` would not trip set -e.
-echo "==> Verifying connections"
-for var in DATABASE_URL MIGRATIONS_DATABASE_URL TEST_DATABASE_URL; do
-    if ! psql "${!var}" -c "SELECT 1" > /dev/null; then
-        echo "ERROR: $var cannot connect; $ENV_FILE left unchanged" >&2
+# a hard failure — `psql … && echo` would not trip set -e. Each connects with the
+# parts its DSN is built from, so no password reaches psql's argv.
+smoke() {  # smoke <VAR> <user> <password> <database>
+    if ! pg "$2" "$3" "$4" -c "SELECT 1" > /dev/null; then
+        echo "ERROR: $1 cannot connect; $ENV_FILE left unchanged" >&2
         exit 1
     fi
-    echo "    OK: $var"
-done
+    echo "    OK: $1"
+}
+echo "==> Verifying connections"
+smoke DATABASE_URL            "$PROD_USER" "$PROD_PASS" co_pm_db_production
+smoke MIGRATIONS_DATABASE_URL "$MIGS_USER" "$MIGS_PASS" co_pm_db_production
+smoke TEST_DATABASE_URL       "$TEST_USER" "$TEST_PASS" co_pm_db_test
 
 # ── 7. Write /etc/power-map/.env ──────────────────────────────────────────────
 # Preserve non-DSN keys (ADDRESS_VALIDATOR_*, etc.) from the existing file so

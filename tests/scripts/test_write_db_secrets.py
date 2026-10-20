@@ -46,6 +46,11 @@ cat > /dev/null
 exit 0
 """
 
+PYTHON3_SHIM = """#!/usr/bin/env bash
+echo "python3 $*" >> "$SHIM_LOG"
+exec "$REAL_PYTHON3" "$@"
+"""
+
 TERRAFORM_SHIM = """#!/usr/bin/env bash
 cat "$TF_OUTPUT_JSON"
 """
@@ -97,7 +102,13 @@ def _run(
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for name, body in (("sudo", SUDO_SHIM), ("psql", PSQL_SHIM), ("terraform", TERRAFORM_SHIM)):
+    shims = (
+        ("sudo", SUDO_SHIM),
+        ("psql", PSQL_SHIM),
+        ("python3", PYTHON3_SHIM),
+        ("terraform", TERRAFORM_SHIM),
+    )
+    for name, body in shims:
         shim = bin_dir / name
         shim.write_text(body)
         shim.chmod(0o755)
@@ -117,6 +128,7 @@ def _run(
         "SHIM_LOG": str(log),
         "TF_OUTPUT_JSON": str(tf_json),
         "PSQL_FAIL_ON": psql_fail_on,
+        "REAL_PYTHON3": shutil.which("python3") or "python3",
     }
     result = subprocess.run(
         ["bash", str(root / "scripts" / SCRIPT.name)],
@@ -228,10 +240,27 @@ def test_a_dsn_that_cannot_connect_fails_before_the_env_file_changes(
     Otherwise a rotation writes a dead DSN, reports Done, and the next restart's
     ExecStartPre takes the service down.
     """
-    result, fake_etc, log = _run(tmp_path, _outputs(ca_pem), psql_fail_on=f"//{user}:")
+    result, fake_etc, log = _run(tmp_path, _outputs(ca_pem), psql_fail_on=f"//{user}@")
     assert result.returncode != 0
     assert (fake_etc / ".env").read_text().startswith("DATABASE_URL=old")
     assert not [line for line in log if line.startswith("sudo tee /etc/power-map/.env")]
+
+
+# Every password _outputs() hands the script, raw and URL-encoded.
+SECRETS = ("p@ss/word", "p%40ss%2Fword", "m1grate", "t3st", "adm1n")
+
+
+def test_no_password_reaches_a_command_line(tmp_path: Path, ca_pem: str) -> None:
+    """/proc/*/cmdline is world-readable; credentials are the boundary (#667).
+
+    Passwords travel in the environment (PGPASSWORD; /proc/*/environ is
+    owner-only) or on stdin, never in argv: not psql's, not python3's.
+    """
+    result, _, log = _run(tmp_path, _outputs(ca_pem))
+    assert result.returncode == 0, result.stderr
+
+    assert [line for line in log if any(secret in line for secret in SECRETS)] == []
+    assert all(" pw=set " in log[i] for i, _, _ in _psql_calls(log)), log
 
 
 def test_refuses_a_ca_that_is_not_a_certificate(tmp_path: Path) -> None:
