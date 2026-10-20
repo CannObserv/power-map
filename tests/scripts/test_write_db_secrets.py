@@ -8,7 +8,9 @@ verify the server against the cluster CA (``sslmode=verify-full``).
 
 Each test runs a copy of the script in ``tmp_path`` with ``terraform``, ``psql``
 and ``sudo`` shimmed on ``PATH``: the ``sudo`` shim maps ``/etc/power-map`` onto
-a scratch directory, so nothing touches the host and no real DSN is read.
+a scratch directory, so nothing touches the host and no real DSN is read. The
+``psql`` shim executes nothing: it keeps each call's SQL, so a test can read what
+would have run, never what Postgres would have made of it.
 """
 
 import ast
@@ -41,7 +43,9 @@ exec "${args[@]}"
 
 PSQL_SHIM = """#!/usr/bin/env bash
 echo "psql $1 pw=${PGPASSWORD:+set} args=${*:2}" >> "$SHIM_LOG"
-cat > /dev/null
+# Keep each call's stdin, numbered in call order.
+n=$(find "$SHIM_SQL_DIR" -type f | wc -l)
+cat > "$SHIM_SQL_DIR/$(printf %02d "$n").sql"
 # Refuse one connection, as a wrong password or CA would.
 [ -n "${PSQL_FAIL_ON:-}" ] && [[ "$1" == *"$PSQL_FAIL_ON"* ]] && exit 2
 exit 0
@@ -126,12 +130,14 @@ def _run(
     tf_json.write_text(json.dumps(outputs))
     log = tmp_path / "shim.log"
     log.write_text("")
+    (tmp_path / "sql").mkdir()
 
     env = {
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "HOME": str(tmp_path),
         "FAKE_ETC": str(fake_etc),
         "SHIM_LOG": str(log),
+        "SHIM_SQL_DIR": str(tmp_path / "sql"),
         "TF_OUTPUT_JSON": str(tf_json),
         "PSQL_FAIL_ON": psql_fail_on,
         "REAL_PYTHON3": shutil.which("python3") or "python3",
@@ -161,6 +167,18 @@ def _psql_calls(log: list[str]) -> list[tuple[int, str, str]]:
             uri = line.split()[1]
             calls.append((i, uri, line.split(" args=", 1)[1]))
     return calls
+
+
+def _grant_runs(tmp_path: Path, log: list[str]) -> dict[str, str]:
+    """{database: SQL} for each doadmin run the psql shim saw."""
+    sql = [f.read_text() for f in sorted((tmp_path / "sql").iterdir())]
+    calls = _psql_calls(log)
+    assert len(sql) == len(calls), (sql, calls)
+    return {
+        urlparse(uri).path.lstrip("/"): text
+        for (_, uri, _), text in zip(calls, sql, strict=True)
+        if urlparse(uri).username == "doadmin"
+    }
 
 
 def _assert_verify_full(dsn: str, ca: str = CA_PATH) -> None:
@@ -450,3 +468,120 @@ def test_the_ssl_sweep_sees_both_call_shapes(tmp_path: Path) -> None:
         "    await create_pool(d, ssl='require')\n"
     )
     assert len(_ssl_overrides(sample)) == 2
+
+
+# ── Database-level CONNECT allowlist (#680) ───────────────────────────────────
+# Each database admits only its own roles and DO's metrics role; PUBLIC loses
+# the CONNECT PostgreSQL gives it by default.
+
+MONITOR_ROLE = "_doadmin_monitor"
+ALLOWLIST = {
+    "co_pm_db_production": ("app_user", "migrations_user"),
+    "co_pm_db_test": ("test_user",),
+}
+
+
+def _statement(sql: str, needle: str) -> int:
+    """Offset of *needle* in *sql*; fails if it is absent."""
+    assert needle in sql, f"{needle!r} not in:\n{sql}"
+    return sql.index(needle)
+
+
+@pytest.mark.parametrize("db", sorted(ALLOWLIST))
+def test_each_database_admits_only_its_own_roles(tmp_path: Path, ca_pem: str, db: str) -> None:
+    """Its own run grants CONNECT to its roles and takes it from PUBLIC."""
+    result, _, log = _run(tmp_path, _outputs(ca_pem))
+    assert result.returncode == 0, result.stderr
+
+    sql = _grant_runs(tmp_path, log)[db]
+    _statement(sql, f"GRANT CONNECT ON DATABASE {db} TO {', '.join(ALLOWLIST[db])};")
+    _statement(sql, f"GRANT CONNECT ON DATABASE {db} TO {MONITOR_ROLE};")
+    _statement(sql, f"REVOKE CONNECT ON DATABASE {db} FROM PUBLIC;")
+    others = set(ALLOWLIST) - {db}
+    assert not [other for other in others if f"DATABASE {other}" in sql]
+
+
+@pytest.mark.parametrize("db", sorted(ALLOWLIST))
+def test_grants_come_before_the_revoke(tmp_path: Path, ca_pem: str, db: str) -> None:
+    """On a live cluster no role may lose CONNECT between statements.
+
+    A grant that fails (ON_ERROR_STOP) then leaves PUBLIC open, not a role locked out.
+    """
+    result, _, log = _run(tmp_path, _outputs(ca_pem))
+    assert result.returncode == 0, result.stderr
+
+    sql = _grant_runs(tmp_path, log)[db]
+    revoke = _statement(sql, f"REVOKE CONNECT ON DATABASE {db} FROM PUBLIC;")
+    assert _statement(sql, f"GRANT CONNECT ON DATABASE {db} TO {ALLOWLIST[db][0]}") < revoke
+    assert _statement(sql, f"GRANT CONNECT ON DATABASE {db} TO {MONITOR_ROLE};") < revoke
+
+
+@pytest.mark.parametrize("db", sorted(ALLOWLIST))
+def test_a_missing_monitor_role_warns_and_does_not_fail(
+    tmp_path: Path, ca_pem: str, db: str
+) -> None:
+    """DO creates _doadmin_monitor, but maybe not before a fresh cluster's first run.
+
+    The grant is guarded on the role existing; without it the run warns, naming
+    the role and the fix, and goes on.
+    """
+    result, _, log = _run(tmp_path, _outputs(ca_pem))
+    assert result.returncode == 0, result.stderr
+
+    sql = _grant_runs(tmp_path, log)[db]
+    guard = _statement(sql, f"IF EXISTS (SELECT FROM pg_roles WHERE rolname = '{MONITOR_ROLE}')")
+    grant = _statement(sql, f"GRANT CONNECT ON DATABASE {db} TO {MONITOR_ROLE};")
+    warning = _statement(sql, f"RAISE WARNING '{MONITOR_ROLE} does not exist yet")
+    assert guard < grant < warning
+    assert "re-run scripts/write-db-secrets.sh" in sql[warning : sql.index("\n", warning)]
+
+
+@pytest.mark.parametrize("db", sorted(ALLOWLIST))
+def test_a_revoke_that_did_not_take_fails_the_run(tmp_path: Path, ca_pem: str, db: str) -> None:
+    """REVOKE without grant option only warns, and psql exits 0 even under ON_ERROR_STOP.
+
+    Every role holds CONNECT through PUBLIC, so a writer connecting as a non-owner
+    would report success with PUBLIC still open. The run proves it went: an
+    exception if PUBLIC (grantee 0) still has CONNECT, reading a NULL datacl as
+    the default it stands for, which includes PUBLIC.
+    """
+    result, _, log = _run(tmp_path, _outputs(ca_pem))
+    assert result.returncode == 0, result.stderr
+
+    sql = _grant_runs(tmp_path, log)[db]
+    revoke = _statement(sql, f"REVOKE CONNECT ON DATABASE {db} FROM PUBLIC;")
+    check = _statement(sql, "aclexplode(coalesce(d.datacl, acldefault('d', d.datdba)))")
+    assert revoke < check
+    tail = sql[check:]
+    _statement(tail, f"d.datname = '{db}' AND a.grantee = 0 AND a.privilege_type = 'CONNECT'")
+    _statement(tail, f"RAISE EXCEPTION 'PUBLIC still has CONNECT on {db}")
+
+
+def test_dollar_quotes_reach_psql_intact(tmp_path: Path, ca_pem: str) -> None:
+    """The grant heredocs are unquoted: an unescaped $$ would arrive as the shell's PID."""
+    result, _, log = _run(tmp_path, _outputs(ca_pem))
+    assert result.returncode == 0, result.stderr
+
+    for db, sql in _grant_runs(tmp_path, log).items():
+        blocks = re.findall(r"^DO \$\$$", sql, re.MULTILINE)
+        ends = re.findall(r"^END \$\$;$", sql, re.MULTILINE)
+        assert len(blocks) == len(ends) == 2, (db, sql)
+
+
+def test_a_rerun_sends_the_same_sql(tmp_path: Path, ca_pem: str) -> None:
+    """The writer re-runs on a live cluster (rotation, terraform apply).
+
+    It keeps no state between runs and creates or drops nothing, so a second run
+    sends exactly the first one's statements; GRANT and REVOKE make that a no-op
+    in Postgres (stated from its docs: the fake executes nothing).
+    """
+    outputs = _outputs(ca_pem)
+    runs = []
+    for name in ("first", "second"):
+        (tmp_path / name).mkdir()
+        result, _, log = _run(tmp_path / name, outputs)
+        assert result.returncode == 0, result.stderr
+        runs.append(_grant_runs(tmp_path / name, log))
+    assert runs[0] == runs[1]
+    for sql in runs[0].values():
+        assert not re.search(r"^\s*(CREATE|DROP)\b", sql, re.MULTILINE | re.IGNORECASE), sql
