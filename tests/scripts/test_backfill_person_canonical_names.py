@@ -6,6 +6,7 @@ import pytest_asyncio
 from scripts.backfill_person_canonical_names import find_candidates, run_backfill
 from src.core.db import generate_id
 from src.core.observation import heal_person_canonical
+from tests.db_utils import row_version
 
 pytestmark = [
     pytest.mark.integration,
@@ -155,25 +156,18 @@ async def test_run_backfill_is_idempotent(conn):
     )
 
 
-async def test_run_backfill_emits_entity_change_for_subscribers(conn):
-    """Promotion must reach the outbox so subscribers re-fetch and see the name.
+async def test_run_backfill_touches_person(conn):
+    """Promotion must touch the person so its ETag moves and readers see the name.
 
-    Asserts on entity_changes rather than people.updated_at: NOW() is fixed for
+    Asserts on the row version rather than people.updated_at: NOW() is fixed for
     the life of a transaction, so the timestamp cannot advance inside the test's
     own transaction even though the touch trigger does fire.
     """
     pid = await _person(conn)
     await _name(conn, pid, "Steve Kirby")
-    before = await conn.fetchval(
-        "SELECT count(*) FROM entity_changes WHERE entity_id=$1 AND change_kind='updated'",
-        pid,
-    )
+    before = await row_version(conn, "people", pid)
     await run_backfill(conn, dry_run=False)
-    after = await conn.fetchval(
-        "SELECT count(*) FROM entity_changes WHERE entity_id=$1 AND change_kind='updated'",
-        pid,
-    )
-    assert after > before
+    assert await row_version(conn, "people", pid) != before
 
 
 # The `blocked` bucket is gone (#308, Option A): uq_person_canonical_name is

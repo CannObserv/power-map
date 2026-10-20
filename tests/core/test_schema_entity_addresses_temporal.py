@@ -3,7 +3,7 @@
 Covers the valid_from/valid_until columns, the chk_ea_validity range check,
 the NULLS NOT DISTINCT unique constraint, and the touch-parent trigger that
 propagates entity_addresses changes to the linked entity's updated_at (and
-thus the entity_changes outbox).
+thus its ETag).
 """
 
 from datetime import date
@@ -13,6 +13,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [
     pytest.mark.integration,
@@ -173,7 +174,7 @@ async def test_identical_windows_blocked(db):
 
 
 # ---------------------------------------------------------------------------
-# Touch-parent trigger → updated_at → entity_changes outbox
+# Touch-parent trigger → updated_at → row version
 # ---------------------------------------------------------------------------
 
 
@@ -233,19 +234,10 @@ async def test_trigger_registered_for_all_events(db):
         assert row["tgtype"] & bit, f"trigger not registered for {event}"
 
 
-async def test_address_insert_emits_entity_change_row(db):
-    """Touch-parent UPDATE must cascade into the entity_changes outbox."""
+async def test_address_insert_touches_parent_row(db):
+    """Touch-parent UPDATE must rewrite the parent row — no sentinel backdating needed."""
     oid = await _org(db)
     aid = await _address(db)
-    before = await db.fetchval(
-        "SELECT count(*) FROM entity_changes"
-        " WHERE entity_type = 'organization' AND entity_id = $1 AND change_kind = 'updated'",
-        oid,
-    )
+    before = await row_version(db, "organizations", oid)
     await _ea(db, "organization", oid, aid)
-    after = await db.fetchval(
-        "SELECT count(*) FROM entity_changes"
-        " WHERE entity_type = 'organization' AND entity_id = $1 AND change_kind = 'updated'",
-        oid,
-    )
-    assert after > before
+    assert await row_version(db, "organizations", oid) != before

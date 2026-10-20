@@ -16,7 +16,6 @@ from tests.db_utils import trigger_disabled
 #: Polymorphic tables whose rows outlive their entity on purpose.
 SURVIVORS = {
     "deleted_entities": "the tombstone itself",
-    "entity_changes": "the outbox the 'deleted' signal travels on",
 }
 
 

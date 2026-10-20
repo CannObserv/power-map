@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily power-map outbox + tombstone TTL prune (issue #204)
+Description=Daily power-map tombstone + request-log TTL prune (issue #204)
 
 [Timer]
 OnCalendar=daily

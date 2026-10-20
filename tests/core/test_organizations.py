@@ -14,6 +14,7 @@ from src.core.organizations import (
     OrgNotFound,
     set_org_active,
 )
+from tests.db_utils import row_version
 
 pytestmark = [
     pytest.mark.integration,
@@ -40,31 +41,21 @@ async def org_id(db):
     return oid
 
 
-async def test_effective_change_writes_and_emits_one_change(db, org_id):
-    """A real flip writes the flag and appends exactly one 'updated' row."""
-    before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+async def test_effective_change_writes_and_touches_the_row(db, org_id):
+    """A real flip writes the flag and UPDATEs the org row."""
+    before = await row_version(db, "organizations", org_id)
     await set_org_active(db, org_id, False)
     row = await db.fetchrow("SELECT active FROM organizations WHERE id=$1", org_id)
     assert row["active"] is False
-    rows = await db.fetch(
-        "SELECT change_kind FROM entity_changes"
-        " WHERE entity_id=$1 AND entity_type='organization' AND id > $2",
-        org_id,
-        before,
-    )
-    assert len(rows) == 1
-    assert rows[0]["change_kind"] == "updated"
+    assert await row_version(db, "organizations", org_id) != before
 
 
-async def test_noop_emits_no_change_and_leaves_updated_at(db, org_id):
-    """Re-asserting the current value is a true no-op: no event, no updated_at bump."""
-    before_id = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+async def test_noop_leaves_the_row_and_updated_at(db, org_id):
+    """Re-asserting the current value is a true no-op: no UPDATE, no updated_at bump."""
+    before = await row_version(db, "organizations", org_id)
     before_ts = await db.fetchval("SELECT updated_at FROM organizations WHERE id=$1", org_id)
     await set_org_active(db, org_id, True)  # org defaults active=TRUE → unchanged
-    rows = await db.fetch(
-        "SELECT 1 FROM entity_changes WHERE entity_id=$1 AND id > $2", org_id, before_id
-    )
-    assert len(rows) == 0
+    assert await row_version(db, "organizations", org_id) == before
     after_ts = await db.fetchval("SELECT updated_at FROM organizations WHERE id=$1", org_id)
     assert after_ts == before_ts
 

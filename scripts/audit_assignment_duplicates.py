@@ -33,9 +33,9 @@ human decision, not a guess.
 ``--execute`` merges auto-mergeable pairs: links / contact methods / addresses
 / identifiers move to the survivor (rows that would duplicate stay on the
 orphan), notes concatenate, and the orphan is **archived** (never deleted) with
-a provenance note recording the span the merge discarded. The archive UPDATE
-hits the entity_changes outbox, so subscribed producers see the retirement and
-can drop stale anchors.
+a provenance note recording the span the merge discarded. The archive sets
+``archived_at`` on the orphan, which a producer reading it back sees, so it can
+drop the stale anchor.
 
 Idempotent: a merged pair leaves the audit's scope (archived rows are ignored).
 

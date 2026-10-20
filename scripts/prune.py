@@ -1,21 +1,20 @@
-"""Prune the outbox, deletion tombstones and request log, each on its own window.
+"""Prune deletion tombstones and the request log, each on its own window.
 
-Issue #204. The ``entity_changes`` outbox grows on every INSERT/UPDATE of the
-five entity tables (plus a tombstone per delete/merge); ``deleted_entities``
-grows one row per removal; ``api_request_log`` one row per ``/api/v1/*``
-request. None self-limits. This job deletes each table's rows older than that
-table's retention window (90 days each by default, #502) and is wired to a
-daily systemd timer (``infra/power-map-prune.timer`` — see ``docs/COMMANDS.md``).
-Merge tombstones (``merged_into`` set) are exempt at any age (#607): they back
-the detail GETs' ``410`` + ``merged_into``.
+Issue #204. ``deleted_entities`` grows one row per removal; ``api_request_log``
+one row per ``/api/v1/*`` request. Neither self-limits. This job deletes each
+table's rows older than that table's retention window (90 days each by default,
+#502) and is wired to a daily systemd timer (``infra/power-map-prune.timer`` —
+see ``docs/COMMANDS.md``). Merge tombstones (``merged_into`` set) are exempt at
+any age (#607): they back the detail GETs' ``410`` + ``merged_into``.
 
 Each window is its own flag; the single ``--retention-days`` (and the #495
-104-day hold it carried) retired in #502. See ``docs/RUNBOOKS.md`` § prune.
+104-day hold it carried) retired in #502, and the change outbox's window with
+the outbox itself in #651. See ``docs/RUNBOOKS.md`` § prune.
 
 Usage:
-    uv run python -m scripts.prune_outbox                       # dry run (counts only)
-    uv run python -m scripts.prune_outbox --execute             # commit deletes
-    uv run python -m scripts.prune_outbox --execute --request-log-retention-days 30
+    uv run python -m scripts.prune                       # dry run (counts only)
+    uv run python -m scripts.prune --execute             # commit deletes
+    uv run python -m scripts.prune --execute --request-log-retention-days 30
 """
 
 import argparse
@@ -25,13 +24,12 @@ import asyncpg
 
 from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.logging import configure_logging, get_logger
-from src.core.maintenance import DEFAULT_RETENTION, Retention, count_prunable, prune_outbox
+from src.core.maintenance import DEFAULT_RETENTION, Retention, count_prunable, prune_expired
 
 logger = get_logger(__name__)
 
 #: flag → the :class:`Retention` field it sets.
 _WINDOW_FLAGS = {
-    "--changes-retention-days": "entity_changes",
     "--tombstone-retention-days": "deleted_entities",
     "--request-log-retention-days": "api_request_log",
 }
@@ -44,10 +42,8 @@ async def run(dsn: str, *, execute: bool, retention: Retention) -> None:
         if not execute:
             eligible = await count_prunable(conn, retention)
             logger.info(
-                "Dry run — %d entity_changes (>%dd) + %d deleted_entities (>%dd) + "
-                "%d api_request_log (>%dd) row(s) are eligible; pass --execute to delete",
-                eligible.entity_changes,
-                retention.entity_changes,
+                "Dry run — %d deleted_entities (>%dd) + %d api_request_log (>%dd) "
+                "row(s) are eligible; pass --execute to delete",
                 eligible.deleted_entities,
                 retention.deleted_entities,
                 eligible.api_request_log,
@@ -55,12 +51,9 @@ async def run(dsn: str, *, execute: bool, retention: Retention) -> None:
             )
             return
 
-        result = await prune_outbox(conn, retention)
+        result = await prune_expired(conn, retention)
         logger.info(
-            "Pruned %d entity_changes (>%dd) + %d deleted_entities (>%dd) + "
-            "%d api_request_log (>%dd) row(s)",
-            result.entity_changes,
-            retention.entity_changes,
+            "Pruned %d deleted_entities (>%dd) + %d api_request_log (>%dd) row(s)",
             result.deleted_entities,
             retention.deleted_entities,
             result.api_request_log,

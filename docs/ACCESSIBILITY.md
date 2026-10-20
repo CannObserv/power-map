@@ -116,16 +116,15 @@ orgs/people/jurisdictions:
   (`entity_type='role'`, no FK — the assignment-only `ancillary_migrate` #324 machinery does
   not cover these) must be cleaned like the assignment case, else the #326 editors orphan
   them. `src.core.ancillary_migrate` grew `rehome_role_ancillary` (merge: re-point + dedup
-  onto the surviving role, emit a `'role'` 'updated' signal) and `delete_role_ancillary`
+  onto the surviving role, its touch triggers bumping the survivor) and `delete_role_ancillary`
   (hard-delete: drop the rows; generalised to every entity type as `delete_entity_ancillary`, #605). Wired into all three role-deleting paths: `roles.py`
   hard-delete, `orgs_roles.py::role_merge`, and both `orgs_merge.py` role-pair deletes.
 - **Addresses deliberately excluded** — the address editor is hand-built per entity (not a
   shared factory) and semantically thin on a role/assignment; the public observation API
   still accepts them.
-- **Known gap (#327):** these shared admin routers do raw INSERT/DELETE and do **not** emit
-  a parent `entity_changes` 'updated' signal (the public observation path does). Combined
-  with the no-touch-cascade tables (#324), admin edits are invisible to subscribers until
-  #327 lands the consistent emit.
+- **Parent touch (#327):** these shared admin routers do raw INSERT/UPDATE/DELETE; the
+  `contact_methods`/`links`/`identifiers` touch triggers bump the parent's `updated_at`, so
+  an admin edit changes its detail ETag exactly as a public observation does.
 
 ## HTMX live regions
 

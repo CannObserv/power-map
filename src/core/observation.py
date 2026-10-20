@@ -781,7 +781,7 @@ async def write_links(conn, entity_id: str, entity_type: str, links: list) -> No
         )
         if existing:
             continue
-        # The links touch trigger (#327) emits the parent entity_changes row.
+        # The links touch trigger (#327) bumps the parent's updated_at.
         await conn.execute(
             "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
             " VALUES ($1, $2, $3, $4, $5)",
@@ -802,10 +802,9 @@ async def _null_fill_metadata(
 ) -> None:
     """Fill col in the pk_val row of table only where it is currently NULL.
 
-    table/col are caller-controlled string constants, not user input. The parent
-    ``entity_changes`` 'updated' signal is emitted by the table's touch-parent
-    trigger (``entity_addresses`` / ``contact_methods``, #327), so no manual
-    outbox write is needed here.
+    table/col are caller-controlled string constants, not user input. The
+    table's touch-parent trigger (``entity_addresses`` / ``contact_methods``,
+    #327) bumps the parent's ``updated_at``, so nothing else is touched here.
     """
     await conn.execute(
         f"UPDATE {table} SET {col}=$1 WHERE id=$2 AND {col} IS NULL",
@@ -845,7 +844,7 @@ async def write_contact_methods(
         if existing:
             if cm.display_label:
                 # contact_methods has a touch trigger (#327) — the UPDATE
-                # self-emits, like entity_addresses; no manual outbox write.
+                # touches the parent, like entity_addresses.
                 await _null_fill_metadata(
                     conn,
                     "contact_methods",
@@ -854,7 +853,7 @@ async def write_contact_methods(
                     cm.display_label,
                 )
             continue
-        # The contact_methods touch trigger (#327) emits the parent entity_changes row.
+        # The contact_methods touch trigger (#327) bumps the parent's updated_at.
         await conn.execute(
             "INSERT INTO contact_methods"
             " (id, entity_type, entity_id, contact_type, value, display_label)"
@@ -922,7 +921,7 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
         )
         if existing:
             if addr.display_name:
-                # trg_touch_entity_on_address_change emits the outbox row (#181)
+                # trg_touch_entity_on_address_change touches the parent (#181)
                 await _null_fill_metadata(
                     conn,
                     "entity_addresses",
@@ -985,7 +984,7 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
                 addr.valid_from,
                 addr.valid_until,
             )
-            # trg_touch_entity_on_address_change emits the outbox row (#181)
+            # trg_touch_entity_on_address_change touches the parent (#181)
 
 
 async def write_org_acronyms(
@@ -1750,7 +1749,7 @@ async def _refine_event_in_place(
 
 
 async def _retract_event(conn, event_type_id: str, key_id: str | None, ev) -> EventResult:
-    """id-addressed void (#322): archive the event so the outbox drops the anchor.
+    """id-addressed void (#322): archive the event so readers drop the anchor.
 
     The only correction for a dateless linked event (``succeeded_by`` /
     ``split_from`` / ``merged_with``), which has no mutable field to refine — a
@@ -2218,7 +2217,7 @@ async def update_assignment_fields(
     takes no write at all from an identical assertion: CR round 1 of #311 ruled
     that a foreign key must not be able to change anything by agreeing, and
     claiming is a change. The provenance-only UPDATE fires the #327 touch
-    triggers like any other write, so the claim reaches ``entity_changes``.
+    triggers like any other write, so the claim moves the parent's ETag.
 
     **Must be called inside the caller's transaction** so a rejection rolls the
     whole observation back. Raises ``ObservationRejected`` when the row is
@@ -2420,8 +2419,6 @@ async def retract_assignment(
       ``identity_immutable`` (guards a copy-paste ``pm_assignment_id``)
     - live row, foreign non-NULL ``source_key_id`` → ``source_key_mismatch``
     - else archive → ``RETRACTED``. The UPDATE fires
-      ``trg_entity_changes_role_assignments`` (an outbox row; the outbox retires
-      in #651) and
       ``trg_cascade_assignment_relationships`` (dependent ``staff_of`` edges
       archive with it, #301).
 
@@ -2439,7 +2436,7 @@ async def retract_assignment(
 
     if row["archived_at"] is not None:
         # Idempotent — a producer re-emits the retract every cycle. No UPDATE,
-        # no outbox row. Checked before the provenance gate so a foreign
+        # so no ETag change. Checked before the provenance gate so a foreign
         # redelivery stays quiet, exactly as update_assignment_fields' no-op does.
         return Disposition.AUTO_ATTACHED
 

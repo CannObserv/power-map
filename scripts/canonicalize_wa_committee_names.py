@@ -32,8 +32,8 @@ Deleting the prefixed row *before* promoting frees the single-canonical slot
 prefixed row already gone and the clean name already canonical, and no-ops.
 
 Both DB writes touch ``organizations`` (via the ``touch_parent_org`` /
-search-tsv triggers), so each org emits an ``entity_changes`` ``'updated'`` row
-— consumers (usa-wa) re-fetch and see the corrected canonical name.
+search-tsv triggers), so each org's ``updated_at`` and ETag change — a
+revalidating consumer (usa-wa) sees the corrected canonical name.
 
 The ``CANONICALIZE_ACTIONS`` list at module bottom is the reviewable
 source of truth — generated from the production DB state on 2026-06-30.

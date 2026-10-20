@@ -1,13 +1,14 @@
 """Touch-cascade triggers on contact_methods / links / identifiers (#327).
 
-These polymorphic ancillary tables signal the parent's ``entity_changes`` outbox
-via a DB trigger — the same model as ``entity_addresses`` — so **any** write path
-(admin CRUD, public observation, merge re-homing, or a direct INSERT from a
-script) notifies subscribers uniformly. This suite exercises the trigger through
-raw SQL, i.e. the path an app-layer emit would miss.
+These polymorphic ancillary tables bump the parent's ``updated_at`` via a DB
+trigger — the same model as ``entity_addresses`` — so **any** write path (admin
+CRUD, public observation, merge re-homing, or a direct INSERT from a script)
+moves the parent's ETag uniformly. This suite exercises the trigger through raw
+SQL, i.e. the path an app-layer touch would miss. The observable is the parent
+row version (``row_version``): ``updated_at`` is frozen inside one transaction.
 
 ``contact_methods`` / ``links`` gained a trigger in #327 (previously none — the
-public + merge paths emitted manually); the identifier trigger gained its
+public + merge paths touched manually); the identifier trigger gained its
 ``role_assignment`` branch (org/person/jurisdiction were already covered).
 """
 
@@ -15,6 +16,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [pytest.mark.integration]
 
@@ -47,15 +49,6 @@ async def _role_assignment(db) -> str:
     return raid
 
 
-async def _signals(db, entity_type: str, entity_id: str) -> int:
-    return await db.fetchval(
-        "SELECT count(*) FROM entity_changes"
-        " WHERE entity_type=$1 AND entity_id=$2 AND change_kind='updated'",
-        entity_type,
-        entity_id,
-    )
-
-
 # ── trigger registration ─────────────────────────────────────────────────────
 
 
@@ -85,52 +78,52 @@ async def test_trigger_registered_for_all_events(db, table, trigger):
 # ── contact_methods: INSERT / UPDATE / DELETE all cascade ────────────────────
 
 
-async def test_contact_insert_update_delete_emit(db):
+async def test_contact_insert_update_delete_touch_parent(db):
     oid = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
     cid = generate_id()
 
-    before = await _signals(db, "organization", oid)
+    before = await row_version(db, "organizations", oid)
     await db.execute(
         "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
         " VALUES ($1, 'organization', $2, 'email', 'a@example.gov')",
         cid,
         oid,
     )
-    assert await _signals(db, "organization", oid) == before + 1
+    assert await row_version(db, "organizations", oid) != before
 
-    before = await _signals(db, "organization", oid)
+    before = await row_version(db, "organizations", oid)
     await db.execute("UPDATE contact_methods SET value='b@example.gov' WHERE id=$1", cid)
-    assert await _signals(db, "organization", oid) == before + 1
+    assert await row_version(db, "organizations", oid) != before
 
-    before = await _signals(db, "organization", oid)
+    before = await row_version(db, "organizations", oid)
     await db.execute("DELETE FROM contact_methods WHERE id=$1", cid)
-    assert await _signals(db, "organization", oid) == before + 1
+    assert await row_version(db, "organizations", oid) != before
 
 
 async def test_contact_trigger_dispatches_role_assignment(db):
     """The polymorphic dispatch reaches role_assignment (the #324 no-trigger case)."""
     raid = await _role_assignment(db)
-    before = await _signals(db, "role_assignment", raid)
+    before = await row_version(db, "role_assignments", raid)
     await db.execute(
         "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
         " VALUES ($1, 'role_assignment', $2, 'email', 'dir@wslcb.wa.gov')",
         generate_id(),
         raid,
     )
-    assert await _signals(db, "role_assignment", raid) == before + 1
+    assert await row_version(db, "role_assignments", raid) != before
 
 
 # ── links: INSERT / UPDATE / DELETE cascade; role dispatch ───────────────────
 
 
-async def test_link_insert_update_delete_emit(db):
+async def test_link_insert_update_delete_touch_parent(db):
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
     lt_id = await db.fetchval("SELECT id FROM link_types WHERE slug='website'")
     lid = generate_id()
 
-    before = await _signals(db, "person", pid)
+    before = await row_version(db, "people", pid)
     await db.execute(
         "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
         " VALUES ($1, 'person', $2, 'https://example.gov/p', $3)",
@@ -138,15 +131,15 @@ async def test_link_insert_update_delete_emit(db):
         pid,
         lt_id,
     )
-    assert await _signals(db, "person", pid) == before + 1
+    assert await row_version(db, "people", pid) != before
 
-    before = await _signals(db, "person", pid)
+    before = await row_version(db, "people", pid)
     await db.execute("UPDATE links SET url='https://example.gov/p2' WHERE id=$1", lid)
-    assert await _signals(db, "person", pid) == before + 1
+    assert await row_version(db, "people", pid) != before
 
-    before = await _signals(db, "person", pid)
+    before = await row_version(db, "people", pid)
     await db.execute("DELETE FROM links WHERE id=$1", lid)
-    assert await _signals(db, "person", pid) == before + 1
+    assert await row_version(db, "people", pid) != before
 
 
 async def test_link_trigger_dispatches_role(db):
@@ -156,7 +149,7 @@ async def test_link_trigger_dispatches_role(db):
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'Chair')", rid, oid
     )
     lt_id = await db.fetchval("SELECT id FROM link_types WHERE slug='website'")
-    before = await _signals(db, "role", rid)
+    before = await row_version(db, "roles", rid)
     await db.execute(
         "INSERT INTO links (id, entity_type, entity_id, url, link_type_id)"
         " VALUES ($1, 'role', $2, 'https://example.gov/r', $3)",
@@ -164,7 +157,7 @@ async def test_link_trigger_dispatches_role(db):
         rid,
         lt_id,
     )
-    assert await _signals(db, "role", rid) == before + 1
+    assert await row_version(db, "roles", rid) != before
 
 
 # ── identifiers: role_assignment branch added in #327 ────────────────────────
@@ -176,7 +169,7 @@ async def test_identifier_trigger_now_dispatches_role_assignment(db):
         "SELECT id FROM entity_identifier_types"
         " WHERE entity_type='role_assignment' AND slug='role_wa_pdc'"
     )
-    before = await _signals(db, "role_assignment", raid)
+    before = await row_version(db, "role_assignments", raid)
     await db.execute(
         "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
         " VALUES ($1, $2, $3, '12345')",
@@ -184,12 +177,12 @@ async def test_identifier_trigger_now_dispatches_role_assignment(db):
         raid,
         type_id,
     )
-    assert await _signals(db, "role_assignment", raid) == before + 1
+    assert await row_version(db, "role_assignments", raid) != before
 
 
-async def test_identifier_move_signals_both_orgs(db):
-    """#469 CR: an identifier UPDATE that changes entity_id signals the org that
-    LOST the identifier too — its payload changed, so its ETag and feed row must
+async def test_identifier_move_touches_both_orgs(db):
+    """#469 CR: an identifier UPDATE that changes entity_id touches the org that
+    LOST the identifier too — its payload changed, so its ETag must
     move (the restore script moves 3532 off the winner exactly this way)."""
     a, b = generate_id(), generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1), ($2)", a, b)
@@ -206,8 +199,8 @@ async def test_identifier_move_signals_both_orgs(db):
         tid,
         f"move-test-{iid}",
     )
-    before_a = await _signals(db, "organization", a)
-    before_b = await _signals(db, "organization", b)
+    before_a = await row_version(db, "organizations", a)
+    before_b = await row_version(db, "organizations", b)
     await db.execute("UPDATE identifiers SET entity_id=$1 WHERE id=$2", b, iid)
-    assert await _signals(db, "organization", b) > before_b  # gained it
-    assert await _signals(db, "organization", a) > before_a  # lost it
+    assert await row_version(db, "organizations", b) != before_b  # gained it
+    assert await row_version(db, "organizations", a) != before_a  # lost it

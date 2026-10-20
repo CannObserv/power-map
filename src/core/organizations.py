@@ -28,8 +28,7 @@ async def set_org_active(conn, organization_id: str, active: bool) -> None:
     atomic against a concurrent admin archive — the caller MUST run this inside
     an open transaction for the lock to be held until commit. The flag is
     written only when it actually changes; a redundant assertion is a true
-    no-op that does not fire ``fn_record_entity_change`` (no spurious 'updated'
-    event) and does not bump ``updated_at``.
+    no-op: no UPDATE, so ``updated_at`` (and with it the org's ETag) stays put.
 
     Raises OrgNotFound if the row is absent, ActiveOnArchivedOrg if it is
     archived.

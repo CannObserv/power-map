@@ -14,6 +14,7 @@ import pytest_asyncio
 
 from src.core.ancillary_migrate import rehome_entity_events
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [pytest.mark.integration]
 
@@ -130,24 +131,15 @@ async def test_archived_owned_event_moves_too(db):
     assert await _naming(db, loser) == 0
 
 
-async def test_inbound_org_link_repoints_and_signals_the_linking_org(db):
+async def test_inbound_org_link_repoints_and_touches_the_linking_org(db):
     loser, winner, pred = await _org(db), await _org(db), await _org(db)
     eid = await _event(db, pred, SUCCEEDED_BY, linked=loser)
-    before = await db.fetchval(
-        "SELECT count(*) FROM entity_changes WHERE entity_type='organization'"
-        " AND entity_id=$1 AND change_kind='updated'",
-        pred,
-    )
+    before = await row_version(db, "organizations", pred)
     assert await rehome_entity_events(db, "organization", [(loser, winner)]) == (1, 0, 0)
     row = await _row(db, eid)
     assert (row["entity_id"], row["linked_entity_id"]) == (pred, winner)
     assert row["archived_at"] is None
-    after = await db.fetchval(
-        "SELECT count(*) FROM entity_changes WHERE entity_type='organization'"
-        " AND entity_id=$1 AND change_kind='updated'",
-        pred,
-    )
-    assert after > before
+    assert await row_version(db, "organizations", pred) != before
     assert await _naming(db, loser) == 0
 
 

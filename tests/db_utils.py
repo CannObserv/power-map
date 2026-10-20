@@ -80,3 +80,35 @@ async def trigger_disabled(conn: asyncpg.Connection, table: str, trigger: str):
     await conn.execute(f"ALTER TABLE {table} DISABLE TRIGGER {trigger}")
     yield
     await conn.execute(f"ALTER TABLE {table} ENABLE TRIGGER {trigger}")
+
+
+#: The tables :func:`row_version` reads — every entity table a touch trigger bumps.
+_VERSIONED_TABLES = frozenset(
+    {
+        "people",
+        "organizations",
+        "jurisdictions",
+        "roles",
+        "role_assignments",
+        "role_assignment_relationships",
+    }
+)
+
+
+async def row_version(conn: asyncpg.Connection, table: str, row_id: str) -> str | None:
+    """The row's current tuple id (``ctid``): it changes on every UPDATE, and only then.
+
+    The observable for "did this write touch the row?" inside one transaction,
+    where ``updated_at`` cannot answer: ``NOW()`` is the transaction's start
+    time, so a touch inside the rollback client rewrites the value already there
+    (#288). Every UPDATE writes a new tuple version, and the version it replaces
+    cannot be reclaimed while the transaction that replaced it is open, so the
+    new ``ctid`` always differs. A version written by a rolled-back savepoint is
+    discarded, and the row reads back its earlier ``ctid``. ``None`` when no
+    row has ``row_id``.
+
+    Replaces the change-outbox row counts these tests asserted before #651.
+    """
+    if table not in _VERSIONED_TABLES:
+        raise ValueError(f"row_version: not an entity table: {table!r}")
+    return await conn.fetchval(f"SELECT ctid::text FROM {table} WHERE id = $1", row_id)

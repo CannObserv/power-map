@@ -22,6 +22,7 @@ from scripts.canonicalize_wa_committee_names import (
     run_cleanup,
 )
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [
     pytest.mark.integration,
@@ -171,24 +172,16 @@ async def test_apply_action_when_clean_already_canonical_only_deletes_prefixed(d
     ]
 
 
-async def test_apply_action_emits_entity_change_updated(db):
-    """Promotion must broadcast an `updated` change on the outbox (parity contract)."""
+async def test_apply_action_touches_org(db):
+    """Promotion must touch the org row so its ETag moves (parity contract)."""
     oid, _, _ = await _seed_org_with_names(
         db,
         clean_name="Joint Transportation Committee",
         prefixed_name="Joint Joint Transportation Committee",
     )
-    before = await db.fetchval("SELECT COALESCE(max(id), 0) FROM entity_changes")
+    before = await row_version(db, "organizations", oid)
     await apply_action(db, _action(oid))
-    row = await db.fetchrow(
-        "SELECT change_kind FROM entity_changes"
-        " WHERE entity_type='organization' AND entity_id=$1 AND id > $2"
-        " ORDER BY id DESC LIMIT 1",
-        oid,
-        before,
-    )
-    assert row is not None, "name change must emit an entity_changes row"
-    assert row["change_kind"] == "updated"
+    assert await row_version(db, "organizations", oid) != before, "name change must touch the org"
 
 
 # ---- run_cleanup wrapper ---------------------------------------------------

@@ -14,6 +14,7 @@ from httpx import ASGITransport, AsyncClient
 from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
+from tests.db_utils import row_version
 
 pytestmark = [
     pytest.mark.integration,
@@ -138,39 +139,29 @@ async def test_active_post_on_archived_org_returns_409(client, org_id, db):
     assert row["active"] is True  # untouched
 
 
-async def test_active_post_on_archived_org_emits_no_entity_change(client, org_id, db):
-    """A rejected toggle on an archived org appends no entity_changes row."""
+async def test_active_post_on_archived_org_leaves_row_untouched(client, org_id, db):
+    """A rejected toggle on an archived org writes nothing to the org row."""
     await db.execute("UPDATE organizations SET archived_at=NOW() WHERE id=$1", org_id)
-    before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+    before = await row_version(db, "organizations", org_id)
     r = await client.post(
         f"/admin/orgs/{org_id}/inline/active/",
         data={},
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 409
-    rows = await db.fetch(
-        "SELECT 1 FROM entity_changes WHERE entity_id=$1 AND id > $2", org_id, before
-    )
-    assert len(rows) == 0
+    assert await row_version(db, "organizations", org_id) == before
 
 
-async def test_active_post_change_emits_one_entity_change(client, org_id, db):
-    """An effective admin toggle appends exactly one entity_changes 'updated' row."""
-    before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+async def test_active_post_change_updates_row(client, org_id, db):
+    """An effective admin toggle UPDATEs the org row."""
+    before = await row_version(db, "organizations", org_id)
     r = await client.post(
         f"/admin/orgs/{org_id}/inline/active/",
         data={},  # active="" → TRUE → FALSE, a real change
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    rows = await db.fetch(
-        "SELECT change_kind FROM entity_changes"
-        " WHERE entity_id=$1 AND entity_type='organization' AND id > $2",
-        org_id,
-        before,
-    )
-    assert len(rows) == 1, f"expected 1 change row, got {len(rows)}"
-    assert rows[0]["change_kind"] == "updated"
+    assert await row_version(db, "organizations", org_id) != before
 
 
 async def test_active_post_nonexistent_org_returns_404(client):
@@ -183,19 +174,16 @@ async def test_active_post_nonexistent_org_returns_404(client):
     assert r.status_code == 404
 
 
-async def test_active_post_noop_emits_no_entity_change(client, org_id, db):
-    """Re-asserting the current active value is a true no-op — no entity_changes row."""
-    before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM entity_changes")
+async def test_active_post_noop_leaves_row_untouched(client, org_id, db):
+    """Re-asserting the current active value is a true no-op — no UPDATE."""
+    before = await row_version(db, "organizations", org_id)
     r = await client.post(
         f"/admin/orgs/{org_id}/inline/active/",
         data={"active": "true"},  # org defaults active=TRUE → unchanged
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    rows = await db.fetch(
-        "SELECT 1 FROM entity_changes WHERE entity_id=$1 AND id > $2", org_id, before
-    )
-    assert len(rows) == 0, f"expected no change rows for a no-op, got {len(rows)}"
+    assert await row_version(db, "organizations", org_id) == before
 
 
 # ---------------------------------------------------------------------------

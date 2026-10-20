@@ -324,7 +324,7 @@ async def _refine_row(
 async def _retract_citation(
     conn, entity_type: str, entity_id: str, key_id: str | None, claim: CitationClaim
 ) -> CitationResult:
-    """id-addressed void (#322 model): archive so the outbox drops the anchor.
+    """id-addressed void (#322 model): archive so readers drop the anchor.
 
     - no ``pm_citation_id`` → ``invalid`` (retract is always id-addressed)
     - id unresolved (or belongs to another entity) → ``citation_not_found``

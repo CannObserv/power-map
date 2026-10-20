@@ -2,8 +2,8 @@
 
 What the fake cannot prove, proved here on the rollback connection: the
 asyncpg store's SQL, the same snapshot applied twice being a no-op, a gated
-create writing nothing, an execute writing exactly the predicted entries with
-the outbox firing, a curator-only column surviving, a row outside the crosswalk
+create writing nothing, an execute writing exactly the predicted entries and
+touching their parent rows, a curator-only column surviving, a row outside the crosswalk
 surviving, a cyclic parent rolling the run back, and a crosswalk change between
 build and apply being stale. And #514's acceptance: the Heck tombstone folded
 once through the person merge, its anchors re-pointed, `Denny Heck` held
@@ -25,6 +25,7 @@ from src.core.ingestion.applier_report import LEDGER, read_ledger  # noqa: E402
 from src.core.ingestion.crosswalk import PRODUCER_SOURCE  # noqa: E402
 from src.core.person_merge import merge_person_into  # noqa: E402
 from tests.core.ingestion.applier_fakes import write_desired  # noqa: E402
+from tests.db_utils import row_version  # noqa: E402
 
 pytestmark = pytest.mark.integration
 
@@ -163,6 +164,11 @@ async def _run(w, **kw):
     return await cli.run(w["db"], desired=w["desired"], out=w["out"], now=w["now"], **kw)
 
 
+async def _versions(db, rows):
+    """`{id: row_version}` for each `(table, id)` in `rows`."""
+    return {row_id: await row_version(db, table, row_id) for table, row_id in rows}
+
+
 def _summary(w, n=-1):
     runs = sorted(w["out"].glob("*/summary.json"))
     return json.loads(runs[n].read_text())
@@ -201,13 +207,11 @@ async def test_an_entity_archived_since_the_export_is_stale(world):
     assert summary["by_table"]["desired_people"]["stale"] == 1
 
 
-async def test_execute_writes_exactly_the_predicted_entries_and_the_outbox_fires(world):
+async def test_execute_writes_exactly_the_predicted_entries_and_touches_parents(world):
     db = world["db"]
     _write_world(world)
-    before = await db.fetchval(
-        "SELECT count(*) FROM entity_changes WHERE entity_id = ANY($1::text[])",
-        [world["pm1"], world["mo4"]],
-    )
+    touched = [("people", world["pm1"]), ("organizations", world["mo4"])]
+    before = await _versions(db, touched)
     for _ in range(3):
         assert await _run(world, execute=False) == 0
 
@@ -240,11 +244,8 @@ async def test_execute_writes_exactly_the_predicted_entries_and_the_outbox_fires
         "SELECT name FROM person_names WHERE person_id = $1 AND is_canonical", world["pmz"]
     )
     assert outside == "Outside The Crosswalk"
-    after = await db.fetchval(
-        "SELECT count(*) FROM entity_changes WHERE entity_id = ANY($1::text[])",
-        [world["pm1"], world["mo4"]],
-    )
-    assert after > before
+    after = await _versions(db, touched)
+    assert all(after[k] != before[k] for k in before), (before, after)
 
     # The same snapshot again: a no-op, and a clean one.
     assert await _run(world, execute=False) == 0

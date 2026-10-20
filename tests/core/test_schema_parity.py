@@ -401,14 +401,13 @@ async def test_snapshot_constraints_against_live_db(db_pool):
 
 
 @pytest.mark.integration
-async def test_snapshot_functions_captures_change_feed_functions(db_pool):
+async def test_snapshot_functions_captures_touch_functions(db_pool):
     async with db_pool.acquire() as conn:
         snap = await snapshot_functions(conn)
     sigs = {k.signature for k in snap}
-    # #327 change-feed touch functions are ours to guard and must be present.
+    # #327 touch functions are ours to guard and must be present.
     assert "touch_parent_on_link_change()" in sigs
     assert "touch_parent_on_contact_change()" in sigs
-    assert "fn_record_entity_change()" in sigs
     # Every captured def is a real function body (guards the pg_get_functiondef col).
     assert all(d.startswith("CREATE OR REPLACE FUNCTION") for d in snap.values())
     # Self-diff is clean.
@@ -431,7 +430,7 @@ async def test_snapshot_functions_excludes_extension_functions(db_pool):
 async def test_snapshot_triggers_captures_touch_triggers_and_excludes_internal(db_pool):
     async with db_pool.acquire() as conn:
         snap = await snapshot_triggers(conn)
-    # #327 change-feed touch trigger present, keyed on (table, name).
+    # #327 touch trigger present, keyed on (table, name).
     link_trg = TriggerKey(table="links", name="trg_touch_entity_on_link_change")
     assert link_trg in snap
     assert "TRIGGER" in snap[link_trg]

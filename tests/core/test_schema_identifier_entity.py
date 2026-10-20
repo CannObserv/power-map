@@ -6,7 +6,7 @@ The column is polymorphic — the table its id lives in is the one its type's
 changes, must name an existing row of the type's table (archived included),
 or the write raises ``foreign_key_violation`` naming the trigger as its
 constraint. A row naming another type's entity resolves to ``<type>_archived``
-and escapes the touch trigger's change-feed dispatch, so it is refused too.
+and escapes the touch trigger's per-type dispatch, so it is refused too.
 """
 
 import asyncio

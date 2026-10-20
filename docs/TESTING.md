@@ -74,7 +74,7 @@ package blocked and fails on any such error.
 `tests/scripts/test_apply_desired_state_db.py` is the integration tier for
 what the fake cannot prove — the asyncpg store's SQL, apply-twice-is-a-no-op,
 a gated create writing nothing, an execute writing exactly the predicted
-entries with the outbox firing, a curator column surviving, a cyclic parent
+entries and touching their parents, a curator column surviving, a cyclic parent
 rolling back, a crosswalk change being stale, and an entity archived since the
 export being stale — the `LiveStore` contract that `entity_rows` returns
 `archived_at` whatever columns it was asked for — on the rollback connection.

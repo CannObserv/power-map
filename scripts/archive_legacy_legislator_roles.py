@@ -244,11 +244,6 @@ WHERE entity_type = 'role_assignment' AND entity_id = $1
 _REPOINT_FC_SQL = "UPDATE field_confidence SET entity_id = $2 WHERE id = $1"
 _DELETE_FC_SQL = "DELETE FROM field_confidence WHERE id = $1"
 
-_RECORD_CHANGE_SQL = """
-INSERT INTO entity_changes (entity_type, entity_id, change_kind)
-VALUES ($1, $2, 'updated')
-"""
-
 _ARCHIVE_ASSIGNMENT_SQL = "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1"
 _ARCHIVE_ROLE_SQL = "UPDATE roles SET archived_at = NOW() WHERE id = $1"
 
@@ -337,10 +332,9 @@ async def _rescue_pdc(
     """Move role_wa_pdc URLs to the person: filer identifier + wa_pdc link.
 
     Returns the number of PDC rows rescued. Both the filer-identifier and the
-    wa_pdc link inserts self-emit a person 'updated' outbox event via their touch
+    wa_pdc link inserts bump the person's ``updated_at`` via their touch
     triggers (``trg_touch_entity_on_identifier_change`` +
-    ``trg_touch_entity_on_link_change``, #327), so the caller records no manual
-    person event.
+    ``trg_touch_entity_on_link_change``, #327), so the caller touches nothing.
     """
     existing = {
         row["value"]
@@ -500,15 +494,10 @@ async def archive_legacy_legislator_roles(conn: asyncpg.Connection, *, execute: 
             action["status"] = "planned"
             continue
 
-        # Re-pointed links / contact_methods self-emit the target assignment's
-        # 'updated' via their touch triggers (#327); only field_confidence is
-        # trigger-less, so emit manually when it moved. The PDC rescue's person
-        # inserts (identifier + wa_pdc link) self-emit too. The legacy
-        # assignment's own archive UPDATE below is covered by
-        # trg_entity_changes_role_assignments.
-        if migrated["fc"] > 0:
-            await conn.execute(_RECORD_CHANGE_SQL, "role_assignment", target)
-
+        # Re-pointed links / contact_methods bump the target assignment's
+        # updated_at via their touch triggers (#327), as do the PDC rescue's
+        # person inserts (identifier + wa_pdc link). field_confidence is in no
+        # detail payload, so its move needs no touch (#651).
         await conn.execute(_ARCHIVE_ASSIGNMENT_SQL, row["assignment_id"])
         action["status"] = "archived"
         logger.info("Archived %r assignment %s → %s", row["title"], row["assignment_id"], target)

@@ -10,7 +10,6 @@ from src.api.public.deps import (
     AuthedKey,
     require_api_key,
     require_scope,
-    stamped_transaction,
 )
 from src.api.public.etag import conditional_response, make_etag
 from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
@@ -225,7 +224,7 @@ async def submit_role_observation(
             return ObservationResponse(disposition="rejected", reason=reason)
 
     try:
-        async with stamped_transaction(db, auth.key_id):
+        async with db.transaction():
             await write_links(db, role_id, "role", req.links)
             await write_contact_methods(db, role_id, "role", req.contact_methods)
             await write_addresses(db, role_id, "role", req.addresses)

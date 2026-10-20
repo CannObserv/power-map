@@ -1,5 +1,5 @@
 [Unit]
-Description=power-map TTL prune: outbox, bare-delete tombstones, request log (#204, #502)
+Description=power-map TTL prune: bare-delete tombstones, request log (#204, #502, #651)
 After=network.target
 
 [Service]
@@ -10,10 +10,10 @@ EnvironmentFile=/etc/power-map/.env
 EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
 # Each table prunes on its own window, 90 days by default (src.core.maintenance
-# Retention); override one with --changes-retention-days, --tombstone-retention-days
-# or --request-log-retention-days. Merge tombstones never expire (#607). The #495
-# 104-day hold was released in #502.
-ExecStart=uv run python -m scripts.prune_outbox --execute
+# Retention); override one with --tombstone-retention-days or
+# --request-log-retention-days. Merge tombstones never expire (#607). The #495
+# 104-day hold was released in #502; the outbox and its window went in #651.
+ExecStart=uv run python -m scripts.prune --execute
 
 # After every run, ok or alert, a check-in with co-status (#566): a failed run
 # reaches a person through Notifier, and a run that never happens goes `missing`.

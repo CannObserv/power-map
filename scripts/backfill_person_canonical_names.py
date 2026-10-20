@@ -28,9 +28,8 @@ reported as ``ambiguous`` for human follow-up rather than guessed at. At
 2026-07-18 there are none: all 567 carry a single public ``legal`` name.
 
 Idempotent — a second run finds nothing to do. Promotion writes ``person_names``,
-which fires ``trg_touch_person_on_name_change`` → ``people.updated_at`` →
-an ``entity_changes`` ``'updated'`` row, so subscribers re-fetch and pick up the
-newly-visible name.
+which fires ``trg_touch_person_on_name_change`` → ``people.updated_at``, so the
+person's ETag changes and a revalidating reader picks up the newly-visible name.
 
 Usage:
     uv run python -m scripts.backfill_person_canonical_names            # dry run

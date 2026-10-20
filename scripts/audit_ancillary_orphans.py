@@ -3,7 +3,7 @@
 The polymorphic tables key a row on ``(entity_type, entity_id)`` with **no FK**,
 so any path that drops the entity alone — a merge dedup, a script, raw SQL —
 strands its rows undetected: they point at an id that no longer exists,
-invisible to every UI and to the change feed, and are never pruned.
+invisible to every UI and every read, and are never pruned.
 
 - **Every hard-deletable type (#324, #326, #609):** each polymorphic table × each
   type its CHECK admits — ``links`` / ``contact_methods`` / ``entity_addresses`` /

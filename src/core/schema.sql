@@ -1551,8 +1551,8 @@ CREATE OR REPLACE TRIGGER trg_touch_org_on_affiliation_change
     AFTER INSERT OR UPDATE OR DELETE ON organization_jurisdiction_affiliations
     FOR EACH ROW EXECUTE FUNCTION touch_parent_org();
 
--- Affiliation changes also touch the jurisdiction side so a jurisdiction
--- subscriber sees org-affiliation edits (symmetry with the relationship-edge
+-- Affiliation changes also touch the jurisdiction side so a jurisdiction's
+-- ETag reflects org-affiliation edits (symmetry with the relationship-edge
 -- touch below; #275 Phase 3).
 CREATE OR REPLACE FUNCTION touch_jurisdiction_on_affiliation_change()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
@@ -1568,8 +1568,8 @@ CREATE OR REPLACE TRIGGER trg_touch_jurisdiction_on_affiliation_change
     FOR EACH ROW EXECUTE FUNCTION touch_jurisdiction_on_affiliation_change();
 
 -- Touch both endpoints of a relationship edge so a graph edit surfaces on the
--- jurisdiction change feed (mirrors touch_parent_org for org affiliations; #275
--- Phase 3). The UPDATE fires trg_entity_changes_jurisdictions on each endpoint.
+-- jurisdiction's updated_at, hence its ETag (mirrors touch_parent_org for org
+-- affiliations; #275 Phase 3).
 CREATE OR REPLACE FUNCTION touch_parent_jurisdiction()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
@@ -1724,8 +1724,7 @@ CREATE OR REPLACE TRIGGER trg_identifiers_entity
     FOR EACH ROW EXECUTE FUNCTION lock_identifier_entity();
 
 -- entity_addresses is polymorphic: dispatch the touch on entity_type (#181).
--- Cascades into the entity_changes outbox via each parent's
--- fn_record_entity_change AFTER UPDATE trigger.
+-- The bumped updated_at is what the parent's detail ETag keys on (#392).
 CREATE OR REPLACE FUNCTION touch_parent_on_entity_address_change()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 DECLARE
@@ -1763,7 +1762,7 @@ CREATE OR REPLACE TRIGGER trg_touch_entity_on_address_change
 -- contact_methods is polymorphic: dispatch the touch on entity_type (#327).
 -- Mirrors touch_parent_on_entity_address_change — user-facing ancillary state,
 -- so any write (admin CRUD, public observation, merge re-homing) bumps the
--- parent's updated_at and cascades into the entity_changes outbox. Before #327
+-- parent's updated_at, hence its detail ETag (#392). Before #327
 -- this table had NO trigger and each write path emitted manually (public +
 -- merge) while admin CRUD emitted nothing; the trigger is now the single source
 -- for all paths, so the manual emits were removed. Contrast import_provenance /
@@ -1840,8 +1839,8 @@ CREATE OR REPLACE TRIGGER trg_touch_entity_on_link_change
 
 -- Citations (#319) touch-cascade: any citation write (admin CRUD, public
 -- observation, merge re-homing, direct SQL) bumps the parent's updated_at →
--- entity_changes outbox, single source for all paths (#327 model). Two of the
--- seven citable types are sub-entities whose change the feed tracks under a
+-- its detail ETag, single source for all paths (#327 model). Two of the
+-- seven citable types are sub-entities whose change surfaces under a
 -- top-level entity, so the touch indirects: a person_name citation touches the
 -- owning person; an entity_event citation touches the event's owning entity.
 CREATE OR REPLACE FUNCTION touch_parent_on_citation_change()
@@ -2528,9 +2527,8 @@ ON CONFLICT (id) DO NOTHING;
 -- Append-only observability log of public API traffic. One row per /api/v1/*
 -- request, written by the pure-ASGI capture middleware (src/api/public/
 -- middleware.py). Structured metadata columns support filtering/aggregation;
--- raw request/response bodies support debug drill-down. Both are pruned on the
--- same 90-day window as the entity_changes outbox by scripts/prune_outbox.py
--- (daily power-map-prune.timer, issue #204).
+-- raw request/response bodies support debug drill-down. Rows older than 90 days
+-- are pruned by scripts/prune.py (daily power-map-prune.timer, issue #204).
 --
 -- result_entity_id intentionally has NO foreign key: the referenced entity may
 -- be hard-deleted or merged, and the historical log record must survive. The
@@ -3071,7 +3069,8 @@ END $$;
 -- (api_key_id, scope_id) already supports lookups by api_key_id alone.
 DROP INDEX IF EXISTS idx_api_key_scopes_key;
 
--- Migration (#163): change feed — deleted_entities tombstone + updated_at indexes.
+-- Migration (#163): deleted_entities tombstone + updated_at indexes. Built for the
+-- change feed (retired #502); the tombstones now back the detail GETs' 410 (#607).
 
 CREATE TABLE IF NOT EXISTS deleted_entities (
     entity_type  TEXT        NOT NULL CHECK (entity_type IN ('person', 'organization', 'jurisdiction', 'role', 'role_assignment', 'role_assignment_relationship')),
@@ -3080,8 +3079,8 @@ CREATE TABLE IF NOT EXISTS deleted_entities (
     PRIMARY KEY (entity_type, entity_id)
 );
 
--- TTL cleanup (issue #204): rows older than 90 days are pruned alongside the
--- entity_changes outbox by scripts/prune_outbox.py (daily power-map-prune.timer).
+-- TTL cleanup (issue #204): bare-delete rows older than 90 days are pruned by
+-- scripts/prune.py (daily power-map-prune.timer); merge rows never expire (#607).
 
 CREATE INDEX IF NOT EXISTS idx_deleted_entities_deleted_at
     ON deleted_entities (deleted_at ASC);
@@ -3179,9 +3178,8 @@ END $$;
 
 -- =============================================================================
 -- Migration (#277): extend deleted_entities entity_type CHECK to include
--- 'role' and 'role_assignment' so hard-deletes of those admin entities can emit
--- a tombstone → 'deleted' entity_changes signal (entity_changes already permits
--- both types). Same DROP + re-add idiom as #168; keyed on absence of 'role'.
+-- 'role' and 'role_assignment' so hard-deletes of those admin entities can
+-- write a tombstone. Same DROP + re-add idiom as #168; keyed on absence of 'role'.
 -- The CREATE TABLE IF NOT EXISTS above carries the full shape for fresh DBs.
 -- =============================================================================
 
@@ -3200,27 +3198,12 @@ DO $$ BEGIN
 END $$;
 
 -- =============================================================================
--- Migration (#301): extend the change-feed entity_type CHECKs to include
+-- Migration (#301): extend the deleted_entities entity_type CHECK to include
 -- 'role_assignment_relationship' on existing DBs (fresh DBs get the full shape
--- from the CREATE TABLE definitions above). Keyed on absence of '_relationship'
--- in the existing clause. Covers entity_changes (outbox) and deleted_entities
--- (tombstone); the third surface, api_key_entity_subscriptions, retired in #502.
+-- from the CREATE TABLE definition above). Keyed on absence of '_relationship'
+-- in the existing clause. The other two surfaces it once covered retired: the
+-- subscription allowlist in #502, the outbox in #651.
 -- =============================================================================
-
-DO $$ BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.check_constraints
-        WHERE constraint_schema = 'public'
-          AND constraint_name = 'entity_changes_entity_type_check'
-          AND check_clause NOT LIKE '%role_assignment_relationship%'
-    ) THEN
-        ALTER TABLE entity_changes DROP CONSTRAINT entity_changes_entity_type_check;
-        ALTER TABLE entity_changes ADD CONSTRAINT entity_changes_entity_type_check
-            CHECK (entity_type IN
-                ('person', 'organization', 'jurisdiction', 'role',
-                 'role_assignment', 'role_assignment_relationship'));
-    END IF;
-END $$;
 
 DO $$ BEGIN
     IF EXISTS (
@@ -3557,102 +3540,46 @@ UPDATE embedding_model_registry
     WHERE model_id = 'pyannote-community-1-embed';
 
 -- =============================================================================
--- Migration (#203): outbox log + per-key entity subscription filter on /changes
+-- Retired (#651): the change outbox (#203)
 --
--- Replaces the timestamp-cursor polling pattern with:
---   1. entity_changes — append-only outbox with BIGSERIAL cursor
---   2. api_key_entity_subscriptions — explicit per-key entity allowlist
---      (retired with /changes in #502; see the DROP below)
+-- An append-only log written by row triggers on the six entity tables and on
+-- deleted_entities, read only by GET /changes and the daily prune. /changes
+-- retired in #502, which left the table write-only: every entity write paid a
+-- trigger for rows no one read. Dropped with no export (decided on #651).
 --
--- Breaking changes:
---   - /changes ?since= replaced by ?after= (integer seq_id, > exclusive)
---   - /changes always filtered by subscription set; empty set → empty feed
+-- What stays: the touch-parent triggers (#327) that used to cascade into it.
+-- They bump the parent's updated_at, which every detail ETag keys on (#392).
+-- Merge and delete tombstones live in deleted_entities, not here.
+--
+-- Idempotent and one-transaction safe: apply_schema runs this file's
+-- non-index statements in a single transaction, so the triggers, their
+-- functions and the table go in one commit. Triggers go first because a
+-- function with dependent triggers cannot be dropped without CASCADE; the
+-- table goes last (plpgsql bodies hold no catalog dependency on it). A fresh
+-- DB never creates any of it, so every statement no-ops there.
 -- =============================================================================
 
--- ---------------------------------------------------------------------------
--- Outbox log
---
--- Append-only; not self-limiting. Rows older than 90 days are pruned by
--- scripts/prune_outbox.py (daily power-map-prune.timer, issue #204), so the
--- public change feed is a recent-changes window, not a permanent event store.
--- Pruning is a DELETE by changed_at; no dedicated index is kept here to avoid
--- taxing the trigger-heavy insert path — revisit range-partitioning if volume
--- makes the daily scan expensive.
--- ---------------------------------------------------------------------------
+-- >>> #651 outbox retirement
+DROP TRIGGER IF EXISTS trg_entity_changes_people ON people;
+DROP TRIGGER IF EXISTS trg_entity_changes_organizations ON organizations;
+DROP TRIGGER IF EXISTS trg_entity_changes_jurisdictions ON jurisdictions;
+DROP TRIGGER IF EXISTS trg_entity_changes_roles ON roles;
+DROP TRIGGER IF EXISTS trg_entity_changes_role_assignments ON role_assignments;
+DROP TRIGGER IF EXISTS trg_entity_changes_role_assignment_relationships
+    ON role_assignment_relationships;
+DROP TRIGGER IF EXISTS trg_entity_changes_deleted ON deleted_entities;
+DROP FUNCTION IF EXISTS fn_record_entity_change();
+DROP FUNCTION IF EXISTS fn_record_deleted_entity_change();
+DROP TABLE IF EXISTS entity_changes;
+-- <<< #651 outbox retirement
 
-CREATE TABLE IF NOT EXISTS entity_changes (
-    id           BIGSERIAL    PRIMARY KEY,
-    entity_type  TEXT         NOT NULL
-                              CHECK (entity_type IN
-                                ('person', 'organization', 'jurisdiction',
-                                 'role', 'role_assignment',
-                                 'role_assignment_relationship')),
-    entity_id    TEXT         NOT NULL,
-    change_kind  TEXT         NOT NULL
-                              CHECK (change_kind IN ('updated', 'deleted')),
-    changed_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-);
+-- =============================================================================
+-- RA→RA edge maintenance (#301): endpoint touch + window cascade
+-- =============================================================================
 
--- Supports the subscription-join query: entity_id lookup within id range.
-CREATE INDEX IF NOT EXISTS idx_entity_changes_entity
-    ON entity_changes (entity_id, id);
-
--- ---------------------------------------------------------------------------
--- Trigger function: fire on INSERT OR UPDATE of entity tables → outbox row
--- ---------------------------------------------------------------------------
-
-CREATE OR REPLACE FUNCTION fn_record_entity_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO entity_changes (entity_type, entity_id, change_kind)
-    VALUES (
-        CASE TG_TABLE_NAME
-            WHEN 'people'            THEN 'person'
-            WHEN 'organizations'     THEN 'organization'
-            WHEN 'jurisdictions'     THEN 'jurisdiction'
-            WHEN 'roles'             THEN 'role'
-            WHEN 'role_assignments'  THEN 'role_assignment'
-            WHEN 'role_assignment_relationships' THEN 'role_assignment_relationship'
-        END,
-        NEW.id,
-        'updated'
-    );
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE TRIGGER trg_entity_changes_people
-    AFTER INSERT OR UPDATE ON people
-    FOR EACH ROW EXECUTE FUNCTION fn_record_entity_change();
-
-CREATE OR REPLACE TRIGGER trg_entity_changes_organizations
-    AFTER INSERT OR UPDATE ON organizations
-    FOR EACH ROW EXECUTE FUNCTION fn_record_entity_change();
-
-CREATE OR REPLACE TRIGGER trg_entity_changes_jurisdictions
-    AFTER INSERT OR UPDATE ON jurisdictions
-    FOR EACH ROW EXECUTE FUNCTION fn_record_entity_change();
-
-CREATE OR REPLACE TRIGGER trg_entity_changes_roles
-    AFTER INSERT OR UPDATE ON roles
-    FOR EACH ROW EXECUTE FUNCTION fn_record_entity_change();
-
-CREATE OR REPLACE TRIGGER trg_entity_changes_role_assignments
-    AFTER INSERT OR UPDATE ON role_assignments
-    FOR EACH ROW EXECUTE FUNCTION fn_record_entity_change();
-
--- Edge gets its own addressable change-feed entity_type (#301): a create /
--- refine / retract on the relationship is independently observable, and archiving
--- surfaces as an 'updated' row carrying archived_at (subscribers drop the anchor,
--- same model as event retract #322).
-CREATE OR REPLACE TRIGGER trg_entity_changes_role_assignment_relationships
-    AFTER INSERT OR UPDATE ON role_assignment_relationships
-    FOR EACH ROW EXECUTE FUNCTION fn_record_entity_change();
-
--- Touch both endpoint assignments so a relationship edit also surfaces on each
--- assignment's change feed (mirrors touch_parent_jurisdiction for jurisdiction
--- edges, #275). The UPDATE bumps updated_at → fires trg_entity_changes_role_assignments.
--- The cascade trigger below is WHEN-gated on start/end/archived_at, so these
+-- Touch both endpoint assignments so a relationship edit also changes each
+-- assignment's updated_at, hence its detail ETag (mirrors touch_parent_jurisdiction
+-- for jurisdiction edges, #275). The cascade trigger below is WHEN-gated on start/end/archived_at, so these
 -- updated_at-only bumps do NOT re-enter the cascade (no trigger recursion).
 CREATE OR REPLACE FUNCTION touch_assignments_on_relationship_change()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
@@ -3674,7 +3601,7 @@ CREATE OR REPLACE TRIGGER trg_touch_assignments_on_relationship_change
 --   window shrinks         → clamp edge valid_from up to / valid_until down to the
 --                            intersection of both endpoint windows
 --   clamp inverts window   → archive the edge
--- Every mutation is an UPDATE on the edge, so it fires trg_entity_changes_*
+-- Every mutation is an UPDATE on the edge, so it advances the edge's updated_at
 -- (observable auto-clamp, not silent). GREATEST/LEAST ignore NULLs (open bounds).
 CREATE OR REPLACE FUNCTION cascade_assignment_relationships()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
@@ -3734,23 +3661,6 @@ CREATE OR REPLACE TRIGGER trg_cascade_assignment_relationships
        OR OLD.end_date    IS DISTINCT FROM NEW.end_date
        OR OLD.archived_at IS DISTINCT FROM NEW.archived_at)
     EXECUTE FUNCTION cascade_assignment_relationships();
-
--- ---------------------------------------------------------------------------
--- Trigger function: deleted_entities INSERT → outbox tombstone row
--- ---------------------------------------------------------------------------
-
-CREATE OR REPLACE FUNCTION fn_record_deleted_entity_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO entity_changes (entity_type, entity_id, change_kind)
-    VALUES (NEW.entity_type, NEW.entity_id, 'deleted');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE TRIGGER trg_entity_changes_deleted
-    AFTER INSERT ON deleted_entities
-    FOR EACH ROW EXECUTE FUNCTION fn_record_deleted_entity_change();
 
 -- ---------------------------------------------------------------------------
 -- Retired (#502): the subscription allowlist and its subscriptions:write scope
@@ -4197,22 +4107,6 @@ ALTER TABLE entity_addresses
 ALTER TABLE deleted_entities
     ADD COLUMN IF NOT EXISTS merged_into TEXT NULL;
 
-ALTER TABLE entity_changes
-    ADD COLUMN IF NOT EXISTS merged_into TEXT NULL;
-
-ALTER TABLE entity_changes DROP CONSTRAINT IF EXISTS entity_changes_merged_into_kind_ck;
-ALTER TABLE entity_changes
-    ADD CONSTRAINT entity_changes_merged_into_kind_ck
-    CHECK (merged_into IS NULL OR change_kind = 'deleted');
-
-CREATE OR REPLACE FUNCTION fn_record_deleted_entity_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO entity_changes (entity_type, entity_id, change_kind, merged_into)
-    VALUES (NEW.entity_type, NEW.entity_id, 'deleted', NEW.merged_into);
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
 
 -- =============================================================================
 -- Migration (#299): voice_embeddings scope descriptions — name every gated route
@@ -4261,70 +4155,6 @@ ALTER TABLE role_assignments
 
 ALTER TABLE organizations
     ADD COLUMN IF NOT EXISTS source_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL;
-
--- =============================================================================
--- Migration (#491): stamp writer identity on outbox rows — echo suppression
--- =============================================================================
--- Bridge while #490 (dataset-subscription) is built: a feed consumer could not
--- tell its own write's echo from a curator edit, so it read back and diffed
--- every changed entity (~49k reqs/day, 2026-09-01). Public write routes set the
--- txn-local GUC app.source_key_id (stamped_transaction, src.api.public.deps);
--- the outbox triggers record it here. NULL = curator/admin, merge, or script
--- origin — none of those set the GUC. Semantics are CAUSAL: the key whose
--- request transaction produced the row, so #327 indirect touches and #301
--- cascade clamps carry the initiating key. Retires with the outbox (#651).
---
--- Deliberately NOT the #311 FK convention (REFERENCES api_keys ON DELETE SET
--- NULL): this is the trigger-heavy insert path the table comment above keeps
--- unindexed, an FK adds a lookup per insert, and ON DELETE SET NULL on an
--- unindexed 90-day table means a seq scan per key deletion. Diagnostic echo
--- tag, not relational integrity; rows prune inside 90 days. No index either —
--- the feed query filters by subscription join + id, never by this column.
---
--- NULLIF: a custom GUC that was set and reverted on a reused session reads
--- back as '' (not NULL) from current_setting(..., true) — without NULLIF a
--- pooled connection would stamp '' on every later curator-origin row.
--- ADD COLUMN IF NOT EXISTS is itself the reconciliation; entity_changes has
--- no set_updated_at() trigger, so the #307/#312 ordering rule is moot here.
--- The fn_record_deleted_entity_change replaced below is the #235 override
--- (merged_into), not the base definition.
-
-ALTER TABLE entity_changes
-    ADD COLUMN IF NOT EXISTS source_key_id TEXT;
-
-CREATE OR REPLACE FUNCTION fn_record_entity_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO entity_changes (entity_type, entity_id, change_kind, source_key_id)
-    VALUES (
-        CASE TG_TABLE_NAME
-            WHEN 'people'            THEN 'person'
-            WHEN 'organizations'     THEN 'organization'
-            WHEN 'jurisdictions'     THEN 'jurisdiction'
-            WHEN 'roles'             THEN 'role'
-            WHEN 'role_assignments'  THEN 'role_assignment'
-            WHEN 'role_assignment_relationships' THEN 'role_assignment_relationship'
-        END,
-        NEW.id,
-        'updated',
-        NULLIF(current_setting('app.source_key_id', true), '')
-    );
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- In practice always NULL today — public writes archive, never tombstone — but
--- the two outbox writers stay uniform so a future producer-visible delete path
--- is attributed for free.
-CREATE OR REPLACE FUNCTION fn_record_deleted_entity_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO entity_changes (entity_type, entity_id, change_kind, merged_into, source_key_id)
-    VALUES (NEW.entity_type, NEW.entity_id, 'deleted', NEW.merged_into,
-            NULLIF(current_setting('app.source_key_id', true), ''));
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
 
 -- =============================================================================
 -- Producer crosswalk (#495) — the row scope for an applied dataset (#490)

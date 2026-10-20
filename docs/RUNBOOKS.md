@@ -250,22 +250,22 @@ flip's flags, and the first production measurement.
 
 ---
 
-## Outbox + tombstone TTL prune (issue #204)
+## Tombstone + request-log TTL prune (issue #204)
 
 
-`scripts/prune_outbox.py` deletes rows from **three** append-only tables, each
+`scripts/prune.py` deletes rows from **two** append-only tables, each
 past **its own** retention window (`Retention` in `src/core/maintenance.py`, #502):
 
 | Table | Flag | Default | What the window bounds |
 |---|---|---|---|
-| `entity_changes` (the outbox) | `--changes-retention-days` | 90 | Nothing reads it since the change feed retired (#502); pruned until it is dropped (#651) |
 | `deleted_entities` (bare-delete tombstones) | `--tombstone-retention-days` | 90 | How long a deleted id answers `410` before `404` (`docs/PUBLIC_API.md` § Retired ids) |
 | `api_request_log` (#260) | `--request-log-retention-days` | 90 | The request log's PII footprint (`docs/CONVENTIONS.md`) |
 
 **Merge tombstones (`merged_into` set) are exempt at any age (#607):** they drive
 the detail GETs' `410` + `merged_into`, so a merge stays followable for good. One
 row per merge, so the table stays small. The installed unit names no window, so
-the defaults govern; the #495 104-day hold was released in #502.
+the defaults govern; the #495 104-day hold was released in #502, and the outbox's
+window went with the outbox (#651).
 
 Manual run:
 
@@ -276,11 +276,11 @@ env_args=()
 [ -f .env ] && env_args+=(--env-file .env)
 
 # Dry run — count each table's eligible rows
-uv run "${env_args[@]}" python -m scripts.prune_outbox
+uv run "${env_args[@]}" python -m scripts.prune
 
 # Execute — delete (optionally override one table's window)
-uv run "${env_args[@]}" python -m scripts.prune_outbox --execute
-uv run "${env_args[@]}" python -m scripts.prune_outbox --execute --request-log-retention-days 30
+uv run "${env_args[@]}" python -m scripts.prune --execute
+uv run "${env_args[@]}" python -m scripts.prune --execute --request-log-retention-days 30
 ```
 
 Scheduled (production): a daily systemd timer runs `--execute`. Install / update:

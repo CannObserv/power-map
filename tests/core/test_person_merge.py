@@ -227,14 +227,22 @@ async def test_preview_states_the_overlay_as_the_merge_will_write_it(db):
     assert preview["overlay"] == {"moved": ["name"], "archived": [], "history": ["pronouns"]}
 
 
+# Rows this transaction has inserted, updated or deleted, across every user table.
+_TXN_WRITES_SQL = (
+    "SELECT coalesce(sum(n_tup_ins + n_tup_upd + n_tup_del), 0) FROM pg_stat_xact_user_tables"
+)
+
+
 async def test_preview_writes_nothing(db):
+    """No table at all takes a write — not just the rows the merge would touch."""
     winner, loser = await _person(db, "Preview Idle A"), await _person(db, "Preview Idle B")
     await _assign(db, loser, await _role(db), "2001-01-01")
-    before = await db.fetchval("SELECT coalesce(max(id), 0) FROM entity_changes")
+    before = await db.fetchval(_TXN_WRITES_SQL)
+    assert before > 0, "the counter must see this transaction's own setup writes"
 
     await preview_person_merge(db, winner_id=winner, loser_id=loser)
 
-    assert await db.fetchval("SELECT coalesce(max(id), 0) FROM entity_changes") == before
+    assert await db.fetchval(_TXN_WRITES_SQL) == before
     assert await db.fetchval("SELECT count(*) FROM people WHERE id=$1", loser) == 1
 
 

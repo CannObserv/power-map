@@ -8,6 +8,7 @@ import pytest_asyncio
 
 from src.core.db import generate_id
 from src.core.ingestion.crosswalk import PRODUCER_SOURCE
+from tests.db_utils import row_version
 
 pytestmark = [
     pytest.mark.integration,
@@ -1159,22 +1160,12 @@ async def _seed_succeeded_by(client, raw, db):
     return pred_id, successor_id, event_id
 
 
-async def _outbox_count(db, entity_id):
-    """entity_changes rows for an org — the BIGSERIAL outbox is a true
-    in-transaction observable (unlike now(), which is transaction-constant under
-    the rollback client, so updated_at can't distinguish a bump from a no-op)."""
-    return await db.fetchval(
-        "SELECT COUNT(*) FROM entity_changes WHERE entity_id=$1 AND entity_type='organization'",
-        entity_id,
-    )
-
-
 async def test_event_retract_archives_dateless_linked_event(client, evt_write_key, db):
-    """`op=retract` on a dateless `succeeded_by` → retracted + archived_at set + outbox emit."""
+    """`op=retract` on a dateless `succeeded_by` → retracted + archived_at set + org touched."""
     raw, _ = evt_write_key
     pred_id, successor_id, event_id = await _seed_succeeded_by(client, raw, db)
 
-    before = await _outbox_count(db, pred_id)
+    before = await row_version(db, "organizations", pred_id)
 
     r = await _post_org_events(
         client,
@@ -1195,16 +1186,16 @@ async def test_event_retract_archives_dateless_linked_event(client, evt_write_ke
 
     archived = await db.fetchval("SELECT archived_at FROM entity_events WHERE id=$1", event_id)
     assert archived is not None
-    # the archive is an UPDATE → org-touch trigger → new outbox row (subscriber drops the anchor)
-    assert await _outbox_count(db, pred_id) > before
+    # the archive is an UPDATE → org-touch trigger → new org row version
+    assert await row_version(db, "organizations", pred_id) != before
 
 
-async def test_event_retract_re_emit_is_noop_no_outbox(client, evt_write_key, db):
-    """Re-retracting an already-archived event → auto-attached, no new outbox row.
+async def test_event_retract_re_emit_is_noop_no_touch(client, evt_write_key, db):
+    """Re-retracting an already-archived event → auto-attached, org not touched.
 
     usa-wa re-emits every cycle; once retracted it keeps sending the retract. The
     second one must skip the UPDATE (no producer↔PM ping-pong) — proven by the
-    outbox count holding steady.
+    org's row version holding steady.
     """
     raw, _ = evt_write_key
     pred_id, successor_id, event_id = await _seed_succeeded_by(client, raw, db)
@@ -1217,12 +1208,12 @@ async def test_event_retract_re_emit_is_noop_no_outbox(client, evt_write_key, db
     r1 = await _post_org_events(client, raw, pred_id, [retract])
     assert r1.json()["results"][0]["disposition"] == "retracted"
 
-    outbox_after_first = await _outbox_count(db, pred_id)
+    version_after_first = await row_version(db, "organizations", pred_id)
 
     r2 = await _post_org_events(client, raw, pred_id, [retract])
     assert r2.json()["results"][0]["disposition"] == "auto-attached"
     assert r2.json()["results"][0]["attached_archived"] is True  # #477
-    assert await _outbox_count(db, pred_id) == outbox_after_first  # no-op, no emit
+    assert await row_version(db, "organizations", pred_id) == version_after_first  # no-op
 
 
 async def test_event_retract_unknown_id_event_not_found(client, evt_write_key, db):

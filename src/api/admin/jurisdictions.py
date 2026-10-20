@@ -181,7 +181,7 @@ async def jurisdiction_create(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Create a jurisdiction. Triggers emit updated_at + the change-feed outbox."""
+    """Create a jurisdiction. Triggers maintain updated_at."""
     form = {
         "slug": slug,
         "name": name,
