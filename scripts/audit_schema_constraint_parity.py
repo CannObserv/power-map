@@ -56,7 +56,8 @@ a DSN in the environment (``DATABASE_URL``, ``MIGRATIONS_DATABASE_URL``,
 metrics role. A missing or extra grantee — ``PUBLIC`` after a reset to
 PostgreSQL's default, say — is drift. ``scripts/write-db-secrets.sh`` grants the
 same set; it never revokes from a role it does not know, so an extra grantee is
-the operator's call. Skipped, with a WARNING, when no such DSN is set.
+the operator's call. Only DSNs on the target's cluster count; with none, the
+check is skipped with a WARNING.
 
 Exit codes:
     0  parity
@@ -566,11 +567,17 @@ def main() -> None:
     echo_target(args.target_url, role="target")
     echo_target(args.reference_url, role="reference")
 
-    allowlist = connect_allowlist(v for k in ALLOWLIST_DSN_VARS if (v := os.environ.get(k)))
+    # Only DSNs on the target's cluster: a run against another one (a restore,
+    # a scratch cluster) has no known role set, and would report every env
+    # database as missing.
+    cluster = _db_identity(args.target_url)[:2]
+    allowlist = connect_allowlist(
+        v for k in ALLOWLIST_DSN_VARS if (v := os.environ.get(k)) and _db_identity(v)[:2] == cluster
+    )
     if not allowlist:
         logger.warning(
-            "Database CONNECT allowlist SKIPPED — none of %s is set, so no database "
-            "has a known role set to check.",
+            "Database CONNECT allowlist SKIPPED — none of %s names a database on the "
+            "target's cluster, so none has a known role set to check.",
             ", ".join(ALLOWLIST_DSN_VARS),
         )
 

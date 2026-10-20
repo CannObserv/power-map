@@ -808,3 +808,33 @@ def test_the_unit_documents_the_allowlist_check():
     """The unit's comment is what an operator reads when it fails."""
     unit = Path(__file__).resolve().parents[2] / "infra" / "power-map-schema-parity.service"
     assert re.search(r"CONNECT allowlist.*#680", unit.read_text(), re.DOTALL)
+
+
+def test_main_checks_only_the_dsns_on_the_targets_cluster(monkeypatch, tmp_path):
+    """A manual run against another cluster must not report the env's databases missing."""
+    seen = {}
+
+    async def fake_run(**kwargs):
+        seen.update(kwargs)
+        return audit.AuditResult()
+
+    other = "postgresql://u:pw@restored.example.invalid:25060/prod_db?sslmode=verify-full"
+    monkeypatch.setenv("DATABASE_URL", _APP)
+    monkeypatch.setenv("MIGRATIONS_DATABASE_URL", _MIGS)
+    monkeypatch.setenv("TEST_DATABASE_URL", _TEST)
+    monkeypatch.setattr(audit, "run", fake_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "audit",
+            "--target-url",
+            other,
+            "--reference-url",
+            _REF,
+            "--state-file",
+            str(tmp_path / "s"),
+        ],
+    )
+    audit.main()
+    assert seen["connect_allowlist"] == {}
