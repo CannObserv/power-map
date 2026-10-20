@@ -199,25 +199,50 @@ def test_every_output_the_script_reads_is_declared() -> None:
     assert read <= declared, read - declared
 
 
-SSLMODE = re.compile(r"sslmode=([\w-]+)")
-_RATCHET_ROOTS = ("scripts", "src", "infra", "docs")
+SSLMODE = re.compile(r"(?:PG)?SSLMODE\s*[=:]\s*['\"]?([\w-]+)", re.IGNORECASE)
+_RATCHET_SKIP = ("tests/", "skills-vendor/", "src/static/vendor/")
+
+
+def _tracked_files() -> list[Path]:
+    """Every tracked file outside tests and vendored trees."""
+    out = subprocess.run(
+        ["git", "ls-files"], cwd=REPO, check=True, capture_output=True, text=True
+    ).stdout
+    return [REPO / f for f in out.splitlines() if not f.startswith(_RATCHET_SKIP)]
 
 
 def test_no_dsn_outside_tests_asks_for_less_than_verify_full() -> None:
-    """Ratchet: a DSN template or doc example with a weaker sslmode is a regression."""
+    """Ratchet: any sslmode / PGSSLMODE setting weaker than verify-full is a regression.
+
+    Covers the URI form, libpq keyword strings and env lines, in every tracked
+    file but tests/ and vendored trees.
+    """
     weaker = []
-    for root in _RATCHET_ROOTS:
-        for path in (REPO / root).rglob("*"):
-            if not path.is_file() or "vendor" in path.parts or path.suffix in {".pyc"}:
-                continue
-            try:
-                text = path.read_text()
-            except UnicodeDecodeError:
-                continue
-            for n, line in enumerate(text.splitlines(), 1):
-                weaker += [
-                    f"{path.relative_to(REPO)}:{n}: sslmode={m}"
-                    for m in SSLMODE.findall(line)
-                    if m != "verify-full"
-                ]
+    for path in _tracked_files():
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text()
+        except UnicodeDecodeError:
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            weaker += [
+                f"{path.relative_to(REPO)}:{n}: sslmode={m}"
+                for m in SSLMODE.findall(line)
+                if m.lower() != "verify-full"
+            ]
     assert weaker == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "postgresql://u@h/db?sslmode=require",
+        "host=h dbname=db sslmode = 'prefer'",
+        "PGSSLMODE=disable",
+        'Environment="PGSSLMODE: allow"',
+    ],
+)
+def test_the_ratchet_pattern_sees_every_form(line: str) -> None:
+    """The ratchet would be blind, not green, if the pattern missed a form."""
+    assert SSLMODE.findall(line) and SSLMODE.findall(line)[0].lower() != "verify-full"
