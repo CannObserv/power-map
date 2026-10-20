@@ -195,7 +195,7 @@ Each line says what a task would need the doc for — load the one that matches,
 - [docs/RUNBOOK_DESIRED_STATE.md](docs/RUNBOOK_DESIRED_STATE.md) — the dataset-subscription chain: pull, build, apply, and what a nightly run blocks on
 - [docs/AUDITS.md](docs/AUDITS.md) — the recurring integrity audits and uptime guards, and which carry systemd timers
 - [docs/ALERTING.md](docs/ALERTING.md) — how a failed or missed run reaches a person
-- [docs/RUNBOOK_DB_TRIAGE.md](docs/RUNBOOK_DB_TRIAGE.md) — DB unreachable: `/ready` reasons, egress-IP drift
+- [docs/RUNBOOK_DB_TRIAGE.md](docs/RUNBOOK_DB_TRIAGE.md) — DB unreachable: `/ready` reasons, egress-IP drift; TLS boundary, CA, credential rotation
 - [docs/RUNBOOK_DB_MIGRATION.md](docs/RUNBOOK_DB_MIGRATION.md) — DB cutover checklist, maintenance window, rollback
 - [docs/SKILLS.md](docs/SKILLS.md) — vendored skill inventory, submodule refresh, hook command form, index health (the daily `unresolved %` line is not a defect)
 - [docs/SOCRATICODE.md](docs/SOCRATICODE.md) — the exploration policy's other half: full tool table, prefetch, per-tool notes, graph health
