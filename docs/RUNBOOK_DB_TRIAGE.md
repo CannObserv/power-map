@@ -139,7 +139,8 @@ at the next restart (§ Other reasons).
 2. Change `TEST_DATABASE_URL`, then run the integration tier **alone**.
 3. Edit the prod lines, keeping each old line commented above its replacement for rollback.
 4. Restart in a quiet window, not 00:00–00:06 or 09:00–09:35 UTC. Check `curl -fsS localhost:8000/ready`.
-5. Rollback: swap the commented lines back and restart.
+5. Rollback: swap the commented lines back and restart. Once `/ready` has held, delete the
+   commented lines: they carry credentials, and `write-db-secrets.sh` keeps every `#` line.
 
 ### TLS failures
 
@@ -174,3 +175,4 @@ recycled, but the timers that start in that gap fail.
 4. App or migrations user: `sudo systemctl restart power-map`, then
    `curl -fsS localhost:8000/ready`. The test user needs no restart. Timers read the env
    file on each run.
+5. Delete any commented DSN lines that still carry the old password; the writer keeps them.
