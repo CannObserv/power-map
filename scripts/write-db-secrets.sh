@@ -105,10 +105,11 @@ print(unquote(u.username or ""))
 print(unquote(u.password or ""))'
 )
 
+# -X: no psqlrc, which runs after -v and could unset ON_ERROR_STOP.
 pg() {  # pg <user> <password> <database> [psql args…]
     local user=$1 pass=$2 db=$3
     shift 3
-    PGPASSWORD="$pass" psql "postgresql://${user}@${HOST}:${PORT}/${db}?${CONNECT_TLS}" "$@"
+    PGPASSWORD="$pass" psql "postgresql://${user}@${HOST}:${PORT}/${db}?${CONNECT_TLS}" -X "$@"
 }
 
 # ── 5. Schema-level grants ────────────────────────────────────────────────────

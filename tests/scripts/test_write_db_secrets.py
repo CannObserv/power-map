@@ -285,6 +285,15 @@ def test_a_failed_grant_fails_the_script(tmp_path: Path, ca_pem: str) -> None:
     assert all("-v ON_ERROR_STOP=1" in args for args in grants), grants
 
 
+def test_no_psqlrc_runs_in_its_sessions(tmp_path: Path, ca_pem: str) -> None:
+    """psqlrc runs after -v, so one could unset ON_ERROR_STOP: every call passes -X."""
+    result, _, log = _run(tmp_path, _outputs(ca_pem))
+    assert result.returncode == 0, result.stderr
+
+    calls = _psql_calls(log)
+    assert calls and all("-X" in args.split() for _, _, args in calls), calls
+
+
 @pytest.mark.parametrize("user", ["app_user", "migrations_user", "test_user"])
 def test_a_dsn_that_cannot_connect_fails_before_the_env_file_changes(
     tmp_path: Path, ca_pem: str, user: str
