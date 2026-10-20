@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Write DO managed-DB credentials to /etc/power-map/.env.
 #
-# Reads Terraform outputs, installs the cluster CA, URL-encodes passwords,
-# applies schema-level grants via doadmin, smoke-tests the new DSNs, then writes
-# DATABASE_URL / MIGRATIONS_DATABASE_URL / TEST_DATABASE_URL. Idempotent — safe
-# to re-run after terraform apply.
+# Reads Terraform outputs, stages the cluster CA, applies schema-level grants via
+# doadmin and smoke-tests the new DSNs against the staged CA; only then makes the
+# CA live and writes DATABASE_URL / MIGRATIONS_DATABASE_URL / TEST_DATABASE_URL.
+# A failure before that leaves the live CA and env file untouched. No password
+# reaches a command line. Idempotent — safe to re-run after terraform apply.
 #
 # Every DSN it writes, and every connection it makes, is sslmode=verify-full
 # against the cluster CA (#667): Trusted Sources admits an exe.dev egress IP other

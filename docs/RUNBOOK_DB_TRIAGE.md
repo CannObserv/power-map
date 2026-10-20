@@ -118,7 +118,8 @@ migration: its address may be shared too.
 - **The CA** is `/etc/power-map/do-ca.crt`, `0644 root:root`. It isn't a secret, and every
   unit runs as `exedev`. It is the DO *project* CA, so it is never committed: it comes from
   terraform (`data "digitalocean_database_ca"` → output `db_ca_certificate`), and
-  `scripts/write-db-secrets.sh` installs it before it connects anywhere. The server
+  `scripts/write-db-secrets.sh` stages it and connects through the staged copy before it
+  goes live. The server
   refuses unencrypted connections (`pg_hba`: "no encryption").
 - **Three roles, split by design** (`infra/terraform/database.tf`, grants in
   `write-db-secrets.sh`): `DATABASE_URL`'s app user has DML only, through the migrations
@@ -171,9 +172,10 @@ recycled, but the timers that start in that gap fail.
    user would orphan the objects it owns, and the app user would lose its grants.
 2. `terraform -chdir=infra/terraform apply -refresh-only` so the state, and so the
    outputs, hold the new password. The first time, check that the output changed.
-3. `bash scripts/write-db-secrets.sh`. It reinstalls the CA, re-applies the idempotent
-   grants, smoke-tests all three new DSNs (verify-full) and only then rewrites them; a DSN
-   that cannot connect exits 1 and leaves the env file unchanged.
+3. `bash scripts/write-db-secrets.sh`. It stages the CA, re-applies the idempotent grants
+   (stopping on any failed statement) and smoke-tests all three new DSNs against the staged
+   CA. Only then does it rename the CA and the env file into place. A failure exits non-zero
+   with both untouched. Passwords travel in `PGPASSWORD`, never on a command line.
 4. App or migrations user: `sudo systemctl restart power-map`, then
    `curl -fsS localhost:8000/ready`. The test user needs no restart. Timers read the env
    file on each run.
