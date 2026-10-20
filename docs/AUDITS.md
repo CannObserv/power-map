@@ -229,10 +229,8 @@ the reference on prod's major (point `PARITY_REFERENCE_URL` at a same-major DB).
 See `docs/SCHEMA_INDEXES.md` §"Unique Indexes" for why a fresh-DB-only unit guard
 can't replace it.
 
-**CONNECT allowlist (#680).** Over the prod connection it also checks that each
-database the env file's DSNs name admits only its owner, those DSNs' users and
-`_doadmin_monitor`. A missing or extra grantee is drift (exit 3). Target state and
-fix → [RUNBOOK_DB_TRIAGE.md](RUNBOOK_DB_TRIAGE.md) § Connection boundary.
+**CONNECT allowlist (#680):** a missing or extra grantee is drift, exit 3. Target
+state and fix → [RUNBOOK_DB_TRIAGE.md](RUNBOOK_DB_TRIAGE.md) § Connection boundary.
 
 Manual run:
 
