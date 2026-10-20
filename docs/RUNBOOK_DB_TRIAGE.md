@@ -125,8 +125,9 @@ migration: its address may be shared too.
   user's default privileges; `MIGRATIONS_DATABASE_URL`'s user owns the schema and is the
   only DSN `apply-schema.sh` uses; `TEST_DATABASE_URL`'s user owns the test DB. None is
   superuser or holds `CREATEDB` / `CREATEROLE`. Any change to grants is the operator's call.
-- `tests/scripts/test_write_db_secrets.py` holds the writer to this, and fails if any
-  `sslmode=` outside `tests/` asks for less than `verify-full`.
+- `tests/scripts/test_write_db_secrets.py` holds the writer to this. It fails on any
+  `sslmode` / `PGSSLMODE` weaker than `verify-full` in a tracked file outside `tests/`, and
+  on any `ssl=` passed to `connect` / `create_pool` — asyncpg's `ssl=` overrides the DSN.
 
 ### Proving a DSN change
 
@@ -170,8 +171,9 @@ recycled, but the timers that start in that gap fail.
    user would orphan the objects it owns, and the app user would lose its grants.
 2. `terraform -chdir=infra/terraform apply -refresh-only` so the state, and so the
    outputs, hold the new password. The first time, check that the output changed.
-3. `bash scripts/write-db-secrets.sh`. It rewrites all three DSNs (verify-full), reinstalls
-   the CA, re-applies the idempotent grants and smoke-tests each DSN.
+3. `bash scripts/write-db-secrets.sh`. It reinstalls the CA, re-applies the idempotent
+   grants, smoke-tests all three new DSNs (verify-full) and only then rewrites them; a DSN
+   that cannot connect exits 1 and leaves the env file unchanged.
 4. App or migrations user: `sudo systemctl restart power-map`, then
    `curl -fsS localhost:8000/ready`. The test user needs no restart. Timers read the env
    file on each run.
