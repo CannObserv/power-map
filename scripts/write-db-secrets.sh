@@ -66,10 +66,13 @@ if ! printf '%s\n' "$CA_PEM" | openssl x509 -noout 2>/dev/null; then
     echo "  Refresh the outputs (terraform apply -refresh-only) and re-run." >&2
     exit 2
 fi
+# Staged then renamed: a re-run (credential rotation) races live connects, which
+# must never read a half-written CA.
 echo "==> Installing $CA_FILE"
-printf '%s\n' "$CA_PEM" | sudo tee "$CA_FILE" > /dev/null
-sudo chmod 644 "$CA_FILE"
-sudo chown root:root "$CA_FILE"
+printf '%s\n' "$CA_PEM" | sudo tee "$CA_FILE.new" > /dev/null
+sudo chmod 644 "$CA_FILE.new"
+sudo chown root:root "$CA_FILE.new"
+sudo mv -f "$CA_FILE.new" "$CA_FILE"
 
 # ── 2. URL-encode passwords ───────────────────────────────────────────────────
 url_encode() {

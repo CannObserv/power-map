@@ -163,7 +163,20 @@ def test_installs_the_cluster_ca_world_readable_and_root_owned(tmp_path: Path, c
     ca_file = fake_etc / "do-ca.crt"
     assert ca_file.read_text().strip() == ca_pem.strip()
     assert stat.S_IMODE(ca_file.stat().st_mode) == 0o644
-    assert f"sudo chown root:root {CA_PATH}" in log
+    assert f"sudo chown root:root {CA_PATH}.new" in log
+
+
+def test_replaces_the_ca_atomically(tmp_path: Path, ca_pem: str) -> None:
+    """A re-run (rotation step 3) happens under live connects: never truncate the CA in place."""
+    result, fake_etc, log = _run(tmp_path, _outputs(ca_pem))
+    assert result.returncode == 0, result.stderr
+
+    assert f"sudo tee {CA_PATH}" not in log
+    staged = log.index(f"sudo tee {CA_PATH}.new")
+    owned = log.index(f"sudo chown root:root {CA_PATH}.new")
+    renamed = log.index(f"sudo mv -f {CA_PATH}.new {CA_PATH}")
+    assert staged < owned < renamed
+    assert not (fake_etc / "do-ca.crt.new").exists()
 
 
 def test_its_own_connections_verify_the_server_after_the_ca_lands(
@@ -177,7 +190,7 @@ def test_its_own_connections_verify_the_server_after_the_ca_lands(
     assert len(psql_calls) == 5, log  # 2 grant runs + 3 smoke tests
     for i in psql_calls:
         _assert_verify_full(log[i].removeprefix("psql "))
-    ca_written = next(i for i, line in enumerate(log) if f"tee {CA_PATH}" in line)
+    ca_written = log.index(f"sudo mv -f {CA_PATH}.new {CA_PATH}")
     assert ca_written < psql_calls[0]
 
 
