@@ -146,7 +146,9 @@ at the next restart (§ Other reasons).
 ```bash
 sudo test -r /etc/power-map/do-ca.crt && ls -l /etc/power-map/do-ca.crt   # 0644 root:root
 openssl x509 -in /etc/power-map/do-ca.crt -noout -subject -enddate        # "Project CA", not expired
-terraform -chdir=infra/terraform output -raw db_ca_certificate | diff - /etc/power-map/do-ca.crt
+# the two fingerprints must match
+terraform -chdir=infra/terraform output -raw db_ca_certificate | openssl x509 -noout -fingerprint -sha256
+openssl x509 -in /etc/power-map/do-ca.crt -noout -fingerprint -sha256
 ```
 
 - **Missing or stale CA:** `terraform -chdir=infra/terraform apply -refresh-only` (a state
