@@ -104,9 +104,11 @@ DOADMIN_PROD_URI=$(make_doadmin_uri "co_pm_db_production")
 DOADMIN_TEST_URI=$(make_doadmin_uri "co_pm_db_test")
 
 # ── 5. Schema-level grants ────────────────────────────────────────────────────
+# ON_ERROR_STOP: without it psql exits 0 on a failed statement, and a grant that
+# did not apply would pass for one that did.
 # Production DB: migrations user owns schema; app user gets DML only.
 echo "==> Applying grants on co_pm_db_production"
-psql "$DOADMIN_PROD_URI" <<SQL
+psql "$DOADMIN_PROD_URI" -v ON_ERROR_STOP=1 <<SQL
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 
 GRANT USAGE, CREATE ON SCHEMA public TO ${MIGS_USER};
@@ -121,7 +123,7 @@ SQL
 
 # Test DB: test user owns schema; full DDL required for apply_schema + TRUNCATE.
 echo "==> Applying grants on co_pm_db_test"
-psql "$DOADMIN_TEST_URI" <<SQL
+psql "$DOADMIN_TEST_URI" -v ON_ERROR_STOP=1 <<SQL
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO ${TEST_USER};
 SQL

@@ -39,7 +39,7 @@ exec "${args[@]}"
 """
 
 PSQL_SHIM = """#!/usr/bin/env bash
-echo "psql $1" >> "$SHIM_LOG"
+echo "psql $1 pw=${PGPASSWORD:+set} args=${*:2}" >> "$SHIM_LOG"
 cat > /dev/null
 # Refuse one connection, as a wrong password or CA would.
 [ -n "${PSQL_FAIL_ON:-}" ] && [[ "$1" == *"$PSQL_FAIL_ON"* ]] && exit 2
@@ -135,6 +135,16 @@ def _env_dsns(env_file: Path) -> dict[str, str]:
     return {k: v for k, v in pairs if k.endswith("DATABASE_URL")}
 
 
+def _psql_calls(log: list[str]) -> list[tuple[int, str, str]]:
+    """(log index, URI, remaining args) for every psql call the shim saw."""
+    calls = []
+    for i, line in enumerate(log):
+        if line.startswith("psql "):
+            uri = line.split()[1]
+            calls.append((i, uri, line.split(" args=", 1)[1]))
+    return calls
+
+
 def _assert_verify_full(dsn: str) -> None:
     """*dsn* verifies the server against the cluster CA, and asks nothing weaker."""
     query = parse_qs(urlparse(dsn).query)
@@ -191,12 +201,22 @@ def test_its_own_connections_verify_the_server_after_the_ca_lands(
     result, _, log = _run(tmp_path, _outputs(ca_pem))
     assert result.returncode == 0, result.stderr
 
-    psql_calls = [i for i, line in enumerate(log) if line.startswith("psql ")]
-    assert len(psql_calls) == 5, log  # 2 grant runs + 3 smoke tests
-    for i in psql_calls:
-        _assert_verify_full(log[i].removeprefix("psql "))
+    calls = _psql_calls(log)
+    assert len(calls) == 5, log  # 2 grant runs + 3 smoke tests
+    for _, uri, _ in calls:
+        _assert_verify_full(uri)
     ca_written = log.index(f"sudo mv -f {CA_PATH}.new {CA_PATH}")
-    assert ca_written < psql_calls[0]
+    assert ca_written < calls[0][0]
+
+
+def test_a_failed_grant_fails_the_script(tmp_path: Path, ca_pem: str) -> None:
+    """psql exits 0 on a failed statement unless ON_ERROR_STOP is set."""
+    result, _, log = _run(tmp_path, _outputs(ca_pem))
+    assert result.returncode == 0, result.stderr
+
+    grants = [args for _, uri, args in _psql_calls(log) if urlparse(uri).username == "doadmin"]
+    assert len(grants) == 2
+    assert all("-v ON_ERROR_STOP=1" in args for args in grants), grants
 
 
 @pytest.mark.parametrize("user", ["app_user", "migrations_user", "test_user"])
