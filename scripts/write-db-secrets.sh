@@ -130,9 +130,10 @@ pg() {  # pg <user> <password> <database> [psql args…]
 # ON_ERROR_STOP: without it psql exits 0 on a failed statement, and a grant that
 # did not apply would pass for one that did.
 
-# connect_allowlist <database> <role>… — SQL that limits CONNECT on <database> to
-# <role>…, DO's metrics role and the owner (#680); PostgreSQL's default gives it
-# to PUBLIC. Grants first: on a live cluster no role loses CONNECT between
+# connect_allowlist <database> <role>… — SQL that grants CONNECT on <database> to
+# <role>… and DO's metrics role, and takes it from PUBLIC, which PostgreSQL's
+# default gives it (#680). A grantee it doesn't know is left to the operator; the
+# schema-parity audit names it. Grants first: on a live cluster no role loses CONNECT between
 # statements, and a grant that fails leaves PUBLIC open rather than a role shut out.
 connect_allowlist() {
     local db=$1 roles
