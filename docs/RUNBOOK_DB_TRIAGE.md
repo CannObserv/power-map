@@ -1,7 +1,8 @@
 # power-map — Database Unreachable (incident triage)
 
 Incident-time reading for a `pool_timeout` on `/ready` and the other readiness
-failure reasons. Recurring data operations are in `docs/RUNBOOKS.md`, the
+failure reasons, and the connection boundary behind them: TLS, the CA, the three
+roles and credential rotation (§ Connection boundary). Recurring data operations are in `docs/RUNBOOKS.md`, the
 recurring audits in `docs/AUDITS.md`, and the planned-cutover checklist in
 `docs/RUNBOOK_DB_MIGRATION.md`.
 
@@ -65,6 +66,11 @@ Then close the loop so it does not silently recur:
 | `db_error` | the query raised | the logged exception carries the detail; `/ready` deliberately does not |
 | `unreachable` (guard-side) | nothing listening on :8000 | `systemctl status power-map` |
 
+A TLS failure (`SSLCertVerificationError`, or `FileNotFoundError` naming the `sslrootcert`
+path) reads as `db_error` on a running service. On a restart it is worse: `ExecStartPre`'s
+`apply-schema.sh` connects first and fails, so :8000 never comes up (`unreachable`). First
+move: § Connection boundary → *TLS failures*.
+
 A `gaierror` / `Temporary failure in name resolution` in the traceback, with `getent hosts
 <cluster host>` failing too, is not the DB: since #568 `tailscaled` answers every DNS lookup
 (MagicDNS). `systemctl status tailscaled`, then `tailscale debug prefs | grep CorpDNS` (must be
@@ -89,3 +95,88 @@ sudo systemctl enable --now power-map-ready.timer power-map-egress-ip.timer
 READY_CHECK_FORCE_FAIL=1 uv run python -m scripts.check_ready
 uv run python -m scripts.check_ready
 ```
+
+---
+
+## Connection boundary — TLS and credentials (#667)
+
+**Trusted Sources is not a per-VM boundary.** It admits power-map's exe.dev egress IP, and
+exe.dev's outbound NAT is shared between VMs at least sometimes (two fresh VMs on one account
+measured the same address, 2026-10-15). Any VM leaving through that address passes the
+allowlist. What stands between it and the data is the credentials and TLS, so an audit or
+threat model counts those, not the allowlist. The same holds for a new VM admitted at a
+migration: its address may be shared too.
+
+### Target state
+
+- **Every DSN is `sslmode=verify-full`** against the cluster CA: the client checks the
+  server's certificate chain *and* its hostname, so a man-in-the-middle cannot present
+  another certificate. All three DSNs in `/etc/power-map/.env` carry
+  `?sslmode=verify-full&sslrootcert=/etc/power-map/do-ca.crt`. No code sets TLS options;
+  asyncpg (pool, `apply-schema.sh`, every `scripts/` DSN) and libpq (`psql`) both read
+  them from the DSN.
+- **The CA** is `/etc/power-map/do-ca.crt`, `0644 root:root`. It isn't a secret, and every
+  unit runs as `exedev`. It is the DO *project* CA, so it is never committed: it comes from
+  terraform (`data "digitalocean_database_ca"` → output `db_ca_certificate`), and
+  `scripts/write-db-secrets.sh` stages it and connects through the staged copy before it
+  goes live. The server
+  refuses unencrypted connections (`pg_hba`: "no encryption").
+- **Three roles, split by design** (`infra/terraform/database.tf`, grants in
+  `write-db-secrets.sh`): `DATABASE_URL`'s app user has DML only, through the migrations
+  user's default privileges; `MIGRATIONS_DATABASE_URL`'s user owns the schema and is the
+  only DSN `apply-schema.sh` uses; `TEST_DATABASE_URL`'s user owns the test DB. None is
+  superuser or holds `CREATEDB` / `CREATEROLE`. Any change to grants is the operator's call.
+- `tests/scripts/test_write_db_secrets.py` holds the writer to this. It fails on any
+  `sslmode` / `PGSSLMODE` weaker than `verify-full` in a tracked file outside `tests/`, and
+  on any `ssl=` passed to `connect` / `create_pool` — asyncpg's `ssl=` overrides the DSN.
+
+### Proving a DSN change
+
+Never edit `/etc/power-map/.env` on faith. A wrong CA path or mode takes the service down
+at the next restart (§ Other reasons).
+
+1. Prove the new DSN with a one-off **read-only** connection
+   (`server_settings={"default_transaction_read_only": "on"}`), test DB first, printing no
+   DSN.
+2. Change `TEST_DATABASE_URL`, then run the integration tier **alone**.
+3. Edit the prod lines, keeping each old line commented above its replacement for rollback.
+4. Restart in a quiet window, not 00:00–00:06 or 09:00–09:35 UTC. Check `curl -fsS localhost:8000/ready`.
+5. Rollback: swap the commented lines back and restart. Once `/ready` has held, delete the
+   commented lines: they carry credentials, and `write-db-secrets.sh` keeps every `#` line.
+
+### TLS failures
+
+```bash
+test -r /etc/power-map/do-ca.crt && ls -l /etc/power-map/do-ca.crt   # as exedev, the units' user; 0644 root:root
+openssl x509 -in /etc/power-map/do-ca.crt -noout -subject -enddate        # "Project CA", not expired
+# the two fingerprints must match
+terraform -chdir=infra/terraform output -raw db_ca_certificate | openssl x509 -noout -fingerprint -sha256
+openssl x509 -in /etc/power-map/do-ca.crt -noout -fingerprint -sha256
+```
+
+- **Missing or stale CA:** `terraform -chdir=infra/terraform apply -refresh-only` (a state
+  write), then `bash scripts/write-db-secrets.sh`. It refuses (exit 2) if the output isn't a
+  PEM certificate.
+- **Hostname mismatch:** the DSN's host must be one the server certificate names. The
+  cluster's public hostname is; a hand-typed alias or a resolver override is not.
+
+### Rotating a credential
+
+The operator decides when. Pick a quiet window: from the reset until the env file changes,
+new connections with the old password fail. Pooled connections survive until they are
+recycled, but the timers that start in that gap fail.
+
+1. Reset the user's password: DO console → Databases → `co-pm-db-1` → *Users & Databases*,
+   or the API's `POST /v2/databases/{id}/users/{name}/reset_auth`. **Never**
+   `terraform apply -replace` a `digitalocean_database_user`: recreating the migrations
+   user would orphan the objects it owns, and the app user would lose its grants.
+2. `terraform -chdir=infra/terraform apply -refresh-only` so the state, and so the
+   outputs, hold the new password. The first time, check that the output changed.
+3. `bash scripts/write-db-secrets.sh`. It stages the CA, re-applies the idempotent grants
+   (stopping on any failed statement) and smoke-tests all three new DSNs against the staged
+   CA. Only then does it rename the CA and the env file into place. A failure exits non-zero
+   with both untouched. Passwords travel in `PGPASSWORD`, never on a command line.
+4. App or migrations user: `sudo systemctl restart power-map`, then
+   `curl -fsS localhost:8000/ready`. The test user needs no restart. Timers read the env
+   file on each run.
+5. Delete any commented DSN lines that still carry the old password; the writer keeps them.

@@ -40,3 +40,9 @@ resource "digitalocean_database_user" "test_user" {
   cluster_id = digitalocean_database_cluster.power_map.id
   name       = "co_pm_db_test_user"
 }
+
+# The cluster's CA. Clients verify the server against it (sslmode=verify-full,
+# #667); scripts/write-db-secrets.sh installs it at /etc/power-map/do-ca.crt.
+data "digitalocean_database_ca" "power_map" {
+  cluster_id = digitalocean_database_cluster.power_map.id
+}

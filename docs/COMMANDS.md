@@ -20,9 +20,7 @@ npm install
 uv run pre-commit install
 ```
 
-Database is on DO managed PostgreSQL — production, dev and tests alike; no local PostgreSQL server is installed or supported (#576, #579). See § Provisioning for first-time setup.
-
-The `/etc/power-map/.env` file is created by `bash scripts/write-db-secrets.sh` as part of the provisioning flow (§ Provisioning step 4).
+Database: DO managed PostgreSQL for production, dev and tests; no local server is supported (#576, #579). `/etc/power-map/.env` and the cluster CA beside it, `do-ca.crt`, come from `bash scripts/write-db-secrets.sh` (§ Provisioning step 4); TLS, roles, rotation → `docs/RUNBOOK_DB_TRIAGE.md`.
 
 ---
 
@@ -65,7 +63,7 @@ One-time setup for the DO managed PostgreSQL cluster (`co-pm-db-1`, sfo3). State
 
 - `terraform` ≥1.9 installed (see <https://developer.hashicorp.com/terraform/install>)
 - `infra/terraform/terraform.tfvars` and `infra/terraform/backend.hcl` — both gitignored, both **rebuilt from `/etc/power-map/.env`** by `uv run python -m scripts.write_terraform_credentials` (#409). Never hand-write them.
-- `jq`, `psql`, `python3` on PATH (used by `write-db-secrets.sh`)
+- `jq`, `psql`, `python3`, `openssl` on PATH (used by `write-db-secrets.sh`)
 
 ### First-time provisioning
 
