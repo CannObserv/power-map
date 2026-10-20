@@ -11,6 +11,7 @@ and ``sudo`` shimmed on ``PATH``: the ``sudo`` shim maps ``/etc/power-map`` onto
 a scratch directory, so nothing touches the host and no real DSN is read.
 """
 
+import ast
 import json
 import os
 import re
@@ -246,3 +247,44 @@ def test_no_dsn_outside_tests_asks_for_less_than_verify_full() -> None:
 def test_the_ratchet_pattern_sees_every_form(line: str) -> None:
     """The ratchet would be blind, not green, if the pattern missed a form."""
     assert SSLMODE.findall(line) and SSLMODE.findall(line)[0].lower() != "verify-full"
+
+
+_SSL_OVERRIDING_CALLS = {"connect", "create_pool"}
+
+
+def _ssl_overrides(path: Path) -> list[str]:
+    """``ssl=`` passed to a ``connect`` / ``create_pool`` call in *path*."""
+    tree = ast.parse(path.read_text(), filename=str(path))
+    hits = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+        if name in _SSL_OVERRIDING_CALLS and any(kw.arg == "ssl" for kw in node.keywords):
+            shown = path.relative_to(REPO) if path.is_relative_to(REPO) else path
+            hits.append(f"{shown}:{node.lineno}")
+    return hits
+
+
+def test_no_code_passes_ssl_to_a_connection() -> None:
+    """asyncpg's ``ssl=`` overrides the DSN's sslmode: one ``ssl=True`` drops verify-full.
+
+    TLS stays config-only (the DSN), so no connect or pool call may set it.
+    """
+    hits = []
+    for root in ("src", "scripts", "clients"):
+        for path in sorted((REPO / root).rglob("*.py")):
+            hits += _ssl_overrides(path)
+    assert hits == []
+
+
+def test_the_ssl_sweep_sees_both_call_shapes(tmp_path: Path) -> None:
+    """The sweep would be blind, not green, if it missed a call shape."""
+    sample = tmp_path / "sample.py"
+    sample.write_text(
+        "import asyncpg\n"
+        "async def f(d):\n"
+        "    await asyncpg.connect(d, ssl=True)\n"
+        "    await create_pool(d, ssl='require')\n"
+    )
+    assert len(_ssl_overrides(sample)) == 2
