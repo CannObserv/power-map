@@ -327,6 +327,22 @@ def test_no_password_reaches_a_command_line(tmp_path: Path, ca_pem: str) -> None
     assert all(" pw=set " in log[i] for i, _, _ in _psql_calls(log)), log
 
 
+@pytest.mark.parametrize("missing", ["doadmin_uri", "test_user_password", "db_ca_certificate"])
+def test_a_missing_output_fails_naming_it(tmp_path: Path, ca_pem: str, missing: str) -> None:
+    """jq -r prints a missing output as the string "null": stop and name it instead.
+
+    A "null" doadmin_uri became an empty user, and libpq fell back to the OS user.
+    """
+    outputs = _outputs(ca_pem)
+    del outputs[missing]
+    result, fake_etc, log = _run(tmp_path, outputs)
+    assert result.returncode == 2
+    assert f"terraform output {missing} is missing" in result.stderr
+    assert (fake_etc / ".env").read_text().startswith("DATABASE_URL=old")
+    assert (fake_etc / "do-ca.crt").read_text() == OLD_CA
+    assert not [line for line in log if line.startswith(("psql ", "sudo "))]
+
+
 def test_refuses_a_ca_that_is_not_a_certificate(tmp_path: Path) -> None:
     """A wrong or empty output would make every verify-full connection fail: stop first."""
     result, fake_etc, log = _run(tmp_path, _outputs("null"))
@@ -339,7 +355,7 @@ def test_refuses_a_ca_that_is_not_a_certificate(tmp_path: Path) -> None:
 
 def test_every_output_the_script_reads_is_declared() -> None:
     """The shims above stand in for terraform; this pins them to the real outputs."""
-    read = set(re.findall(r"jq -r '\.(\w+)\.value'", SCRIPT.read_text()))
+    read = set(re.findall(r"\$\(out (\w+)\)", SCRIPT.read_text()))
     outputs_tf = (REPO / "infra" / "terraform" / "outputs.tf").read_text()
     declared = set(re.findall(r'^output "(\w+)"', outputs_tf, re.MULTILINE))
     assert "db_ca_certificate" in read

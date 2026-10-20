@@ -51,16 +51,27 @@ fi
 echo "==> Reading Terraform outputs"
 TF_JSON=$(terraform -chdir="$TF_DIR" output -json)
 
-HOST=$(echo "$TF_JSON"       | jq -r '.db_host.value')
-PORT=$(echo "$TF_JSON"       | jq -r '.db_port.value')
-PROD_USER=$(echo "$TF_JSON"  | jq -r '.production_user_name.value')
-PROD_PASS=$(echo "$TF_JSON"  | jq -r '.production_user_password.value')
-MIGS_USER=$(echo "$TF_JSON"  | jq -r '.production_migrations_name.value')
-MIGS_PASS=$(echo "$TF_JSON"  | jq -r '.production_migrations_password.value')
-TEST_USER=$(echo "$TF_JSON"  | jq -r '.test_user_name.value')
-TEST_PASS=$(echo "$TF_JSON"  | jq -r '.test_user_password.value')
-DOADMIN_URI=$(echo "$TF_JSON" | jq -r '.doadmin_uri.value')
-CA_PEM=$(echo "$TF_JSON"     | jq -r '.db_ca_certificate.value')
+# A missing output would read as the string "null" (jq -r); stop and name it.
+# Inside $(…) the exit leaves only the subshell, and set -e takes it from there.
+out() {  # out <name>
+    local value
+    if ! value=$(jq -er --arg k "$1" '.[$k].value' <<<"$TF_JSON"); then
+        echo "ERROR: terraform output $1 is missing — terraform apply -refresh-only, then re-run" >&2
+        exit 2
+    fi
+    printf '%s\n' "$value"
+}
+
+HOST=$(out db_host)
+PORT=$(out db_port)
+PROD_USER=$(out production_user_name)
+PROD_PASS=$(out production_user_password)
+MIGS_USER=$(out production_migrations_name)
+MIGS_PASS=$(out production_migrations_password)
+TEST_USER=$(out test_user_name)
+TEST_PASS=$(out test_user_password)
+DOADMIN_URI=$(out doadmin_uri)
+CA_PEM=$(out db_ca_certificate)
 
 # ── 1b. Stage the cluster CA ──────────────────────────────────────────────────
 # Every connection below verifies the server against the staged copy; it goes
