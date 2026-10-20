@@ -49,3 +49,8 @@ output "test_user_password" {
   value       = digitalocean_database_user.test_user.password
   sensitive   = true
 }
+
+output "db_ca_certificate" {
+  description = "Cluster CA certificate (PEM); write-db-secrets.sh installs it for sslmode=verify-full"
+  value       = data.digitalocean_database_ca.power_map.certificate
+}
