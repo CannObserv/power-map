@@ -126,6 +126,15 @@ migration: its address may be shared too.
   user's default privileges; `MIGRATIONS_DATABASE_URL`'s user owns the schema and is the
   only DSN `apply-schema.sh` uses; `TEST_DATABASE_URL`'s user owns the test DB. None is
   superuser or holds `CREATEDB` / `CREATEROLE`. Any change to grants is the operator's call.
+- **Each database admits only its own roles** (#680). `CONNECT` on `co_pm_db_production`
+  belongs to its app and migrations users, and on `co_pm_db_test` to its test user. Both
+  databases also admit `_doadmin_monitor` (DO's metrics role, a `pg_monitor` member) and their
+  owner, `doadmin`. `PUBLIC` holds none, and `defaultdb` keeps PostgreSQL's default.
+  `write-db-secrets.sh` grants this set, then revokes from `PUBLIC`, and raises if the revoke
+  didn't take: a REVOKE without grant option only warns. If DO hasn't created
+  `_doadmin_monitor` yet, the writer warns and goes on; re-run it once the role exists. It never
+  revokes from a role it doesn't know. The daily schema-parity audit checks the exact set
+  ([AUDITS.md](AUDITS.md)). Rollback: `GRANT CONNECT ON DATABASE <db> TO PUBLIC`.
 - `tests/scripts/test_write_db_secrets.py` holds the writer to this. It fails on any
   `sslmode` / `PGSSLMODE` weaker than `verify-full` in a tracked file outside `tests/`, and
   on any `ssl=` passed to `connect` / `create_pool` — asyncpg's `ssl=` overrides the DSN.

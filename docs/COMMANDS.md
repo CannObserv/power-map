@@ -82,7 +82,8 @@ terraform -chdir=infra/terraform plan
 # 3. Apply (~5 min; cluster creation dominates)
 terraform -chdir=infra/terraform apply
 
-# 4. Write credentials to /etc/power-map/.env and apply schema-level grants
+# 4. Write credentials to /etc/power-map/.env and apply database- and schema-level
+#    grants. A `_doadmin_monitor does not exist yet` WARNING: re-run once DO creates it.
 bash scripts/write-db-secrets.sh
 
 # 5. Install extensions on both DBs; apply schema + seeds to the test DB

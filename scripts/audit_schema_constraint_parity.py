@@ -1,4 +1,4 @@
-"""Daily schema-parity audit: prod vs a reference DB (issues #315, #331, #632).
+"""Daily schema-parity audit: prod vs a reference DB (issues #315, #331, #632, #680).
 
 Snapshots every **constraint** (``CHECK`` / ``FOREIGN KEY`` / ``UNIQUE`` / ``PK``,
 full ``pg_get_constraintdef``), **function** (``pg_get_functiondef``), and
@@ -49,15 +49,25 @@ escalation would otherwise never fire.
 Mismatched definitions are not classified: a branch that changes a function body
 still reads as drift until it deploys.
 
+CONNECT allowlist (#680): over the target connection it also reads
+``pg_database`` (a cluster-wide catalog) and checks that each database named by
+a DSN in the environment (``DATABASE_URL``, ``MIGRATIONS_DATABASE_URL``,
+``TEST_DATABASE_URL``) admits exactly its owner, those DSNs' users and DO's
+metrics role. A missing or extra grantee — ``PUBLIC`` after a reset to
+PostgreSQL's default, say — is drift. ``scripts/write-db-secrets.sh`` grants the
+same set; it never revokes from a role it does not know, so an extra grantee is
+the operator's call. Only DSNs on the target's cluster count; with none, the
+check is skipped with a WARNING.
+
 Exit codes:
     0  parity
-    3  drift, an escalated reference-ahead object, or misconfiguration (an
-       empty reference, a reference that is the same DB as the target, an
-       empty or unreadable deployed schema, an unwritable state file) — so the
-       systemd unit shows as failed (visible in ``systemctl --failed``; a hook
-       for future ``OnFailure=`` alerting) — mirrors
-       ``scripts/check_api_anomalies.py``. 3, not 2, stays distinct from
-       argparse usage errors.
+    3  drift (schema or CONNECT allowlist), an escalated reference-ahead
+       object, or misconfiguration (an empty reference, a reference that is
+       the same DB as the target, an empty or unreadable deployed schema, an
+       unwritable state file) — so the systemd unit shows as failed (visible
+       in ``systemctl --failed``; a hook for future ``OnFailure=`` alerting) —
+       mirrors ``scripts/check_api_anomalies.py``. 3, not 2, stays distinct
+       from argparse usage errors.
     4  reference ahead only; the unit's ``SuccessExitStatus=4`` counts it as
        success, so it stays in the journal without turning the unit red.
 
@@ -74,10 +84,11 @@ import contextlib
 import json
 import os
 import sys
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import asyncpg
 
@@ -107,24 +118,31 @@ DEFAULT_ESCALATE_AFTER = 3
 EXIT_FAILURE = 3
 EXIT_REFERENCE_AHEAD = 4
 
+#: DO's metrics role (a ``pg_monitor`` member); every database admits it (#680).
+MONITOR_ROLE = "_doadmin_monitor"
+#: The DSNs whose users and databases make up the CONNECT allowlist.
+ALLOWLIST_DSN_VARS = ("DATABASE_URL", "MIGRATIONS_DATABASE_URL", "TEST_DATABASE_URL")
+
 
 @dataclass(frozen=True)
 class AuditResult:
     """One run's outcome; ``exit_code`` maps it onto the unit's contract.
 
     ``ahead`` and ``escalated`` hold ``<kind>.<label>`` strings, the keys of the
-    persisted streaks.
+    persisted streaks; ``acl_drift`` one line per database whose CONNECT
+    grantees are off the allowlist.
     """
 
     drift_count: int = 0
     ahead: tuple[str, ...] = ()
     escalated: tuple[str, ...] = ()
     misconfigured: bool = False
+    acl_drift: tuple[str, ...] = ()
 
     @property
     def exit_code(self) -> int:
         """3 on any failure, 4 when the reference is only ahead, else 0."""
-        if self.misconfigured or self.drift_count or self.escalated:
+        if self.misconfigured or self.drift_count or self.escalated or self.acl_drift:
             return EXIT_FAILURE
         if self.ahead:
             return EXIT_REFERENCE_AHEAD
@@ -151,6 +169,78 @@ async def _snapshot_all(conn: asyncpg.Connection, kinds: tuple[str, ...]) -> dic
         "trigger": snapshot_triggers,
     }
     return {kind: await snappers[kind](conn) for kind in kinds}
+
+
+#: Each database's owner and CONNECT grantees. A NULL ``datacl`` is the default
+#: ACL, which includes PUBLIC (grantee 0), so it is read through ``acldefault``.
+_CONNECT_ACL_SQL = """
+SELECT d.datname,
+       pg_get_userbyid(d.datdba) AS owner,
+       coalesce(
+           array_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END)
+               FILTER (WHERE a.privilege_type = 'CONNECT'),
+           '{}'
+       ) AS grantees
+FROM pg_database d
+LEFT JOIN LATERAL aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a ON true
+WHERE d.datname = ANY($1::text[])
+GROUP BY d.datname, d.datdba
+"""
+
+#: ``{database: (owner, CONNECT grantees)}``
+ConnectAcl = dict[str, tuple[str, frozenset[str]]]
+
+
+def connect_allowlist(dsns: Iterable[str]) -> dict[str, frozenset[str]]:
+    """``{database: roles it admits}``: each DSN's user on its database, plus the monitor."""
+    allowlist: dict[str, set[str]] = {}
+    for dsn in dsns:
+        p = urlparse(dsn)
+        allowlist.setdefault(p.path.lstrip("/"), {MONITOR_ROLE}).add(unquote(p.username or ""))
+    return {db: frozenset(roles) for db, roles in allowlist.items()}
+
+
+async def snapshot_connect_acl(conn: asyncpg.Connection, databases: Iterable[str]) -> ConnectAcl:
+    """Owner and CONNECT grantees of each of ``databases`` that exists."""
+    rows = await conn.fetch(_CONNECT_ACL_SQL, sorted(databases))
+    return {r["datname"]: (r["owner"], frozenset(r["grantees"])) for r in rows}
+
+
+def connect_acl_drift(allowlist: Mapping[str, frozenset[str]], acl: ConnectAcl) -> tuple[str, ...]:
+    """One line per database whose grantees, owner aside, are not its allowlist."""
+    lines = []
+    for db in sorted(allowlist):
+        if db not in acl:
+            lines.append(f"{db}: not found")
+            continue
+        owner, grantees = acl[db]
+        missing = sorted(allowlist[db] - grantees)
+        extra = sorted(grantees - allowlist[db] - {owner})
+        parts = [f"missing {', '.join(missing)}"] if missing else []
+        parts += [f"unexpected {', '.join(extra)}"] if extra else []
+        if parts:
+            lines.append(f"{db}: {'; '.join(parts)}")
+    return tuple(lines)
+
+
+async def _check_connect_acl(
+    conn: asyncpg.Connection, allowlist: Mapping[str, frozenset[str]], label: str
+) -> tuple[str, ...]:
+    """Read the target's CONNECT ACLs, log the outcome, return the drift lines."""
+    drift = connect_acl_drift(allowlist, await snapshot_connect_acl(conn, allowlist))
+    if drift:
+        logger.warning(
+            "Database CONNECT allowlist DRIFT on %s — each database must admit only its "
+            "owner, its DSNs' users and %s. Re-run scripts/write-db-secrets.sh for a missing "
+            "grant or a PUBLIC that came back; any other extra grantee is the operator's "
+            "call (docs/RUNBOOK_DB_TRIAGE.md § Connection boundary):\n%s",
+            label,
+            MONITOR_ROLE,
+            "\n".join(f"  - {line}" for line in drift),
+        )
+    else:
+        logger.info("Database CONNECT allowlist OK on %s — %s", label, ", ".join(sorted(allowlist)))
+    return drift
 
 
 def _redact(url: str) -> str:
@@ -242,6 +332,7 @@ async def run(
     state_path: Path,
     escalate_after: int,
     today: date | None = None,
+    connect_allowlist: Mapping[str, frozenset[str]] | None = None,
 ) -> AuditResult:
     """Snapshot both DBs across all kinds, diff, classify, log; return the outcome.
 
@@ -260,6 +351,9 @@ async def run(
     reference and target run different PG majors — their ``pg_get_*def``
     formatting can legitimately differ, so a diff there would be a version
     artifact, not drift. Constraints are version-stable and always diff.
+
+    With a ``connect_allowlist``, the target connection also reads each listed
+    database's CONNECT grantees (#680); any off the list is ``acl_drift``.
     """
     ref_label, tgt_label = _redact(reference_url), _redact(target_url)
 
@@ -333,6 +427,11 @@ async def run(
                 return AuditResult(misconfigured=True)
 
             target = await _snapshot_all(tgt_conn, diff_kinds)
+            acl_drift = (
+                await _check_connect_acl(tgt_conn, connect_allowlist, tgt_label)
+                if connect_allowlist
+                else ()
+            )
         finally:
             await tgt_conn.close()
     finally:
@@ -387,7 +486,9 @@ async def run(
     # file only breaks the run when there is a streak to keep or a bad file to replace.
     needs_write = bool(previous or streaks) or read is None
     if needs_write and not _write_streaks(state_path, streaks):
-        return AuditResult(drift_count=total_drift, ahead=tuple(ahead), misconfigured=True)
+        return AuditResult(
+            drift_count=total_drift, ahead=tuple(ahead), misconfigured=True, acl_drift=acl_drift
+        )
 
     escalated = tuple(label for label in ahead if streaks[label]["runs"] > escalate_after)
     if escalated:
@@ -403,7 +504,9 @@ async def run(
             ref_label,
             "\n".join(f"  - {label} ({streaks[label]['runs']} runs)" for label in escalated),
         )
-    return AuditResult(drift_count=total_drift, ahead=tuple(ahead), escalated=escalated)
+    return AuditResult(
+        drift_count=total_drift, ahead=tuple(ahead), escalated=escalated, acl_drift=acl_drift
+    )
 
 
 def _non_negative_int(text: str) -> int:
@@ -464,6 +567,20 @@ def main() -> None:
     echo_target(args.target_url, role="target")
     echo_target(args.reference_url, role="reference")
 
+    # Only DSNs on the target's cluster: a run against another one (a restore,
+    # a scratch cluster) has no known role set, and would report every env
+    # database as missing.
+    cluster = _db_identity(args.target_url)[:2]
+    allowlist = connect_allowlist(
+        v for k in ALLOWLIST_DSN_VARS if (v := os.environ.get(k)) and _db_identity(v)[:2] == cluster
+    )
+    if not allowlist:
+        logger.warning(
+            "Database CONNECT allowlist SKIPPED — none of %s names a database on the "
+            "target's cluster, so none has a known role set to check.",
+            ", ".join(ALLOWLIST_DSN_VARS),
+        )
+
     try:
         deployed = DeployedSchema.from_sql(args.deployed_schema.read_text())
     except (OSError, UnicodeDecodeError) as exc:
@@ -480,6 +597,7 @@ def main() -> None:
             deployed=deployed,
             state_path=args.state_file,
             escalate_after=args.escalate_after,
+            connect_allowlist=allowlist,
         )
     )
     if result.exit_code:

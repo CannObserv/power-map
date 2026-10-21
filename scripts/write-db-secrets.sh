@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Write DO managed-DB credentials to /etc/power-map/.env.
 #
-# Reads Terraform outputs, stages the cluster CA, applies schema-level grants via
-# doadmin and smoke-tests the new DSNs against the staged CA; only then makes the
-# CA live and writes DATABASE_URL / MIGRATIONS_DATABASE_URL / TEST_DATABASE_URL.
+# Reads Terraform outputs, stages the cluster CA, applies database- and
+# schema-level grants via doadmin and smoke-tests the new DSNs against the staged
+# CA; only then makes the CA live and writes DATABASE_URL /
+# MIGRATIONS_DATABASE_URL / TEST_DATABASE_URL.
 # A failure before that leaves the live CA and env file untouched. No password
 # reaches a command line. Idempotent — safe to re-run after terraform apply.
 #
@@ -27,6 +28,8 @@ CA_STAGED="$CA_FILE.new"
 # so the new CA is proven before anything else reads it.
 TLS_QUERY="sslmode=verify-full&sslrootcert=${CA_FILE}"
 CONNECT_TLS="sslmode=verify-full&sslrootcert=${CA_STAGED}"
+# DO's metrics role (a pg_monitor member): DO creates it, not terraform.
+MONITOR_ROLE="_doadmin_monitor"
 
 # ── 0. Preflight: terraform must be able to reach state ───────────────────────
 # On 2026-08-09 both gitignored credential files turned out to be absent from
@@ -123,12 +126,56 @@ pg() {  # pg <user> <password> <database> [psql args…]
     PGPASSWORD="$pass" psql "postgresql://${user}@${HOST}:${PORT}/${db}?${CONNECT_TLS}" -X "$@"
 }
 
-# ── 5. Schema-level grants ────────────────────────────────────────────────────
+# ── 5. Database- and schema-level grants ──────────────────────────────────────
 # ON_ERROR_STOP: without it psql exits 0 on a failed statement, and a grant that
 # did not apply would pass for one that did.
+
+# connect_allowlist <database> <role>… — SQL that grants CONNECT on <database> to
+# <role>… and DO's metrics role, and takes it from PUBLIC, which PostgreSQL's
+# default gives it (#680). A grantee it doesn't know is left to the operator; the
+# schema-parity audit names it. Grants first: on a live cluster no role loses CONNECT between
+# statements, and a grant that fails leaves PUBLIC open rather than a role shut out.
+connect_allowlist() {
+    local db=$1 roles
+    shift
+    roles=$(printf '%s, ' "$@")
+    roles=${roles%, }
+    cat <<SQL
+GRANT CONNECT ON DATABASE ${db} TO ${roles};
+
+-- Not yet there on a fresh cluster, maybe: warn and go on. The schema-parity
+-- audit reports the missing grant daily until a re-run adds it.
+DO \$\$
+BEGIN
+    IF EXISTS (SELECT FROM pg_roles WHERE rolname = '${MONITOR_ROLE}') THEN
+        GRANT CONNECT ON DATABASE ${db} TO ${MONITOR_ROLE};
+    ELSE
+        RAISE WARNING '${MONITOR_ROLE} does not exist yet: re-run scripts/write-db-secrets.sh once it does';
+    END IF;
+END \$\$;
+
+REVOKE CONNECT ON DATABASE ${db} FROM PUBLIC;
+
+-- A REVOKE without grant option only warns, and psql exits 0 even under
+-- ON_ERROR_STOP; every role holds CONNECT through PUBLIC, so prove it went. A
+-- NULL datacl is the default, and the default includes PUBLIC.
+DO \$\$
+BEGIN
+    IF EXISTS (
+        SELECT FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a
+        WHERE d.datname = '${db}' AND a.grantee = 0 AND a.privilege_type = 'CONNECT'
+    ) THEN
+        RAISE EXCEPTION 'PUBLIC still has CONNECT on ${db}: is the connecting role its owner?';
+    END IF;
+END \$\$;
+SQL
+}
+
 # Production DB: migrations user owns schema; app user gets DML only.
 echo "==> Applying grants on co_pm_db_production"
 pg "$DOADMIN_USER" "$DOADMIN_PASS" co_pm_db_production -v ON_ERROR_STOP=1 <<SQL
+$(connect_allowlist co_pm_db_production "$PROD_USER" "$MIGS_USER")
+
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 
 GRANT USAGE, CREATE ON SCHEMA public TO ${MIGS_USER};
@@ -144,6 +191,8 @@ SQL
 # Test DB: test user owns schema; full DDL required for apply_schema + TRUNCATE.
 echo "==> Applying grants on co_pm_db_test"
 pg "$DOADMIN_USER" "$DOADMIN_PASS" co_pm_db_test -v ON_ERROR_STOP=1 <<SQL
+$(connect_allowlist co_pm_db_test "$TEST_USER")
+
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO ${TEST_USER};
 SQL

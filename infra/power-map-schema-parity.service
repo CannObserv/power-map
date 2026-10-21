@@ -1,5 +1,5 @@
 [Unit]
-Description=power-map daily schema-parity audit (prod vs reference) (issues #315, #331, #632)
+Description=power-map daily schema-parity audit (prod vs reference) (issues #315, #331, #632, #680)
 After=network.target
 
 [Service]
@@ -22,6 +22,10 @@ EnvironmentFile=-/home/exedev/power-map/.env
 # not declare is the reference running ahead of a deploy (#632): exit 4, a journal
 # WARNING, success here. Past 3 consecutive daily runs it escalates to exit 3;
 # the per-object streaks live in data/schema_parity/reference_ahead.json.
+# It also checks the database CONNECT allowlist on prod's cluster (#680): each
+# database the env file's three DSNs name admits only its owner, those DSNs'
+# users and _doadmin_monitor. A missing or extra grantee (PUBLIC, after a reset)
+# exits 3; scripts/write-db-secrets.sh restores the set it owns.
 # Read-only on both databases; the state file is its only write.
 ExecStart=uv run python -m scripts.audit_schema_constraint_parity
 SuccessExitStatus=4
