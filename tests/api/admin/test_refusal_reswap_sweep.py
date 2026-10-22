@@ -6,7 +6,7 @@ therefore blanks whatever the control targets: a whole ``<tbody>`` for the
 names/acronyms tables, the row itself for a settings-type delete. Only an
 ``HX-Reswap`` / ``HX-Retarget`` response header changes that.
 
-The rule (docs/ADMIN.md § Refusals): an HTMX refusal returns
+The rule (docs/ADMIN.md § Flash notifications): an HTMX refusal returns
 ``htmx_refusal(body)`` (``HX-Reswap: none``) or retargets its body to the form
 row. This sweep flags any ``HTMLResponse``/``Response`` under ``src/api`` that
 is an empty-bodied 2xx carrying a ``warning``/``error`` flash with neither
