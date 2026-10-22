@@ -554,6 +554,7 @@ async def test_name_create_start_after_end_flashes_error(client, org_and_name, d
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "warning"
+    assert r.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
     assert await _fetch_effective(db, oid, "Backwards Interval") is None
 
 
@@ -609,6 +610,7 @@ async def test_name_edit_start_after_end_flashes_error(client, org_and_name, db)
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "warning"
+    assert r.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
     assert await _fetch_effective(db, oid, "Original Name") == (None, None)
 
 
