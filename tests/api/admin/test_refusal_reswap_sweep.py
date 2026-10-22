@@ -3,14 +3,16 @@
 htmx 2's default ``responseHandling`` swaps every 2xx body, an empty one
 included. A refused mutation answered with an empty 200 + warning flash
 therefore blanks whatever the control targets: a whole ``<tbody>`` for the
-names/acronyms tables, the row itself for a settings-type delete. Only an
-``HX-Reswap`` / ``HX-Retarget`` response header changes that.
+names/acronyms tables, the row itself for a settings-type delete. For an
+empty body only ``HX-Reswap: none`` prevents that: another swap style still
+swaps ``""``, and a bare ``HX-Retarget`` blanks a different element (CR 9).
 
 The rule (docs/ADMIN.md § Flash notifications): an HTMX refusal returns
-``htmx_refusal(body)`` (``HX-Reswap: none``) or retargets its body to the form
-row. This sweep flags any ``HTMLResponse``/``Response`` under ``src/api`` that
-is an empty-bodied 2xx carrying a ``warning``/``error`` flash with neither
-header. Vetted exceptions go in ALLOWED with a reason comment.
+``htmx_refusal(body)`` (``HX-Reswap: none``), or renders the form row with the
+error and retargets that *body* there. This sweep flags any
+``HTMLResponse``/``Response`` under ``src/api`` that is an empty-bodied 2xx
+carrying a ``warning``/``error`` flash without ``HX-Reswap: none``. Vetted
+exceptions go in ALLOWED with a reason comment.
 """
 
 import ast
@@ -25,7 +27,6 @@ API_DIR = Path(__file__).resolve().parents[3] / "src" / "api"
 
 _RESPONSE_CLASSES = {"HTMLResponse", "Response"}
 _REFUSAL_LEVELS = {"warning", "error"}
-_SWAP_OVERRIDES = ("HX-Reswap", "HX-Retarget")
 
 # "<relpath>::L<line>" sites exempt from the sweep. Each needs a reason.
 ALLOWED: frozenset[str] = frozenset()
@@ -110,24 +111,36 @@ def _local_assignments(scope: ast.AST) -> dict[str, list[ast.expr]]:
     return env
 
 
-def _is_unguarded(headers: ast.expr, env: dict[str, list[ast.expr]]) -> bool:
-    """A refusal flash reaches ``headers`` (directly or via a local) with no swap override.
+def _sets_reswap_none(expr: ast.expr) -> bool:
+    """True when ``expr`` holds a ``"HX-Reswap": "none"`` dict entry, value exact."""
+    for sub in ast.walk(expr):
+        if not isinstance(sub, ast.Dict):
+            continue
+        for key, value in zip(sub.keys, sub.values, strict=True):
+            if (
+                isinstance(key, ast.Constant)
+                and isinstance(key.value, str)
+                and key.value.lower() == "hx-reswap"
+                and isinstance(value, ast.Constant)
+                and value.value == "none"
+            ):
+                return True
+    return False
 
-    An override in the call's own headers expression guards every source; an
-    override inside one assignment guards only that assignment's flash.
+
+def _is_unguarded(headers: ast.expr, env: dict[str, list[ast.expr]]) -> bool:
+    """A refusal flash reaches ``headers`` (directly or via a local) without ``HX-Reswap: none``.
+
+    The entry in the call's own headers expression guards every source; one
+    inside an assignment guards only that assignment's flash.
     """
-    call_src = ast.unparse(headers)
-    if any(marker in call_src for marker in _SWAP_OVERRIDES):
+    if _sets_reswap_none(headers):
         return False
     sources = [headers]
     for sub in ast.walk(headers):
         if isinstance(sub, ast.Name):
             sources += env.get(sub.id, [])
-    return any(
-        _has_refusal_flash(src)
-        and not any(marker in ast.unparse(src) for marker in _SWAP_OVERRIDES)
-        for src in sources
-    )
+    return any(_has_refusal_flash(src) and not _sets_reswap_none(src) for src in sources)
 
 
 def unguarded_refusals(source: str, label: str) -> list[str]:
@@ -168,8 +181,8 @@ def test_no_htmx_refusal_swaps_an_empty_body():
     offenders = [o for o in offenders if o not in ALLOWED]
     assert not offenders, (
         'Empty-bodied 2xx refusal flashes swap "" into the control\'s target and '
-        "blank it (#684). Return htmx_refusal(body) instead, or HX-Retarget the "
-        f"form row: {offenders}"
+        "blank it (#684); only HX-Reswap: none stops that. Return htmx_refusal(body), "
+        f"or render the form row and HX-Retarget it: {offenders}"
     )
 
 
@@ -223,6 +236,10 @@ def handler():
 """,
         # headers passed positionally (CR 4)
         'HTMLResponse("", 200, flash_trigger("warning", "x"))',
+        # only HX-Reswap: none guards an empty body (CR 9): another swap style
+        # still swaps "", and a bare retarget just blanks a different element
+        'HTMLResponse("", headers={**flash_trigger("warning", "x"), "HX-Reswap": "innerHTML"})',
+        'HTMLResponse("", headers={**flash_trigger("warning", "x"), "HX-Retarget": "#r"})',
     ],
 )
 def test_sweep_sees_through_locals_and_positional_headers(snippet):
@@ -253,7 +270,6 @@ def test_sweep_passes_a_local_that_is_guarded(snippet):
     [
         # the guarded shapes
         'HTMLResponse("", headers={**flash_trigger("warning", "x"), "HX-Reswap": "none"})',
-        'HTMLResponse("", headers={**flash_trigger("warning", "x"), "HX-Retarget": "#r"})',
         # a success delete is meant to swap the row away
         'HTMLResponse(content="", headers=flash_trigger("success", "Removed."))',
         # htmx does not swap a 4xx or a 204
