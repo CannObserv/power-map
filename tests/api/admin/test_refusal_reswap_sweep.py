@@ -84,13 +84,29 @@ def _headers_arg(node: ast.Call) -> ast.expr | None:
 
 
 def _local_assignments(scope: ast.AST) -> dict[str, list[ast.expr]]:
-    """Every ``name = <expr>`` in a function, by name (all branches kept)."""
+    """Every value a function feeds a local, by name (all branches kept).
+
+    Covers ``x = v``, ``x: T = v``, ``x |= v`` and ``x.update(v)`` (CR 8).
+    """
     env: dict[str, list[ast.expr]] = {}
+
+    def feed(target: ast.expr, value: ast.expr | None) -> None:
+        if isinstance(target, ast.Name) and value is not None:
+            env.setdefault(target.id, []).append(value)
+
     for sub in ast.walk(scope):
         if isinstance(sub, ast.Assign):
             for target in sub.targets:
-                if isinstance(target, ast.Name):
-                    env.setdefault(target.id, []).append(sub.value)
+                feed(target, sub.value)
+        elif isinstance(sub, ast.AnnAssign | ast.AugAssign):
+            feed(sub.target, sub.value)
+        elif (
+            isinstance(sub, ast.Call)
+            and isinstance(sub.func, ast.Attribute)
+            and sub.func.attr == "update"
+        ):
+            for arg in sub.args:
+                feed(sub.func.value, arg)
     return env
 
 
@@ -186,6 +202,24 @@ def handler(ok):
 def handler():
     h = flash_trigger("warning", "x")
     return HTMLResponse("", headers={**h, "X-Other": "1"})
+""",
+        # annotated, augmented and .update()-built locals (CR 8)
+        """
+def handler():
+    headers: dict = flash_trigger("warning", "x")
+    return HTMLResponse("", headers=headers)
+""",
+        """
+def handler():
+    headers = {}
+    headers |= flash_trigger("warning", "x")
+    return HTMLResponse("", headers=headers)
+""",
+        """
+def handler():
+    headers = {}
+    headers.update(flash_trigger("warning", "x"))
+    return HTMLResponse("", headers=headers)
 """,
         # headers passed positionally (CR 4)
         'HTMLResponse("", 200, flash_trigger("warning", "x"))',
