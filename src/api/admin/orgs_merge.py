@@ -12,6 +12,7 @@ from src.api.admin.deps import (
     flash_trigger,
     get_admin_user,
     get_db,
+    htmx_refusal,
     is_htmx,
     resolve_query_flash,
     with_flash,
@@ -128,7 +129,7 @@ def _cycle_refusal(
         f"<strong>{escape(loser_name)}</strong> in the organization hierarchy, so keeping "
         f"it would make it its own ancestor. Keep <strong>{escape(loser_name)}</strong> instead."
     )
-    return HTMLResponse("", headers={**flash_trigger("warning", body), "HX-Reswap": "none"})
+    return htmx_refusal(body)
 
 
 templates = Jinja2Templates(directory="src/templates")

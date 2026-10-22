@@ -16,6 +16,7 @@ from src.api.admin.deps import (
     flash_trigger,
     get_admin_user,
     get_db,
+    htmx_refusal,
     is_htmx,
     provision_app_user,
     with_flash,
@@ -89,8 +90,9 @@ def _form_error_response(
 ) -> HTMLResponse:
     """Render a form-validation error.
 
-    HTMX clients get 200 + HX-Trigger flash (page stays put, surfaces
-    the message). Non-HTMX clients get JSON 422.
+    HTMX clients get ``htmx_refusal``: 200 + warning flash + ``HX-Reswap: none``,
+    so the names ``<tbody>`` every names form targets stays put (#684).
+    Non-HTMX clients get JSON 422.
 
     Use as ``return _form_error_response(...)`` at every call site: in
     the HTMX branch the function returns an HTMLResponse with the flash
@@ -106,11 +108,7 @@ def _form_error_response(
         if from_exc is not None:
             raise HTTPException(status_code=422, detail=error) from from_exc
         raise HTTPException(status_code=422, detail=error)
-    return HTMLResponse(
-        content="",
-        status_code=200,
-        headers=flash_trigger("warning", escape(error)),
-    )
+    return htmx_refusal(escape(error))
 
 
 def _fk_violation_message(exc: asyncpg.ForeignKeyViolationError) -> str:
@@ -852,14 +850,7 @@ def make_names_router(
                     return RedirectResponse(
                         with_flash(detail_url(entity_id), "exists"), status_code=303
                     )
-                return HTMLResponse(
-                    content="",
-                    status_code=200,
-                    headers=flash_trigger(
-                        "warning",
-                        "Cannot remove canonical. Promote another name first.",
-                    ),
-                )
+                return htmx_refusal("Cannot remove canonical. Promote another name first.")
         try:
             async with (
                 db.transaction(),
@@ -975,11 +966,7 @@ def make_names_router(
                         status_code=409,
                         detail=last_identity_409_msg,
                     )
-                return HTMLResponse(
-                    content="",
-                    status_code=200,
-                    headers=flash_trigger("warning", last_identity_error_msg),
-                )
+                return htmx_refusal(last_identity_error_msg)
             # person_name is citable (#319) with no FK; drop its citations first so
             # they don't orphan. organization_names is not citable — skip.
             if names_table == "person_names":

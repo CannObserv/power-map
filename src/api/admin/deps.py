@@ -6,6 +6,7 @@ from datetime import date
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from fastapi import Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
 
 from src.api.admin.overlay_slots import LINK_LOCKED_MSG, PRODUCER_LABEL
 from src.api.deps import get_db as get_db  # noqa: F401 — re-export for admin importers
@@ -84,6 +85,18 @@ def flash_trigger(level: str, body: str, extra: dict | None = None) -> dict[str,
     if extra:
         payload.update(extra)
     return {"HX-Trigger": json.dumps(payload)}
+
+
+def htmx_refusal(body: str) -> HTMLResponse:
+    """HTMX answer to a refused mutation: a warning flash, and the page left alone (#684).
+
+    htmx 2 swaps every 2xx body, an empty one included, so a bare empty 200 would
+    blank the control's target (a whole ``<tbody>``, or the row a delete was
+    aimed at). ``HX-Reswap: none`` keeps the target — and any open form row with
+    the curator's input — exactly as it was. Escape DB-derived values in body.
+    Guarded by ``tests/api/admin/test_refusal_reswap_sweep.py``.
+    """
+    return HTMLResponse("", headers={**flash_trigger("warning", body), "HX-Reswap": "none"})
 
 
 # Shared admin-conventions fallback-flash registry (#351, docs/ADMIN.md).

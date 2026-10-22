@@ -166,6 +166,7 @@ async def test_names_delete_last_blocked(client, person_and_name, db):
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "warning"
+    assert r.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
 
     row = await db.fetchrow("SELECT id FROM person_names WHERE id=$1", nid)
     assert row is not None
@@ -189,6 +190,7 @@ async def test_name_edit_sole_uncanonical_is_blocked(client, person_and_name, db
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "warning"
+    assert r.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
 
     is_canonical = await _fetch_is_canonical(db, nid)
     assert is_canonical is True, "sole name must remain canonical after blocked edit"
@@ -208,6 +210,7 @@ async def test_name_edit_uncanonical_with_multiple_names_blocked(client, person_
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "warning"
+    assert r.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
 
     is_canonical = await _fetch_is_canonical(db, canonical_nid)
     assert is_canonical is True, "canonical must not be changed"
@@ -493,6 +496,7 @@ async def test_create_canonical_non_public_rejected(client, person_only, db):
     )
     assert resp.status_code == 200
     assert "HX-Trigger" in resp.headers
+    assert resp.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
     assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid) == 0
 
 
@@ -541,6 +545,7 @@ async def test_create_canonical_deadname_rejected(client, person_only, db):
     )
     assert resp.status_code == 200
     assert "HX-Trigger" in resp.headers
+    assert resp.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
     assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid) == 0
 
 
@@ -565,6 +570,7 @@ async def test_edit_canonical_with_omitted_visibility_rejected(client, person_on
     )
     assert resp.status_code == 200
     assert "HX-Trigger" in resp.headers
+    assert resp.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
     row = await db.fetchrow("SELECT is_canonical, visibility FROM person_names WHERE id=$1", nid)
     assert not row["is_canonical"]
     assert row["visibility"] == "legal_only"

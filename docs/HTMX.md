@@ -321,19 +321,15 @@ When a delete is blocked because it would leave the entity with no identity (e.g
 ### Correct pattern
 
 ```python
-# HTMX path — return 200 with empty body + flash error; row stays in DOM
+# HTMX path — warning flash, nothing swapped; the row stays in the DOM
 if is_htmx(request):
-    return HTMLResponse(
-        content="",
-        status_code=200,
-        headers=flash_trigger("error", "Cannot remove the only name."),
-    )
+    return htmx_refusal("Cannot remove the only name.")
 # Non-HTMX path — browser receives a proper error response
 raise HTTPException(status_code=409, detail="Cannot remove the only name.")
 ```
 
-- Empty `content=""` means the HTMX swap target is unchanged — the row stays in the DOM.
-- The flash delivers the error message via `HX-Trigger: {"showFlash": {...}}` (§ Flash / Notification UX).
+- `htmx_refusal` (`src.api.admin.deps`) is `200` + a `warning` flash + `HX-Reswap: none`. An empty body alone is **not** enough: htmx 2 swaps an empty 2xx body too, blanking the target — the whole `<tbody>` when the control targets one (#684). Rule and guard → `docs/ADMIN.md` § Flash notifications.
+- The flash delivers the message via `HX-Trigger: {"showFlash": {...}}` (§ Flash / Notification UX); `warning`, never `error`, per the #353 level taxonomy.
 - The `is_htmx()` check must come before the guard logic so the non-HTMX path raises a meaningful HTTP error for API callers.
 
 ### When this applies
@@ -368,18 +364,11 @@ if is_canonical != "true" and existing["is_canonical"]:
     if not other_canonical:
         if not is_htmx(request):
             return RedirectResponse(f"/admin/people/{person_id}/", status_code=303)
-        return HTMLResponse(
-            content="",
-            status_code=200,
-            headers=flash_trigger(
-                "error",
-                "Cannot remove canonical. Promote another name first.",
-            ),
-        )
+        return htmx_refusal("Cannot remove canonical. Promote another name first.")
 ```
 
 - The guard fires only when the row being edited **is currently canonical** and **is_canonical is not being re-asserted**.
-- HTMX path: HTTP 200, empty body, flash error (same pattern as § Last-Identity Guard: HTMX Response for Blocked Deletes).
+- HTMX path: `htmx_refusal(...)` (same pattern as § Last-Identity Guard: HTMX Response for Blocked Deletes).
 - Non-HTMX path: `RedirectResponse` 303 (not 409 — there is no modal to surface an error, so redirect is the least-surprising degradation).
 - The guard does **not** fire when editing a non-canonical row (no invariant at risk).
 - The correct workflow for changing which name is canonical: promote the replacement (check its canonical toggle), which atomically demotes the current canonical via the existing `is_canonical == "true"` branch.

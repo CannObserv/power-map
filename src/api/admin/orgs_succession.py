@@ -246,4 +246,6 @@ async def link_successor(
             {"user": user, "active_section": "orgs_duplicates", "pairs": pairs},
             headers=headers,
         )
-    return HTMLResponse(content="", status_code=200, headers=headers)
+    # Nothing to swap: the flash is the answer. HX-Reswap: none keeps the caller's
+    # target intact on a refusal without leaning on its hx-swap (#684 CR 1).
+    return HTMLResponse(content="", status_code=200, headers={**headers, "HX-Reswap": "none"})

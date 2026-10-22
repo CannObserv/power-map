@@ -1,7 +1,7 @@
 """Admin CRUD for organization acronyms."""
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
@@ -10,6 +10,7 @@ from src.api.admin.deps import (
     flash_trigger,
     get_admin_user,
     get_db,
+    htmx_refusal,
     is_htmx,
     org_header_extra,
     provision_app_user,
@@ -247,13 +248,8 @@ async def acronym_delete(
                     status_code=409,
                     detail="Cannot remove the only acronym: no canonical name exists.",
                 )
-            return HTMLResponse(
-                content="",
-                status_code=200,
-                headers=flash_trigger(
-                    "warning",
-                    "Cannot remove the only acronym when the organization has no canonical name.",
-                ),
+            return htmx_refusal(
+                "Cannot remove the only acronym when the organization has no canonical name."
             )
         await db.execute("DELETE FROM organization_acronyms WHERE id=$1", acronym_id)
         await _maybe_promote_sole_acronym(org_id, db)

@@ -177,6 +177,7 @@ async def test_post_already_chained_is_rejected_without_second_event(client, pai
     r = await client.post(f"/admin/orgs/{b}/link-successor/{a}/", headers=HTMX_HEADERS, data={})
     assert r.status_code == 200  # warning flash, not an error page
     assert "warning" in r.headers.get("HX-Trigger", "")
+    assert r.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
     assert len(await _succession_events(db, a, b)) == 1
     assert len(await _succession_events(db, b, a)) == 0
 
@@ -190,6 +191,7 @@ async def test_post_invalid_date_is_warning(client, pair, db):
     )
     assert r.status_code == 200
     assert "warning" in r.headers.get("HX-Trigger", "")
+    assert r.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
     assert len(await _succession_events(db, a, b)) == 0
 
 
