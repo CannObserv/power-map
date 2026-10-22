@@ -16,8 +16,8 @@ JSON body is walked only when a byte-level pre-screen finds a candidate. A hit
 answers 422 with ``type: "string_unstorable"`` and a ``loc`` naming the field.
 
 The admin is an HTMX app, so an HTMX admin request gets the admin's form-error
-shape instead (``_names_shared._form_error_response``): 200, a warning flash,
-and ``HX-Reswap: none``.
+shape instead (``deps.htmx_refusal``, as ``_names_shared._form_error_response``
+uses): 200, a warning flash, and ``HX-Reswap: none`` (#684).
 
 **Backstop.** If the database still refuses text it cannot store
 (``CharacterNotInRepertoireError``, or asyncpg's ``DataError`` raised while
@@ -32,10 +32,10 @@ import asyncpg
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
-from src.api.admin.deps import flash_trigger, is_htmx
+from src.api.admin.deps import htmx_refusal, is_htmx
 from src.core.json_depth import MAX_JSON_DEPTH, json_depth_exceeds, json_may_be_too_deep
 from src.core.logging import get_logger
 from src.core.storable_text import (
@@ -179,9 +179,7 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
 async def _unstorable_text_handler(request: Request, exc: UnstorableTextError) -> Response:
     """The standard 422, or the admin's warning flash for an HTMX admin request."""
     if request.url.path.startswith("/admin") and is_htmx(request):
-        return HTMLResponse(
-            "", headers={**flash_trigger("warning", _ADMIN_FLASH), "HX-Reswap": "none"}
-        )
+        return htmx_refusal(_ADMIN_FLASH)
     return validation_error_response(exc)
 
 

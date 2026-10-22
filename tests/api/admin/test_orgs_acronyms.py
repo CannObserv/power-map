@@ -378,6 +378,7 @@ async def test_acronym_delete_last_acronym_blocked_when_no_canonical_name(client
     assert r.status_code == 200
     trigger = json.loads(r.headers["hx-trigger"])
     assert trigger["showFlash"]["level"] == "warning"
+    assert r.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
     row = await db.fetchrow("SELECT id FROM organization_acronyms WHERE id=$1", aid)
     assert row is not None, "acronym must not be deleted"
 

@@ -305,6 +305,7 @@ async def test_delete_link_type_in_use_htmx_returns_flash(client, db):
         )
         assert response.status_code == 200
         assert "HX-Trigger" in response.headers
+        assert response.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
         assert "showFlash" in response.headers["HX-Trigger"]
         # Row still exists
         row = await db.fetchrow("SELECT id FROM link_types WHERE id=$1", lid)
@@ -489,6 +490,7 @@ async def test_delete_identifier_type_in_use_htmx_returns_flash(client, db):
         )
         assert response.status_code == 200
         assert "HX-Trigger" in response.headers
+        assert response.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
         assert "showFlash" in response.headers["HX-Trigger"]
         row = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE id=$1", iid)
         assert row is not None

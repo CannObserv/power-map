@@ -261,6 +261,7 @@ async def test_pinning_an_entity_outside_the_crosswalk_is_refused_not_a_500(clie
 
     assert r.status_code == 200
     assert json.loads(r.headers["HX-Trigger"])["showFlash"]["level"] == "warning"
+    assert r.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
     assert await active_pin(db, "organization", oid, "acronym") is None
 
 

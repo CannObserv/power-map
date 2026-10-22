@@ -11,6 +11,7 @@ from src.api.admin.deps import (
     flash_trigger,
     get_admin_user,
     get_db,
+    htmx_refusal,
     is_htmx,
     resolve_query_flash,
     with_flash,
@@ -240,11 +241,7 @@ async def link_type_delete(
     except asyncpg.ForeignKeyViolationError:
         if not is_htmx(request):
             raise HTTPException(status_code=409, detail="Cannot delete: record is in use")
-        return HTMLResponse(
-            content="",
-            status_code=200,
-            headers=flash_trigger("warning", "Cannot delete: this link type is in use."),
-        )
+        return htmx_refusal("Cannot delete: this link type is in use.")
     return HTMLResponse(
         content="",
         status_code=200,

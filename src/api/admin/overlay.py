@@ -14,7 +14,7 @@ not replace or archive a pin the curator never saw.
 """
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
@@ -24,6 +24,7 @@ from src.api.admin.deps import (
     flash_trigger,
     get_admin_user,
     get_db,
+    htmx_refusal,
     is_htmx,
     provision_app_user,
     with_flash,
@@ -134,12 +135,7 @@ async def overlay_pin(
             return RedirectResponse(
                 with_flash(_detail_url(entity_type, entity_id), "invalid"), status_code=303
             )
-        return HTMLResponse(
-            content="",
-            headers=flash_trigger(
-                "warning", f"{PRODUCER_LABEL} does not maintain this record: nothing to pin."
-            ),
-        )
+        return htmx_refusal(f"{PRODUCER_LABEL} does not maintain this record: nothing to pin.")
     if already:
         if not is_htmx(request):
             return RedirectResponse(
