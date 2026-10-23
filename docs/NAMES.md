@@ -207,5 +207,5 @@ Equivalent for acronyms: `_maybe_promote_sole_acronym(org_id, db)` (from `src.ap
 
 `name_delete` blocks when the org has exactly one name and no canonical acronym; `acronym_delete` blocks symmetrically.
 
-- HTMX: return HTTP 200 with `flash_trigger("error", ...)` and empty body
+- HTMX: `return htmx_refusal(msg)` (`src.api.admin.deps`) — 200 + `warning` flash + `HX-Reswap: none`. Never a bare empty 200: the delete targets the whole names tbody, and htmx swaps an empty 2xx body in, blanking it (#684, #683)
 - Non-HTMX: raise `HTTPException(409)`
