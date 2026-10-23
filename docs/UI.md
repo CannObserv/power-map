@@ -251,7 +251,7 @@ A per-row swap can't add or drop the empty-state row: adding the first item left
 - Cancel on a new row removes it client-side; the empty-state row, never removed, stays exactly once.
 - A modal that finishes a write (the address confirm modal's Keep / Accept) targets the same tbody.
 
-Guards: `tests/api/admin/test_empty_state_sweep.py` (static — row-targeting write controls, unmarked empty rows, detail pages inlining an empty row, unretargeted or 4xx form-row renders; a short allowlist covers settings vocabularies, pins and the list-page delete modal) and `tests/api/admin/test_empty_state_tables.py` (each section's add-first / edit / bad save / delete-last round trip). `test_browser_smoke.py::test_empty_state_row_follows_the_tbody` is the real-htmx seam.
+Guards: `tests/api/admin/test_empty_state_sweep.py` (static — row-targeting write controls, unmarked empty rows, detail pages inlining an empty row, unretargeted or 4xx form-row renders; its allowlist: pins, the list-page delete modal, and the settings tables deferred to #687) and `tests/api/admin/test_empty_state_tables.py` (each section's add-first / edit / bad save / delete-last round trip). `test_browser_smoke.py::test_empty_state_row_follows_the_tbody` is the real-htmx seam.
 
 ### Jinja2 include variable scoping
 

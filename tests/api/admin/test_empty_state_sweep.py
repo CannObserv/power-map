@@ -37,18 +37,18 @@ _TARGET = re.compile(r'hx-target="([^"]*)"')
 _ROW_TARGET = re.compile(r"-row-|closest tr")
 _EMPTY_ROW = re.compile(r"\{%-?\s*else\s*-?%\}\s*(<tr\b[^>]*>)")
 
-# Row-swapping write controls outside #683's scope (single-row tables whose
-# rows never empty out from a row action, or list pages): path relative to
-# src/templates/admin -> why it is exempt.
+# Row-swapping write controls still allowed: path relative to src/templates/admin
+# -> why. The settings tables have the same empty-row bug and are deferred to #687;
+# drop their entries as that lands.
 ROW_TARGET_ALLOWED: dict[str, str] = {
     "partials/delete_modal.html": "list-page hard delete; the list re-paginates",
-    "pins/_row.html": "pins page; unpin keeps the row (toggle)",
-    "settings/partials/_api_key_row.html": "settings table; revoke keeps the row",
-    "settings/partials/_api_key_edit_row.html": "settings table; edit only",
-    "settings/partials/_identifier_type_row.html": "settings table; vocabulary",
-    "settings/partials/_identifier_type_edit_row.html": "settings table; vocabulary",
-    "settings/partials/_link_type_row.html": "settings table; vocabulary",
-    "settings/partials/_link_type_edit_row.html": "settings table; vocabulary",
+    "pins/_row.html": "unpin keeps the row (re-rendered as Unpinned), never empties the table",
+    "settings/partials/_api_key_row.html": "deferred: #687",
+    "settings/partials/_api_key_edit_row.html": "deferred: #687",
+    "settings/partials/_identifier_type_row.html": "deferred: #687",
+    "settings/partials/_identifier_type_edit_row.html": "deferred: #687",
+    "settings/partials/_link_type_row.html": "deferred: #687",
+    "settings/partials/_link_type_edit_row.html": "deferred: #687",
 }
 
 _FORM_ROW_HELPERS = ("retarget_form_row(", "form_row_status(", "HX-Retarget")
