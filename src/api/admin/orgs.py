@@ -602,7 +602,14 @@ async def children_add(
     """Link an existing org as a child of this org."""
     if child_id == org_id:
         raise HTTPException(status_code=422, detail="An organization cannot be its own child")
-    child = await db.fetchrow("SELECT id FROM organizations WHERE id=$1", child_id)
+    # The display name (for the flash) doesn't move with parent_id: read it now.
+    child = await db.fetchrow(
+        """SELECT o.id, dn.display_name AS canonical_name
+           FROM organizations o
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           WHERE o.id=$1""",
+        child_id,
+    )
     if not child:
         raise HTTPException(status_code=422, detail="Child organization not found")
     # The slot that moves is the *child's* parent, so the child is what is tracked.
@@ -611,13 +618,6 @@ async def children_add(
         tracked(db, "organization", child_id, user_id=user.id, fields=("parent_id",)) as edit,
     ):
         await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", org_id, child_id)
-    row = await db.fetchrow(
-        """SELECT o.id, o.active, o.archived_at, dn.display_name AS canonical_name
-           FROM organizations o
-           LEFT JOIN v_org_display_names dn ON dn.organization_id=o.id
-           WHERE o.id=$1""",
-        child_id,
-    )
     if not is_htmx(request):
         return RedirectResponse(
             with_flash(f"/admin/orgs/{org_id}/", flash_key("saved", edit.pinned)), status_code=303
@@ -628,7 +628,7 @@ async def children_add(
         db,
         flash_trigger(
             "success",
-            f"<strong>{escape(row['canonical_name'])}</strong> linked as child."
+            f"<strong>{escape(child['canonical_name'])}</strong> linked as child."
             + pinned_note(edit.pinned),
             extra=overlay_refresh(edit.pinned),
         ),
