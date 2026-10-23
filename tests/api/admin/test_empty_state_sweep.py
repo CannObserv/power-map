@@ -16,6 +16,8 @@ and route so a new table can't quietly regress to per-row swaps:
    that row (``retarget_form_row`` / ``form_row_status``) — the form itself
    targets the tbody — and no form-row render carries a literal 4xx: htmx
    swaps no 4xx, so the curator would never see the error.
+5. A detail table's empty row spans its header: the ``colspan`` (in the rows
+   partial) equals the ``<th>`` count (on the detail page).
 
 Rules → ``docs/UI.md`` § Empty-State Table Rows.
 """
@@ -114,6 +116,42 @@ def test_detail_pages_include_rows_partials():
         "`_<x>_rows.html` partial the write routes render instead (#683): "
         f"{offenders}"
     )
+
+
+_TABLE = re.compile(r"<table\b[^>]*>(.*?)</table>", re.S)
+_THEAD = re.compile(r"<thead>(.*?)</thead>", re.S)
+_ROWS_INCLUDE = re.compile(r'\{% include "([^"]+_rows\.html)" %\}')
+_EMPTY_COLSPAN = re.compile(r'data-empty-row[^>]*>\s*<td colspan="(\d+)"')
+
+
+def _detail_tables():
+    """(detail page, rows partial, header column count, empty-row colspan) per table."""
+    for path in sorted(TEMPLATES.glob("*/detail.html")):
+        for m in _TABLE.finditer(path.read_text()):
+            thead, include = _THEAD.search(m.group(1)), _ROWS_INCLUDE.search(m.group(1))
+            if not (thead and include):
+                continue
+            partial = (TEMPLATES.parent / include.group(1)).read_text()
+            colspan = _EMPTY_COLSPAN.search(partial)
+            yield (
+                path.relative_to(TEMPLATES).as_posix(),
+                include.group(1),
+                len(re.findall(r"<th\b", thead.group(1))),
+                int(colspan.group(1)) if colspan else None,
+            )
+
+
+def test_empty_row_spans_its_table_header():
+    """The empty row lives in the rows partial, its <thead> on the detail page:
+    a dropped column leaves a stale colspan nobody sees (#252, #683)."""
+    tables = list(_detail_tables())
+    assert len(tables) >= 30, f"sweep matched only {len(tables)} detail tables"
+    offenders = [
+        f"{page} -> {partial}: {cols} header columns, empty-row colspan {span}"
+        for page, partial, cols, span in tables
+        if span != cols
+    ]
+    assert not offenders, offenders
 
 
 def _template_name(call: ast.Call) -> str | None:
