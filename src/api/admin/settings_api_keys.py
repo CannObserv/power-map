@@ -4,13 +4,14 @@ import hashlib
 import os
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin.deps import (
     AdminUser,
     flash_trigger,
+    form_row_status,
     get_db,
     is_htmx,
     provision_app_user,
@@ -36,6 +37,38 @@ def generate_api_key() -> tuple[str, str, str]:
     return raw_key, key_hash, key_prefix
 
 
+_PAGE = "/admin/settings/api-keys/"
+_ROWS = "admin/settings/partials/_api_key_rows.html"
+_LABEL_REQUIRED = "Label is required."
+
+
+async def fetch_api_keys(db, user_id: str) -> list:
+    """The user's keys, newest first — the table's one query (#687)."""
+    return await db.fetch(
+        "SELECT id, label, key_prefix, created_at, last_used_at"
+        " FROM api_keys WHERE user_id=$1 ORDER BY created_at DESC, id DESC",
+        user_id,
+    )
+
+
+def _form_row(request: Request, key, label: str, error: str | None, status_code: int = 200):
+    """The new/edit form row; an error re-render lands on that row only (#683)."""
+    row_id = f"api-key-row-{key['id']}" if key else "api-key-row-new"
+    return templates.TemplateResponse(
+        request,
+        "admin/settings/partials/_api_key_edit_row.html",
+        {"key": key, "label": label, "error": error},
+        **form_row_status(request, {"label": error} if error else {}, status_code, row_id),
+    )
+
+
+async def _rows_response(request: Request, db, user_id: str, headers: dict):
+    """The whole tbody: every write answers with it, so the empty row follows (#687)."""
+    return templates.TemplateResponse(
+        request, _ROWS, {"rows": await fetch_api_keys(db, user_id)}, headers=headers
+    )
+
+
 def _base_ctx(user):
     return {
         "user": user,
@@ -50,16 +83,12 @@ async def api_keys_list(
     user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
-    keys = await db.fetch(
-        "SELECT id, label, key_prefix, created_at, last_used_at"
-        " FROM api_keys WHERE user_id=$1 ORDER BY created_at DESC",
-        user.id,
-    )
+    rows = await fetch_api_keys(db, user.id)
     flash_msg, resp_headers = resolve_query_flash(request, {}, flash)
     return templates.TemplateResponse(
         request,
         "admin/settings/api_keys.html",
-        {**_base_ctx(user), "keys": keys, "flash_msg": flash_msg},
+        {**_base_ctx(user), "rows": rows, "flash_msg": flash_msg},
         headers=resp_headers,
     )
 
@@ -69,23 +98,19 @@ async def api_key_new_row(
     request: Request,
     user: AdminUser = Depends(provision_app_user),
 ):
-    return templates.TemplateResponse(
-        request,
-        "admin/settings/partials/_api_key_edit_row.html",
-        {"key": None},
-    )
+    return _form_row(request, None, "", None)
 
 
 @router.post("/")
 async def api_key_create(
     request: Request,
-    label: str = Form(...),
+    label: str = Form(""),
     user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
     label_val = label.strip()
     if not label_val:
-        raise HTTPException(status_code=422, detail="label is required")
+        return _form_row(request, None, label_val, _LABEL_REQUIRED, 422)
     raw_key, key_hash, key_prefix = generate_api_key()
     kid = generate_id()
     await db.execute(
@@ -97,11 +122,13 @@ async def api_key_create(
         key_hash,
     )
     if not is_htmx(request):
-        return RedirectResponse(with_flash("/admin/settings/api-keys/", "saved"), status_code=303)
+        return RedirectResponse(with_flash(_PAGE, "saved"), status_code=303)
+    # The one-time key modal is the main swap (appended to <body>); the tbody
+    # rides along out of band, so the new row and empty-state row follow (#687).
     return templates.TemplateResponse(
         request,
         "admin/settings/partials/_api_key_new_key_modal.html",
-        {"raw_key": raw_key, "label": label_val},
+        {"raw_key": raw_key, "label": label_val, "rows": await fetch_api_keys(db, user.id)},
     )
 
 
@@ -113,46 +140,37 @@ async def api_key_edit_row_get(
     db=Depends(get_db),
 ):
     key = await db.fetchrow(
-        "SELECT id, label, key_prefix, created_at, last_used_at"
-        " FROM api_keys WHERE id=$1 AND user_id=$2",
-        key_id,
-        user.id,
+        "SELECT id, label FROM api_keys WHERE id=$1 AND user_id=$2", key_id, user.id
     )
     if not key:
         raise HTTPException(status_code=404)
-    return templates.TemplateResponse(
-        request,
-        "admin/settings/partials/_api_key_edit_row.html",
-        {"key": key},
-    )
+    return _form_row(request, key, key["label"], None)
 
 
 @router.post("/{key_id}/edit-row/")
 async def api_key_edit_row_post(
     key_id: str,
     request: Request,
-    label: str = Form(...),
+    label: str = Form(""),
     user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
-    label_val = label.strip()
-    if not label_val:
-        raise HTTPException(status_code=422, detail="label is required")
-    key = await db.fetchrow("SELECT id FROM api_keys WHERE id=$1 AND user_id=$2", key_id, user.id)
+    key = await db.fetchrow(
+        "SELECT id, label FROM api_keys WHERE id=$1 AND user_id=$2", key_id, user.id
+    )
     if not key:
         raise HTTPException(status_code=404)
+    label_val = label.strip()
+    if not label_val:
+        return _form_row(request, key, label_val, _LABEL_REQUIRED, 422)
     await db.execute("UPDATE api_keys SET label=$1 WHERE id=$2", label_val, key_id)
-    row = await db.fetchrow(
-        "SELECT id, label, key_prefix, created_at, last_used_at FROM api_keys WHERE id=$1",
-        key_id,
-    )
     if not is_htmx(request):
-        return RedirectResponse(with_flash("/admin/settings/api-keys/", "saved"), status_code=303)
-    return templates.TemplateResponse(
+        return RedirectResponse(with_flash(_PAGE, "saved"), status_code=303)
+    return await _rows_response(
         request,
-        "admin/settings/partials/_api_key_row.html",
-        {"key": row},
-        headers=flash_trigger("success", f"Key <strong>{escape(label_val)}</strong> renamed."),
+        db,
+        user.id,
+        flash_trigger("success", f"Key <strong>{escape(label_val)}</strong> renamed."),
     )
 
 
@@ -296,12 +314,10 @@ async def api_key_delete(
         raise HTTPException(status_code=404)
     await db.execute("DELETE FROM api_keys WHERE id=$1", key_id)
     if not is_htmx(request):
-        return RedirectResponse(with_flash("/admin/settings/api-keys/", "removed"), status_code=303)
-    return HTMLResponse(
-        content="",
-        status_code=200,
-        headers=flash_trigger(
-            "success",
-            f"Key <strong>{escape(existing['label'])}</strong> deleted.",
-        ),
+        return RedirectResponse(with_flash(_PAGE, "removed"), status_code=303)
+    return await _rows_response(
+        request,
+        db,
+        user.id,
+        flash_trigger("success", f"Key <strong>{escape(existing['label'])}</strong> deleted."),
     )

@@ -2,13 +2,14 @@
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin.deps import (
     AdminUser,
     flash_trigger,
+    form_row_status,
     get_admin_user,
     get_db,
     htmx_refusal,
@@ -21,6 +22,7 @@ from src.core.db import generate_id
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/settings/link-types", tags=["admin-settings-link-types"])
 
+_PAGE = "/admin/settings/link-types/"
 _SCOPE_MAP = {"general": False, "social": True}
 
 
@@ -30,7 +32,8 @@ def _scope_to_is_social(scope: str) -> bool:
     return _SCOPE_MAP[scope]
 
 
-async def _fetch_link_types(db, is_social: bool) -> list:
+async def fetch_link_types(db, is_social: bool) -> list:
+    """One scope's link types with usage counts — the table's one query (#687)."""
     return await db.fetch(
         """
         SELECT lt.*, COUNT(l.id) AS usage_count
@@ -38,10 +41,56 @@ async def _fetch_link_types(db, is_social: bool) -> list:
         LEFT JOIN links l ON l.link_type_id = lt.id
         WHERE lt.is_social = $1
         GROUP BY lt.id
-        ORDER BY lt.display_name
+        ORDER BY lt.display_name, lt.id
         """,
         is_social,
     )
+
+
+def _validate(display_name: str, slug: str) -> str | None:
+    """The form's error message, or None when the values are writable."""
+    if not display_name:
+        return "Display name is required."
+    if not slug:
+        return "Slug is required."
+    return None
+
+
+def _form_row(
+    request: Request, scope: str, lt, form: dict, error: str | None, status_code: int = 200
+):
+    """The new/edit form row; an error re-render lands on that row only (#683)."""
+    row_id = f"link-type-row-{lt['id']}" if lt else f"{scope}-link-type-row-new"
+    return templates.TemplateResponse(
+        request,
+        "admin/settings/partials/_link_type_edit_row.html",
+        {"lt": lt, "scope": scope, "form": form, "error": error},
+        **form_row_status(request, {"form": error} if error else {}, status_code, row_id),
+    )
+
+
+async def _rows_response(request: Request, db, scope: str, headers: dict):
+    """One scope's whole tbody: every write answers with it, so the empty row follows."""
+    return templates.TemplateResponse(
+        request,
+        "admin/settings/partials/_link_type_rows.html",
+        {"rows": await fetch_link_types(db, _SCOPE_MAP[scope]), "scope": scope},
+        headers=headers,
+    )
+
+
+async def _write(db, slug: str, sql: str, *args) -> str | None:
+    """Run an INSERT/UPDATE under a savepoint; a slug clash becomes a form error.
+
+    The savepoint aborts only this write, keeping the ambient transaction (and so
+    the error response) usable (#288).
+    """
+    try:
+        async with db.transaction():
+            await db.execute(sql, *args)
+    except asyncpg.UniqueViolationError:
+        return f"Slug \u201c{slug}\u201d is already in use."
+    return None
 
 
 def _base_ctx(user, active_section: str = "settings"):
@@ -58,8 +107,8 @@ async def link_types_page(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    general = await _fetch_link_types(db, False)
-    social = await _fetch_link_types(db, True)
+    general = await fetch_link_types(db, False)
+    social = await fetch_link_types(db, True)
     flash_msg, resp_headers = resolve_query_flash(request, {}, flash)
     return templates.TemplateResponse(
         request,
@@ -69,7 +118,7 @@ async def link_types_page(
             "general": general,
             "social": social,
             "flash_msg": flash_msg,
-        },  # noqa: E501
+        },
         headers=resp_headers,
     )
 
@@ -80,46 +129,51 @@ async def link_type_new_row(
     request: Request,
     user: AdminUser = Depends(get_admin_user),
 ):
-    is_social = _scope_to_is_social(scope)
-    return templates.TemplateResponse(
-        request,
-        "admin/settings/partials/_link_type_edit_row.html",
-        {"lt": None, "scope": scope, "is_social": is_social},
-    )
+    _scope_to_is_social(scope)
+    return _form_row(request, scope, None, {}, None)
 
 
 @router.post("/{scope}/")
 async def link_type_create(
     scope: str,
     request: Request,
-    display_name: str = Form(...),
-    slug: str = Form(...),
+    display_name: str = Form(""),
+    slug: str = Form(""),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
     is_social = _scope_to_is_social(scope)
-    slug_val = slug.strip()
-    if not slug_val:
-        raise HTTPException(status_code=422, detail="slug is required")
-    lid = generate_id()
-    await db.execute(
+    form = {"display_name": display_name.strip(), "slug": slug.strip()}
+    error = _validate(**form) or await _write(
+        db,
+        form["slug"],
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, $4)",
-        lid,
-        display_name.strip(),
-        slug_val,
+        generate_id(),
+        form["display_name"],
+        form["slug"],
         is_social,
     )
-    rows = await _fetch_link_types(db, is_social)
+    if error:
+        return _form_row(request, scope, None, form, error, 422)
     if not is_htmx(request):
-        return RedirectResponse(with_flash("/admin/settings/link-types/", "saved"), status_code=303)
-    return templates.TemplateResponse(
+        return RedirectResponse(with_flash(_PAGE, "saved"), status_code=303)
+    return await _rows_response(
         request,
-        "admin/settings/partials/_link_type_rows.html",
-        {"rows": rows, "scope": scope},
-        headers=flash_trigger(
-            "success", f"Link type <strong>{escape(display_name.strip())}</strong> added."
+        db,
+        scope,
+        flash_trigger(
+            "success", f"Link type <strong>{escape(form['display_name'])}</strong> added."
         ),
     )
+
+
+async def _get_or_404(db, item_id: str, is_social: bool):
+    lt = await db.fetchrow(
+        "SELECT * FROM link_types WHERE id=$1 AND is_social=$2", item_id, is_social
+    )
+    if not lt:
+        raise HTTPException(status_code=404)
+    return lt
 
 
 @router.get("/{scope}/{item_id}/edit-row/")
@@ -130,17 +184,8 @@ async def link_type_edit_row_get(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    is_social = _scope_to_is_social(scope)
-    lt = await db.fetchrow(
-        "SELECT * FROM link_types WHERE id=$1 AND is_social=$2", item_id, is_social
-    )
-    if not lt:
-        raise HTTPException(status_code=404)
-    return templates.TemplateResponse(
-        request,
-        "admin/settings/partials/_link_type_edit_row.html",
-        {"lt": lt, "scope": scope, "is_social": is_social},
-    )
+    lt = await _get_or_404(db, item_id, _scope_to_is_social(scope))
+    return _form_row(request, scope, lt, {}, None)
 
 
 @router.post("/{scope}/{item_id}/edit-row/")
@@ -148,44 +193,31 @@ async def link_type_edit_row_post(
     scope: str,
     item_id: str,
     request: Request,
-    display_name: str = Form(...),
-    slug: str = Form(...),
+    display_name: str = Form(""),
+    slug: str = Form(""),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    is_social = _scope_to_is_social(scope)
-    slug_val = slug.strip()
-    if not slug_val:
-        raise HTTPException(status_code=422, detail="slug is required")
-    lt = await db.fetchrow(
-        "SELECT id FROM link_types WHERE id=$1 AND is_social=$2", item_id, is_social
-    )
-    if not lt:
-        raise HTTPException(status_code=404)
-    await db.execute(
+    lt = await _get_or_404(db, item_id, _scope_to_is_social(scope))
+    form = {"display_name": display_name.strip(), "slug": slug.strip()}
+    error = _validate(**form) or await _write(
+        db,
+        form["slug"],
         "UPDATE link_types SET display_name=$1, slug=$2 WHERE id=$3",
-        display_name.strip(),
-        slug_val,
+        form["display_name"],
+        form["slug"],
         item_id,
     )
-    row = await db.fetchrow(
-        """
-        SELECT lt.*, COUNT(l.id) AS usage_count
-        FROM link_types lt
-        LEFT JOIN links l ON l.link_type_id = lt.id
-        WHERE lt.id = $1
-        GROUP BY lt.id
-        """,
-        item_id,
-    )
+    if error:
+        return _form_row(request, scope, lt, form, error, 422)
     if not is_htmx(request):
-        return RedirectResponse(with_flash("/admin/settings/link-types/", "saved"), status_code=303)
-    return templates.TemplateResponse(
+        return RedirectResponse(with_flash(_PAGE, "saved"), status_code=303)
+    return await _rows_response(
         request,
-        "admin/settings/partials/_link_type_row.html",
-        {"lt": row, "scope": scope},
-        headers=flash_trigger(
-            "success", f"Link type <strong>{escape(display_name.strip())}</strong> saved."
+        db,
+        scope,
+        flash_trigger(
+            "success", f"Link type <strong>{escape(form['display_name'])}</strong> saved."
         ),
     )
 
@@ -227,12 +259,7 @@ async def link_type_delete(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    is_social = _scope_to_is_social(scope)
-    existing = await db.fetchrow(
-        "SELECT id FROM link_types WHERE id=$1 AND is_social=$2", item_id, is_social
-    )
-    if not existing:
-        raise HTTPException(status_code=404)
+    await _get_or_404(db, item_id, _scope_to_is_social(scope))
     try:
         # Savepoint so an FK violation (type in use) aborts only this delete, not
         # the ambient transaction — keeps the except-block response usable (#288).
@@ -242,8 +269,6 @@ async def link_type_delete(
         if not is_htmx(request):
             raise HTTPException(status_code=409, detail="Cannot delete: record is in use")
         return htmx_refusal("Cannot delete: this link type is in use.")
-    return HTMLResponse(
-        content="",
-        status_code=200,
-        headers=flash_trigger("success", "Link type deleted."),
-    )
+    if not is_htmx(request):
+        return RedirectResponse(with_flash(_PAGE, "removed"), status_code=303)
+    return await _rows_response(request, db, scope, flash_trigger("success", "Link type deleted."))

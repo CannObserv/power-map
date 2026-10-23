@@ -80,7 +80,7 @@ ADD_BUTTON_WIRING = [
     ),
     ("admin/settings/identifier_types.html", ["identifier-type-row-new"]),
     ("admin/settings/api_keys.html", ["api-key-row-new"]),
-    ("admin/settings/link_types.html", ["link-type-row-new"]),
+    ("admin/settings/link_types.html", ["general-link-type-row-new", "social-link-type-row-new"]),
 ]
 
 # Inline form-row partials whose new-row Cancel removes the row client-side and

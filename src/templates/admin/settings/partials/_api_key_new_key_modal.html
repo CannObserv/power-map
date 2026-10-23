@@ -1,4 +1,4 @@
-{# _api_key_new_key_modal.html — one-time key display; expects: raw_key, label #}
+{# _api_key_new_key_modal.html — one-time key display; expects: raw_key, label, rows #}
 <div class="modal-backdrop" id="new-key-modal">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="new-key-title">
     <h2 id="new-key-title">API key generated</h2>
@@ -50,3 +50,8 @@
   });
 })();
 </script>
+{# The tbody, out of band (#687): wrapped in <template>, since a bare <tbody>
+   outside a <table> is dropped by the HTML parser before htmx sees it. #}
+<template><tbody id="api-keys-body" hx-swap-oob="innerHTML">
+{% include "admin/settings/partials/_api_key_rows.html" %}
+</tbody></template>

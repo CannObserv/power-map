@@ -15,7 +15,7 @@
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
     <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">General</h2>
     <button class="btn btn--sm btn--secondary"
-            data-new-row-id="link-type-row-new"
+            data-new-row-id="general-link-type-row-new"
             hx-get="/admin/settings/link-types/general/new-row/"
             hx-sync="this:drop"
             hx-target="#general-link-types-body"
@@ -32,12 +32,7 @@
         </tr>
       </thead>
       <tbody id="general-link-types-body">
-        {% for lt in general %}
-        {% set scope = "general" %}
-        {% include "admin/settings/partials/_link_type_row.html" %}
-        {% else %}
-        <tr data-empty-row><td colspan="4" style="color:var(--color-text-muted)">No general link types.</td></tr>
-        {% endfor %}
+        {% with rows=general, scope="general" %}{% include "admin/settings/partials/_link_type_rows.html" %}{% endwith %}
       </tbody>
     </table>
   </div>
@@ -48,7 +43,7 @@
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
     <h2 style="margin:0;font-size:var(--font-size-md);font-weight:700">Social</h2>
     <button class="btn btn--sm btn--secondary"
-            data-new-row-id="link-type-row-new"
+            data-new-row-id="social-link-type-row-new"
             hx-get="/admin/settings/link-types/social/new-row/"
             hx-sync="this:drop"
             hx-target="#social-link-types-body"
@@ -65,12 +60,7 @@
         </tr>
       </thead>
       <tbody id="social-link-types-body">
-        {% for lt in social %}
-        {% set scope = "social" %}
-        {% include "admin/settings/partials/_link_type_row.html" %}
-        {% else %}
-        <tr data-empty-row><td colspan="4" style="color:var(--color-text-muted)">No social link types.</td></tr>
-        {% endfor %}
+        {% with rows=social, scope="social" %}{% include "admin/settings/partials/_link_type_rows.html" %}{% endwith %}
       </tbody>
     </table>
   </div>

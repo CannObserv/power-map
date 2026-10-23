@@ -1,32 +1,33 @@
-{# _identifier_type_edit_row.html — edit/new form row; expects: eit (None for new) #}
+{# _identifier_type_edit_row.html — edit/new form row; expects: eit (None for new),
+   form (the submitted values on an error re-render), error, entity_types #}
+{% set v = form or eit %}
 <tr id="{% if eit %}identifier-type-row-{{ eit.id }}{% else %}identifier-type-row-new{% endif %}">
   <td colspan="6" style="padding:var(--space-2) var(--space-4)">
     <form {% if eit %}
           hx-post="/admin/settings/identifier-types/{{ eit.id }}/edit-row/"
-          hx-target="#identifier-type-row-{{ eit.id }}"
-          hx-swap="outerHTML"
           {% else %}
           hx-post="/admin/settings/identifier-types/"
+          {% endif %}
           hx-target="#identifier-types-body"
           hx-swap="innerHTML"
-          {% endif %}
           style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center">
+      {% if error %}<div class="alert alert--error" role="alert" style="flex-basis:100%">{{ error }}</div>{% endif %}
       <div class="form-group" style="margin-bottom:0;flex:2;min-width:9rem">
         <input type="text" name="display_name" aria-label="Display name" required placeholder="Display Name"
-               value="{{ eit.display_name if eit else '' }}">
+               value="{{ v.display_name if v else '' }}">
       </div>
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:6rem">
         <input type="text" name="slug" aria-label="Slug" required placeholder="slug"
-               value="{{ eit.slug if eit else '' }}">
+               value="{{ v.slug if v else '' }}">
       </div>
       <div class="form-group" style="margin-bottom:0;flex:2;min-width:10rem">
         <input type="text" name="full_name" aria-label="Full name" required placeholder="Full Name"
-               value="{{ eit.full_name if eit else '' }}">
+               value="{{ v.full_name if v else '' }}">
       </div>
       <div class="form-group" style="margin-bottom:0;min-width:9rem">
         <select name="entity_type" aria-label="Entity type" required>
           {% for et in entity_types %}
-          <option value="{{ et }}"{% if eit and eit.entity_type == et %} selected{% endif %}>{{ et }}</option>
+          <option value="{{ et }}"{% if v and v.entity_type == et %} selected{% endif %}>{{ et }}</option>
           {% endfor %}
         </select>
       </div>

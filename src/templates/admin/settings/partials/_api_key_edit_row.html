@@ -1,19 +1,21 @@
-{# _api_key_edit_row.html — edit/new form row; expects: key (None for new) #}
+{# _api_key_edit_row.html — edit/new form row; expects: key (None for new), label, error #}
 <tr id="{% if key %}api-key-row-{{ key.id }}{% else %}api-key-row-new{% endif %}">
   <td colspan="5" style="padding:var(--space-2) var(--space-4)">
     <form {% if key %}
           hx-post="/admin/settings/api-keys/{{ key.id }}/edit-row/"
-          hx-target="#api-key-row-{{ key.id }}"
-          hx-swap="outerHTML"
+          hx-target="#api-keys-body"
+          hx-swap="innerHTML"
           {% else %}
+          {# Create answers with the one-time key modal; the tbody follows out of band. #}
           hx-post="/admin/settings/api-keys/"
           hx-target="body"
           hx-swap="beforeend"
           {% endif %}
-          style="display:flex;gap:var(--space-2);align-items:center">
+          style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center">
+      {% if error %}<div class="alert alert--error" role="alert" style="flex-basis:100%">{{ error }}</div>{% endif %}
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:12rem">
         <input type="text" name="label" aria-label="Key label" required placeholder="Key label (e.g. My Script)"
-               value="{{ key.label if key else '' }}" autofocus>
+               value="{{ label }}" autofocus>
       </div>
       <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
         <button type="submit" class="btn btn--sm btn--primary">

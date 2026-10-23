@@ -1,6 +1,6 @@
-{# _link_type_rows.html — full tbody replacement after create; expects: rows, scope #}
+{# _link_type_rows.html — one scope's whole tbody: first paint and every write (#687); expects: rows, scope #}
 {% for lt in rows %}
 {% include "admin/settings/partials/_link_type_row.html" %}
 {% else %}
-<tr data-empty-row><td colspan="4" style="color:var(--color-text-muted)">No link types.</td></tr>
+<tr data-empty-row><td colspan="4" style="color:var(--color-text-muted)">No {{ scope }} link types.</td></tr>
 {% endfor %}

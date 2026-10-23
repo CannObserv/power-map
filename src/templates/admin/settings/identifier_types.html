@@ -30,11 +30,7 @@
       </tr>
     </thead>
     <tbody id="identifier-types-body">
-      {% for eit in rows %}
-      {% include "admin/settings/partials/_identifier_type_row.html" %}
-      {% else %}
-      <tr data-empty-row><td colspan="6" style="color:var(--color-text-muted)">No identifier types.</td></tr>
-      {% endfor %}
+      {% include "admin/settings/partials/_identifier_type_rows.html" %}
     </tbody>
   </table>
 </div>

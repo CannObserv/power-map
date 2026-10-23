@@ -12,8 +12,8 @@
     <button type="button" class="btn btn--sm btn--danger"
             aria-label="Delete link type {{ lt.display_name }}"
             hx-delete="/admin/settings/link-types/{{ scope }}/{{ lt.id }}/"
-            hx-target="#link-type-row-{{ lt.id }}"
-            hx-swap="outerHTML"
+            hx-target="#{{ scope }}-link-types-body"
+            hx-swap="innerHTML"
             hx-confirm="Delete '{{ lt.display_name }}'?{% if lt.usage_count %} Warning: {{ lt.usage_count }} record{{ 's' if lt.usage_count != 1 else '' }} use this type.{% endif %}">Delete</button>
   </td>
 </tr>

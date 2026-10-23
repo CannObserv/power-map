@@ -118,13 +118,18 @@ async def test_scopes_button_closes_other_panels(client, user_and_key):
     assert "hx-on::before-request" in r.text
 
 
-async def test_delete_button_clears_scopes_row(client, user_and_key):
-    """Delete button must clean up its sibling scopes <tr> via hx-on::after-request."""
+async def test_delete_drops_the_scopes_row(client, user_and_key):
+    """Delete re-renders the whole tbody (#687), so the key's sibling scopes <tr>
+    goes with its row — no client-side clean-up hook."""
     _, kid = user_and_key
     r = await client.get(f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert "hx-on::after-request" in r.text
-    assert f"getElementById('api-key-scopes-{kid}')" in r.text
+    assert 'hx-target="#api-keys-body"' in r.text
+    r = await client.delete(
+        f"/admin/settings/api-keys/{kid}/", headers={**AUTH_HEADERS, "HX-Request": "true"}
+    )
+    assert r.status_code == 200
+    assert f"api-key-scopes-{kid}" not in r.text
 
 
 # ---------------------------------------------------------------------------
