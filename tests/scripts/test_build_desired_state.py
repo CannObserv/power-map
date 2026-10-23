@@ -139,7 +139,7 @@ def test_a_held_snapshot_that_is_not_its_pin_fails_the_build(store, tmp_path, ca
     assert code == 1
     assert not (tmp_path / "out" / "desired_people.parquet").exists()
     assert "f0" * 32 in logged and "pinned to" in logged
-    assert "dddb4e9f" in logged
+    assert load_subscription().pins["persons"].contract_hash in logged
 
 
 def test_a_store_stating_no_contracts_still_builds(store, tmp_path):

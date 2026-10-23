@@ -20,7 +20,9 @@ sources:
         meta:
           external_location: "read_csv('{{ env_var('PM_SRC_PERSONS', '') }}', header=true, all_varchar=true)"
           schema_major: 2
-          contract_hash: "sha256:dddb4e9f24859f3522f22c1f0e9ba4f31f6cc6faba05b7ef601a568be97c3a7f"
+          # 2.1.0 (usa-wa 2.1.0, #671) appends `name_own`; no PM mapping is decided,
+          # and staging names its columns, so it is read by nothing.
+          contract_hash: "sha256:cdaa0253ea1f82f184dfb2115bfc0d2086e45c000304dd66b371357a0ed2efdb"
       - name: organizations
         meta:
           external_location: "read_csv('{{ env_var('PM_SRC_ORGANIZATIONS', '') }}', header=true, all_varchar=true)"
@@ -45,7 +47,11 @@ sources:
         meta:
           external_location: "read_csv('{{ env_var('PM_SRC_ASSIGNMENTS', '') }}', header=true, all_varchar=true)"
           schema_major: 1
-          contract_hash: "sha256:8f7ac44291103ac59140197e322358e438f213735b0f0824fcf350416197df5c"
+          # 1.8.0 (usa-wa 2.1.0, #671) appends `start_basis`, `end_basis`,
+          # `valid_from_latest`, `valid_to_earliest` and `membership_type`. Staging
+          # names its columns, so the re-pin maps none of them; `membership_type`
+          # lands with #671's seat model, and PM stores no interval tiers.
+          contract_hash: "sha256:4df074c4b94d32821685c1536cfb2d597ffafa23aae95ac5e29ef1037fff496e"
       - name: roles
         meta:
           external_location: "read_csv('{{ env_var('PM_SRC_ROLES', '') }}', header=true, all_varchar=true)"
