@@ -219,10 +219,15 @@ def test_without_a_state_directory_the_band_reads_ok():
     assert _run(84) == 0
 
 
-@pytest.mark.parametrize("content", ["", "garbage\n", "ALERT", "\x00\xff"])
+@pytest.mark.parametrize("content", [b"", b"garbage\n", b"ALERT", b"\xff\xfealert"])
 def test_an_unrecognised_state_file_reads_ok(state_dir: Path, content):
-    (state_dir / STATE_FILE).write_text(content, errors="surrogateescape")
+    (state_dir / STATE_FILE).write_bytes(content)
     assert _run(84) == 0
+
+
+def test_a_non_utf8_state_file_does_not_crash_the_run(state_dir: Path):
+    (state_dir / STATE_FILE).write_bytes(b"\xff\xfe\x00")
+    assert _run(90) == 3
 
 
 def test_an_unreadable_state_file_reads_ok(state_dir: Path):
