@@ -4,8 +4,8 @@
 <tr id="child-row-{{ row_key }}">
   <td colspan="3" style="padding:var(--space-2) var(--space-4)">
     <form hx-post="/admin/orgs/{{ org_id }}/children/"
-          hx-target="#child-row-{{ row_key }}"
-          hx-swap="outerHTML"
+          hx-target="#children-table tbody"
+          hx-swap="innerHTML"
           style="display:flex;gap:var(--space-2);align-items:center">
       <div class="form-group" style="margin-bottom:0;flex:1;position:relative">
         <input type="text" autocomplete="off" placeholder="Search for an organization…"

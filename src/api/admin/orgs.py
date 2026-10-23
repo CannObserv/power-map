@@ -2,10 +2,11 @@
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
+from src.api.admin._citations_shared import fetch_citations
 from src.api.admin._contacts_shared import fetch_contacts
 from src.api.admin._events_shared import fetch_entity_events
 from src.api.admin._identifiers_shared import fetch_identifiers
@@ -22,6 +23,8 @@ from src.api.admin.deps import (
     with_flash,
 )
 from src.api.admin.entity_lookup import inbound_link_conflict, search_entities
+from src.api.admin.jurisdictions_affiliations import fetch_org_jurisdiction_affiliations
+from src.api.admin.orgs_addresses import fetch_orgs_addresses
 from src.api.admin.orgs_queries import VALID_STATUSES, query_orgs_rows
 from src.api.admin.orgs_roles import fetch_org_roles
 from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
@@ -428,32 +431,15 @@ async def org_detail(
         " ORDER BY is_canonical DESC, acronym",
         org_id,
     )
-    addresses = await db.fetch(
-        """SELECT ea.*, a.standardized, a.address_line_1, a.city, a.region, a.postal_code
-           FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id
-           WHERE ea.entity_type = 'organization' AND ea.entity_id = $1
-           ORDER BY (ea.valid_until IS NOT NULL AND ea.valid_until < CURRENT_DATE),
-                    ea.valid_from DESC NULLS LAST""",
-        org_id,
-    )
+    addresses = await fetch_orgs_addresses(db, org_id)
     email_contacts = await fetch_contacts(db, "organization", org_id, "email")
     phone_contacts = await fetch_contacts(db, "organization", org_id, "phone")
     links = await fetch_links(db, "organization", org_id)
     identifiers = await fetch_identifiers(db, "organization", org_id)
-    children = await db.fetch(
-        """SELECT o.id, o.active, o.archived_at, dn.display_name AS canonical_name
-           FROM organizations o
-           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-           WHERE o.parent_id = $1 ORDER BY dn.display_name""",
-        org_id,
-    )
+    children = await fetch_org_children(db, org_id)
     roles = await fetch_org_roles(org_id, db)
     events = await fetch_entity_events(org_id, "organization", db)
-    citations = await db.fetch(
-        "SELECT * FROM citations WHERE entity_type='organization' AND entity_id=$1"
-        " AND archived_at IS NULL ORDER BY created_at DESC, id DESC",
-        org_id,
-    )
+    citations = await fetch_citations(db, "organization", org_id)
     open_assignment_count, org_ended_on = await resolve_lifespan_banner(db, org)
     # #469 continuity banner: this org's place in a succession chain. One hop
     # each way (chains are walked link by link); admin shows the edge whatever
@@ -501,17 +487,7 @@ async def org_detail(
     )
     display_name = display_name_row["display_name"] if display_name_row else None
 
-    jur_affiliations = await db.fetch(
-        """SELECT oja.id AS aff_id, j.id AS jurisdiction_id, j.name AS jurisdiction_name,
-                  ojat.display_name AS affiliation_type
-           FROM organization_jurisdiction_affiliations oja
-           JOIN jurisdictions j ON j.id = oja.jurisdiction_id
-           JOIN organization_jurisdiction_affiliation_types ojat
-                ON ojat.id = oja.affiliation_type_id
-           WHERE oja.organization_id = $1
-           ORDER BY j.name""",
-        org_id,
-    )
+    jur_affiliations = await fetch_org_jurisdiction_affiliations(db, org_id)
 
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(
@@ -548,6 +524,27 @@ async def org_detail(
             "flash_msg": flash_msg,
         },
         headers=resp_headers,
+    )
+
+
+async def fetch_org_children(db, org_id: str) -> list:
+    """The children table's rows, in display order (the detail page and every write, #683)."""
+    return await db.fetch(
+        """SELECT o.id, o.active, o.archived_at, dn.display_name AS canonical_name
+           FROM organizations o
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           WHERE o.parent_id = $1 ORDER BY dn.display_name, o.id""",
+        org_id,
+    )
+
+
+async def _children_rows_response(request, org_id: str, db, headers: dict):
+    """The whole ``#children-table`` tbody (#683)."""
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/partials/_child_rows.html",
+        {"org_id": org_id, "children": await fetch_org_children(db, org_id)},
+        headers=headers,
     )
 
 
@@ -626,11 +623,11 @@ async def children_add(
         return RedirectResponse(
             with_flash(f"/admin/orgs/{org_id}/", flash_key("saved", edit.pinned)), status_code=303
         )
-    return templates.TemplateResponse(
+    return await _children_rows_response(
         request,
-        "admin/orgs/partials/_child_row.html",
-        {"org_id": org_id, "child": row},
-        headers=flash_trigger(
+        org_id,
+        db,
+        flash_trigger(
             "success",
             f"<strong>{escape(row['canonical_name'])}</strong> linked as child."
             + pinned_note(edit.pinned),
@@ -662,10 +659,11 @@ async def children_remove(
         return RedirectResponse(
             with_flash(f"/admin/orgs/{org_id}/", flash_key("removed", edit.pinned)), status_code=303
         )
-    return HTMLResponse(
-        content="",
-        status_code=200,
-        headers=flash_trigger(
+    return await _children_rows_response(
+        request,
+        org_id,
+        db,
+        flash_trigger(
             "success",
             "Child organization unlinked." + pinned_note(edit.pinned),
             extra=overlay_refresh(edit.pinned),

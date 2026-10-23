@@ -161,8 +161,10 @@ class Section:
     child_sql: str  # $1 = parent id -> the created child's id
     create: FormData
     created_text: str
-    edit: FormData
-    edited_text: str
+    edit: FormData | None = None  # None: the section has no edit (link/unlink only)
+    edited_text: str = ""
+    tbody_id: str | None = None  # the tbody's own id, when it has one; "{eid}" expands
+    before_delete: str | None = None  # POST <base>/<id>/<this> first (archive-then-delete)
     invalid_create: FormData | None = None
     invalid_edit: FormData | None = None
     extra: dict = field(default_factory=dict)
@@ -230,15 +232,217 @@ def _identifier_section(entity: str) -> Section:
     )
 
 
+async def _named_org(db, name: str) -> str:
+    oid = await _seed_org(db)
+    await db.execute(
+        "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+        " VALUES ($1, $2, $3, TRUE)",
+        generate_id(),
+        oid,
+        name,
+    )
+    return oid
+
+
+async def _aff_type(db) -> str:
+    return await db.fetchval(
+        "SELECT id FROM organization_jurisdiction_affiliation_types ORDER BY id LIMIT 1"
+    )
+
+
+async def _child_data(db, eid):
+    return {"child_id": await _named_org(db, "Empty-State Child Org")}
+
+
+async def _jur_aff_data(db, eid):
+    org = await _named_org(db, "Empty-State Affiliated Org")
+    return {"organization_id": org, "affiliation_type_id": await _aff_type(db)}
+
+
+async def _org_aff_data(db, eid):
+    return {
+        "jurisdiction_id": await _seed_jurisdiction(db),
+        "affiliation_type_id": await _aff_type(db),
+    }
+
+
+async def _jur_rel_data(db, eid):
+    rt = await db.fetchval("SELECT id FROM jurisdiction_relationship_types WHERE slug='borders'")
+    return {"target_id": await _seed_jurisdiction(db), "rel_type_id": rt}
+
+
+async def _ra_rel_data(db, eid):
+    rt = await db.fetchval(
+        "SELECT id FROM role_assignment_relationship_types WHERE slug='staff_of'"
+    )
+    return {"target_id": await _seed_role_assignment(db), "rel_type_id": rt}
+
+
+_REL_EDIT = _const({"valid_from": "2020-01-01", "valid_until": "", "notes": "Empty-State note"})
+_REL_INVALID_EDIT = _const({"valid_from": "2020-01-01", "valid_until": "2019-01-01"})
+_REL_INVALID_CREATE = _const({"target_id": "", "rel_type_id": ""})
+
+
+def _event_data(year: str, month: str = "") -> FormData:
+    async def build(db, eid):
+        applies_to = (
+            "person"
+            if await db.fetchval("SELECT 1 FROM people WHERE id=$1", eid)
+            else "organization"
+        )
+        etype = await db.fetchval(
+            "SELECT id FROM entity_event_types"
+            " WHERE (applies_to = $1 OR applies_to = 'both') AND NOT requires_linked_entity"
+            " ORDER BY slug LIMIT 1",
+            applies_to,
+        )
+        return {"event_type_id": etype, "event_year": year, "event_month": month}
+
+    return build
+
+
+def _event_section(entity: str, row_prefix: str, table_id: str) -> Section:
+    return Section(
+        entity=entity,
+        path="events",
+        table_id=table_id,
+        empty_text="No events",
+        row_prefix=row_prefix,
+        new_row_id=f"{row_prefix}-new",
+        child_sql="SELECT id FROM entity_events WHERE entity_id=$1",
+        create=_event_data("2001"),
+        created_text="2001",
+        edit=_event_data("2002"),
+        edited_text="2002",
+        invalid_create=_event_data("2001", "13"),
+        invalid_edit=_event_data("2001", "13"),
+        before_delete="archive/",
+    )
+
+
 _ALL_ENTITIES = ("person", "organization", "role", "role_assignment", "jurisdiction")
+_IDENTIFIED = ("person", "organization", "role_assignment", "jurisdiction")  # roles carry none
+
+
+def _citation_section(entity: str) -> Section:
+    return Section(
+        entity=entity,
+        path="citations",
+        table_id="citations-table-{eid}",
+        tbody_id="citations-tbody-{eid}",
+        empty_text="No citations yet.",
+        row_prefix="citation-row",
+        new_row_id="citation-row-new-{eid}",
+        child_sql="SELECT id FROM citations WHERE entity_id=$1",
+        create=_const({"url": "https://cite.example/empty-state"}),
+        created_text="https://cite.example/empty-state",
+        edit=_const({"url": "https://cite.example/empty-state", "title": "Empty-State Source"}),
+        edited_text="Empty-State Source",
+        invalid_create=_const({"url": "", "title": ""}),
+        invalid_edit=_const({"url": "", "title": ""}),
+    )
+
+
+def _address_section(entity: str, empty_text: str) -> Section:
+    # mode=save is the confirm modal's Keep/Accept post (no normalizer call).
+    return Section(
+        entity=entity,
+        path="addresses",
+        table_id="addresses-table",
+        empty_text=empty_text,
+        row_prefix="address-row",
+        new_row_id="address-row-new",
+        child_sql="SELECT id FROM entity_addresses WHERE entity_id=$1",
+        create=_const({"address_line_1": "1 EMPTY STATE WAY", "city": "OLYMPIA", "mode": "save"}),
+        created_text="1 EMPTY STATE WAY",
+        edit=_const({"address_line_1": "2 EMPTY STATE WAY", "city": "OLYMPIA", "mode": "save"}),
+        edited_text="2 EMPTY STATE WAY",
+        invalid_create=_const({"mode": "save"}),
+        invalid_edit=_const({"mode": "save"}),
+    )
+
+
+ONE_OFF_SECTIONS = [
+    _address_section("person", "No locations"),
+    _address_section("organization", "No locations"),
+    _address_section("jurisdiction", "No addresses"),
+    *(_citation_section(e) for e in _ALL_ENTITIES),
+    _event_section("person", "person-event-row", "person-events-table"),
+    _event_section("organization", "org-event-row", "org-events-table"),
+    Section(
+        entity="jurisdiction",
+        path="relationships",
+        table_id="relationships-table",
+        empty_text="No relationships",
+        row_prefix="relationship-row",
+        new_row_id="relationship-row-new",
+        child_sql="SELECT id FROM jurisdiction_relationships WHERE from_id=$1 OR to_id=$1",
+        create=_jur_rel_data,
+        created_text="Borders",
+        edit=_REL_EDIT,
+        edited_text="2020",
+        invalid_create=_REL_INVALID_CREATE,
+        invalid_edit=_REL_INVALID_EDIT,
+    ),
+    Section(
+        entity="role_assignment",
+        path="relationships",
+        table_id="relationships-table",
+        empty_text="No relationships",
+        row_prefix="relationship-row",
+        new_row_id="relationship-row-new",
+        child_sql="SELECT id FROM role_assignment_relationships"
+        " WHERE (from_assignment_id=$1 OR to_assignment_id=$1) AND archived_at IS NULL",
+        create=_ra_rel_data,
+        created_text="Staff Of",
+        edit=_REL_EDIT,
+        edited_text="2020",
+        invalid_create=_REL_INVALID_CREATE,
+        invalid_edit=_REL_INVALID_EDIT,
+    ),
+    Section(
+        entity="organization",
+        path="children",
+        table_id="children-table",
+        empty_text="No child organizations",
+        row_prefix="child-row",
+        new_row_id="child-row-new",
+        child_sql="SELECT id FROM organizations WHERE parent_id=$1",
+        create=_child_data,
+        created_text="Empty-State Child Org",
+    ),
+    Section(
+        entity="jurisdiction",
+        path="affiliations",
+        table_id="affiliations-table",
+        empty_text="No affiliated organizations",
+        row_prefix="affiliation-row",
+        new_row_id="affiliation-row-new",
+        child_sql="SELECT id FROM organization_jurisdiction_affiliations WHERE jurisdiction_id=$1",
+        create=_jur_aff_data,
+        created_text="Empty-State Affiliated Org",
+        invalid_create=_const({"organization_id": "", "affiliation_type_id": ""}),
+    ),
+    Section(
+        entity="organization",
+        path="jurisdiction-affiliations",
+        table_id="jur-affiliations-table",
+        empty_text="No affiliated jurisdictions",
+        row_prefix="jur-affiliation-row",
+        new_row_id="jur-affiliation-row-new",
+        child_sql="SELECT id FROM organization_jurisdiction_affiliations WHERE organization_id=$1",
+        create=_org_aff_data,
+        created_text="Empty-State LD",
+        invalid_create=_const({"jurisdiction_id": "", "affiliation_type_id": ""}),
+    ),
+]
+
 
 SECTIONS: list[Section] = [
     *(s for e in _ALL_ENTITIES for s in _contact_sections(e)),
     *(_link_section(e) for e in _ALL_ENTITIES),
-    *(
-        _identifier_section(e)
-        for e in ("person", "organization", "role_assignment", "jurisdiction")
-    ),
+    *(_identifier_section(e) for e in _IDENTIFIED),
+    *ONE_OFF_SECTIONS,
 ]
 
 
@@ -253,11 +457,14 @@ async def test_tbody_round_trip(client, db, section: Section):
     eid = await seed(db)
     detail = f"{detail_prefix}/{eid}/"
     base = f"{detail_prefix}/{eid}/{section.path}"
-    target = f'hx-target="#{section.table_id} tbody"'
+    table_id = section.table_id.format(eid=eid)
+    new_row_id = section.new_row_id.format(eid=eid)
+    tbody = f"#{section.tbody_id.format(eid=eid)}" if section.tbody_id else f"#{table_id} tbody"
+    target = f'hx-target="{tbody}"'
 
     # Empty table: the marked empty-state row, rendered by the shared partial.
     page = (await client.get(detail, headers=AUTH_HEADERS)).text
-    table = table_html(page, section.table_id)
+    table = table_html(page, table_id)
     assert EMPTY_MARKER in table and section.empty_text in table
 
     # Add the first item: the rows come back without the empty-state row.
@@ -270,23 +477,25 @@ async def test_tbody_round_trip(client, db, section: Section):
     child_id = await db.fetchval(section.child_sql, eid)
 
     # Edit: rows again, and its form posts back into the tbody.
-    form = await client.get(f"{base}/{child_id}/edit-row/", headers=HTMX_HEADERS)
-    assert target in form.text
-    r = await client.post(
-        f"{base}/{child_id}/edit-row/", data=await section.edit(db, eid), headers=HTMX_HEADERS
-    )
-    assert r.status_code == 200, r.text
-    _rows_only(r.text)
-    assert section.edited_text in r.text and EMPTY_MARKER not in r.text
+    if section.edit:
+        form = await client.get(f"{base}/{child_id}/edit-row/", headers=HTMX_HEADERS)
+        assert target in form.text
+        r = await client.post(
+            f"{base}/{child_id}/edit-row/", data=await section.edit(db, eid), headers=HTMX_HEADERS
+        )
+        assert r.status_code == 200, r.text
+        _rows_only(r.text)
+        assert section.edited_text in r.text and EMPTY_MARKER not in r.text
 
     # A form-row error lands on the row being edited, never into the tbody.
     if section.invalid_create:
         r = await client.post(
             f"{base}/", data=await section.invalid_create(db, eid), headers=HTMX_HEADERS
         )
-        assert r.headers.get("HX-Retarget") == f"#{section.new_row_id}"
+        assert r.status_code == 200, r.text  # htmx swaps no 4xx
+        assert r.headers.get("HX-Retarget") == f"#{new_row_id}"
         assert r.headers.get("HX-Reswap") == "outerHTML"
-        assert f'id="{section.new_row_id}"' in r.text
+        assert f'id="{new_row_id}"' in r.text
     if section.invalid_edit:
         r = await client.post(
             f"{base}/{child_id}/edit-row/",
@@ -294,6 +503,7 @@ async def test_tbody_round_trip(client, db, section: Section):
             headers=HTMX_HEADERS,
         )
         row_id = f"{section.row_prefix}-{child_id}"
+        assert r.status_code == 200, r.text
         assert r.headers.get("HX-Retarget") == f"#{row_id}"
         assert r.headers.get("HX-Reswap") == "outerHTML"
         assert f'id="{row_id}"' in r.text
@@ -305,6 +515,9 @@ async def test_tbody_round_trip(client, db, section: Section):
     assert target in new_row.text
 
     # Delete the last item: the empty-state row comes back.
+    if section.before_delete:
+        r = await client.post(f"{base}/{child_id}/{section.before_delete}", headers=HTMX_HEADERS)
+        assert r.status_code == 200, r.text
     r = await client.delete(f"{base}/{child_id}/", headers=HTMX_HEADERS)
     assert r.status_code == 200, r.text
     _rows_only(r.text)

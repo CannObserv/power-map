@@ -327,7 +327,7 @@ async def test_event_delete_archived_succeeds(client, db, person_and_event_type)
 
     r = await client.delete(f"/admin/people/{pid}/events/{eid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
-    assert r.text == ""
+    assert "data-empty-row" in r.text  # the tbody comes back, empty-state row and all (#683)
 
     row = await db.fetchrow("SELECT id FROM entity_events WHERE id=$1", eid)
     assert row is None  # hard-deleted

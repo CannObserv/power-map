@@ -379,3 +379,56 @@ async def test_people_list_merge_flow(live_server, merge_pair, page):
     # survives as an alias on the winner (default keep_name_ids all-checked).
     page, _ = await goto_with_retry(page, f"{live_server}/admin/people/{winner}/")
     assert _LOSER_NAME in await page.locator("#names-table").inner_text()
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="session")
+async def empty_org(browser_db, seeded_ids):
+    """An org with no links, so its links table starts on the empty-state row (#683).
+
+    Module-owned like ``merge_pair``: the flow adds and deletes its one link.
+    """
+    conn = await asyncpg.connect(browser_db)
+    try:
+        oid = generate_id()
+        await conn.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+        await conn.execute(
+            "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
+            " VALUES ($1, $2, 'Smoke Empty State Org', TRUE)",
+            generate_id(),
+            oid,
+        )
+    finally:
+        await conn.close()
+    return oid
+
+
+async def test_empty_state_row_follows_the_tbody(live_server, empty_org, page):
+    """The empty-state row tracks the table through real htmx swaps (#683).
+
+    Cancel a new row → exactly one empty-state row; add the first link → the
+    empty-state row is gone; delete the last → it is back. Each write's answer
+    is the whole tbody (``_link_rows.html``), so the server owns the empty row.
+    """
+    empty = "#links-table tbody tr[data-empty-row]"
+    page, _ = await goto_with_retry(page, f"{live_server}/admin/orgs/{empty_org}/")
+    assert await page.locator(empty).count() == 1
+
+    add = page.locator('button[data-new-row-id="link-row-new"]')
+    await add.click()
+    await page.wait_for_selector("#link-row-new")
+    await page.click('#link-row-new button:has-text("Cancel")')
+    await page.wait_for_selector("#link-row-new", state="detached")
+    assert await page.locator(empty).count() == 1
+
+    await add.click()
+    await page.fill('#link-row-new input[name="url"]', "https://smoke.example/empty-state")
+    await page.click('#link-row-new button[type="submit"]')
+    await page.wait_for_selector(empty, state="detached", timeout=10_000)
+    rows = page.locator("#links-table tbody tr")
+    assert await rows.count() == 1
+    assert "smoke.example/empty-state" in await rows.first.inner_text()
+
+    await page.click('#links-table tbody button:has-text("Delete")')
+    await page.click('[data-confirm-action="ok"]')  # admin-modal.js hx-confirm modal
+    await page.wait_for_selector(empty, timeout=10_000)
+    assert await page.locator("#links-table tbody tr").count() == 1

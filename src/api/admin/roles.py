@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
+from src.api.admin._citations_shared import fetch_citations
 from src.api.admin._contacts_shared import fetch_contacts
 from src.api.admin._links_shared import fetch_links
 from src.api.admin.deps import (
@@ -306,11 +307,7 @@ async def role_detail(
     phone_contacts = await fetch_contacts(db, "role", role_id, "phone")
     links = await fetch_links(db, "role", role_id)
 
-    citations = await db.fetch(
-        "SELECT * FROM citations WHERE entity_type='role' AND entity_id=$1"
-        " AND archived_at IS NULL ORDER BY created_at DESC, id DESC",
-        role_id,
-    )
+    citations = await fetch_citations(db, "role", role_id)
 
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(

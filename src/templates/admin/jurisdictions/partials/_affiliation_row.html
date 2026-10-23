@@ -6,7 +6,7 @@
     <button class="btn btn--sm btn--danger" type="button"
             aria-label="Remove {{ a.org_name or 'organization' }} affiliation"
             hx-delete="/admin/jurisdictions/{{ jurisdiction_id }}/affiliations/{{ a.aff_id }}/"
-            hx-target="#affiliation-row-{{ a.aff_id }}" hx-swap="outerHTML"
+            hx-target="#affiliations-table tbody" hx-swap="innerHTML"
             hx-confirm="Remove this affiliation?">Remove</button>
   </td>
 </tr>

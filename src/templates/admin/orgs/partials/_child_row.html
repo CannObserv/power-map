@@ -10,8 +10,8 @@
     <button type="button" class="btn btn--sm btn--danger"
             aria-label="Unlink {{ child.canonical_name or '(unnamed)' }}"
             hx-delete="/admin/orgs/{{ org_id }}/children/{{ child.id }}/"
-            hx-target="#child-row-{{ child.id }}"
-            hx-swap="outerHTML"
+            hx-target="#children-table tbody"
+            hx-swap="innerHTML"
             hx-confirm="Remove {{ child.canonical_name or child.id }} as a child?">
       Unlink
     </button>

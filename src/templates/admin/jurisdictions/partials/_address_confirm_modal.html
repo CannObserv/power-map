@@ -3,7 +3,8 @@
    validation_status (str|None), validation_provider (str|None) #}
 {# Rendered into #address-confirm-portal via HX-Retarget + HX-Reswap: innerHTML.
    The form row that triggered the confirm step remains unchanged in the DOM.
-   Modal action forms target that row directly to complete the swap. #}
+   Modal action forms re-render the whole #addresses-table tbody (#683); a save
+   error is retargeted onto that form row. #}
 <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="addr-confirm-title">
   <div class="modal modal--wide">
     <h2 id="addr-confirm-title">Confirm address</h2>
@@ -42,12 +43,12 @@
       {# Keep my input: save with original values, no normalizer data #}
       <form {% if addr_id %}
             hx-post="/admin/jurisdictions/{{ jurisdiction_id }}/addresses/{{ addr_id }}/edit-row/"
-            hx-target="#address-row-{{ addr_id }}"
+            hx-target="#addresses-table tbody"
             {% else %}
             hx-post="/admin/jurisdictions/{{ jurisdiction_id }}/addresses/"
-            hx-target="#address-row-new"
+            hx-target="#addresses-table tbody"
             {% endif %}
-            hx-swap="outerHTML"
+            hx-swap="innerHTML"
             hx-on::after-request="if (event.detail.successful) window.__pmAddrConfirmClose()">
         <input type="hidden" name="mode" value="save">
         <input type="hidden" name="address_line_1" value="{{ original.address_line_1 or '' }}">
@@ -66,12 +67,12 @@
       {# Accept: save with normalized values #}
       <form {% if addr_id %}
             hx-post="/admin/jurisdictions/{{ jurisdiction_id }}/addresses/{{ addr_id }}/edit-row/"
-            hx-target="#address-row-{{ addr_id }}"
+            hx-target="#addresses-table tbody"
             {% else %}
             hx-post="/admin/jurisdictions/{{ jurisdiction_id }}/addresses/"
-            hx-target="#address-row-new"
+            hx-target="#addresses-table tbody"
             {% endif %}
-            hx-swap="outerHTML"
+            hx-swap="innerHTML"
             hx-on::after-request="if (event.detail.successful) window.__pmAddrConfirmClose()">
         <input type="hidden" name="mode" value="save">
         <input type="hidden" name="address_line_1" value="{{ normalized.address_line_1 or '' }}">

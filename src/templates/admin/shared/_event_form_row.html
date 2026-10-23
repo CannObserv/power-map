@@ -1,5 +1,5 @@
 {# admin/shared/_event_form_row.html — shared event create/edit form.
-   Callers must set: _ev_url_base, _ev_row_prefix #}
+   Callers must set: _ev_url_base, _ev_row_prefix, _ev_table_id #}
 {%- set _le_key = ev.id if ev else 'new' -%}
 <tr id="{% if ev %}{{ _ev_row_prefix }}-{{ ev.id }}{% else %}{{ _ev_row_prefix }}-new{% endif %}">
   <td colspan="6" style="padding:var(--space-3) var(--space-4)">
@@ -9,12 +9,11 @@
     <form data-event-form-row data-uid="{{ _le_key }}"
           {% if ev %}
           hx-post="{{ _ev_url_base }}/events/{{ ev.id }}/edit-row/"
-          hx-target="#{{ _ev_row_prefix }}-{{ ev.id }}"
           {% else %}
           hx-post="{{ _ev_url_base }}/events/"
-          hx-target="#{{ _ev_row_prefix }}-new"
           {% endif %}
-          hx-swap="outerHTML"
+          hx-target="#{{ _ev_table_id }} tbody"
+          hx-swap="innerHTML"
           style="display:grid;gap:var(--space-2)">
       <div style="display:flex;gap:var(--space-2);align-items:center">
         <div class="form-group" style="margin-bottom:0;flex:1">

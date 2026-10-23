@@ -3,12 +3,12 @@
   <td colspan="5" style="padding:var(--space-2) var(--space-4)">
     <form {% if a and a.id %}
           hx-post="/admin/people/{{ person_id }}/addresses/{{ a.id }}/edit-row/"
-          hx-target="#address-row-{{ a.id }}"
+          hx-target="#addresses-table tbody"
           {% else %}
           hx-post="/admin/people/{{ person_id }}/addresses/"
-          hx-target="#address-row-new"
+          hx-target="#addresses-table tbody"
           {% endif %}
-          hx-swap="outerHTML"
+          hx-swap="innerHTML"
           style="display:grid;gap:var(--space-2)">
       {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
       <div style="display:flex;gap:var(--space-2)">

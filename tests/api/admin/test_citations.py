@@ -385,15 +385,16 @@ async def test_entity_event_new_row_keeps_field_selector(client, db):
 
 async def test_first_citation_removes_empty_state(client, db, person):
     # person starts with zero citations → panel shows the "No citations yet." row.
-    # Creating the first one must OOB-remove that row so it doesn't linger below.
+    # Creating the first one re-renders the whole tbody without it (#683).
     r = await client.post(
         _base(person) + "/",
         headers=HTMX,
         data={"field_name": "notes", "url": "https://s/first"},
     )
     assert r.status_code == 200, r.text
-    assert f'id="citations-empty-{person}"' in r.text
-    assert 'hx-swap-oob="delete"' in r.text
+    assert "https://s/first" in r.text
+    assert f'id="citations-empty-{person}"' not in r.text
+    assert "No citations yet." not in r.text
 
 
 def test_inline_panel_requires_subrow_colspan():

@@ -85,8 +85,8 @@
     <button type="button" class="btn btn--sm btn--danger"
             aria-label="Delete {{ ev.event_type_name }} event permanently"
             hx-delete="{{ _ev_url_base }}/events/{{ ev.id }}/"
-            hx-target="#{{ _ev_row_prefix }}-{{ ev.id }}"
-            hx-swap="outerHTML"
+            hx-target="#{{ _ev_table_id }} tbody"
+            hx-swap="innerHTML"
             hx-confirm="Delete this event permanently?">Delete</button>
     {% endif %}
   </td>

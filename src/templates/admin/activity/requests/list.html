@@ -60,7 +60,7 @@
           <td>{{ k.last_seen.strftime('%Y-%m-%d %H:%M:%S') }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No traffic in this window</td></tr>
+        <tr data-empty-row><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No traffic in this window</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -139,7 +139,7 @@
         <td>{{ r.latency_ms }} ms</td>
       </tr>
       {% else %}
-      <tr><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No requests match these filters</td></tr>
+      <tr data-empty-row><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No requests match these filters</td></tr>
       {% endfor %}
     </tbody>
   </table>

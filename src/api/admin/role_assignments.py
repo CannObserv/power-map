@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from src.api.admin._citations_shared import fetch_citations
 from src.api.admin._contacts_shared import fetch_contacts
 from src.api.admin._identifiers_shared import fetch_identifiers
 from src.api.admin._links_shared import fetch_links
@@ -259,11 +260,7 @@ async def ra_detail(
     links = await fetch_links(db, "role_assignment", ra_id)
     identifiers = await fetch_identifiers(db, "role_assignment", ra_id)
 
-    citations = await db.fetch(
-        "SELECT * FROM citations WHERE entity_type='role_assignment' AND entity_id=$1"
-        " AND archived_at IS NULL ORDER BY created_at DESC, id DESC",
-        ra_id,
-    )
+    citations = await fetch_citations(db, "role_assignment", ra_id)
 
     relationships = await fetch_panel_rows(db, ra_id)
 

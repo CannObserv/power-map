@@ -49,11 +49,7 @@
       <table id="names-table" class="data-table" style="table-layout:fixed">
         <thead><tr><th scope="col">Name</th><th scope="col" style="text-align:right;width:5rem">Type</th><th scope="col" style="text-align:right;width:11rem">Effective</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="width:9rem"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
-          {% for n in names %}
-          {% include "admin/orgs/partials/_name_row.html" %}
-          {% else %}
-          <tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
-          {% endfor %}
+          {% include "admin/orgs/partials/_name_rows.html" %}
         </tbody>
       </table>
     </div>
@@ -73,11 +69,7 @@
       <table id="acronyms-table" class="data-table" style="table-layout:fixed">
         <thead><tr><th scope="col">Acronym</th><th scope="col" style="text-align:right;width:6rem">Canonical</th><th scope="col" style="width:9rem"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
-          {% for a in acronyms %}
-          {% include "admin/orgs/partials/_acronym_row.html" %}
-          {% else %}
-          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No acronyms</td></tr>
-          {% endfor %}
+          {% include "admin/orgs/partials/_acronym_rows.html" %}
         </tbody>
       </table>
     </div>
@@ -116,11 +108,7 @@
       <table id="children-table" class="data-table">
         <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
-          {% for child in children %}
-          {% include "admin/orgs/partials/_child_row.html" %}
-          {% else %}
-          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No child organizations</td></tr>
-          {% endfor %}
+          {% include "admin/orgs/partials/_child_rows.html" %}
         </tbody>
       </table>
     </div>
@@ -211,11 +199,7 @@
       <table id="addresses-table" class="data-table">
         <thead><tr><th scope="col">Address</th><th scope="col">Type</th><th scope="col">Label</th><th scope="col">Validity</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
-          {% for a in addresses %}
-          {% include "admin/orgs/partials/_address_row.html" %}
-          {% else %}
-          <tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No locations</td></tr>
-          {% endfor %}
+          {% include "admin/orgs/partials/_address_rows.html" %}
         </tbody>
       </table>
     </div>
@@ -319,11 +303,7 @@
     <table id="jur-affiliations-table" class="data-table">
       <thead><tr><th scope="col">Jurisdiction</th><th scope="col">Affiliation</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
-        {% for a in jur_affiliations %}
-        {% include "admin/orgs/partials/_jurisdiction_affiliation_row.html" %}
-        {% else %}
-        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No affiliated jurisdictions</td></tr>
-        {% endfor %}
+        {% include "admin/orgs/partials/_jurisdiction_affiliation_rows.html" %}
       </tbody>
     </table>
   </div>

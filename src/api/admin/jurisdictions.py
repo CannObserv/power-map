@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from src.api.admin._citations_shared import fetch_citations
 from src.api.admin._contacts_shared import fetch_contacts
 from src.api.admin._identifiers_shared import fetch_identifiers
 from src.api.admin._links_shared import fetch_links
@@ -27,7 +28,10 @@ from src.api.admin.deps import (
     resolve_query_flash,
     with_flash,
 )
+from src.api.admin.jurisdictions_addresses import fetch_jurisdictions_addresses
+from src.api.admin.jurisdictions_affiliations import fetch_jurisdiction_affiliations
 from src.api.admin.jurisdictions_queries import VALID_STATUSES, query_jurisdictions_rows
+from src.api.admin.jurisdictions_relationships import fetch_jurisdiction_relationships
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.core.ancillary_migrate import delete_entity_ancillary
 from src.core.citations import CITABLE_FIELDS
@@ -383,47 +387,12 @@ async def jurisdiction_detail(
     link_types = await db.fetch(
         "SELECT id, display_name, is_social FROM link_types ORDER BY is_social, display_name"
     )
-    addresses = await db.fetch(
-        """SELECT ea.id, ea.address_type, ea.display_name, ea.valid_from, ea.valid_until,
-                  a.id AS address_id, a.standardized, a.address_line_1, a.address_line_2,
-                  a.city, a.region, a.postal_code, a.country
-           FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id
-           WHERE ea.entity_type = 'jurisdiction' AND ea.entity_id = $1
-           ORDER BY ea.valid_from DESC NULLS LAST""",
-        jurisdiction_id,
-    )
+    addresses = await fetch_jurisdictions_addresses(db, jurisdiction_id)
     email_contacts = await fetch_contacts(db, "jurisdiction", jurisdiction_id, "email")
     phone_contacts = await fetch_contacts(db, "jurisdiction", jurisdiction_id, "phone")
-    # Lineage-category edges have their own panel (fetch_lineage below), so
-    # exclude them here to avoid rendering the same edge in both panels.
-    relationships = await db.fetch(
-        """SELECT jr.id, jr.from_id, jr.to_id, jr.notes,
-                  jrt.display_name AS rel_type_name,
-                  jrt.category, jrt.is_symmetric,
-                  jr.valid_from, jr.valid_until,
-                  jf.name AS from_name, jto.name AS to_name
-           FROM jurisdiction_relationships jr
-           JOIN jurisdiction_relationship_types jrt ON jrt.id = jr.rel_type_id
-           JOIN jurisdictions jf ON jf.id = jr.from_id
-           JOIN jurisdictions jto ON jto.id = jr.to_id
-           WHERE (jr.from_id = $1 OR jr.to_id = $1)
-             AND jrt.category <> 'lineage'
-           ORDER BY jrt.category, jrt.display_name, jr.created_at""",
-        jurisdiction_id,
-    )
+    relationships = await fetch_jurisdiction_relationships(db, jurisdiction_id)
     lineage = await fetch_lineage(db, jurisdiction_id)
-    affiliations = await db.fetch(
-        """SELECT oja.id AS aff_id, o.id AS org_id, dn.display_name AS org_name,
-                  ojat.display_name AS affiliation_type
-           FROM organization_jurisdiction_affiliations oja
-           JOIN organizations o ON o.id = oja.organization_id
-           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-           JOIN organization_jurisdiction_affiliation_types ojat
-                ON ojat.id = oja.affiliation_type_id
-           WHERE oja.jurisdiction_id = $1
-           ORDER BY dn.display_name NULLS LAST""",
-        jurisdiction_id,
-    )
+    affiliations = await fetch_jurisdiction_affiliations(db, jurisdiction_id)
     # Active roles only (mirrors the role-form picker). NB: an archived role still
     # holds an FK to this jurisdiction, so it can block hard-delete (409) even
     # though it is not listed in this panel.
@@ -438,11 +407,7 @@ async def jurisdiction_detail(
         jurisdiction_id,
     )
 
-    citations = await db.fetch(
-        "SELECT * FROM citations WHERE entity_type='jurisdiction' AND entity_id=$1"
-        " AND archived_at IS NULL ORDER BY created_at DESC, id DESC",
-        jurisdiction_id,
-    )
+    citations = await fetch_citations(db, "jurisdiction", jurisdiction_id)
 
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
     return templates.TemplateResponse(

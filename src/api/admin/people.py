@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from src.api.admin._citations_shared import citation_count_lateral
+from src.api.admin._citations_shared import citation_count_lateral, fetch_citations
 from src.api.admin._contacts_shared import fetch_contacts
 from src.api.admin._events_shared import fetch_entity_events
 from src.api.admin._identifiers_shared import fetch_identifiers
@@ -22,6 +22,7 @@ from src.api.admin.deps import (
 )
 from src.api.admin.entity_lookup import inbound_link_conflict, search_entities
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
+from src.api.admin.people_addresses import fetch_people_addresses
 from src.api.admin.people_assignments import fetch_person_assignments
 from src.api.admin.people_embeddings import fetch_person_embeddings
 from src.api.admin.people_queries import VALID_STATUSES, query_people_rows
@@ -258,27 +259,14 @@ async def person_detail(
     email_contacts = await fetch_contacts(db, "person", person_id, "email")
     phone_contacts = await fetch_contacts(db, "person", person_id, "phone")
 
-    addresses = await db.fetch(
-        """SELECT ea.id, ea.address_type, ea.display_name, ea.valid_from, ea.valid_until,
-                  a.id AS address_id, a.standardized, a.address_line_1, a.address_line_2,
-                  a.city, a.region, a.postal_code, a.country
-           FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id
-           WHERE ea.entity_type = 'person' AND ea.entity_id = $1
-           ORDER BY (ea.valid_until IS NOT NULL AND ea.valid_until < CURRENT_DATE),
-                    ea.valid_from DESC NULLS LAST""",
-        person_id,
-    )
+    addresses = await fetch_people_addresses(db, person_id)
     links = await fetch_links(db, "person", person_id)
     identifiers = await fetch_identifiers(db, "person", person_id)
     role_assignments = await fetch_person_assignments(person_id, db)
 
     events = await fetch_entity_events(person_id, "person", db)
 
-    citations = await db.fetch(
-        "SELECT * FROM citations WHERE entity_type='person' AND entity_id=$1"
-        " AND archived_at IS NULL ORDER BY created_at DESC, id DESC",
-        person_id,
-    )
+    citations = await fetch_citations(db, "person", person_id)
 
     embeddings, embeddings_archived_count = await fetch_person_embeddings(
         db,

@@ -26,6 +26,7 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    retarget_form_row,
     with_flash,
 )
 from src.core.citations import CITABLE_ENTITY_TYPES, CITABLE_FIELDS
@@ -36,6 +37,17 @@ templates = Jinja2Templates(directory="src/templates")
 _FORM_ROW = "admin/citations/partials/_citation_form_row.html"
 _READ_ROW = "admin/citations/partials/_citation_row.html"
 _PANEL = "admin/citations/partials/_citations_panel.html"
+_ROWS = "admin/citations/partials/_citation_rows.html"
+
+
+async def fetch_citations(db, entity_type: str, entity_id: str) -> list:
+    """A citations panel's rows, newest first (detail pages, the panel, every write, #683)."""
+    return await db.fetch(
+        "SELECT * FROM citations WHERE entity_type=$1 AND entity_id=$2"
+        " AND archived_at IS NULL ORDER BY created_at DESC, id DESC",
+        entity_type,
+        entity_id,
+    )
 
 
 def _clean(v: str | None) -> str | None:
@@ -143,6 +155,19 @@ def make_citations_router(
             **extra,
         }
 
+    async def _rows_response(request, entity_id: str, db, headers: dict):
+        """The panel's whole tbody (#683), plus the parent row's Cite-count OOB."""
+        return templates.TemplateResponse(
+            request,
+            _ROWS,
+            _ctx(
+                entity_id,
+                citations=await fetch_citations(db, entity_type, entity_id),
+                cite_count_oob=await _active_count(entity_id, db),
+            ),
+            headers=headers,
+        )
+
     if inline_panel:
 
         @router.get("/")
@@ -154,12 +179,7 @@ def make_citations_router(
         ):
             """Render the whole citations panel for one entity (inline lazy-load)."""
             await _get_entity_or_404(entity_id, db)
-            citations = await db.fetch(
-                "SELECT * FROM citations WHERE entity_type=$1 AND entity_id=$2"
-                " AND archived_at IS NULL ORDER BY created_at DESC, id DESC",
-                entity_type,
-                entity_id,
-            )
+            citations = await fetch_citations(db, entity_type, entity_id)
             subject_label = await subject_resolver(entity_id, db) if subject_resolver else None
             # dismissible=True → Close control; as_subrow=True → the panel is wrapped
             # as a full-width table row so it nests directly under the clicked
@@ -259,25 +279,17 @@ def make_citations_router(
                         "excerpt": f_excerpt,
                     },
                 ),
+                headers=retarget_form_row(f"citation-row-new-{entity_id}"),
             )
-        row = await db.fetchrow("SELECT * FROM citations WHERE id=$1", cid)
         if not is_htmx(request):
             return RedirectResponse(
                 with_flash(await _dest(entity_id, db), "saved"), status_code=303
             )
-        # remove_empty → the read row carries an OOB delete for the panel's
-        # "No citations yet." row so the first citation doesn't render above it.
-        # cite_count_oob → OOB refresh of the parent row's Cite-button count.
-        return templates.TemplateResponse(
+        return await _rows_response(
             request,
-            _READ_ROW,
-            _ctx(
-                entity_id,
-                c=row,
-                remove_empty=True,
-                cite_count_oob=await _active_count(entity_id, db),
-            ),
-            headers=flash_trigger(
+            entity_id,
+            db,
+            flash_trigger(
                 "success", f"Citation <strong>{escape(f_url or f_title)}</strong> added."
             ),
         )
@@ -370,18 +382,17 @@ def make_citations_router(
                     status_code=303,
                 )
             return templates.TemplateResponse(
-                request, _FORM_ROW, _ctx(entity_id, c=existing, error=error)
+                request,
+                _FORM_ROW,
+                _ctx(entity_id, c=existing, error=error),
+                headers=retarget_form_row(f"citation-row-{citation_id}"),
             )
-        row = await db.fetchrow("SELECT * FROM citations WHERE id=$1", citation_id)
         if not is_htmx(request):
             return RedirectResponse(
                 with_flash(await _dest(entity_id, db), "saved"), status_code=303
             )
-        return templates.TemplateResponse(
-            request,
-            _READ_ROW,
-            _ctx(entity_id, c=row),
-            headers=flash_trigger("success", "Citation saved."),
+        return await _rows_response(
+            request, entity_id, db, flash_trigger("success", "Citation saved.")
         )
 
     @router.delete("/{citation_id}/")
@@ -405,13 +416,8 @@ def make_citations_router(
             return RedirectResponse(
                 with_flash(await _dest(entity_id, db), "removed"), status_code=303
             )
-        # Body is only the OOB count fragment: the deleted row's outerHTML swap
-        # resolves to nothing, while the parent row's Cite button refreshes.
-        return templates.TemplateResponse(
-            request,
-            "admin/citations/partials/_cite_count_oob.html",
-            _ctx(entity_id, cite_count_oob=await _active_count(entity_id, db)),
-            headers=flash_trigger("success", "Citation removed."),
+        return await _rows_response(
+            request, entity_id, db, flash_trigger("success", "Citation removed.")
         )
 
     return router

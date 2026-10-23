@@ -12,5 +12,6 @@ router = make_events_router(
     tmpl_form_row="admin/orgs/partials/_event_form_row.html",
     tmpl_read_row="admin/orgs/partials/_event_row.html",
     tmpl_rows="admin/orgs/partials/_event_rows.html",
+    row_prefix="org-event-row",
     detail_url=lambda eid: f"/admin/orgs/{eid}/",
 )

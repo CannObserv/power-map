@@ -33,7 +33,7 @@
     </div>
   </div>
   <div class="table-wrapper" style="margin-top:var(--space-3)">
-    <table class="data-table">
+    <table id="citations-table-{{ entity_id }}" class="data-table">
       <thead>
         <tr>
           <th scope="col">Source</th>
@@ -43,14 +43,7 @@
         </tr>
       </thead>
       <tbody id="citations-tbody-{{ entity_id }}">
-        {% for c in citations %}
-        {% include "admin/citations/partials/_citation_row.html" %}
-        {% endfor %}
-        {% if not citations %}
-        <tr id="citations-empty-{{ entity_id }}">
-          <td colspan="{{ 3 if locked_field else 4 }}" style="color:var(--color-text-muted)">No citations yet.</td>
-        </tr>
-        {% endif %}
+        {% include "admin/citations/partials/_citation_rows.html" %}
       </tbody>
     </table>
   </div>

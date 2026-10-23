@@ -28,7 +28,7 @@
     <button class="btn btn--sm btn--danger" type="button"
             aria-label="Remove {{ rel.rel_type_name }} relationship"
             hx-delete="/admin/role-assignments/{{ ra_id }}/relationships/{{ rel.id }}/"
-            hx-target="#relationship-row-{{ rel.id }}" hx-swap="outerHTML"
+            hx-target="#relationships-table tbody" hx-swap="innerHTML"
             hx-confirm="Remove this relationship?">Remove</button>
   </td>
 </tr>

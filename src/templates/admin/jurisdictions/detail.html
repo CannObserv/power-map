@@ -76,11 +76,7 @@
     <table id="addresses-table" class="data-table">
       <thead><tr><th scope="col">Address</th><th scope="col">Type</th><th scope="col">Label</th><th scope="col">Validity</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
-        {% for a in addresses %}
-        {% include "admin/jurisdictions/partials/_address_row.html" %}
-        {% else %}
-        <tr><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No addresses</td></tr>
-        {% endfor %}
+        {% include "admin/jurisdictions/partials/_address_rows.html" %}
       </tbody>
     </table>
   </div>
@@ -137,11 +133,7 @@
     <table id="relationships-table" class="data-table">
       <thead><tr><th scope="col">Relationship</th><th scope="col">Category</th><th scope="col">Effective</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
-        {% for rel in relationships %}
-        {% include "admin/jurisdictions/partials/_relationship_row.html" %}
-        {% else %}
-        <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No relationships</td></tr>
-        {% endfor %}
+        {% include "admin/jurisdictions/partials/_relationship_rows.html" %}
       </tbody>
     </table>
   </div>
@@ -176,11 +168,7 @@
     <table id="affiliations-table" class="data-table">
       <thead><tr><th scope="col">Organization</th><th scope="col">Affiliation</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
-        {% for a in affiliations %}
-        {% include "admin/jurisdictions/partials/_affiliation_row.html" %}
-        {% else %}
-        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No affiliated organizations</td></tr>
-        {% endfor %}
+        {% include "admin/jurisdictions/partials/_affiliation_rows.html" %}
       </tbody>
     </table>
   </div>

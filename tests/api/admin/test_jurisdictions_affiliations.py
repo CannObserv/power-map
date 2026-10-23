@@ -104,7 +104,10 @@ async def test_jur_affiliation_add(client, jur_and_org, aff_type_id, db):
     assert aid is not None
 
 
-async def test_jur_affiliation_duplicate_409(client, jur_and_org, aff_type_id, db):
+async def test_jur_affiliation_duplicate_lands_on_the_form_row(
+    client, jur_and_org, aff_type_id, db
+):
+    """htmx swaps no 4xx, so an HTMX error is a 200 retargeted onto the form row (#683)."""
     await db.execute(
         _INSERT_AFF, generate_id(), jur_and_org["org"], jur_and_org["jur"], aff_type_id
     )
@@ -113,16 +116,32 @@ async def test_jur_affiliation_duplicate_409(client, jur_and_org, aff_type_id, d
         headers=HX,
         data={"organization_id": jur_and_org["org"], "affiliation_type_id": aff_type_id},
     )
+    assert r.status_code == 200
+    assert r.headers["HX-Retarget"] == "#affiliation-row-new"
+    assert "already has that affiliation" in r.text
+
+
+async def test_jur_affiliation_duplicate_non_htmx_keeps_409(client, jur_and_org, aff_type_id, db):
+    await db.execute(
+        _INSERT_AFF, generate_id(), jur_and_org["org"], jur_and_org["jur"], aff_type_id
+    )
+    r = await client.post(
+        f"/admin/jurisdictions/{jur_and_org['jur']}/affiliations/",
+        headers=AUTH_HEADERS,
+        data={"organization_id": jur_and_org["org"], "affiliation_type_id": aff_type_id},
+    )
     assert r.status_code == 409
 
 
-async def test_jur_affiliation_missing_org_422(client, jur_and_org, aff_type_id):
+async def test_jur_affiliation_missing_org_lands_on_the_form_row(client, jur_and_org, aff_type_id):
     r = await client.post(
         f"/admin/jurisdictions/{jur_and_org['jur']}/affiliations/",
         headers=HX,
         data={"organization_id": "", "affiliation_type_id": aff_type_id},
     )
-    assert r.status_code == 422
+    assert r.status_code == 200
+    assert r.headers["HX-Retarget"] == "#affiliation-row-new"
+    assert "Select an organization" in r.text
 
 
 async def test_jur_affiliation_delete(client, jur_and_org, aff_type_id, db):
@@ -168,7 +187,9 @@ async def test_org_affiliation_add(client, jur_and_org, aff_type_id, db):
     assert aid is not None
 
 
-async def test_org_affiliation_duplicate_409(client, jur_and_org, aff_type_id, db):
+async def test_org_affiliation_duplicate_lands_on_the_form_row(
+    client, jur_and_org, aff_type_id, db
+):
     await db.execute(
         _INSERT_AFF, generate_id(), jur_and_org["org"], jur_and_org["jur"], aff_type_id
     )
@@ -177,7 +198,9 @@ async def test_org_affiliation_duplicate_409(client, jur_and_org, aff_type_id, d
         headers=HX,
         data={"jurisdiction_id": jur_and_org["jur"], "affiliation_type_id": aff_type_id},
     )
-    assert r.status_code == 409
+    assert r.status_code == 200
+    assert r.headers["HX-Retarget"] == "#jur-affiliation-row-new"
+    assert "already has that affiliation" in r.text
 
 
 async def test_org_detail_shows_affiliations_panel(client, jur_and_org, aff_type_id, db):

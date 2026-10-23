@@ -1,0 +1,7 @@
+{# admin/jurisdictions/partials/_relationship_rows.html — tbody rows for #relationships-table (#683).
+   Context: relationships, jurisdiction_id. The detail page and every add/edit/remove render this. #}
+{% for rel in relationships %}
+{% include "admin/jurisdictions/partials/_relationship_row.html" %}
+{% else %}
+<tr data-empty-row><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No relationships</td></tr>
+{% endfor %}

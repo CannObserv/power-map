@@ -167,11 +167,7 @@
     <table id="relationships-table" class="data-table">
       <thead><tr><th scope="col">Relationship</th><th scope="col">Window</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
-        {% for rel in relationships %}
-        {% include "admin/role_assignments/partials/_relationship_row.html" %}
-        {% else %}
-        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No relationships</td></tr>
-        {% endfor %}
+        {% include "admin/role_assignments/partials/_relationship_rows.html" %}
       </tbody>
     </table>
   </div>

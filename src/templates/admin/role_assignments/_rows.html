@@ -18,5 +18,5 @@
   <td><a href="/admin/role-assignments/{{ ra.id }}/edit/" class="btn btn--ghost btn--sm" aria-label="Edit {{ ra.person_name or '(unnamed)' }} at {{ ra.org_name or '(unnamed)' }}">Edit</a></td>
 </tr>
 {% else %}
-<tr><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>
+<tr data-empty-row><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No results</td></tr>
 {% endfor %}

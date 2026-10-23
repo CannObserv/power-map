@@ -2,7 +2,7 @@
 <tr id="relationship-row-{{ rel.id }}">
   <td colspan="3" style="padding:var(--space-2) var(--space-4)">
     <form hx-post="/admin/role-assignments/{{ ra_id }}/relationships/{{ rel.id }}/edit-row/"
-          hx-target="#relationship-row-{{ rel.id }}" hx-swap="outerHTML"
+          hx-target="#relationships-table tbody" hx-swap="innerHTML"
           style="display:grid;gap:var(--space-2)">
       {% if errors.valid_from %}<div class="alert alert--error" role="alert">{{ errors.valid_from }}</div>{% endif %}
       {% if errors.valid_until %}<div class="alert alert--error" role="alert">{{ errors.valid_until }}</div>{% endif %}

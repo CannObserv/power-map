@@ -1,0 +1,7 @@
+{# admin/orgs/partials/_child_rows.html — tbody rows for #children-table (#683).
+   Context: children, org_id. The detail page and every link/unlink render this. #}
+{% for child in children %}
+{% include "admin/orgs/partials/_child_row.html" %}
+{% else %}
+<tr data-empty-row><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No child organizations</td></tr>
+{% endfor %}

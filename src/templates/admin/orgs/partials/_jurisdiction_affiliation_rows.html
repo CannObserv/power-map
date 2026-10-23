@@ -1,0 +1,7 @@
+{# admin/orgs/partials/_jurisdiction_affiliation_rows.html — tbody rows for #jur-affiliations-table (#683).
+   Context: jur_affiliations, org_id. The detail page and every add/remove render this. #}
+{% for a in jur_affiliations %}
+{% include "admin/orgs/partials/_jurisdiction_affiliation_row.html" %}
+{% else %}
+<tr data-empty-row><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No affiliated jurisdictions</td></tr>
+{% endfor %}

@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
@@ -16,6 +16,7 @@ from src.api.admin.deps import (
     get_db,
     is_htmx,
     provision_app_user,
+    retarget_form_row,
     with_flash,
 )
 from src.api.admin.entity_lookup import ENTITY_TYPES, entity_exists, resolve_entity_label
@@ -251,6 +252,7 @@ def make_events_router(
     tmpl_form_row: str,
     tmpl_read_row: str,
     tmpl_rows: str,
+    row_prefix: str,
     detail_url: Callable[[str], str],
 ) -> APIRouter:
     """Return a configured events APIRouter for the given entity type.
@@ -274,7 +276,10 @@ def make_events_router(
     tmpl_read_row:
         Template path for the event read row partial.
     tmpl_rows:
-        Template path for the full tbody partial (used after archive/unarchive).
+        Template path for the full tbody partial — every write's HTMX answer (#683).
+    row_prefix:
+        The rows' DOM id prefix (``<row_prefix>-new`` / ``<row_prefix>-<id>``),
+        where a form-row error is retargeted (#683).
     detail_url:
         Callable accepting the entity id and returning the detail redirect URL.
     """
@@ -325,7 +330,14 @@ def make_events_router(
         error: str | None = None,
         linked_label: str | None = None,
     ):
-        """Return form template response, used for new-row and validation errors."""
+        """Return form template response, used for new-row and validation errors.
+
+        The form posts into the tbody (#683), so an error re-render is
+        retargeted onto its own row.
+        """
+        headers = None
+        if error:
+            headers = retarget_form_row(f"{row_prefix}-{ev['id'] if ev else 'new'}")
         return templates.TemplateResponse(
             request,
             tmpl_form_row,
@@ -336,6 +348,14 @@ def make_events_router(
                 form_error=error,
                 linked_entity_label=linked_label,
             ),
+            headers=headers,
+        )
+
+    async def _rows_response(request, entity_id: str, db, headers: dict):
+        """The whole events tbody (#683): every write's HTMX answer."""
+        events = await fetch_entity_events(entity_id, entity_type, db)
+        return templates.TemplateResponse(
+            request, tmpl_rows, _ctx(entity_id, events=events), headers=headers
         )
 
     # ---- routes -----------------------------------------------------------------
@@ -504,11 +524,11 @@ def make_events_router(
             return RedirectResponse(
                 with_flash(detail_url(entity_id), flash_key("saved", edit.pinned)), status_code=303
             )
-        return templates.TemplateResponse(
+        return await _rows_response(
             request,
-            tmpl_read_row,
-            _ctx(entity_id, ev=row),
-            headers=flash_trigger(
+            entity_id,
+            db,
+            flash_trigger(
                 "success",
                 f"Event <strong>{escape(row['event_type_name'])}</strong> added."
                 + pinned_note(edit.pinned),
@@ -748,11 +768,11 @@ def make_events_router(
             return RedirectResponse(
                 with_flash(detail_url(entity_id), flash_key("saved", edit.pinned)), status_code=303
             )
-        return templates.TemplateResponse(
+        return await _rows_response(
             request,
-            tmpl_read_row,
-            _ctx(entity_id, ev=row),
-            headers=flash_trigger(
+            entity_id,
+            db,
+            flash_trigger(
                 "success",
                 f"Event <strong>{escape(row['event_type_name'])}</strong> saved."
                 + pinned_note(edit.pinned),
@@ -787,12 +807,11 @@ def make_events_router(
             return RedirectResponse(
                 with_flash(detail_url(entity_id), flash_key("saved", edit.pinned)), status_code=303
             )
-        events = await fetch_entity_events(entity_id, entity_type, db)
-        return templates.TemplateResponse(
+        return await _rows_response(
             request,
-            tmpl_rows,
-            _ctx(entity_id, events=events),
-            headers=flash_trigger(
+            entity_id,
+            db,
+            flash_trigger(
                 "success",
                 "Event archived." + pinned_note(edit.pinned),
                 extra=overlay_refresh(edit.pinned),
@@ -826,12 +845,11 @@ def make_events_router(
             return RedirectResponse(
                 with_flash(detail_url(entity_id), flash_key("saved", edit.pinned)), status_code=303
             )
-        events = await fetch_entity_events(entity_id, entity_type, db)
-        return templates.TemplateResponse(
+        return await _rows_response(
             request,
-            tmpl_rows,
-            _ctx(entity_id, events=events),
-            headers=flash_trigger(
+            entity_id,
+            db,
+            flash_trigger(
                 "success",
                 "Event unarchived." + pinned_note(edit.pinned),
                 extra=overlay_refresh(edit.pinned),
@@ -853,13 +871,7 @@ def make_events_router(
         if ev["dataset_owned"]:
             if not is_htmx(request):
                 return _locked_fallback(entity_id)
-            # The swap replaces the row: hand it back unchanged, with the reason.
-            return templates.TemplateResponse(
-                request,
-                tmpl_read_row,
-                _ctx(entity_id, ev=ev),
-                headers=flash_trigger("warning", LINK_LOCKED_MSG),
-            )
+            return await _locked_rows(request, entity_id, db)
         # Drop the event's own citations first (no FK; would orphan otherwise, #319),
         # atomically with the event delete so a mid-op failure can't leave the event
         # citation-less (#319 CR).
@@ -868,10 +880,8 @@ def make_events_router(
             await db.execute("DELETE FROM entity_events WHERE id=$1", event_id)
         if not is_htmx(request):
             return RedirectResponse(with_flash(detail_url(entity_id), "removed"), status_code=303)
-        return HTMLResponse(
-            content="",
-            status_code=200,
-            headers=flash_trigger("success", "Event deleted."),
+        return await _rows_response(
+            request, entity_id, db, flash_trigger("success", "Event deleted.")
         )
 
     return router
