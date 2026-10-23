@@ -2,13 +2,15 @@
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
+from src.api.admin._settings_shared import write_unique_slug
 from src.api.admin.deps import (
     AdminUser,
     flash_trigger,
+    form_row_status,
     get_admin_user,
     get_db,
     htmx_refusal,
@@ -22,16 +24,59 @@ from src.core.types import VALID_ENTITY_TYPES
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/settings/identifier-types", tags=["admin-settings-identifier-types"])
 
+_PAGE = "/admin/settings/identifier-types/"
+_ROW = "identifier-type-row"
 
-async def _fetch_identifier_types(db) -> list:
+
+async def fetch_identifier_types(db, item_id: str | None = None) -> list:
+    """Every identifier type with its usage count — the table's one query (#687).
+
+    ``item_id`` narrows it to one row, for read-row (Cancel).
+    """
     return await db.fetch(
         """
         SELECT eit.*, COUNT(i.id) AS usage_count
         FROM entity_identifier_types eit
         LEFT JOIN identifiers i ON i.entity_identifier_type_id = eit.id
+        WHERE $1::text IS NULL OR eit.id = $1
         GROUP BY eit.id
-        ORDER BY eit.display_name
-        """
+        ORDER BY eit.display_name, eit.id
+        """,
+        item_id,
+    )
+
+
+def _validate(display_name: str, slug: str, full_name: str, entity_type: str) -> str | None:
+    """The form's error message, or None when the values are writable."""
+    if not display_name:
+        return "Display name is required."
+    if not slug:
+        return "Slug is required."
+    if not full_name:
+        return "Full name is required."
+    if entity_type not in VALID_ENTITY_TYPES:
+        return f"Entity type must be one of: {', '.join(VALID_ENTITY_TYPES)}."
+    return None
+
+
+def _form_row(request: Request, eit, form: dict, error: str | None, status_code: int = 200):
+    """The new/edit form row; an error re-render lands on that row only (#683)."""
+    row_id = f"{_ROW}-{eit['id']}" if eit else f"{_ROW}-new"
+    return templates.TemplateResponse(
+        request,
+        "admin/settings/partials/_identifier_type_edit_row.html",
+        {"eit": eit, "form": form, "error": error, "entity_types": VALID_ENTITY_TYPES},
+        **form_row_status(request, {"form": error} if error else {}, status_code, row_id),
+    )
+
+
+async def _rows_response(request: Request, db, headers: dict):
+    """The whole tbody: every write answers with it, so the empty row follows (#683)."""
+    return templates.TemplateResponse(
+        request,
+        "admin/settings/partials/_identifier_type_rows.html",
+        {"rows": await fetch_identifier_types(db)},
+        headers=headers,
     )
 
 
@@ -49,7 +94,7 @@ async def identifier_types_page(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    rows = await _fetch_identifier_types(db)
+    rows = await fetch_identifier_types(db)
     flash_msg, resp_headers = resolve_query_flash(request, {}, flash)
     return templates.TemplateResponse(
         request,
@@ -58,7 +103,7 @@ async def identifier_types_page(
             **_base_ctx(user, "settings_identifier_types"),
             "rows": rows,
             "flash_msg": flash_msg,
-        },  # noqa: E501
+        },
         headers=resp_headers,
     )
 
@@ -68,58 +113,52 @@ async def identifier_type_new_row(
     request: Request,
     user: AdminUser = Depends(get_admin_user),
 ):
-    return templates.TemplateResponse(
-        request,
-        "admin/settings/partials/_identifier_type_edit_row.html",
-        {"eit": None, "entity_types": VALID_ENTITY_TYPES},
-    )
+    return _form_row(request, None, {}, None)
 
 
 @router.post("/")
 async def identifier_type_create(
     request: Request,
-    display_name: str = Form(...),
-    slug: str = Form(...),
-    full_name: str = Form(...),
-    entity_type: str = Form(...),
+    display_name: str = Form(""),
+    slug: str = Form(""),
+    full_name: str = Form(""),
+    entity_type: str = Form(""),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    slug_val = slug.strip()
-    full_name_val = full_name.strip()
-    if not slug_val:
-        raise HTTPException(status_code=422, detail="slug is required")
-    if not full_name_val:
-        raise HTTPException(status_code=422, detail="full_name is required")
-    if entity_type not in VALID_ENTITY_TYPES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"entity_type must be one of: {', '.join(VALID_ENTITY_TYPES)}",
-        )
-    iid = generate_id()
-    await db.execute(
+    form = {
+        "display_name": display_name.strip(),
+        "slug": slug.strip(),
+        "full_name": full_name.strip(),
+        "entity_type": entity_type,
+    }
+    error = _validate(**form) or await write_unique_slug(
+        db,
+        form["slug"],
         "INSERT INTO entity_identifier_types"
         " (id, display_name, slug, full_name, entity_type)"
         " VALUES ($1, $2, $3, $4, $5)",
-        iid,
-        display_name.strip(),
-        slug_val,
-        full_name_val,
-        entity_type,
+        generate_id(),
+        *form.values(),
     )
-    rows = await _fetch_identifier_types(db)
+    if error:
+        return _form_row(request, None, form, error, 422)
     if not is_htmx(request):
-        return RedirectResponse(
-            with_flash("/admin/settings/identifier-types/", "saved"), status_code=303
-        )
-    return templates.TemplateResponse(
+        return RedirectResponse(with_flash(_PAGE, "saved"), status_code=303)
+    return await _rows_response(
         request,
-        "admin/settings/partials/_identifier_type_rows.html",
-        {"rows": rows},
-        headers=flash_trigger(
-            "success", f"Identifier type <strong>{escape(display_name.strip())}</strong> added."
+        db,
+        flash_trigger(
+            "success", f"Identifier type <strong>{escape(form['display_name'])}</strong> added."
         ),
     )
+
+
+async def _get_or_404(db, item_id: str):
+    eit = await db.fetchrow("SELECT * FROM entity_identifier_types WHERE id=$1", item_id)
+    if not eit:
+        raise HTTPException(status_code=404)
+    return eit
 
 
 @router.get("/{item_id}/edit-row/")
@@ -129,71 +168,45 @@ async def identifier_type_edit_row_get(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    eit = await db.fetchrow("SELECT * FROM entity_identifier_types WHERE id=$1", item_id)
-    if not eit:
-        raise HTTPException(status_code=404)
-    return templates.TemplateResponse(
-        request,
-        "admin/settings/partials/_identifier_type_edit_row.html",
-        {"eit": eit, "entity_types": VALID_ENTITY_TYPES},
-    )
+    return _form_row(request, await _get_or_404(db, item_id), {}, None)
 
 
 @router.post("/{item_id}/edit-row/")
 async def identifier_type_edit_row_post(
     item_id: str,
     request: Request,
-    display_name: str = Form(...),
-    slug: str = Form(...),
-    full_name: str = Form(...),
-    entity_type: str = Form(...),
+    display_name: str = Form(""),
+    slug: str = Form(""),
+    full_name: str = Form(""),
+    entity_type: str = Form(""),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    slug_val = slug.strip()
-    full_name_val = full_name.strip()
-    if not slug_val:
-        raise HTTPException(status_code=422, detail="slug is required")
-    if not full_name_val:
-        raise HTTPException(status_code=422, detail="full_name is required")
-    if entity_type not in VALID_ENTITY_TYPES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"entity_type must be one of: {', '.join(VALID_ENTITY_TYPES)}",
-        )
-    existing = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE id=$1", item_id)
-    if not existing:
-        raise HTTPException(status_code=404)
-    await db.execute(
+    eit = await _get_or_404(db, item_id)
+    form = {
+        "display_name": display_name.strip(),
+        "slug": slug.strip(),
+        "full_name": full_name.strip(),
+        "entity_type": entity_type,
+    }
+    error = _validate(**form) or await write_unique_slug(
+        db,
+        form["slug"],
         "UPDATE entity_identifier_types"
         " SET display_name=$1, slug=$2, full_name=$3, entity_type=$4"
         " WHERE id=$5",
-        display_name.strip(),
-        slug_val,
-        full_name_val,
-        entity_type,
+        *form.values(),
         item_id,
     )
-    row = await db.fetchrow(
-        """
-        SELECT eit.*, COUNT(i.id) AS usage_count
-        FROM entity_identifier_types eit
-        LEFT JOIN identifiers i ON i.entity_identifier_type_id = eit.id
-        WHERE eit.id = $1
-        GROUP BY eit.id
-        """,
-        item_id,
-    )
+    if error:
+        return _form_row(request, eit, form, error, 422)
     if not is_htmx(request):
-        return RedirectResponse(
-            with_flash("/admin/settings/identifier-types/", "saved"), status_code=303
-        )
-    return templates.TemplateResponse(
+        return RedirectResponse(with_flash(_PAGE, "saved"), status_code=303)
+    return await _rows_response(
         request,
-        "admin/settings/partials/_identifier_type_row.html",
-        {"eit": row},
-        headers=flash_trigger(
-            "success", f"Identifier type <strong>{escape(display_name.strip())}</strong> saved."
+        db,
+        flash_trigger(
+            "success", f"Identifier type <strong>{escape(form['display_name'])}</strong> saved."
         ),
     )
 
@@ -205,16 +218,8 @@ async def identifier_type_read_row(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    row = await db.fetchrow(
-        """
-        SELECT eit.*, COUNT(i.id) AS usage_count
-        FROM entity_identifier_types eit
-        LEFT JOIN identifiers i ON i.entity_identifier_type_id = eit.id
-        WHERE eit.id = $1
-        GROUP BY eit.id
-        """,
-        item_id,
-    )
+    rows = await fetch_identifier_types(db, item_id)
+    row = rows[0] if rows else None
     if not row:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
@@ -231,9 +236,7 @@ async def identifier_type_delete(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    existing = await db.fetchrow("SELECT id FROM entity_identifier_types WHERE id=$1", item_id)
-    if not existing:
-        raise HTTPException(status_code=404)
+    await _get_or_404(db, item_id)
     try:
         # Savepoint so an FK violation (type in use) aborts only this delete, not
         # the ambient transaction — keeps the except-block response usable (#288).
@@ -243,8 +246,6 @@ async def identifier_type_delete(
         if not is_htmx(request):
             raise HTTPException(status_code=409, detail="Cannot delete: record is in use")
         return htmx_refusal("Cannot delete: this identifier type is in use.")
-    return HTMLResponse(
-        content="",
-        status_code=200,
-        headers=flash_trigger("success", "Identifier type deleted."),
-    )
+    if not is_htmx(request):
+        return RedirectResponse(with_flash(_PAGE, "removed"), status_code=303)
+    return await _rows_response(request, db, flash_trigger("success", "Identifier type deleted."))

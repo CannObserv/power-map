@@ -1,23 +1,24 @@
-{# _link_type_edit_row.html — edit/new form row; expects: lt (None for new), scope #}
-<tr id="{% if lt %}link-type-row-{{ lt.id }}{% else %}link-type-row-new{% endif %}">
+{# _link_type_edit_row.html — edit/new form row; expects: lt (None for new), scope,
+   form (the submitted values on an error re-render), error #}
+{% set v = form or lt %}
+<tr id="{% if lt %}link-type-row-{{ lt.id }}{% else %}{{ scope }}-link-type-row-new{% endif %}">
   <td colspan="4" style="padding:var(--space-2) var(--space-4)">
     <form {% if lt %}
           hx-post="/admin/settings/link-types/{{ scope }}/{{ lt.id }}/edit-row/"
-          hx-target="#link-type-row-{{ lt.id }}"
-          hx-swap="outerHTML"
           {% else %}
           hx-post="/admin/settings/link-types/{{ scope }}/"
-          hx-target="#{% if scope == 'general' %}general{% else %}social{% endif %}-link-types-body"
-          hx-swap="innerHTML"
           {% endif %}
-          style="display:flex;gap:var(--space-2);align-items:center">
+          hx-target="#{{ scope }}-link-types-body"
+          hx-swap="innerHTML"
+          style="display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center">
+      {% if error %}<div class="alert alert--error" role="alert" style="flex-basis:100%">{{ error }}</div>{% endif %}
       <div class="form-group" style="margin-bottom:0;flex:2;min-width:10rem">
         <input type="text" name="display_name" aria-label="Display name" required placeholder="Display Name"
-               value="{{ lt.display_name if lt else '' }}">
+               value="{{ v.display_name if v else '' }}">
       </div>
       <div class="form-group" style="margin-bottom:0;flex:1;min-width:8rem">
         <input type="text" name="slug" aria-label="Slug" required placeholder="slug"
-               value="{{ lt.slug if lt else '' }}">
+               value="{{ v.slug if v else '' }}">
       </div>
       <div style="display:flex;gap:var(--space-2);margin-left:auto;white-space:nowrap">
         <button type="submit" class="btn btn--sm btn--primary">Save</button>

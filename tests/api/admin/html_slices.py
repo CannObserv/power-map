@@ -16,3 +16,10 @@ def table_html(page: str, table_id: str) -> str:
     _before, sep, rest = page.partition(f'id="{table_id}"')
     assert sep, f"table id {table_id!r} not found in page"
     return rest.partition("</table>")[0]
+
+
+def tbody_html(page: str, tbody_id: str) -> str:
+    """Return one tbody's markup (from its id to ``</tbody>``); fails loudly when absent."""
+    _before, sep, rest = page.partition(f'id="{tbody_id}"')
+    assert sep, f"tbody id {tbody_id!r} not found in page"
+    return sep + rest.partition("</tbody>")[0]

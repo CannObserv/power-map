@@ -9,7 +9,7 @@ and route so a new table can't quietly regress to per-row swaps:
    add or drop the empty-state row, so the table desyncs from the server.
 2. A table's ``{% else %}`` empty-state row carries ``data-empty-row``, the
    stable marker tests and scripts key on.
-3. A detail page never inlines an empty-state row: it includes the same
+3. A detail page (or settings page, #687) never inlines an empty-state row: it includes the same
    ``_<x>_rows.html`` partial the write routes render, so first paint and every
    write can't drift apart.
 4. A write route rendering a form row (an error re-render) retargets it onto
@@ -40,17 +40,10 @@ _ROW_TARGET = re.compile(r"-row-|closest tr")
 _EMPTY_ROW = re.compile(r"\{%-?\s*else\s*-?%\}\s*(<tr\b[^>]*>)")
 
 # Row-swapping write controls still allowed: path relative to src/templates/admin
-# -> why. The settings tables have the same empty-row bug and are deferred to #687;
-# drop their entries as that lands.
+# -> why.
 ROW_TARGET_ALLOWED: dict[str, str] = {
     "partials/delete_modal.html": "list-page hard delete; the list re-paginates",
     "pins/_row.html": "unpin keeps the row (re-rendered as Unpinned), never empties the table",
-    "settings/partials/_api_key_row.html": "deferred: #687",
-    "settings/partials/_api_key_edit_row.html": "deferred: #687",
-    "settings/partials/_identifier_type_row.html": "deferred: #687",
-    "settings/partials/_identifier_type_edit_row.html": "deferred: #687",
-    "settings/partials/_link_type_row.html": "deferred: #687",
-    "settings/partials/_link_type_edit_row.html": "deferred: #687",
 }
 
 _FORM_ROW_HELPERS = ("retarget_form_row(", "form_row_status(", "HX-Retarget")
@@ -59,6 +52,12 @@ _MUTATING = {"post", "delete", "put", "patch"}
 
 def _templates() -> list[Path]:
     return sorted(TEMPLATES.rglob("*.html"))
+
+
+def _table_pages() -> list[Path]:
+    """Pages whose multi-value tables follow the tbody contract: every entity
+    detail page, and the settings tables (#687)."""
+    return sorted(TEMPLATES.glob("*/detail.html")) + sorted((TEMPLATES / "settings").glob("*.html"))
 
 
 def _line(text: str, offset: int) -> int:
@@ -107,7 +106,7 @@ def test_empty_state_rows_carry_the_marker():
 
 def test_detail_pages_include_rows_partials():
     offenders = []
-    for path in sorted(TEMPLATES.glob("*/detail.html")):
+    for path in _table_pages():
         text = path.read_text()
         for m in _EMPTY_ROW.finditer(text):
             offenders.append(f"{path.relative_to(TEMPLATES).as_posix()}:{_line(text, m.start())}")
@@ -125,8 +124,8 @@ _EMPTY_COLSPAN = re.compile(r'data-empty-row[^>]*>\s*<td colspan="(\d+)"')
 
 
 def _detail_tables():
-    """(detail page, rows partial, header column count, empty-row colspan) per table."""
-    for path in sorted(TEMPLATES.glob("*/detail.html")):
+    """(page, rows partial, header column count, empty-row colspan) per table."""
+    for path in _table_pages():
         for m in _TABLE.finditer(path.read_text()):
             thead, include = _THEAD.search(m.group(1)), _ROWS_INCLUDE.search(m.group(1))
             if not (thead and include):
@@ -146,6 +145,8 @@ def test_empty_row_spans_its_table_header():
     a dropped column leaves a stale colspan nobody sees (#252, #683)."""
     tables = list(_detail_tables())
     assert len(tables) >= 30, f"sweep matched only {len(tables)} detail tables"
+    settings = [partial for page, partial, *_ in tables if page.startswith("settings/")]
+    assert len(settings) >= 4, f"sweep matched only {settings} settings tables (#687)"
     offenders = [
         f"{page} -> {partial}: {cols} header columns, empty-row colspan {span}"
         for page, partial, cols, span in tables

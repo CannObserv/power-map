@@ -31,7 +31,9 @@ duplicates page into the badge. The static rule is
 the first link and deletes it on an empty org: every write's answer is the whole
 tbody, so the ``data-empty-row`` row leaves and returns with it. The static rule
 is ``test_empty_state_sweep.py``; per-section round trips are
-``test_empty_state_tables.py``.
+``test_empty_state_tables.py``. ``test_api_key_tbody_follows_create_and_delete``
+(#687) is the settings tables' seam: a bad save retargets onto the new row, and
+Generate's key modal carries the tbody out of band inside a ``<template>``.
 
 Every navigation goes through ``goto_with_retry`` (#436) — a bounded retry on
 Chromium renderer crashes, which this VM produces on ~1% of navigations.
@@ -438,3 +440,41 @@ async def test_empty_state_row_follows_the_tbody(live_server, empty_org, page):
     await page.click('[data-confirm-action="ok"]')  # admin-modal.js hx-confirm modal
     await page.wait_for_selector(empty, timeout=10_000)
     assert await page.locator("#links-table tbody tr").count() == 1
+
+
+async def test_api_key_tbody_follows_create_and_delete(live_server, seeded_ids, page):
+    """The settings API-key table through real htmx swaps (#687).
+
+    A blank save lands its error on the new row (``HX-Retarget``); Generate
+    answers with the one-time key modal and carries the tbody out of band inside
+    a ``<template>`` (a bare ``<tbody>`` outside a table never reaches htmx);
+    Delete re-renders the tbody. The shared seed's key survives untouched.
+    """
+    rows = "#api-keys-body > tr[id^='api-key-row-']"
+    page, _ = await goto_with_retry(page, f"{live_server}/admin/settings/api-keys/")
+    before = await page.locator(rows).count()
+    assert before >= 1  # the shared seed's key
+
+    await page.click('button[data-new-row-id="api-key-row-new"]')
+    await page.wait_for_selector("#api-key-row-new")
+    await page.fill('#api-key-row-new input[name="label"]', "   ")
+    await page.locator('#api-key-row-new input[name="label"]').evaluate(
+        "el => el.removeAttribute('required')"
+    )
+    await page.click('#api-key-row-new button[type="submit"]')
+    await page.wait_for_selector('#api-key-row-new [role="alert"]', timeout=10_000)
+    assert await page.locator(rows).count() == before + 1  # only the form row was swapped
+
+    await page.fill('#api-key-row-new input[name="label"]', "Smoke Tbody Key")
+    await page.click('#api-key-row-new button[type="submit"]')
+    await page.wait_for_selector("#new-key-modal", timeout=10_000)
+    await page.wait_for_selector("#api-key-row-new", state="detached", timeout=10_000)
+    assert await page.locator(rows).count() == before + 1
+    assert "Smoke Tbody Key" in await page.locator("#api-keys-body").inner_text()
+    await page.evaluate("document.getElementById('new-key-modal').remove()")
+
+    new_row = page.locator(f"{rows}:has-text('Smoke Tbody Key')")
+    await new_row.locator('button:has-text("Delete")').click()
+    await page.click('[data-confirm-action="ok"]')  # admin-modal.js hx-confirm modal
+    await new_row.wait_for(state="detached", timeout=10_000)
+    assert await page.locator(rows).count() == before

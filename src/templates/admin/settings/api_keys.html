@@ -28,7 +28,7 @@
 </div>
 
 <div class="table-wrapper">
-  <table class="data-table">
+  <table class="data-table" id="api-keys-table">
     <thead>
       <tr>
         <th scope="col">Label</th>
@@ -39,11 +39,7 @@
       </tr>
     </thead>
     <tbody id="api-keys-body">
-      {% for key in keys %}
-      {% include "admin/settings/partials/_api_key_row.html" %}
-      {% else %}
-      <tr data-empty-row><td colspan="5" style="color:var(--color-text-muted)">No API keys yet.</td></tr>
-      {% endfor %}
+      {% include "admin/settings/partials/_api_key_rows.html" %}
     </tbody>
   </table>
 </div>

@@ -250,9 +250,10 @@ A per-row swap can't add or drop the empty-state row: adding the first item left
 - A validation error re-renders the form row with `headers=retarget_form_row("<x>-row-new" | f"<x>-row-{id}")` (HX-Retarget + `HX-Reswap: outerHTML`), so only that row is replaced. Status 200 for HTMX — htmx swaps no 4xx; `form_row_status(request, errors, 422, row_id)` keeps the 4xx for non-HTMX clients. Both helpers live in `src/api/admin/deps.py`.
 - Cancel on a new row removes it client-side; the empty-state row, never removed, stays exactly once.
 - A modal that finishes a write (the address confirm modal's Keep / Accept) targets the same tbody.
+- Settings tables too (#687). API-key Generate swaps in its key modal, so the tbody goes out of band inside `<template>` (the parser drops a bare `<tbody>`).
 - Trade-off: a write re-renders every row, so an edit row or citations sub-row left open elsewhere in the same table closes. Accepted — the alternative is per-row OOB bookkeeping, the bug class this replaced.
 
-Guards: `tests/api/admin/test_empty_state_sweep.py` (static — row-targeting write controls, unmarked empty rows, detail pages inlining an empty row, unretargeted or 4xx form-row renders; its allowlist: pins, the list-page delete modal, and the settings tables deferred to #687) and `tests/api/admin/test_empty_state_tables.py` (each section's add-first / edit / bad save / delete-last round trip). `test_browser_smoke.py::test_empty_state_row_follows_the_tbody` is the real-htmx seam.
+Guards: `tests/api/admin/test_empty_state_sweep.py` (static — row-targeting write controls, unmarked empty rows, detail pages inlining an empty row, unretargeted or 4xx form-row renders; its allowlist: pins and the list-page delete modal) and `tests/api/admin/test_empty_state_tables.py` (each section's add-first / edit / bad save / delete-last round trip). Settings: `test_settings_tbody.py`. Real-htmx seams: `test_browser_smoke.py`'s `test_empty_state_row_follows_the_tbody` and `test_api_key_tbody_follows_create_and_delete`.
 
 ### Jinja2 include variable scoping
 

@@ -1,0 +1,7 @@
+{# _api_key_rows.html — the whole tbody: first paint and every write (#687); expects: rows #}
+{% for key in rows %}
+{% include "admin/settings/partials/_api_key_row.html" %}
+<tr id="api-key-scopes-{{ key.id }}"></tr>
+{% else %}
+<tr data-empty-row><td colspan="5" style="color:var(--color-text-muted)">No API keys yet.</td></tr>
+{% endfor %}

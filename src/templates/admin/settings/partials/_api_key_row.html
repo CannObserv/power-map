@@ -1,4 +1,5 @@
-{# _api_key_row.html — read-only row; expects: key #}
+{# _api_key_row.html — read-only row; expects: key. Its scopes placeholder <tr> lives
+   in _api_key_rows.html, so read-row (Cancel) can't duplicate it. #}
 <tr id="api-key-row-{{ key.id }}">
   <td>{{ key.label }}</td>
   <td style="font-family:monospace;color:var(--color-text-muted)">{{ key.key_prefix }}…</td>
@@ -19,12 +20,10 @@
     <button type="button" class="btn btn--sm btn--danger"
             aria-label="Delete API key {{ key.label }}"
             hx-delete="/admin/settings/api-keys/{{ key.id }}/"
-            hx-target="#api-key-row-{{ key.id }}"
-            hx-swap="outerHTML"
+            hx-target="#api-keys-body"
+            hx-swap="innerHTML"
             hx-confirm="Delete key '{{ key.label }}'? This cannot be undone."
             data-confirm-title="Delete API key?"
-            data-confirm-label="Delete"
-            hx-on::after-request="if(event.detail.successful){var s=document.getElementById('api-key-scopes-{{ key.id }}');if(s)s.remove()}">Delete</button>
+            data-confirm-label="Delete">Delete</button>
   </td>
 </tr>
-<tr id="api-key-scopes-{{ key.id }}"></tr>

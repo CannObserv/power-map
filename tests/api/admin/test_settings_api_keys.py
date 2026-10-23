@@ -321,7 +321,9 @@ async def test_api_keys_create_empty_label_rejected(client, db):
         headers={**AUTH_HEADERS, "HX-Request": "true"},
         data={"label": "   "},
     )
-    assert r.status_code == 422
+    assert r.status_code == 200  # htmx swaps no 4xx: the error lands on the form row (#687)
+    assert r.headers["HX-Retarget"] == "#api-key-row-new"
+    assert "Label is required." in r.text
 
 
 async def test_api_keys_edit_row_empty_label_rejected(client, db):
@@ -332,7 +334,9 @@ async def test_api_keys_edit_row_empty_label_rejected(client, db):
             headers={**AUTH_HEADERS, "HX-Request": "true"},
             data={"label": "   "},
         )
-        assert r.status_code == 422
+        assert r.status_code == 200  # htmx swaps no 4xx (#687)
+        assert r.headers["HX-Retarget"] == f"#api-key-row-{kid}"
+        assert "Label is required." in r.text
     finally:
         await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
         await db.execute("DELETE FROM app_users WHERE id=$1", uid)
