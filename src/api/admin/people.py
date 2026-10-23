@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin._citations_shared import citation_count_lateral, fetch_citations
-from src.api.admin._contacts_shared import fetch_contacts
+from src.api.admin._contacts_shared import fetch_contact_tables
 from src.api.admin._events_shared import fetch_entity_events
 from src.api.admin._identifiers_shared import fetch_identifiers
 from src.api.admin._links_shared import fetch_links
@@ -256,8 +256,7 @@ async def person_detail(
             "SELECT COUNT(*) FROM person_names WHERE person_id = $1 AND visibility != 'public'",
             person_id,
         )
-    email_contacts = await fetch_contacts(db, "person", person_id, "email")
-    phone_contacts = await fetch_contacts(db, "person", person_id, "phone")
+    email_contacts, phone_contacts = await fetch_contact_tables(db, "person", person_id)
 
     addresses = await fetch_people_addresses(db, person_id)
     links = await fetch_links(db, "person", person_id)

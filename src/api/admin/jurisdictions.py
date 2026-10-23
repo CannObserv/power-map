@@ -14,7 +14,7 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin._citations_shared import fetch_citations
-from src.api.admin._contacts_shared import fetch_contacts
+from src.api.admin._contacts_shared import fetch_contact_tables
 from src.api.admin._identifiers_shared import fetch_identifiers
 from src.api.admin._links_shared import fetch_links
 from src.api.admin.deps import (
@@ -388,8 +388,7 @@ async def jurisdiction_detail(
         "SELECT id, display_name, is_social FROM link_types ORDER BY is_social, display_name"
     )
     addresses = await fetch_jurisdictions_addresses(db, jurisdiction_id)
-    email_contacts = await fetch_contacts(db, "jurisdiction", jurisdiction_id, "email")
-    phone_contacts = await fetch_contacts(db, "jurisdiction", jurisdiction_id, "phone")
+    email_contacts, phone_contacts = await fetch_contact_tables(db, "jurisdiction", jurisdiction_id)
     relationships = await fetch_jurisdiction_relationships(db, jurisdiction_id)
     lineage = await fetch_lineage(db, jurisdiction_id)
     affiliations = await fetch_jurisdiction_affiliations(db, jurisdiction_id)

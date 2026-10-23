@@ -7,7 +7,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin._citations_shared import fetch_citations
-from src.api.admin._contacts_shared import fetch_contacts
+from src.api.admin._contacts_shared import fetch_contact_tables
 from src.api.admin._links_shared import fetch_links
 from src.api.admin.deps import (
     AdminUser,
@@ -303,8 +303,7 @@ async def role_detail(
 
     assignments = await fetch_role_assignments(role_id, db)
 
-    email_contacts = await fetch_contacts(db, "role", role_id, "email")
-    phone_contacts = await fetch_contacts(db, "role", role_id, "phone")
+    email_contacts, phone_contacts = await fetch_contact_tables(db, "role", role_id)
     links = await fetch_links(db, "role", role_id)
 
     citations = await fetch_citations(db, "role", role_id)

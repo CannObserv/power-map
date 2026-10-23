@@ -47,6 +47,26 @@ async def fetch_contacts(db, entity_type: str, entity_id: str, contact_type: str
     )
 
 
+async def fetch_contact_tables(db, entity_type: str, entity_id: str) -> tuple[list, list]:
+    """Both contact tables' rows as ``(emails, phones)``, for a detail page.
+
+    One round-trip, partitioned here: asyncpg forbids concurrent queries on the
+    route's one pooled connection, so we cut round-trips instead. Same order as
+    :func:`fetch_contacts`, which the per-type write re-render uses (#683).
+    """
+    rows = await db.fetch(
+        "SELECT * FROM contact_methods"
+        " WHERE entity_type=$1 AND entity_id=$2 AND contact_type IN ('email', 'phone')"
+        " ORDER BY value, id",
+        entity_type,
+        entity_id,
+    )
+    return (
+        [r for r in rows if r["contact_type"] == "email"],
+        [r for r in rows if r["contact_type"] == "phone"],
+    )
+
+
 def make_contacts_router(
     *,
     entity_type: str,

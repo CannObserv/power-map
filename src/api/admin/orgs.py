@@ -7,7 +7,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin._citations_shared import fetch_citations
-from src.api.admin._contacts_shared import fetch_contacts
+from src.api.admin._contacts_shared import fetch_contact_tables
 from src.api.admin._events_shared import fetch_entity_events
 from src.api.admin._identifiers_shared import fetch_identifiers
 from src.api.admin._links_shared import fetch_links
@@ -432,8 +432,7 @@ async def org_detail(
         org_id,
     )
     addresses = await fetch_orgs_addresses(db, org_id)
-    email_contacts = await fetch_contacts(db, "organization", org_id, "email")
-    phone_contacts = await fetch_contacts(db, "organization", org_id, "phone")
+    email_contacts, phone_contacts = await fetch_contact_tables(db, "organization", org_id)
     links = await fetch_links(db, "organization", org_id)
     identifiers = await fetch_identifiers(db, "organization", org_id)
     children = await fetch_org_children(db, org_id)

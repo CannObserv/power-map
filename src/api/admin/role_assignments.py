@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin._citations_shared import fetch_citations
-from src.api.admin._contacts_shared import fetch_contacts
+from src.api.admin._contacts_shared import fetch_contact_tables
 from src.api.admin._identifiers_shared import fetch_identifiers
 from src.api.admin._links_shared import fetch_links
 from src.api.admin.deps import (
@@ -255,8 +255,7 @@ async def ra_detail(
     ra = await _get_ra(ra_id, db)
     flash_msg, resp_headers = resolve_query_flash(request, _FLASH_MESSAGES, flash)
 
-    email_contacts = await fetch_contacts(db, "role_assignment", ra_id, "email")
-    phone_contacts = await fetch_contacts(db, "role_assignment", ra_id, "phone")
+    email_contacts, phone_contacts = await fetch_contact_tables(db, "role_assignment", ra_id)
     links = await fetch_links(db, "role_assignment", ra_id)
     identifiers = await fetch_identifiers(db, "role_assignment", ra_id)
 
