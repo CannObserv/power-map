@@ -11,5 +11,6 @@ router = make_contacts_router(
     entity_not_found_msg="Organization not found",
     tmpl_form_row="admin/orgs/partials/_contact_form_row.html",
     tmpl_read_row="admin/orgs/partials/_contact_row.html",
+    tmpl_rows="admin/orgs/partials/_contact_rows.html",
     detail_url=lambda eid: f"/admin/orgs/{eid}/",
 )

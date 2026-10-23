@@ -1,7 +1,6 @@
 """Integration tests for org links CRUD."""
 
 import json
-import re
 
 import pytest
 import pytest_asyncio
@@ -197,16 +196,19 @@ async def test_links_update_to_existing_returns_409_not_500(client, org_and_link
     """
     oid, _ = org_and_link  # fixture has https://example.com (website)
     lt_id = await _fetch_link_type_id(db)
-    # Create a second distinct link; parse its id from the response row.
+    # Create a second distinct link.
     r = await client.post(
         f"/admin/orgs/{oid}/links/",
         headers=HTMX_HEADERS,
         data={"url": "https://other.example.com", "link_type_id": lt_id, "is_active": "true"},
     )
     assert r.status_code == 200
-    m = re.search(r'id="link-row-([0-9A-Z]+)"', r.text)
-    assert m, f"could not parse link id from response: {r.text[:200]}"
-    other_lid = m.group(1)
+    # The response is the whole tbody (#683); read the new link's id back.
+    other_lid = await db.fetchval(
+        "SELECT id FROM links WHERE url = 'https://other.example.com' AND entity_id = $1",
+        oid,
+    )
+    assert other_lid
     # Try to edit it to the URL the first link already has.
     r = await client.post(
         f"/admin/orgs/{oid}/links/{other_lid}/edit-row/",

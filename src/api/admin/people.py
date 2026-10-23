@@ -6,7 +6,10 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin._citations_shared import citation_count_lateral
+from src.api.admin._contacts_shared import fetch_contacts
 from src.api.admin._events_shared import fetch_entity_events
+from src.api.admin._identifiers_shared import fetch_identifiers
+from src.api.admin._links_shared import fetch_links
 from src.api.admin.deps import (
     AdminUser,
     build_parts_summary,
@@ -252,13 +255,8 @@ async def person_detail(
             "SELECT COUNT(*) FROM person_names WHERE person_id = $1 AND visibility != 'public'",
             person_id,
         )
-    contacts = await db.fetch(
-        "SELECT * FROM contact_methods WHERE entity_type = 'person' AND entity_id = $1"
-        " ORDER BY contact_type, value",
-        person_id,
-    )
-    email_contacts = [c for c in contacts if c["contact_type"] == "email"]
-    phone_contacts = [c for c in contacts if c["contact_type"] == "phone"]
+    email_contacts = await fetch_contacts(db, "person", person_id, "email")
+    phone_contacts = await fetch_contacts(db, "person", person_id, "phone")
 
     addresses = await db.fetch(
         """SELECT ea.id, ea.address_type, ea.display_name, ea.valid_from, ea.valid_until,
@@ -270,20 +268,8 @@ async def person_detail(
                     ea.valid_from DESC NULLS LAST""",
         person_id,
     )
-    links = await db.fetch(
-        """SELECT l.*, lt.display_name AS link_type_name, lt.is_social
-           FROM links l JOIN link_types lt ON lt.id = l.link_type_id
-           WHERE l.entity_type = 'person' AND l.entity_id = $1
-           ORDER BY lt.is_social DESC, lt.display_name, l.url""",
-        person_id,
-    )
-    identifiers = await db.fetch(
-        """SELECT i.*, eit.display_name AS type_name, eit.full_name AS type_full_name
-           FROM identifiers i
-           JOIN entity_identifier_types eit ON eit.id = i.entity_identifier_type_id
-           WHERE i.entity_id = $1""",
-        person_id,
-    )
+    links = await fetch_links(db, "person", person_id)
+    identifiers = await fetch_identifiers(db, "person", person_id)
     role_assignments = await fetch_person_assignments(person_id, db)
 
     events = await fetch_entity_events(person_id, "person", db)

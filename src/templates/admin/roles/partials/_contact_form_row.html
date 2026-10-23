@@ -3,13 +3,11 @@
   <td colspan="3" style="padding:var(--space-2) var(--space-4)">
     <form {% if c %}
           hx-post="/admin/roles/{{ role_id }}/contacts/{{ c.id }}/edit-row/"
-          hx-target="#contact-row-{{ c.id }}"
-          hx-swap="outerHTML"
           {% else %}
           hx-post="/admin/roles/{{ role_id }}/contacts/"
-          hx-target="#{{ contact_type }}-row-new"
-          hx-swap="outerHTML"
           {% endif %}
+          hx-target="#{{ contact_type }}s-table tbody"
+          hx-swap="innerHTML"
           style="display:grid;gap:var(--space-2)">
       {% if error %}
       <div class="alert alert--error" role="alert">{{ error }}</div>

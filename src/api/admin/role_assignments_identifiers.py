@@ -15,5 +15,6 @@ router = make_identifiers_router(
     entity_not_found_msg="Role assignment not found",
     tmpl_form_row="admin/role_assignments/partials/_identifier_form_row.html",
     tmpl_read_row="admin/role_assignments/partials/_identifier_row.html",
+    tmpl_rows="admin/role_assignments/partials/_identifier_rows.html",
     detail_url=lambda eid: f"/admin/role-assignments/{eid}/",
 )

@@ -11,8 +11,8 @@
     <button type="button" class="btn btn--sm btn--danger"
             aria-label="Delete {{ ident.type_name }} identifier {{ ident.value }}"
             hx-delete="/admin/orgs/{{ org_id }}/identifiers/{{ ident.id }}/"
-            hx-target="#identifier-row-{{ ident.id }}"
-            hx-swap="outerHTML"
+            hx-target="#identifiers-table tbody"
+            hx-swap="innerHTML"
             hx-confirm="Delete this identifier?">Delete</button>
   </td>
 </tr>

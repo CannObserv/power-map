@@ -6,6 +6,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
+from src.api.admin._contacts_shared import fetch_contacts
+from src.api.admin._links_shared import fetch_links
 from src.api.admin.deps import (
     AdminUser,
     escape_like,
@@ -300,25 +302,9 @@ async def role_detail(
 
     assignments = await fetch_role_assignments(role_id, db)
 
-    email_contacts = await db.fetch(
-        "SELECT * FROM contact_methods"
-        " WHERE entity_type = 'role' AND entity_id = $1 AND contact_type = 'email'"
-        " ORDER BY value",
-        role_id,
-    )
-    phone_contacts = await db.fetch(
-        "SELECT * FROM contact_methods"
-        " WHERE entity_type = 'role' AND entity_id = $1 AND contact_type = 'phone'"
-        " ORDER BY value",
-        role_id,
-    )
-    links = await db.fetch(
-        """SELECT l.*, lt.display_name AS link_type_name, lt.is_social
-           FROM links l JOIN link_types lt ON lt.id = l.link_type_id
-           WHERE l.entity_type = 'role' AND l.entity_id = $1
-           ORDER BY lt.display_name, l.url""",
-        role_id,
-    )
+    email_contacts = await fetch_contacts(db, "role", role_id, "email")
+    phone_contacts = await fetch_contacts(db, "role", role_id, "phone")
+    links = await fetch_links(db, "role", role_id)
 
     citations = await db.fetch(
         "SELECT * FROM citations WHERE entity_type='role' AND entity_id=$1"

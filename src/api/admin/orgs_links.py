@@ -11,5 +11,6 @@ router = make_links_router(
     entity_not_found_msg="Organization not found",
     tmpl_form_row="admin/orgs/partials/_link_form_row.html",
     tmpl_read_row="admin/orgs/partials/_link_row.html",
+    tmpl_rows="admin/orgs/partials/_link_rows.html",
     detail_url=lambda eid: f"/admin/orgs/{eid}/",
 )

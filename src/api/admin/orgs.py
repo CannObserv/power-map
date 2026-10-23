@@ -6,7 +6,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
+from src.api.admin._contacts_shared import fetch_contacts
 from src.api.admin._events_shared import fetch_entity_events
+from src.api.admin._identifiers_shared import fetch_identifiers
+from src.api.admin._links_shared import fetch_links
 from src.api.admin.deps import (
     AdminUser,
     escape_like,
@@ -433,29 +436,10 @@ async def org_detail(
                     ea.valid_from DESC NULLS LAST""",
         org_id,
     )
-    email_contacts = await db.fetch(
-        "SELECT * FROM contact_methods"
-        " WHERE entity_type = 'organization' AND entity_id = $1 AND contact_type = 'email'",
-        org_id,
-    )
-    phone_contacts = await db.fetch(
-        "SELECT * FROM contact_methods"
-        " WHERE entity_type = 'organization' AND entity_id = $1 AND contact_type = 'phone'",
-        org_id,
-    )
-    links = await db.fetch(
-        """SELECT l.*, lt.display_name AS link_type_name, lt.is_social
-           FROM links l JOIN link_types lt ON lt.id = l.link_type_id
-           WHERE l.entity_type = 'organization' AND l.entity_id = $1""",
-        org_id,
-    )
-    identifiers = await db.fetch(
-        """SELECT i.*, eit.display_name AS type_name, eit.full_name AS type_full_name
-           FROM identifiers i
-           JOIN entity_identifier_types eit ON eit.id = i.entity_identifier_type_id
-           WHERE i.entity_id = $1 AND eit.entity_type = 'organization'""",
-        org_id,
-    )
+    email_contacts = await fetch_contacts(db, "organization", org_id, "email")
+    phone_contacts = await fetch_contacts(db, "organization", org_id, "phone")
+    links = await fetch_links(db, "organization", org_id)
+    identifiers = await fetch_identifiers(db, "organization", org_id)
     children = await db.fetch(
         """SELECT o.id, o.active, o.archived_at, dn.display_name AS canonical_name
            FROM organizations o

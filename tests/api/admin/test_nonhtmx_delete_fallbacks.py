@@ -306,7 +306,8 @@ async def test_api_key_delete_nonhtmx_redirects(client, db):
 # --- HTMX behavior unchanged ---
 
 
-async def test_contact_delete_htmx_still_returns_empty_body(client, db):
+async def test_contact_delete_htmx_rerenders_the_tbody(client, db):
+    """HTMX delete answers with the table's rows: here the empty-state row (#683)."""
     oid, cid = await _seed_org(db), generate_id()
     await db.execute(
         "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
@@ -318,4 +319,4 @@ async def test_contact_delete_htmx_still_returns_empty_body(client, db):
         f"/admin/orgs/{oid}/contacts/{cid}/", headers={**AUTH_HEADERS, "HX-Request": "true"}
     )
     assert r.status_code == 200
-    assert r.text == ""
+    assert "data-empty-row" in r.text and "No phone numbers" in r.text

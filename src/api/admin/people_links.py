@@ -11,5 +11,6 @@ router = make_links_router(
     entity_not_found_msg="Person not found",
     tmpl_form_row="admin/people/partials/_link_form_row.html",
     tmpl_read_row="admin/people/partials/_link_row.html",
+    tmpl_rows="admin/people/partials/_link_rows.html",
     detail_url=lambda eid: f"/admin/people/{eid}/",
 )

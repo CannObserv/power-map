@@ -13,6 +13,9 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from src.api.admin._contacts_shared import fetch_contacts
+from src.api.admin._identifiers_shared import fetch_identifiers
+from src.api.admin._links_shared import fetch_links
 from src.api.admin.deps import (
     AdminUser,
     escape_like,
@@ -371,26 +374,12 @@ async def jurisdiction_detail(
     if not jur:
         raise HTTPException(status_code=404, detail="Jurisdiction not found")
 
-    identifiers = await db.fetch(
-        """SELECT i.id, i.value, i.entity_identifier_type_id,
-                  eit.display_name AS type_name, eit.full_name AS type_full_name
-           FROM identifiers i
-           JOIN entity_identifier_types eit ON eit.id = i.entity_identifier_type_id
-           WHERE i.entity_id = $1 AND eit.entity_type = 'jurisdiction'
-           ORDER BY eit.slug, i.value""",
-        jurisdiction_id,
-    )
+    identifiers = await fetch_identifiers(db, "jurisdiction", jurisdiction_id)
     ident_types = await db.fetch(
         "SELECT id, display_name FROM entity_identifier_types"
         " WHERE entity_type='jurisdiction' AND NOT is_internal ORDER BY display_name"
     )
-    links = await db.fetch(
-        """SELECT l.id, l.url, l.is_active, l.link_type_id, lt.display_name AS link_type_name
-           FROM links l JOIN link_types lt ON lt.id = l.link_type_id
-           WHERE l.entity_type = 'jurisdiction' AND l.entity_id = $1
-           ORDER BY lt.display_name, l.url""",
-        jurisdiction_id,
-    )
+    links = await fetch_links(db, "jurisdiction", jurisdiction_id)
     link_types = await db.fetch(
         "SELECT id, display_name, is_social FROM link_types ORDER BY is_social, display_name"
     )
@@ -403,18 +392,8 @@ async def jurisdiction_detail(
            ORDER BY ea.valid_from DESC NULLS LAST""",
         jurisdiction_id,
     )
-    # Both contact kinds in one round-trip, partitioned below. asyncpg forbids
-    # concurrent queries on a single pooled connection (the route holds exactly
-    # one), so we cut round-trips rather than parallelize with asyncio.gather.
-    contacts = await db.fetch(
-        "SELECT id, contact_type, value, display_label FROM contact_methods"
-        " WHERE entity_type='jurisdiction' AND entity_id=$1"
-        " AND contact_type IN ('email', 'phone')"
-        " ORDER BY value",
-        jurisdiction_id,
-    )
-    email_contacts = [c for c in contacts if c["contact_type"] == "email"]
-    phone_contacts = [c for c in contacts if c["contact_type"] == "phone"]
+    email_contacts = await fetch_contacts(db, "jurisdiction", jurisdiction_id, "email")
+    phone_contacts = await fetch_contacts(db, "jurisdiction", jurisdiction_id, "phone")
     # Lineage-category edges have their own panel (fetch_lineage below), so
     # exclude them here to avoid rendering the same edge in both panels.
     relationships = await db.fetch(
