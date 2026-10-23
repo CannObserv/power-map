@@ -446,9 +446,15 @@ SECTIONS: list[Section] = [
 ]
 
 
-def _rows_only(html: str) -> None:
-    """A tbody re-render: rows, not a table or a bare form row."""
-    assert "<tbody" not in html and "<table" not in html
+def _rows_only(r) -> None:
+    """A tbody re-render: read rows, not a table and not a (retargeted) form row.
+
+    A form-row error echoes the input, so ``created_text in r.text`` alone can't
+    tell success from a validation failure; no read row carries a ``<form``.
+    """
+    assert "HX-Retarget" not in r.headers, r.headers.get("HX-Retarget")
+    assert "<tbody" not in r.text and "<table" not in r.text
+    assert "<form" not in r.text
 
 
 @pytest.mark.parametrize("section", SECTIONS, ids=lambda s: s.id)
@@ -470,7 +476,7 @@ async def test_tbody_round_trip(client, db, section: Section):
     # Add the first item: the rows come back without the empty-state row.
     r = await client.post(f"{base}/", data=await section.create(db, eid), headers=HTMX_HEADERS)
     assert r.status_code == 200, r.text
-    _rows_only(r.text)
+    _rows_only(r)
     assert section.created_text in r.text
     assert EMPTY_MARKER not in r.text and section.empty_text not in r.text
     assert target in r.text  # the row's own delete re-renders the tbody too
@@ -484,7 +490,7 @@ async def test_tbody_round_trip(client, db, section: Section):
             f"{base}/{child_id}/edit-row/", data=await section.edit(db, eid), headers=HTMX_HEADERS
         )
         assert r.status_code == 200, r.text
-        _rows_only(r.text)
+        _rows_only(r)
         assert section.edited_text in r.text and EMPTY_MARKER not in r.text
 
     # A form-row error lands on the row being edited, never into the tbody.
@@ -520,7 +526,7 @@ async def test_tbody_round_trip(client, db, section: Section):
         assert r.status_code == 200, r.text
     r = await client.delete(f"{base}/{child_id}/", headers=HTMX_HEADERS)
     assert r.status_code == 200, r.text
-    _rows_only(r.text)
+    _rows_only(r)
     assert EMPTY_MARKER in r.text and section.empty_text in r.text
 
 
