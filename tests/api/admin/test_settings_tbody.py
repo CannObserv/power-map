@@ -184,6 +184,7 @@ async def test_blank_slug_on_create_lands_on_the_new_row(client, db, t):
     assert r.headers["HX-Reswap"] == "outerHTML"
     assert 'role="alert"' in r.text
     assert 'value="Tbody Typed"' in r.text  # the curator's input survives
+    assert "Slug is required." in r.text
 
     plain = await client.post(t.base, headers=AUTH_HEADERS, data=t.form("Tbody Typed", "  "))
     assert plain.status_code == 422
@@ -204,14 +205,16 @@ async def test_bad_edit_lands_on_its_row(client, db, t):
     tid, slug = await _seed_type(db, t, "Tbody Edited")
     _, other = await _seed_type(db, t, "Tbody Other")
     for data, needle in (
-        (t.form("Tbody Edited", ""), 'role="alert"'),
+        (t.form("Tbody Edited", ""), "Slug is required."),
+        (t.form("  ", slug), "Display name is required."),
         (t.form("Tbody Edited", other), "already in use"),
     ):
         r = await client.post(f"{t.base}{tid}/edit-row/", headers=HTMX_HEADERS, data=data)
         assert r.status_code == 200
         assert r.headers["HX-Retarget"].endswith(f"-row-{tid}")
         assert needle in r.text
-    assert await db.fetchval(f"SELECT slug FROM {t.table} WHERE id=$1", tid) == slug
+    row = await db.fetchrow(f"SELECT slug, display_name FROM {t.table} WHERE id=$1", tid)
+    assert (row["slug"], row["display_name"]) == (slug, "Tbody Edited")
 
 
 async def test_invalid_entity_type_lands_on_the_new_row(client):
