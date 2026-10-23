@@ -101,13 +101,24 @@ async def test_detail_panel_has_close_button(client, user_and_key):
     assert ">Close<" in r.text
 
 
-async def test_read_row_scopes_placeholder_is_tr(client, user_and_key):
-    """Empty scopes placeholder in the key row must be a <tr>, not a <div>."""
+async def test_scopes_placeholder_is_a_tr_in_the_tbody(client, user_and_key):
+    """The empty scopes placeholder is a <tr> (not a <div>), rendered once per key
+    by the rows partial — never by read-row (CR 8)."""
+    _, kid = user_and_key
+    page = await client.get("/admin/settings/api-keys/", headers=AUTH_HEADERS)
+    assert page.text.count(f'<tr id="api-key-scopes-{kid}"') == 1
+    assert f'<div id="api-key-scopes-{kid}"' not in page.text
+
+
+async def test_read_row_is_one_row(client, user_and_key):
+    """Cancel's read-row swaps onto the edit row only; the scopes placeholder never
+    left the tbody, so another copy would duplicate its id (CR 8)."""
     _, kid = user_and_key
     r = await client.get(f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert f'<tr id="api-key-scopes-{kid}"' in r.text
-    assert f'<div id="api-key-scopes-{kid}"' not in r.text
+    assert r.text.count("<tr") == 1
+    assert f"api-key-scopes-{kid}" in r.text  # the Scopes button still targets it
+    assert f'id="api-key-scopes-{kid}"' not in r.text
 
 
 async def test_scopes_button_closes_other_panels(client, user_and_key):
