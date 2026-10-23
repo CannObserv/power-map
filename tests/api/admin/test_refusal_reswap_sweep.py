@@ -3,7 +3,7 @@
 htmx 2's default ``responseHandling`` swaps every 2xx body, an empty one
 included. A refused mutation answered with an empty 200 + warning flash
 therefore blanks whatever the control targets: a whole ``<tbody>`` for the
-names/acronyms tables, the row itself for a settings-type delete. For an
+names/acronyms tables and the settings tables (#687). For an
 empty body only ``HX-Reswap: none`` prevents that: another swap style still
 swaps ``""``, and a bare ``HX-Retarget`` blanks a different element (CR 9).
 
