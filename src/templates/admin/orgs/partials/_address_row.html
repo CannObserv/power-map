@@ -19,8 +19,8 @@
     <button type="button" class="btn btn--sm btn--danger"
             aria-label="Delete {{ a.address_type }} address"
             hx-delete="/admin/orgs/{{ org_id }}/addresses/{{ a.id }}/"
-            hx-target="#address-row-{{ a.id }}"
-            hx-swap="outerHTML"
+            hx-target="#addresses-table tbody"
+            hx-swap="innerHTML"
             hx-confirm="Delete this address?">Delete</button>
   </td>
 </tr>

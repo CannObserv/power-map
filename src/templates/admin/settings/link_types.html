@@ -36,7 +36,7 @@
         {% set scope = "general" %}
         {% include "admin/settings/partials/_link_type_row.html" %}
         {% else %}
-        <tr><td colspan="4" style="color:var(--color-text-muted)">No general link types.</td></tr>
+        <tr data-empty-row><td colspan="4" style="color:var(--color-text-muted)">No general link types.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -69,7 +69,7 @@
         {% set scope = "social" %}
         {% include "admin/settings/partials/_link_type_row.html" %}
         {% else %}
-        <tr><td colspan="4" style="color:var(--color-text-muted)">No social link types.</td></tr>
+        <tr data-empty-row><td colspan="4" style="color:var(--color-text-muted)">No social link types.</td></tr>
         {% endfor %}
       </tbody>
     </table>

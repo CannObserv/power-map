@@ -1,0 +1,8 @@
+{# admin/role_assignments/partials/_link_rows.html — tbody rows for #links-table (#683).
+   Context: links, ra_id. The detail page and every link create/edit/delete
+   render this, so the empty-state row and the order live here only. #}
+{% for l in links %}
+{% include "admin/role_assignments/partials/_link_row.html" %}
+{% else %}
+<tr data-empty-row><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No links</td></tr>
+{% endfor %}

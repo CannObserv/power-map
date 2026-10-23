@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
@@ -14,6 +14,7 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    retarget_form_row,
     with_flash,
 )
 from src.core.db import generate_id
@@ -25,10 +26,45 @@ templates = Jinja2Templates(directory="src/templates")
 _email_normalizer = EmailNormalizer()
 _phone_normalizer = PhoneNormalizer()
 
+# contact_type -> the detail page's table id; every write re-renders its tbody (#683).
+CONTACT_TABLE_IDS = {"email": "emails-table", "phone": "phones-table"}
+
 _CONTACT_ERROR_MESSAGES = {
     "email": "Enter a valid email address.",
     "phone": "Enter a valid phone number (e.g. (206) 555-1234 or +12065551234).",
 }
+
+
+async def fetch_contacts(db, entity_type: str, entity_id: str, contact_type: str) -> list:
+    """One contact table's rows, in display order (the detail page and every write, #683)."""
+    return await db.fetch(
+        "SELECT * FROM contact_methods"
+        " WHERE entity_type=$1 AND entity_id=$2 AND contact_type=$3"
+        " ORDER BY value, id",
+        entity_type,
+        entity_id,
+        contact_type,
+    )
+
+
+async def fetch_contact_tables(db, entity_type: str, entity_id: str) -> tuple[list, list]:
+    """Both contact tables' rows as ``(emails, phones)``, for a detail page.
+
+    One round-trip, partitioned here: asyncpg forbids concurrent queries on the
+    route's one pooled connection, so we cut round-trips instead. Same order as
+    :func:`fetch_contacts`, which the per-type write re-render uses (#683).
+    """
+    rows = await db.fetch(
+        "SELECT * FROM contact_methods"
+        " WHERE entity_type=$1 AND entity_id=$2 AND contact_type IN ('email', 'phone')"
+        " ORDER BY value, id",
+        entity_type,
+        entity_id,
+    )
+    return (
+        [r for r in rows if r["contact_type"] == "email"],
+        [r for r in rows if r["contact_type"] == "phone"],
+    )
 
 
 def make_contacts_router(
@@ -41,6 +77,7 @@ def make_contacts_router(
     entity_not_found_msg: str,
     tmpl_form_row: str,
     tmpl_read_row: str,
+    tmpl_rows: str,
     detail_url: Callable[[str], str],
 ) -> APIRouter:
     """Return a configured contacts APIRouter for the given entity type.
@@ -64,6 +101,9 @@ def make_contacts_router(
         Template path for the contact form row partial.
     tmpl_read_row:
         Template path for the contact read row partial.
+    tmpl_rows:
+        Template path for the ``<tbody>`` rows partial (rows + empty-state row).
+        Every create/edit/delete answers with it, for the row's table (#683).
     detail_url:
         Callable accepting the entity id and returning the detail redirect URL.
     """
@@ -80,6 +120,16 @@ def make_contacts_router(
     def _ctx(entity_id: str, **extra) -> dict:
         """Build template context with the correct entity-id key."""
         return {entity_id_key: entity_id, **extra}
+
+    async def _rows_response(request, entity_id: str, contact_type: str, db, headers: dict):
+        """The whole ``#emails-table``/``#phones-table`` tbody (#683)."""
+        contacts = await fetch_contacts(db, entity_type, entity_id, contact_type)
+        return templates.TemplateResponse(
+            request,
+            tmpl_rows,
+            _ctx(entity_id, contacts=contacts, contact_type=contact_type),
+            headers=headers,
+        )
 
     # ---- routes -----------------------------------------------------------------
 
@@ -132,6 +182,7 @@ def make_contacts_router(
                     value_input=value.strip(),
                     error=_CONTACT_ERROR_MESSAGES.get(contact_type, "Invalid value."),
                 ),
+                headers=retarget_form_row(f"{contact_type}-row-new"),
             )
         cid = generate_id()
         await db.execute(
@@ -145,14 +196,14 @@ def make_contacts_router(
             raw_value,
             display_label.strip() or None,
         )
-        row = await db.fetchrow("SELECT * FROM contact_methods WHERE id=$1", cid)
         if not is_htmx(request):
             return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
-        return templates.TemplateResponse(
+        return await _rows_response(
             request,
-            tmpl_read_row,
-            _ctx(entity_id, c=row),
-            headers=flash_trigger("success", f"<strong>{escape(raw_value)}</strong> added."),
+            entity_id,
+            contact_type,
+            db,
+            flash_trigger("success", f"<strong>{escape(raw_value)}</strong> added."),
         )
 
     @router.get("/{contact_id}/read-row/")
@@ -238,6 +289,7 @@ def make_contacts_router(
                     value_input=value.strip(),
                     error=_CONTACT_ERROR_MESSAGES.get(contact_type, "Invalid value."),
                 ),
+                headers=retarget_form_row(f"contact-row-{contact_id}"),
             )
         await db.execute(
             "UPDATE contact_methods SET value=$1, display_label=$2 WHERE id=$3",
@@ -245,14 +297,14 @@ def make_contacts_router(
             display_label.strip() or None,
             contact_id,
         )
-        row = await db.fetchrow("SELECT * FROM contact_methods WHERE id=$1", contact_id)
         if not is_htmx(request):
             return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
-        return templates.TemplateResponse(
+        return await _rows_response(
             request,
-            tmpl_read_row,
-            _ctx(entity_id, c=row),
-            headers=flash_trigger("success", f"<strong>{escape(raw_value)}</strong> saved."),
+            entity_id,
+            contact_type,
+            db,
+            flash_trigger("success", f"<strong>{escape(raw_value)}</strong> saved."),
         )
 
     @router.delete("/{contact_id}/")
@@ -265,7 +317,8 @@ def make_contacts_router(
     ):
         """Delete a contact method."""
         existing = await db.fetchrow(
-            "SELECT id FROM contact_methods WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
+            "SELECT contact_type FROM contact_methods"
+            " WHERE id=$1 AND entity_type=$2 AND entity_id=$3",
             contact_id,
             entity_type,
             entity_id,
@@ -275,10 +328,12 @@ def make_contacts_router(
         await db.execute("DELETE FROM contact_methods WHERE id=$1", contact_id)
         if not is_htmx(request):
             return RedirectResponse(with_flash(detail_url(entity_id), "removed"), status_code=303)
-        return HTMLResponse(
-            content="",
-            status_code=200,
-            headers=flash_trigger("success", "Contact removed."),
+        return await _rows_response(
+            request,
+            entity_id,
+            existing["contact_type"],
+            db,
+            flash_trigger("success", "Contact removed."),
         )
 
     return router

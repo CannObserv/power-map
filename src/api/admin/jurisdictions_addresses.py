@@ -3,7 +3,7 @@
 import json
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin._addresses_shared import (
@@ -23,6 +23,7 @@ from src.api.admin.deps import (
     get_admin_user,
     get_db,
     is_htmx,
+    retarget_form_row,
     with_flash,
 )
 from src.core.db import generate_id
@@ -196,6 +197,33 @@ async def _get_entity_address_or_404(addr_id: str, jurisdiction_id: str, db):
     return row
 
 
+async def fetch_jurisdictions_addresses(db, jurisdiction_id: str) -> list:
+    """The addresses table's rows (detail page and every write, #683)."""
+    return await db.fetch(
+        """SELECT ea.id, ea.address_type, ea.display_name, ea.valid_from, ea.valid_until,
+                  a.id AS address_id, a.standardized, a.address_line_1, a.address_line_2,
+                  a.city, a.region, a.postal_code, a.country
+           FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id
+           WHERE ea.entity_type = 'jurisdiction' AND ea.entity_id = $1
+           ORDER BY (ea.valid_until IS NOT NULL AND ea.valid_until < CURRENT_DATE),
+                    ea.valid_from DESC NULLS LAST, ea.id""",
+        jurisdiction_id,
+    )
+
+
+async def _rows_response(request, jurisdiction_id: str, db, headers: dict):
+    """The whole ``#addresses-table`` tbody (#683)."""
+    return templates.TemplateResponse(
+        request,
+        "admin/jurisdictions/partials/_address_rows.html",
+        {
+            "jurisdiction_id": jurisdiction_id,
+            "addresses": await fetch_jurisdictions_addresses(db, jurisdiction_id),
+        },
+        headers=headers,
+    )
+
+
 @router.get("/new-row/")
 async def address_new_row(
     jurisdiction_id: str,
@@ -264,24 +292,7 @@ async def address_create(
                 "error": "At least one address field is required.",
                 **(await field_context(country)),
             },
-        )
-    if mode == "edit":
-        # `edit` is the confirm-flow "go back and revise" step, driven by the
-        # HTMX modal; a pure non-HTMX POST always sends the default mode="confirm",
-        # so this fallback is a near-unreachable defensive branch — `invalid` is a
-        # safe generic key for it, not a claim the input was actually bad (#351 CR).
-        if not is_htmx(request):
-            return RedirectResponse(
-                with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "invalid"), status_code=303
-            )
-        return templates.TemplateResponse(
-            request,
-            "admin/jurisdictions/partials/_address_form_row.html",
-            {
-                "jurisdiction_id": jurisdiction_id,
-                "a": form_echo,
-                **(await field_context(country)),
-            },
+            headers=retarget_form_row("address-row-new"),
         )
     try:
         _valid_from, _valid_until = parse_validity(valid_from, valid_until)
@@ -299,6 +310,7 @@ async def address_create(
                 "error": str(exc),
                 **(await field_context(country)),
             },
+            headers=retarget_form_row("address-row-new"),
         )
     persist: ConfirmPersist | None = None
     notice: str | None = None
@@ -359,6 +371,7 @@ async def address_create(
                     "error": "Invalid address data submitted. Please re-submit the form.",
                     **(await field_context(country)),
                 },
+                headers=retarget_form_row("address-row-new"),
             )
         _line_1 = address_line_1.strip() or None
         _line_2 = address_line_2.strip() or None
@@ -396,17 +409,16 @@ async def address_create(
         _valid_from,
         _valid_until,
     )
-    row = await _get_entity_address_or_404(eaid, jurisdiction_id, db)
     if not is_htmx(request):
         return RedirectResponse(
             with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", saved_flash_key(notice)),
             status_code=303,
         )
-    return templates.TemplateResponse(
+    return await _rows_response(
         request,
-        "admin/jurisdictions/partials/_address_row.html",
-        {"jurisdiction_id": jurisdiction_id, "a": row},
-        headers=flash_trigger("success", saved_flash_body("Address added.", notice)),
+        jurisdiction_id,
+        db,
+        flash_trigger("success", saved_flash_body("Address added.", notice)),
     )
 
 
@@ -497,24 +509,7 @@ async def address_edit_row_post(
                 "error": "At least one address field is required.",
                 **(await field_context(country)),
             },
-        )
-    if mode == "edit":
-        # `edit` is the confirm-flow "go back and revise" step, driven by the
-        # HTMX modal; a pure non-HTMX POST always sends the default mode="confirm",
-        # so this fallback is a near-unreachable defensive branch — `invalid` is a
-        # safe generic key for it, not a claim the input was actually bad (#351 CR).
-        if not is_htmx(request):
-            return RedirectResponse(
-                with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "invalid"), status_code=303
-            )
-        return templates.TemplateResponse(
-            request,
-            "admin/jurisdictions/partials/_address_form_row.html",
-            {
-                "jurisdiction_id": jurisdiction_id,
-                "a": form_echo,
-                **(await field_context(country)),
-            },
+            headers=retarget_form_row(f"address-row-{addr_id}"),
         )
     try:
         _valid_from, _valid_until = parse_validity(valid_from, valid_until)
@@ -532,6 +527,7 @@ async def address_edit_row_post(
                 "error": str(exc),
                 **(await field_context(country)),
             },
+            headers=retarget_form_row(f"address-row-{addr_id}"),
         )
     persist: ConfirmPersist | None = None
     notice: str | None = None
@@ -590,6 +586,7 @@ async def address_edit_row_post(
                     "error": "Invalid address data submitted. Please re-submit the form.",
                     **(await field_context(country)),
                 },
+                headers=retarget_form_row(f"address-row-{addr_id}"),
             )
         _line_1 = address_line_1.strip() or None
         _line_2 = address_line_2.strip() or None
@@ -633,17 +630,16 @@ async def address_edit_row_post(
         _valid_until,
         addr_id,
     )
-    row = await _get_entity_address_or_404(addr_id, jurisdiction_id, db)
     if not is_htmx(request):
         return RedirectResponse(
             with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", saved_flash_key(notice)),
             status_code=303,
         )
-    return templates.TemplateResponse(
+    return await _rows_response(
         request,
-        "admin/jurisdictions/partials/_address_row.html",
-        {"jurisdiction_id": jurisdiction_id, "a": row},
-        headers=flash_trigger("success", saved_flash_body("Address saved.", notice)),
+        jurisdiction_id,
+        db,
+        flash_trigger("success", saved_flash_body("Address saved.", notice)),
     )
 
 
@@ -695,8 +691,6 @@ async def address_delete(
         return RedirectResponse(
             with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "removed"), status_code=303
         )
-    return HTMLResponse(
-        content="",
-        status_code=200,
-        headers=flash_trigger("success", "Address removed."),
+    return await _rows_response(
+        request, jurisdiction_id, db, flash_trigger("success", "Address removed.")
     )

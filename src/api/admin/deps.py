@@ -99,6 +99,34 @@ def htmx_refusal(body: str) -> HTMLResponse:
     return HTMLResponse("", headers={**flash_trigger("warning", body), "HX-Reswap": "none"})
 
 
+def retarget_form_row(row_id: str) -> dict[str, str]:
+    """Headers that land an error re-render on its own form row (#683).
+
+    A multi-value detail table's create/edit/delete controls target the whole
+    ``<tbody>`` (``innerHTML``) so the server owns the empty-state row and the
+    order. An error answer is a single form row, not the rows, so it must be
+    swapped onto the row the curator is editing instead: ``#<x>-row-new`` on
+    create, ``#<x>-row-<id>`` on edit. Merge into the response's headers.
+    Guarded by ``tests/api/admin/test_empty_state_sweep.py``.
+    """
+    return {"HX-Retarget": f"#{row_id}", "HX-Reswap": "outerHTML"}
+
+
+def form_row_status(request: Request, errors: dict, status_code: int, row_id: str) -> dict:
+    """``TemplateResponse`` kwargs for a form-row render (#683).
+
+    No errors: a plain 200 (the blank new-row). An HTMX error re-render: a 200
+    retargeted onto the form row via :func:`retarget_form_row` — htmx swaps no
+    4xx, and the form itself targets the whole tbody. A non-HTMX client keeps
+    ``status_code`` (the 4xx).
+    """
+    if not errors:
+        return {"status_code": 200}
+    if is_htmx(request):
+        return {"status_code": 200, "headers": retarget_form_row(row_id)}
+    return {"status_code": status_code}
+
+
 # Shared admin-conventions fallback-flash registry (#351, docs/ADMIN.md).
 # Non-HTMX mutation fallbacks across every admin section append one of these
 # keys via ``with_flash`` so a successful

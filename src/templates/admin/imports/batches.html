@@ -39,7 +39,7 @@
         <td>{{ batch.imported_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</td>
       </tr>
       {% else %}
-      <tr><td colspan="7" style="text-align:center;color:var(--color-text-muted)">No import batches found</td></tr>
+      <tr data-empty-row><td colspan="7" style="text-align:center;color:var(--color-text-muted)">No import batches found</td></tr>
       {% endfor %}
     </tbody>
   </table>

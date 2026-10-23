@@ -75,11 +75,7 @@
       <table id="emails-table" class="data-table">
         <thead><tr><th scope="col">Address</th><th scope="col">Label</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
-          {% for c in email_contacts %}
-          {% include "admin/role_assignments/partials/_contact_row.html" %}
-          {% else %}
-          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No email addresses</td></tr>
-          {% endfor %}
+          {% with contacts=email_contacts, contact_type='email' %}{% include "admin/role_assignments/partials/_contact_rows.html" %}{% endwith %}
         </tbody>
       </table>
     </div>
@@ -100,11 +96,7 @@
       <table id="phones-table" class="data-table">
         <thead><tr><th scope="col">Number</th><th scope="col">Label</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
-          {% for c in phone_contacts %}
-          {% include "admin/role_assignments/partials/_contact_row.html" %}
-          {% else %}
-          <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No phone numbers</td></tr>
-          {% endfor %}
+          {% with contacts=phone_contacts, contact_type='phone' %}{% include "admin/role_assignments/partials/_contact_rows.html" %}{% endwith %}
         </tbody>
       </table>
     </div>
@@ -129,11 +121,7 @@
     <table id="links-table" class="data-table">
       <thead><tr><th scope="col">URL</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
-        {% for l in links %}
-        {% include "admin/role_assignments/partials/_link_row.html" %}
-        {% else %}
-        <tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No links</td></tr>
-        {% endfor %}
+        {% include "admin/role_assignments/partials/_link_rows.html" %}
       </tbody>
     </table>
   </div>
@@ -156,11 +144,7 @@
     <table id="identifiers-table" class="data-table">
       <thead><tr><th scope="col">Type</th><th scope="col">Value</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
-        {% for ident in identifiers %}
-        {% include "admin/role_assignments/partials/_identifier_row.html" %}
-        {% else %}
-        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No identifiers</td></tr>
-        {% endfor %}
+        {% include "admin/role_assignments/partials/_identifier_rows.html" %}
       </tbody>
     </table>
   </div>
@@ -183,11 +167,7 @@
     <table id="relationships-table" class="data-table">
       <thead><tr><th scope="col">Relationship</th><th scope="col">Window</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
-        {% for rel in relationships %}
-        {% include "admin/role_assignments/partials/_relationship_row.html" %}
-        {% else %}
-        <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No relationships</td></tr>
-        {% endfor %}
+        {% include "admin/role_assignments/partials/_relationship_rows.html" %}
       </tbody>
     </table>
   </div>

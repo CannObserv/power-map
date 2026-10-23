@@ -1,0 +1,12 @@
+{# admin/citations/partials/_citation_rows.html — a citations panel's tbody rows (#683).
+   Context: citations, entity_id, cit_base, locked_field; cite_count_oob on a write
+   (the parent row's Cite-button count, emitted once). The panel and every
+   create/edit/delete render this into #citations-tbody-<entity_id>. #}
+{% for c in citations %}
+{% include "admin/citations/partials/_citation_row.html" %}
+{% else %}
+<tr id="citations-empty-{{ entity_id }}" data-empty-row>
+  <td colspan="{{ 3 if locked_field else 4 }}" style="color:var(--color-text-muted)">No citations</td>
+</tr>
+{% endfor %}
+{% include "admin/citations/partials/_cite_count_oob.html" %}

@@ -96,9 +96,9 @@ return templates.TemplateResponse(
 )
 ```
 
-HTMX overrides the client-side `hx-target` / `hx-swap` with the header values. The triggering element (e.g. the `<tr>` form row) stays untouched in the DOM. The modal portal receives the response body. The modal's own action forms then target the original row directly.
+HTMX overrides the client-side `hx-target` / `hx-swap` with the header values. The triggering element (e.g. the `<tr>` form row) stays untouched in the DOM. The modal portal receives the response body. The modal's own action forms then target the table's tbody (#683, `docs/UI.md` § The tbody contract).
 
-**Portal pattern — first-class use case:** `HX-Retarget` is also the right tool when a mutation *may or may not* produce a secondary UI element (confirm dialog, validation step). The form row's `hx-target` always points at itself; the server conditionally redirects the response to a dedicated portal `<div>` elsewhere in the page. The row is never touched. See `docs/FORMS.md` § Address Confirm Flow (Address confirm flow) for the full example.
+**Portal pattern — first-class use case:** `HX-Retarget` is also the right tool when a mutation *may or may not* produce a secondary UI element (confirm dialog, validation step). The form row's `hx-target` stays put (the tbody, for a detail table); the server conditionally redirects the response to a dedicated portal `<div>` elsewhere in the page. The row is never touched. See `docs/FORMS.md` § Address Confirm Flow (Address confirm flow) for the full example.
 
 **When OOB is safe:** use it only when all elements in the response share the same parsing context (all are `<div>` / block, or all are wrapped in an explicit `<table>` / `<tbody>`). Never mix table and non-table elements as OOB siblings.
 

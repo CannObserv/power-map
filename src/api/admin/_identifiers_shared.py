@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
@@ -21,6 +21,19 @@ from src.core.db import generate_id, identifier_entity_vanished
 templates = Jinja2Templates(directory="src/templates")
 
 
+async def fetch_identifiers(db, entity_type: str, entity_id: str) -> list:
+    """The identifiers table's rows, in display order (the detail page and every write, #683)."""
+    return await db.fetch(
+        """SELECT i.*, eit.display_name AS type_name, eit.full_name AS type_full_name
+           FROM identifiers i
+           JOIN entity_identifier_types eit ON eit.id = i.entity_identifier_type_id
+           WHERE i.entity_id = $1 AND eit.entity_type = $2
+           ORDER BY eit.display_name, i.value, i.id""",
+        entity_id,
+        entity_type,
+    )
+
+
 def make_identifiers_router(
     *,
     entity_type: str,
@@ -31,6 +44,7 @@ def make_identifiers_router(
     entity_not_found_msg: str,
     tmpl_form_row: str,
     tmpl_read_row: str,
+    tmpl_rows: str,
     detail_url: Callable[[str], str],
 ) -> APIRouter:
     """Return a configured identifiers APIRouter for the given entity type.
@@ -53,6 +67,9 @@ def make_identifiers_router(
         Template path for the identifier form row partial.
     tmpl_read_row:
         Template path for the identifier read row partial.
+    tmpl_rows:
+        Template path for the ``<tbody>`` rows partial (rows + empty-state row).
+        Every create/edit/delete answers with it (#683).
     detail_url:
         Callable accepting the entity id and returning the detail redirect URL.
     """
@@ -112,6 +129,13 @@ def make_identifiers_router(
         """Build template context with the correct entity-id key."""
         return {entity_id_key: entity_id, **extra}
 
+    async def _rows_response(request, entity_id: str, db, headers: dict):
+        """The whole ``#identifiers-table`` tbody (#683)."""
+        identifiers = await fetch_identifiers(db, entity_type, entity_id)
+        return templates.TemplateResponse(
+            request, tmpl_rows, _ctx(entity_id, identifiers=identifiers), headers=headers
+        )
+
     # ---- routes -----------------------------------------------------------------
 
     @router.get("/new-row/")
@@ -156,14 +180,13 @@ def make_identifiers_router(
             entity_identifier_type_id,
             value.strip(),
         )
-        row = await _get_identifier_or_404(iid, entity_id, db)
         if not is_htmx(request):
             return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
-        return templates.TemplateResponse(
+        return await _rows_response(
             request,
-            tmpl_read_row,
-            _ctx(entity_id, ident=row),
-            headers=flash_trigger("success", f"<strong>{escape(value.strip())}</strong> added."),
+            entity_id,
+            db,
+            flash_trigger("success", f"<strong>{escape(value.strip())}</strong> added."),
         )
 
     @router.get("/{ident_id}/read-row/")
@@ -218,14 +241,13 @@ def make_identifiers_router(
             value.strip(),
             ident_id,
         )
-        row = await _get_identifier_or_404(ident_id, entity_id, db)
         if not is_htmx(request):
             return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
-        return templates.TemplateResponse(
+        return await _rows_response(
             request,
-            tmpl_read_row,
-            _ctx(entity_id, ident=row),
-            headers=flash_trigger("success", f"<strong>{escape(value.strip())}</strong> saved."),
+            entity_id,
+            db,
+            flash_trigger("success", f"<strong>{escape(value.strip())}</strong> saved."),
         )
 
     @router.delete("/{ident_id}/")
@@ -250,10 +272,8 @@ def make_identifiers_router(
         await db.execute("DELETE FROM identifiers WHERE id=$1", ident_id)
         if not is_htmx(request):
             return RedirectResponse(with_flash(detail_url(entity_id), "removed"), status_code=303)
-        return HTMLResponse(
-            content="",
-            status_code=200,
-            headers=flash_trigger("success", "Identifier removed."),
+        return await _rows_response(
+            request, entity_id, db, flash_trigger("success", "Identifier removed.")
         )
 
     return router

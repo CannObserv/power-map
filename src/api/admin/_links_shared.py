@@ -21,6 +21,18 @@ from src.core.db import generate_id
 templates = Jinja2Templates(directory="src/templates")
 
 
+async def fetch_links(db, entity_type: str, entity_id: str) -> list:
+    """The links table's rows, in display order (the detail page and every write, #683)."""
+    return await db.fetch(
+        """SELECT l.*, lt.display_name AS link_type_name, lt.is_social
+           FROM links l JOIN link_types lt ON lt.id = l.link_type_id
+           WHERE l.entity_type = $1 AND l.entity_id = $2
+           ORDER BY lt.is_social DESC, lt.display_name, l.url, l.id""",
+        entity_type,
+        entity_id,
+    )
+
+
 def make_links_router(
     *,
     entity_type: str,
@@ -31,6 +43,7 @@ def make_links_router(
     entity_not_found_msg: str,
     tmpl_form_row: str,
     tmpl_read_row: str,
+    tmpl_rows: str,
     detail_url: Callable[[str], str],
 ) -> APIRouter:
     """Return a configured links APIRouter for the given entity type.
@@ -53,6 +66,9 @@ def make_links_router(
         Template path for the link form row partial.
     tmpl_read_row:
         Template path for the link read row partial.
+    tmpl_rows:
+        Template path for the ``<tbody>`` rows partial (rows + empty-state row).
+        Every create/edit/delete answers with it (#683).
     detail_url:
         Callable accepting the entity id and returning the detail redirect URL.
     """
@@ -82,6 +98,13 @@ def make_links_router(
     def _ctx(entity_id: str, **extra) -> dict:
         """Build template context with the correct entity-id key."""
         return {entity_id_key: entity_id, **extra}
+
+    async def _rows_response(request, entity_id: str, db, headers: dict):
+        """The whole ``#links-table`` tbody (#683)."""
+        links = await fetch_links(db, entity_type, entity_id)
+        return templates.TemplateResponse(
+            request, tmpl_rows, _ctx(entity_id, links=links), headers=headers
+        )
 
     # ---- routes -----------------------------------------------------------------
 
@@ -142,14 +165,13 @@ def make_links_router(
                     f"Link <strong>{escape(clean_url)}</strong> already exists for this entity.",
                 ),
             )
-        row = await _get_link_or_404(lid, entity_id, db)
         if not is_htmx(request):
             return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
-        return templates.TemplateResponse(
+        return await _rows_response(
             request,
-            tmpl_read_row,
-            _ctx(entity_id, l=row),
-            headers=flash_trigger("success", f"Link <strong>{escape(url.strip())}</strong> added."),
+            entity_id,
+            db,
+            flash_trigger("success", f"Link <strong>{escape(clean_url)}</strong> added."),
         )
 
     @router.get("/{link_id}/read-row/")
@@ -218,14 +240,13 @@ def make_links_router(
                     f"Link <strong>{escape(clean_url)}</strong> already exists for this entity.",
                 ),
             )
-        row = await _get_link_or_404(link_id, entity_id, db)
         if not is_htmx(request):
             return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
-        return templates.TemplateResponse(
+        return await _rows_response(
             request,
-            tmpl_read_row,
-            _ctx(entity_id, l=row),
-            headers=flash_trigger("success", f"Link <strong>{escape(url.strip())}</strong> saved."),
+            entity_id,
+            db,
+            flash_trigger("success", f"Link <strong>{escape(clean_url)}</strong> saved."),
         )
 
     @router.delete("/{link_id}/")
@@ -248,8 +269,8 @@ def make_links_router(
         await db.execute("DELETE FROM links WHERE id=$1", link_id)
         if not is_htmx(request):
             return RedirectResponse(with_flash(detail_url(entity_id), "removed"), status_code=303)
-        return HTMLResponse(
-            content="", status_code=200, headers=flash_trigger("success", "Link removed.")
+        return await _rows_response(
+            request, entity_id, db, flash_trigger("success", "Link removed.")
         )
 
     return router

@@ -1,0 +1,9 @@
+{# admin/roles/partials/_contact_rows.html — tbody rows for #emails-table / #phones-table (#683).
+   Context: contacts, contact_type ('email'|'phone'), role_id. The detail page and
+   every contact create/edit/delete render this, so the empty-state row and the
+   order live here only. #}
+{% for c in contacts %}
+{% include "admin/roles/partials/_contact_row.html" %}
+{% else %}
+<tr data-empty-row><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No {{ 'email addresses' if contact_type == 'email' else 'phone numbers' }}</td></tr>
+{% endfor %}

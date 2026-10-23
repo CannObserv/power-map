@@ -42,7 +42,7 @@
       {% for key in keys %}
       {% include "admin/settings/partials/_api_key_row.html" %}
       {% else %}
-      <tr><td colspan="5" style="color:var(--color-text-muted)">No API keys yet.</td></tr>
+      <tr data-empty-row><td colspan="5" style="color:var(--color-text-muted)">No API keys yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

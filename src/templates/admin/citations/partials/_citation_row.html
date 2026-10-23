@@ -18,13 +18,8 @@
     <button type="button" class="btn btn--sm btn--danger"
             aria-label="Delete citation"
             hx-delete="/admin{{ cit_base }}/{{ c.id }}/"
-            hx-target="#citation-row-{{ c.id }}"
-            hx-swap="outerHTML"
+            hx-target="#citations-tbody-{{ entity_id }}"
+            hx-swap="innerHTML"
             hx-confirm="Delete this citation?">Delete</button>
   </td>
 </tr>
-{% if remove_empty %}
-{# OOB-remove the panel's "No citations yet." row after the first citation lands. #}
-<tr id="citations-empty-{{ entity_id }}" hx-swap-oob="delete"></tr>
-{% endif %}
-{% include "admin/citations/partials/_cite_count_oob.html" %}

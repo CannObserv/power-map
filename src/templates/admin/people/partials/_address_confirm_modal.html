@@ -37,12 +37,11 @@
 
       <form {% if addr_id %}
             hx-post="/admin/people/{{ person_id }}/addresses/{{ addr_id }}/edit-row/"
-            hx-target="#address-row-{{ addr_id }}"
             {% else %}
             hx-post="/admin/people/{{ person_id }}/addresses/"
-            hx-target="#address-row-new"
             {% endif %}
-            hx-swap="outerHTML"
+            hx-target="#addresses-table tbody"
+            hx-swap="innerHTML"
             hx-on::after-request="if (event.detail.successful) window.__pmAddrConfirmClose()">
         <input type="hidden" name="mode" value="save">
         <input type="hidden" name="address_line_1" value="{{ original.address_line_1 or '' }}">
@@ -60,12 +59,11 @@
 
       <form {% if addr_id %}
             hx-post="/admin/people/{{ person_id }}/addresses/{{ addr_id }}/edit-row/"
-            hx-target="#address-row-{{ addr_id }}"
             {% else %}
             hx-post="/admin/people/{{ person_id }}/addresses/"
-            hx-target="#address-row-new"
             {% endif %}
-            hx-swap="outerHTML"
+            hx-target="#addresses-table tbody"
+            hx-swap="innerHTML"
             hx-on::after-request="if (event.detail.successful) window.__pmAddrConfirmClose()">
         <input type="hidden" name="mode" value="save">
         <input type="hidden" name="address_line_1" value="{{ normalized.address_line_1 or '' }}">

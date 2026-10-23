@@ -16,7 +16,7 @@
       {% for p in rows %}
       {% include "admin/pins/_row.html" %}
       {% else %}
-      <tr><td colspan="8" style="text-align:center;color:var(--color-text-muted)">No pins</td></tr>
+      <tr data-empty-row><td colspan="8" style="text-align:center;color:var(--color-text-muted)">No pins</td></tr>
       {% endfor %}
     </tbody>
   </table>

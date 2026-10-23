@@ -3,12 +3,11 @@
   <td colspan="4" style="padding:var(--space-2) var(--space-4)">
     <form {% if l %}
           hx-post="/admin/people/{{ person_id }}/links/{{ l.id }}/edit-row/"
-          hx-target="#link-row-{{ l.id }}"
           {% else %}
           hx-post="/admin/people/{{ person_id }}/links/"
-          hx-target="#link-row-new"
           {% endif %}
-          hx-swap="outerHTML"
+          hx-target="#links-table tbody"
+          hx-swap="innerHTML"
           style="display:flex;gap:var(--space-2);align-items:center">
       <div class="form-group" style="margin-bottom:0;flex:2;min-width:10rem">
         <input type="url" name="url" aria-label="URL" required

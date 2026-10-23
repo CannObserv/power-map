@@ -9,12 +9,13 @@ uniqueness rule (``uq_org_jur_affiliation`` on org+jur+type) surfaced as a 409.
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import (
     AdminUser,
     flash_trigger,
+    form_row_status,
     get_admin_user,
     get_db,
     is_htmx,
@@ -33,24 +34,36 @@ org_router = APIRouter(
     tags=["admin-org-jurisdiction-affiliations"],
 )
 
-_JUR_AFF_ROW_SQL = """
-    SELECT oja.id AS aff_id, o.id AS org_id, dn.display_name AS org_name,
-           ojat.display_name AS affiliation_type
-    FROM organization_jurisdiction_affiliations oja
-    JOIN organizations o ON o.id = oja.organization_id
-    LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-    JOIN organization_jurisdiction_affiliation_types ojat ON ojat.id = oja.affiliation_type_id
-    WHERE oja.id = $1
-"""
 
-_ORG_AFF_ROW_SQL = """
-    SELECT oja.id AS aff_id, j.id AS jurisdiction_id, j.name AS jurisdiction_name,
-           ojat.display_name AS affiliation_type
-    FROM organization_jurisdiction_affiliations oja
-    JOIN jurisdictions j ON j.id = oja.jurisdiction_id
-    JOIN organization_jurisdiction_affiliation_types ojat ON ojat.id = oja.affiliation_type_id
-    WHERE oja.id = $1
-"""
+async def fetch_jurisdiction_affiliations(db, jurisdiction_id: str) -> list:
+    """The jurisdiction's "Affiliated organizations" rows (detail page and every write, #683)."""
+    return await db.fetch(
+        """SELECT oja.id AS aff_id, o.id AS org_id, dn.display_name AS org_name,
+                  ojat.display_name AS affiliation_type
+           FROM organization_jurisdiction_affiliations oja
+           JOIN organizations o ON o.id = oja.organization_id
+           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+           JOIN organization_jurisdiction_affiliation_types ojat
+                ON ojat.id = oja.affiliation_type_id
+           WHERE oja.jurisdiction_id = $1
+           ORDER BY dn.display_name NULLS LAST, ojat.display_name, oja.id""",
+        jurisdiction_id,
+    )
+
+
+async def fetch_org_jurisdiction_affiliations(db, org_id: str) -> list:
+    """The org's "Affiliated jurisdictions" rows (detail page and every write, #683)."""
+    return await db.fetch(
+        """SELECT oja.id AS aff_id, j.id AS jurisdiction_id, j.name AS jurisdiction_name,
+                  ojat.display_name AS affiliation_type
+           FROM organization_jurisdiction_affiliations oja
+           JOIN jurisdictions j ON j.id = oja.jurisdiction_id
+           JOIN organization_jurisdiction_affiliation_types ojat
+                ON ojat.id = oja.affiliation_type_id
+           WHERE oja.organization_id = $1
+           ORDER BY j.name, ojat.display_name, oja.id""",
+        org_id,
+    )
 
 
 async def _affiliation_types(db):
@@ -75,6 +88,19 @@ async def _require_org(db, org_id: str):
 # ---------------------------------------------------------------------------
 
 
+async def _jur_rows_response(request, jurisdiction_id: str, db, headers: dict):
+    """The whole ``#affiliations-table`` tbody (#683)."""
+    return templates.TemplateResponse(
+        request,
+        "admin/jurisdictions/partials/_affiliation_rows.html",
+        {
+            "jurisdiction_id": jurisdiction_id,
+            "affiliations": await fetch_jurisdiction_affiliations(db, jurisdiction_id),
+        },
+        headers=headers,
+    )
+
+
 async def _render_jur_form(request, jurisdiction_id, db, *, values, errors, status_code=200):
     # Keep the org typeahead populated on an error re-render (hidden id alone
     # would leave the search box blank).
@@ -95,7 +121,7 @@ async def _render_jur_form(request, jurisdiction_id, db, *, values, errors, stat
             "org_label": org_label,
             "errors": errors,
         },
-        status_code=status_code,
+        **form_row_status(request, errors, status_code, "affiliation-row-new"),
     )
 
 
@@ -156,16 +182,12 @@ async def jur_affiliation_create(
         return await _render_jur_form(
             request, jurisdiction_id, db, values=values, errors=errors, status_code=422
         )
-    row = await db.fetchrow(_JUR_AFF_ROW_SQL, aid)
     if not is_htmx(request):
         return RedirectResponse(
             with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "saved"), status_code=303
         )
-    return templates.TemplateResponse(
-        request,
-        "admin/jurisdictions/partials/_affiliation_row.html",
-        {"jurisdiction_id": jurisdiction_id, "a": row},
-        headers=flash_trigger("success", "Affiliation added."),
+    return await _jur_rows_response(
+        request, jurisdiction_id, db, flash_trigger("success", "Affiliation added.")
     )
 
 
@@ -190,14 +212,27 @@ async def jur_affiliation_delete(
         return RedirectResponse(
             with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "removed"), status_code=303
         )
-    return HTMLResponse(
-        content="", status_code=200, headers=flash_trigger("success", "Affiliation removed.")
+    return await _jur_rows_response(
+        request, jurisdiction_id, db, flash_trigger("success", "Affiliation removed.")
     )
 
 
 # ---------------------------------------------------------------------------
 # Org side — reciprocal "Affiliated jurisdictions" panel
 # ---------------------------------------------------------------------------
+
+
+async def _org_rows_response(request, org_id: str, db, headers: dict):
+    """The whole ``#jur-affiliations-table`` tbody (#683)."""
+    return templates.TemplateResponse(
+        request,
+        "admin/orgs/partials/_jurisdiction_affiliation_rows.html",
+        {
+            "org_id": org_id,
+            "jur_affiliations": await fetch_org_jurisdiction_affiliations(db, org_id),
+        },
+        headers=headers,
+    )
 
 
 async def _render_org_form(request, org_id, db, *, values, errors, status_code=200):
@@ -217,7 +252,7 @@ async def _render_org_form(request, org_id, db, *, values, errors, status_code=2
             "jur_label": jur_label,
             "errors": errors,
         },
-        status_code=status_code,
+        **form_row_status(request, errors, status_code, "jur-affiliation-row-new"),
     )
 
 
@@ -277,14 +312,10 @@ async def org_affiliation_create(
         return await _render_org_form(
             request, org_id, db, values=values, errors=errors, status_code=422
         )
-    row = await db.fetchrow(_ORG_AFF_ROW_SQL, aid)
     if not is_htmx(request):
         return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
-    return templates.TemplateResponse(
-        request,
-        "admin/orgs/partials/_jurisdiction_affiliation_row.html",
-        {"org_id": org_id, "a": row},
-        headers=flash_trigger("success", "Affiliation added."),
+    return await _org_rows_response(
+        request, org_id, db, flash_trigger("success", "Affiliation added.")
     )
 
 
@@ -307,6 +338,6 @@ async def org_affiliation_delete(
     await db.execute("DELETE FROM organization_jurisdiction_affiliations WHERE id=$1", aff_id)
     if not is_htmx(request):
         return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "removed"), status_code=303)
-    return HTMLResponse(
-        content="", status_code=200, headers=flash_trigger("success", "Affiliation removed.")
+    return await _org_rows_response(
+        request, org_id, db, flash_trigger("success", "Affiliation removed.")
     )

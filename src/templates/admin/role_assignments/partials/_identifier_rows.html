@@ -1,0 +1,8 @@
+{# admin/role_assignments/partials/_identifier_rows.html — tbody rows for #identifiers-table (#683).
+   Context: identifiers, ra_id. The detail page and every identifier create/edit/delete
+   render this, so the empty-state row and the order live here only. #}
+{% for ident in identifiers %}
+{% include "admin/role_assignments/partials/_identifier_row.html" %}
+{% else %}
+<tr data-empty-row><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No identifiers</td></tr>
+{% endfor %}

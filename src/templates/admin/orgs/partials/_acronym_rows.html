@@ -2,5 +2,5 @@
 {% for a in acronyms %}
 {% include "admin/orgs/partials/_acronym_row.html" %}
 {% else %}
-<tr><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No acronyms</td></tr>
+<tr data-empty-row><td colspan="3" style="text-align:center;color:var(--color-text-muted)">No acronyms</td></tr>
 {% endfor %}

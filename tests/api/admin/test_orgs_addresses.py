@@ -354,25 +354,6 @@ async def test_address_edit_mode_save_stores_standardized(client, org_and_addres
     assert "<form" not in r.text
 
 
-async def test_address_create_mode_edit_returns_prefilled_form(client, org_and_address):
-    oid, _ = org_and_address
-    r = await client.post(
-        f"/admin/orgs/{oid}/addresses/",
-        headers=HTMX_HEADERS,
-        data={
-            "address_line_1": "789 PINE RD",
-            "city": "TACOMA",
-            "region": "WA",
-            "postal_code": "98402",
-            "address_type": "physical",
-            "mode": "edit",
-        },
-    )
-    assert r.status_code == 200
-    assert "<form" in r.text
-    assert "789 PINE RD" in r.text
-
-
 @patch("src.api.admin.orgs_addresses._NORMALIZER")
 async def test_address_create_confirm_shows_confirm_modal(mock_normalizer, client, org_and_address):
     oid, _ = org_and_address

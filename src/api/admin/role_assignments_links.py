@@ -11,5 +11,6 @@ router = make_links_router(
     entity_not_found_msg="Role assignment not found",
     tmpl_form_row="admin/role_assignments/partials/_link_form_row.html",
     tmpl_read_row="admin/role_assignments/partials/_link_row.html",
+    tmpl_rows="admin/role_assignments/partials/_link_rows.html",
     detail_url=lambda eid: f"/admin/role-assignments/{eid}/",
 )

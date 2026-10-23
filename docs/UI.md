@@ -224,32 +224,42 @@ Follow these steps whenever a new entity detail page needs its `<h1>`, breadcrum
 ## Empty-State Table Rows
 
 
-Every `<tbody>` that can be empty must include a fallback row via Jinja `{% else %}`:
+Every `<tbody>` that can be empty carries a fallback row via Jinja `{% else %}`, marked `data-empty-row`:
 
 ```html
-<tbody>
-  {% for n in names %}
-  {% include "admin/orgs/partials/_name_row.html" %}
-  {% else %}
-  <tr>
-    <td colspan="4" style="text-align:center;color:var(--color-text-muted)">No names</td>
-  </tr>
-  {% endfor %}
-</tbody>
+{# admin/orgs/partials/_name_rows.html #}
+{% for n in names %}
+{% include "admin/orgs/partials/_name_row.html" %}
+{% else %}
+<tr data-empty-row><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No names</td></tr>
+{% endfor %}
 ```
 
 - `colspan` must match the actual column count of the table.
 - Text: `"No {plural noun}"` — lower-case, no punctuation.
 - Color: `var(--color-text-muted)` — never a lighter value.
 - No icon, no call-to-action link inside the cell — those belong in the section header row.
+- `data-empty-row` is the stable marker tests and scripts key on — never the text.
+
+### The tbody contract (#683)
+
+A per-row swap can't add or drop the empty-state row: adding the first item left "No …" below it, deleting the last left a bare tbody. So on a multi-value detail table **the server owns the whole tbody**:
+
+- The loop above lives in one `_<x>_rows.html` partial, fed by one module-level fetch function (`fetch_links`, `fetch_citations`, …). The detail page `{% include %}`s it inside `<tbody>`; every create / edit / delete route renders it. First paint and every write share one query and one template.
+- Write controls (new-row form, edit-row form, Delete) target the tbody: `hx-target="#<x>-table tbody" hx-swap="innerHTML"` — never `#<x>-row-<id>` or `closest tr`.
+- A validation error re-renders the form row with `headers=retarget_form_row("<x>-row-new" | f"<x>-row-{id}")` (HX-Retarget + `HX-Reswap: outerHTML`), so only that row is replaced. Status 200 for HTMX — htmx swaps no 4xx; `form_row_status(request, errors, 422, row_id)` keeps the 4xx for non-HTMX clients. Both helpers live in `src/api/admin/deps.py`.
+- Cancel on a new row removes it client-side; the empty-state row, never removed, stays exactly once.
+- A modal that finishes a write (the address confirm modal's Keep / Accept) targets the same tbody.
+- Trade-off: a write re-renders every row, so an edit row or citations sub-row left open elsewhere in the same table closes. Accepted — the alternative is per-row OOB bookkeeping, the bug class this replaced.
+
+Guards: `tests/api/admin/test_empty_state_sweep.py` (static — row-targeting write controls, unmarked empty rows, detail pages inlining an empty row, unretargeted or 4xx form-row renders; its allowlist: pins, the list-page delete modal, and the settings tables deferred to #687) and `tests/api/admin/test_empty_state_tables.py` (each section's add-first / edit / bad save / delete-last round trip). `test_browser_smoke.py::test_empty_state_row_follows_the_tbody` is the real-htmx seam.
 
 ### Jinja2 include variable scoping
 
-`{% include %}` shares the caller's full template context, but the partial uses variables by name. If a partial references `person_id` while the outer template's context only contains `person`, set the variable explicitly immediately before each `{% include %}`:
+`{% include %}` shares the caller's full template context, but the partial uses variables by name. If a partial references `person_id` while the outer template's context only contains `person`, bind it around the include:
 
 ```html
-{% set person_id = person.id %}
-{% include "admin/people/partials/_name_row.html" %}
+{% with person_id=person.id %}{% include "admin/people/partials/_name_rows.html" %}{% endwith %}
 ```
 
 Do this for every `{% include %}` of that partial in the same template — Jinja2 `{% set %}` in a `{% for %}` loop does not leak out of the loop body.

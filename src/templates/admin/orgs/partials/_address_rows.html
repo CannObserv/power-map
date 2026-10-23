@@ -1,0 +1,7 @@
+{# admin/orgs/partials/_address_rows.html — tbody rows for #addresses-table (#683).
+   Context: addresses, org_id. The detail page and every create/edit/delete render this. #}
+{% for a in addresses %}
+{% include "admin/orgs/partials/_address_row.html" %}
+{% else %}
+<tr data-empty-row><td colspan="5" style="text-align:center;color:var(--color-text-muted)">No locations</td></tr>
+{% endfor %}

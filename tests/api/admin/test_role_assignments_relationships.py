@@ -105,7 +105,9 @@ async def test_create_self_rejected(client, db):
     a = await _assignment(db, "Solo", "Aide")
     rt = await _staff_of_id(db)
     r = await client.post(f"{_base(a)}/", headers=HTMX, data={"target_id": a, "rel_type_id": rt})
-    assert r.status_code == 422
+    # htmx swaps no 4xx: the error is a 200 retargeted onto the form row (#683).
+    assert r.status_code == 200, r.text
+    assert r.headers["HX-Retarget"] == "#relationship-row-new"
     assert "itself" in r.text
 
 
@@ -128,7 +130,9 @@ async def test_create_out_of_window_rejected(client, db):
             "valid_from": "2020-01-01",  # precedes both windows
         },
     )
-    assert r.status_code == 422
+    # htmx swaps no 4xx: the error is a 200 retargeted onto the form row (#683).
+    assert r.status_code == 200, r.text
+    assert r.headers["HX-Retarget"] == "#relationship-row-new"
     assert "outside" in r.text.lower()
 
 
@@ -199,7 +203,9 @@ async def test_create_archived_target_rejected(client, db):
         headers=HTMX,
         data={"target_id": principal, "rel_type_id": rt, "direction": "outgoing"},
     )
-    assert r.status_code == 422, r.text
+    # htmx swaps no 4xx: the error is a 200 retargeted onto the form row (#683).
+    assert r.status_code == 200, r.text
+    assert r.headers["HX-Retarget"] == "#relationship-row-new"
     assert "archived" in r.text
     minted = await db.fetchval(
         "SELECT count(*) FROM role_assignment_relationships WHERE from_assignment_id=$1", staffer

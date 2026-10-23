@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
+from src.api.admin._contacts_shared import fetch_contact_tables, fetch_contacts
 from src.api.admin.deps import get_db
 from src.api.main import app
 from src.core.db import generate_id
@@ -266,3 +267,28 @@ async def test_contact_edit_phone_invalid_returns_form_with_error(client, person
     assert r.status_code == 200
     assert "<form" in r.text
     assert "alert--error" in r.text
+
+
+async def test_fetch_contact_tables_matches_per_type_fetch(db):
+    """Detail pages read both contact tables in one query (CR 3, #683), in the
+    same order the per-type write re-render uses — first paint can't drift."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    for ctype, value in [
+        ("email", "b@example.com"),
+        ("phone", "+12065550101"),
+        ("email", "a@example.com"),
+        ("phone", "+12065550100"),
+    ]:
+        await db.execute(
+            "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value)"
+            " VALUES ($1, 'person', $2, $3, $4)",
+            generate_id(),
+            pid,
+            ctype,
+            value,
+        )
+    emails, phones = await fetch_contact_tables(db, "person", pid)
+    assert [c["value"] for c in emails] == ["a@example.com", "b@example.com"]
+    assert emails == await fetch_contacts(db, "person", pid, "email")
+    assert phones == await fetch_contacts(db, "person", pid, "phone")

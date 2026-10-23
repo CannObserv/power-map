@@ -349,18 +349,12 @@ def test_child_form_uses_scoped_search_endpoint():
     assert 'hx-get="/admin/orgs/search/"' not in CHILD_FORM
 
 
-def test_child_form_targets_own_row_on_submit():
-    """On successful add, the form row must replace itself (outerHTML swap).
-
-    Targeting tbody with afterbegin inserts the new child row but leaves the
-    form row in the DOM — the row never clears after submit.
-
-    Issue #125: hx-target is now `#child-row-{{ row_key }}`, so render the
-    template to materialise the suffix before asserting.
-    """
+def test_child_form_rerenders_the_tbody_on_submit():
+    """The add form re-renders the whole tbody (#683): the server answers with
+    every child row (the form row is gone, the empty-state row dropped)."""
     rendered = _render_child_form()
-    assert 'hx-target="#child-row-new"' in rendered
-    assert 'hx-swap="outerHTML"' in rendered
+    assert 'hx-target="#children-table tbody"' in rendered
+    assert 'hx-swap="innerHTML"' in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -524,7 +518,10 @@ def test_names_empty_state_colspan_matches_header_columns():
     empty state; tie it to the live header column count.
     """
     header_cols = _names_header_column_count()
-    match = re.search(r'colspan="(\d+)"[^>]*>\s*No names', DETAIL_HTML)
+    # The detail page includes the rows partial (#683); the empty row lives there.
+    assert '{% include "admin/orgs/partials/_name_rows.html" %}' in DETAIL_HTML
+    rows_html = Path("src/templates/admin/orgs/partials/_name_rows.html").read_text()
+    match = re.search(r'colspan="(\d+)"[^>]*>\s*No names', rows_html)
     assert match, "names-table `No names` empty-state row not found"
     assert int(match.group(1)) == header_cols, (
         f"`No names` colspan is {match.group(1)} but the header declares {header_cols} columns"

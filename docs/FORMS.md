@@ -154,7 +154,7 @@ The address create and edit routes accept a `mode` form field:
 | `mode` value | Behaviour |
 |---|---|
 | `confirm` (default) | Normalize input; if result differs, return the confirm modal via `HX-Retarget` |
-| `save` | Skip normalization; persist immediately and return the updated row |
+| `save` | Skip normalization; persist immediately and return the whole `#addresses-table` tbody (#683); a validation error re-renders the form row via `retarget_form_row` |
 
 The form row's `hx-post` always omits `mode` (defaults to `confirm`). The confirm modal's action buttons submit `mode=save`.
 

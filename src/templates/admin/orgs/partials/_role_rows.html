@@ -8,5 +8,5 @@
   <td style="text-align:right">{% if role.current_count %}<span class="badge badge--active">{{ role.current_count }}</span>{% else %}<span style="color:var(--color-text-muted)">0</span>{% endif %}</td>
 </tr>
 {% else %}
-<tr><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No roles</td></tr>
+<tr data-empty-row><td colspan="4" style="text-align:center;color:var(--color-text-muted)">No roles</td></tr>
 {% endfor %}

@@ -1,7 +1,6 @@
 """Integration tests for person links CRUD (parity with test_orgs_links.py)."""
 
 import json
-import re
 
 import pytest
 import pytest_asyncio
@@ -210,7 +209,7 @@ async def test_links_update_to_existing_returns_409_not_500(client, person_and_l
     """
     pid, _ = person_and_link  # fixture has https://example.com (website)
     lt_id = await _get_link_type_id(db)
-    # Create a second distinct link; parse its id from the response row.
+    # Create a second distinct link.
     r = await client.post(
         f"/admin/people/{pid}/links/",
         headers=HTMX_HEADERS,
@@ -221,9 +220,12 @@ async def test_links_update_to_existing_returns_409_not_500(client, person_and_l
         },
     )
     assert r.status_code == 200
-    m = re.search(r'id="link-row-([0-9A-Z]+)"', r.text)
-    assert m, f"could not parse link id from response: {r.text[:200]}"
-    other_lid = m.group(1)
+    # The response is the whole tbody (#683); read the new link's id back.
+    other_lid = await db.fetchval(
+        "SELECT id FROM links WHERE url = 'https://other.example.com' AND entity_id = $1",
+        pid,
+    )
+    assert other_lid
     r = await client.post(
         f"/admin/people/{pid}/links/{other_lid}/edit-row/",
         headers=HTMX_HEADERS,

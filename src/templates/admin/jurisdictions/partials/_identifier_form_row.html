@@ -3,12 +3,11 @@
   <td colspan="3" style="padding:var(--space-2) var(--space-4)">
     <form {% if ident %}
           hx-post="/admin/jurisdictions/{{ jurisdiction_id }}/identifiers/{{ ident.id }}/edit-row/"
-          hx-target="#identifier-row-{{ ident.id }}"
           {% else %}
           hx-post="/admin/jurisdictions/{{ jurisdiction_id }}/identifiers/"
-          hx-target="#identifier-row-new"
           {% endif %}
-          hx-swap="outerHTML"
+          hx-target="#identifiers-table tbody"
+          hx-swap="innerHTML"
           style="display:flex;gap:var(--space-2);align-items:center">
       <div class="form-group" style="margin-bottom:0;min-width:8rem">
         <select name="entity_identifier_type_id" aria-label="Identifier type">

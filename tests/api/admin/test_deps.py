@@ -14,11 +14,13 @@ from src.api.admin.deps import (
     SHARED_FLASH_MESSAGES,
     AdminUser,
     flash_trigger,
+    form_row_status,
     get_admin_user,
     get_db,
     is_htmx,
     parse_validity_fields,
     resolve_query_flash,
+    retarget_form_row,
     with_flash,
 )
 from src.api.main import app
@@ -133,6 +135,43 @@ def test_is_htmx_returns_false_for_boosted_request():
     request = MagicMock()
     request.headers = {"HX-Request": "true", "HX-Boosted": "true"}
     assert is_htmx(request) is False
+
+
+def _headers_req(headers: dict):
+    request = MagicMock()
+    request.headers = headers
+    return request
+
+
+def test_retarget_form_row_lands_on_the_row_outer_html():
+    """An error re-render replaces its own form row, not the tbody (#683)."""
+    assert retarget_form_row("link-row-new") == {
+        "HX-Retarget": "#link-row-new",
+        "HX-Reswap": "outerHTML",
+    }
+
+
+def test_form_row_status_plain_200_without_errors():
+    """The blank new-row: no retarget, whoever asks."""
+    assert form_row_status(_headers_req({"HX-Request": "true"}), {}, 422, "x-row-new") == {
+        "status_code": 200
+    }
+    assert form_row_status(_headers_req({}), {}, 422, "x-row-new") == {"status_code": 200}
+
+
+def test_form_row_status_htmx_error_is_200_retargeted():
+    """htmx swaps no 4xx: an HTMX error is a 200 landed on the form row (#683)."""
+    assert form_row_status(_headers_req({"HX-Request": "true"}), {"f": "bad"}, 422, "x-row-7") == {
+        "status_code": 200,
+        "headers": retarget_form_row("x-row-7"),
+    }
+
+
+def test_form_row_status_non_htmx_error_keeps_the_4xx():
+    for headers in ({}, {"HX-Request": "true", "HX-Boosted": "true"}):
+        assert form_row_status(_headers_req(headers), {"f": "bad"}, 409, "x-row-new") == {
+            "status_code": 409
+        }
 
 
 def test_flash_trigger_returns_hx_trigger_header():

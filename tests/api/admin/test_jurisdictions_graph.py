@@ -155,7 +155,9 @@ async def test_relationship_add_self_rejected(client, two_jurs, rel_types):
             "direction": "outgoing",
         },
     )
-    assert r.status_code == 422
+    # htmx swaps no 4xx: the error is a 200 retargeted onto the form row (#683).
+    assert r.status_code == 200, r.text
+    assert r.headers["HX-Retarget"] == "#relationship-row-new"
 
 
 async def test_relationship_add_invalid_range(client, two_jurs, rel_types):
@@ -170,7 +172,9 @@ async def test_relationship_add_invalid_range(client, two_jurs, rel_types):
             "valid_until": "2010-01-01",
         },
     )
-    assert r.status_code == 422
+    # htmx swaps no 4xx: the error is a 200 retargeted onto the form row (#683).
+    assert r.status_code == 200, r.text
+    assert r.headers["HX-Retarget"] == "#relationship-row-new"
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +229,9 @@ async def test_relationship_edit_invalid_range(client, two_jurs, rel_types, db):
         headers=HX,
         data={"valid_from": "2020-01-01", "valid_until": "2010-01-01"},
     )
-    assert r.status_code == 422
+    # htmx swaps no 4xx: the error is a 200 retargeted onto the form row (#683).
+    assert r.status_code == 200, r.text
+    assert r.headers["HX-Retarget"] == f"#relationship-row-{rid}"
 
 
 async def test_relationship_delete(client, two_jurs, rel_types, db):

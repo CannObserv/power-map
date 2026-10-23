@@ -9,12 +9,13 @@ inline-edit validity (the temporal *end* of a relationship), and hard-delete
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import (
     AdminUser,
     flash_trigger,
+    form_row_status,
     get_admin_user,
     get_db,
     is_htmx,
@@ -30,7 +31,7 @@ router = APIRouter(
 )
 
 # One edge joined to its type + both endpoint names (for row rendering).
-_REL_ROW_SQL = """
+_REL_SELECT = """
     SELECT jr.id, jr.from_id, jr.to_id, jr.rel_type_id,
            jr.valid_from, jr.valid_until, jr.notes,
            jrt.display_name AS rel_type_name, jrt.category, jrt.is_symmetric,
@@ -39,8 +40,33 @@ _REL_ROW_SQL = """
     JOIN jurisdiction_relationship_types jrt ON jrt.id = jr.rel_type_id
     JOIN jurisdictions jf ON jf.id = jr.from_id
     JOIN jurisdictions jto ON jto.id = jr.to_id
-    WHERE jr.id = $1
 """
+_REL_ROW_SQL = _REL_SELECT + "    WHERE jr.id = $1\n"
+# The panel's rows: every non-lineage edge touching the jurisdiction (lineage
+# edges have their own panel, fetch_lineage). Shared with the detail route.
+_PANEL_SQL = (
+    _REL_SELECT
+    + "    WHERE (jr.from_id = $1 OR jr.to_id = $1) AND jrt.category <> 'lineage'\n"
+    + "    ORDER BY jrt.category, jrt.display_name, jr.created_at, jr.id\n"
+)
+
+
+async def fetch_jurisdiction_relationships(db, jurisdiction_id: str) -> list:
+    """The Relationships panel's rows (detail page and every write, #683)."""
+    return await db.fetch(_PANEL_SQL, jurisdiction_id)
+
+
+async def _rows_response(request, jurisdiction_id: str, db, headers: dict):
+    """The whole ``#relationships-table`` tbody (#683)."""
+    return templates.TemplateResponse(
+        request,
+        "admin/jurisdictions/partials/_relationship_rows.html",
+        {
+            "jurisdiction_id": jurisdiction_id,
+            "relationships": await fetch_jurisdiction_relationships(db, jurisdiction_id),
+        },
+        headers=headers,
+    )
 
 
 async def _get_jurisdiction_or_404(jurisdiction_id: str, db):
@@ -88,7 +114,7 @@ async def _render_add_form(request, jurisdiction_id, db, *, values, errors, stat
             "errors": errors,
             "rel": None,
         },
-        status_code=status_code,
+        **form_row_status(request, errors, status_code, "relationship-row-new"),
     )
 
 
@@ -173,16 +199,12 @@ async def relationship_create(
             request, jurisdiction_id, db, values=values, errors=errors, status_code=422
         )
 
-    row = await db.fetchrow(_REL_ROW_SQL, rid)
     if not is_htmx(request):
         return RedirectResponse(
             with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "saved"), status_code=303
         )
-    return templates.TemplateResponse(
-        request,
-        "admin/jurisdictions/partials/_relationship_row.html",
-        {"jurisdiction_id": jurisdiction_id, "rel": row},
-        headers=flash_trigger("success", "Relationship added."),
+    return await _rows_response(
+        request, jurisdiction_id, db, flash_trigger("success", "Relationship added.")
     )
 
 
@@ -240,7 +262,7 @@ async def relationship_edit_row_post(
             request,
             "admin/jurisdictions/partials/_relationship_edit_row.html",
             {"jurisdiction_id": jurisdiction_id, "rel": row, "errors": errors},
-            status_code=422,
+            **form_row_status(request, errors, 422, f"relationship-row-{rel_id}"),
         )
     try:
         await db.execute(
@@ -260,18 +282,14 @@ async def relationship_edit_row_post(
             request,
             "admin/jurisdictions/partials/_relationship_edit_row.html",
             {"jurisdiction_id": jurisdiction_id, "rel": row, "errors": errors},
-            status_code=422,
+            **form_row_status(request, errors, 422, f"relationship-row-{rel_id}"),
         )
-    updated = await db.fetchrow(_REL_ROW_SQL, rel_id)
     if not is_htmx(request):
         return RedirectResponse(
             with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "saved"), status_code=303
         )
-    return templates.TemplateResponse(
-        request,
-        "admin/jurisdictions/partials/_relationship_row.html",
-        {"jurisdiction_id": jurisdiction_id, "rel": updated},
-        headers=flash_trigger("success", "Relationship saved."),
+    return await _rows_response(
+        request, jurisdiction_id, db, flash_trigger("success", "Relationship saved.")
     )
 
 
@@ -290,6 +308,6 @@ async def relationship_delete(
         return RedirectResponse(
             with_flash(f"/admin/jurisdictions/{jurisdiction_id}/", "removed"), status_code=303
         )
-    return HTMLResponse(
-        content="", status_code=200, headers=flash_trigger("success", "Relationship removed.")
+    return await _rows_response(
+        request, jurisdiction_id, db, flash_trigger("success", "Relationship removed.")
     )

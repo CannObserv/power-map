@@ -10,13 +10,14 @@ DB guards ``chk_no_self_rel_assignment`` / ``chk_edge_valid_range`` backstop it.
 
 import asyncpg
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import (
     AdminUser,
     escape_like,
     flash_trigger,
+    form_row_status,
     get_admin_user,
     get_db,
     is_htmx,
@@ -66,6 +67,16 @@ async def fetch_panel_rows(db, ra_id: str):
     """Active relationship rows touching ``ra_id`` (both directions). Shared with
     the role-assignment detail route so the panel renders on first paint."""
     return await db.fetch(_PANEL_SQL, ra_id)
+
+
+async def _rows_response(request, ra_id: str, db, headers: dict):
+    """The whole ``#relationships-table`` tbody (#683)."""
+    return templates.TemplateResponse(
+        request,
+        "admin/role_assignments/partials/_relationship_rows.html",
+        {"ra_id": ra_id, "relationships": await fetch_panel_rows(db, ra_id)},
+        headers=headers,
+    )
 
 
 async def _get_ra_or_404(ra_id: str, db):
@@ -120,7 +131,7 @@ async def _render_add_form(request, ra_id, db, *, values, errors, status_code=20
             "target_label": values.get("target_label", ""),
             "errors": errors,
         },
-        status_code=status_code,
+        **form_row_status(request, errors, status_code, "relationship-row-new"),
     )
 
 
@@ -250,17 +261,11 @@ async def relationship_create(
             request, ra_id, db, values=values, errors=errors, status_code=422
         )
 
-    row = await db.fetchrow(_REL_ROW_SQL, rid)
     if not is_htmx(request):
         return RedirectResponse(
             with_flash(f"/admin/role-assignments/{ra_id}/", "saved"), status_code=303
         )
-    return templates.TemplateResponse(
-        request,
-        "admin/role_assignments/partials/_relationship_row.html",
-        {"ra_id": ra_id, "rel": row},
-        headers=flash_trigger("success", "Relationship added."),
-    )
+    return await _rows_response(request, ra_id, db, flash_trigger("success", "Relationship added."))
 
 
 @router.get("/{rel_id}/read-row/")
@@ -324,7 +329,7 @@ async def relationship_edit_row_post(
             request,
             "admin/role_assignments/partials/_relationship_edit_row.html",
             {"ra_id": ra_id, "rel": row, "errors": errors},
-            status_code=422,
+            **form_row_status(request, errors, 422, f"relationship-row-{rel_id}"),
         )
     try:
         await db.execute(
@@ -341,19 +346,13 @@ async def relationship_edit_row_post(
             request,
             "admin/role_assignments/partials/_relationship_edit_row.html",
             {"ra_id": ra_id, "rel": row, "errors": errors},
-            status_code=422,
+            **form_row_status(request, errors, 422, f"relationship-row-{rel_id}"),
         )
-    updated = await db.fetchrow(_REL_ROW_SQL, rel_id)
     if not is_htmx(request):
         return RedirectResponse(
             with_flash(f"/admin/role-assignments/{ra_id}/", "saved"), status_code=303
         )
-    return templates.TemplateResponse(
-        request,
-        "admin/role_assignments/partials/_relationship_row.html",
-        {"ra_id": ra_id, "rel": updated},
-        headers=flash_trigger("success", "Relationship saved."),
-    )
+    return await _rows_response(request, ra_id, db, flash_trigger("success", "Relationship saved."))
 
 
 @router.delete("/{rel_id}/")
@@ -375,6 +374,6 @@ async def relationship_delete(
         return RedirectResponse(
             with_flash(f"/admin/role-assignments/{ra_id}/", "removed"), status_code=303
         )
-    return HTMLResponse(
-        content="", status_code=200, headers=flash_trigger("success", "Relationship removed.")
+    return await _rows_response(
+        request, ra_id, db, flash_trigger("success", "Relationship removed.")
     )
