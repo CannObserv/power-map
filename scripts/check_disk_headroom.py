@@ -19,27 +19,52 @@ A nearly full disk is exactly when ``uv run`` may fail to write what it needs,
 so this file imports nothing from the repo and logs with plain ``logging`` to
 stderr (the journal), as ``status_checkin.py`` does.
 
-Exit codes: 0 = below the threshold; 3 = at or above it (the unit checks in
-``low-headroom``; the next green run's ``ok`` clears the fault); 2 = usage error.
+**Hysteresis (#690).** It alerts at ``--alert-at`` (85) and clears only at or
+below ``--clear-at`` (80); a reading between the two keeps the previous state.
+One pre-commit test run holds ~0.5G under ``/tmp`` until the next, so with the
+baseline just under 85% every commit crossed the line both ways, and each
+crossing was its own page and clear. The state is one line (``alert`` or
+``ok``) in ``$STATE_DIRECTORY/state``, which the unit's ``StateDirectory=``
+provides. A missing, unreadable or unrecognised file reads as ``ok``; with no
+``$STATE_DIRECTORY`` (a run by hand) nothing is read or written, so the band
+reads ``ok``. A held alert exits 3 again, so the unit keeps checking in
+``low-headroom`` and ``missing`` means what it did.
+
+**Journal priority matches the level (#690).** journald files a plain stderr
+line at ``info``, so ``journalctl -p err`` never saw an alert. When stderr is
+the journal (``$JOURNAL_STREAM`` names it), each line starts with its syslog
+``<N>``, which systemd's default ``SyslogLevelPrefix=yes`` turns into the
+entry's priority. Off the journal the lines read plain.
+
+Exit codes: 0 = ok (below the alert line and not held); 3 = alerting, at or
+above the alert line or held in the band (the unit checks in ``low-headroom``;
+the first ``ok`` clears the fault); 2 = usage error.
 
 Usage:
-    /usr/bin/python3 scripts/check_disk_headroom.py                # alert at 85%
+    /usr/bin/python3 scripts/check_disk_headroom.py                # alert 85%, clear 80%
     /usr/bin/python3 scripts/check_disk_headroom.py --alert-at 1   # prove it fires
 """
 
 import argparse
+import io
 import logging
 import math
 import os
 import sys
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TextIO
 
 logger = logging.getLogger("check_disk_headroom")
 
 DEFAULT_PATH = "/"
 DEFAULT_ALERT_AT = 85
+DEFAULT_CLEAR_AT = 80
+# One line, ``alert`` or ``ok``, under the unit's StateDirectory= (#690).
+STATE_FILE = "state"
+ALERT = "alert"
+OK = "ok"
 HOME = Path("/home/exedev")
 # What has filled this disk before (#665's table), checked only on an alert.
 CONSUMER_PATHS = (
@@ -113,14 +138,17 @@ def _human(n: int) -> str:
     return f"{value:.1f}G"
 
 
-def _percent(raw: str) -> int:
-    try:
-        value = int(raw)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"not an integer: {raw!r}") from None
-    if not 1 <= value <= 100:
-        raise argparse.ArgumentTypeError(f"must be 1-100, got {value}")
-    return value
+def _bounded(low: int, high: int) -> Callable[[str], int]:
+    def parse(raw: str) -> int:
+        try:
+            value = int(raw)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"not an integer: {raw!r}") from None
+        if not low <= value <= high:
+            raise argparse.ArgumentTypeError(f"must be {low}-{high}, got {value}")
+        return value
+
+    return parse
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -131,34 +159,139 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--path", default=DEFAULT_PATH, help="filesystem to check (default /)")
     parser.add_argument(
         "--alert-at",
-        type=_percent,
+        type=_bounded(1, 100),
         default=DEFAULT_ALERT_AT,
         help=f"alert when Use%% is at or above this (default {DEFAULT_ALERT_AT})",
     )
+    parser.add_argument(
+        "--clear-at",
+        type=_bounded(0, 99),
+        default=None,
+        help=(
+            "once alerting, clear only when Use%% is at or below this; must be under "
+            f"--alert-at (default {DEFAULT_CLEAR_AT}, or --alert-at minus 1 when lower)"
+        ),
+    )
     return parser
+
+
+# --- state (#690) --------------------------------------------------------------
+
+
+def state_path(environ: Mapping[str, str]) -> Path | None:
+    """The state file under systemd's ``$STATE_DIRECTORY``, or None outside the unit."""
+    directory = environ.get("STATE_DIRECTORY", "").split(":")[0]
+    return Path(directory) / STATE_FILE if directory else None
+
+
+def read_state(path: Path | None) -> str:
+    """The previous state; anything but a readable ``alert`` line is ``ok``."""
+    if path is None:
+        return OK
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return OK
+    return ALERT if text.strip() == ALERT else OK
+
+
+def write_state(path: Path | None, state: str) -> None:
+    """Record ``state`` atomically; a failure is a warning, never the run's result."""
+    if path is None:
+        return
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(state + "\n")
+        os.replace(tmp, path)
+    except OSError as exc:
+        logger.warning("could not record state %r in %s: %s", state, path, exc)
+
+
+def decide(percent: int, alert_at: int, clear_at: int, previous: str) -> str:
+    """``alert`` at or above the alert line, ``ok`` at or below the clear line,
+    and the previous state in between."""
+    if percent >= alert_at:
+        return ALERT
+    if percent <= clear_at:
+        return OK
+    return previous
+
+
+# --- journal priority (#690) ---------------------------------------------------
+
+# logging level -> syslog priority, for systemd's SyslogLevelPrefix=.
+_SYSLOG_PRIORITY = {
+    logging.CRITICAL: 2,
+    logging.ERROR: 3,
+    logging.WARNING: 4,
+    logging.INFO: 6,
+    logging.DEBUG: 7,
+}
+LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"
+
+
+class _JournalFormatter(logging.Formatter):
+    """Prefixes each line with its ``<N>`` syslog priority."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        priority = _SYSLOG_PRIORITY.get(record.levelno, 6)
+        return f"<{priority}>{super().format(record)}"
+
+
+def _is_journal(stream: TextIO, environ: Mapping[str, str]) -> bool:
+    """True when ``stream`` is the journal stream systemd names in ``$JOURNAL_STREAM``."""
+    try:
+        st = os.fstat(stream.fileno())
+    except (OSError, ValueError, io.UnsupportedOperation):
+        return False
+    return environ.get("JOURNAL_STREAM") == f"{st.st_dev}:{st.st_ino}"
+
+
+def log_handler(stream: TextIO, environ: Mapping[str, str]) -> logging.Handler:
+    """A stderr handler whose lines carry their journal priority when on the journal."""
+    handler = logging.StreamHandler(stream)
+    cls = _JournalFormatter if _is_journal(stream, environ) else logging.Formatter
+    handler.setFormatter(cls(LOG_FORMAT))
+    return handler
 
 
 def main(
     argv: Sequence[str] | None = None,
     usage_fn: Callable[[str], Usage] = usage,
     consumers_fn: Callable[[Iterable[Path]], list[tuple[Path, int]]] = consumers,
+    environ: Mapping[str, str] | None = None,
 ) -> int:
     """Check once; return the exit code."""
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    clear_at = args.clear_at
+    if clear_at is None:
+        clear_at = min(DEFAULT_CLEAR_AT, args.alert_at - 1)
+    elif clear_at >= args.alert_at:
+        parser.error(f"--clear-at ({clear_at}) must be below --alert-at ({args.alert_at})")
+    path = state_path(os.environ if environ is None else environ)
+    previous = read_state(path)
     u = usage_fn(args.path)
+    state = decide(u.percent, args.alert_at, clear_at, previous)
     summary = (
         f"{args.path} is {u.percent}% used, {_human(u.avail_bytes)} available "
-        f"(alert at {args.alert_at}%)"
+        f"(alert at {args.alert_at}%, clears at {clear_at}%)"
     )
-    if u.percent < args.alert_at:
-        logger.info(summary)
+    if state != previous:
+        write_state(path, state)
+    if state == OK:
+        if previous == ALERT:
+            logger.info("headroom recovered: %s", summary)
+        else:
+            logger.info(summary)
         return 0
-    logger.error("low headroom: %s", summary)
-    for path, size in consumers_fn(CONSUMER_PATHS):
-        logger.error("  %8s  %s", _human(size), path)
+    held = " (held: not yet at the clear line)" if u.percent < args.alert_at else ""
+    logger.error("low headroom%s: %s", held, summary)
+    for consumer, size in consumers_fn(CONSUMER_PATHS):
+        logger.error("  %8s  %s", _human(size), consumer)
     return 3
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=logging.INFO, handlers=[log_handler(sys.stderr, os.environ)])
     sys.exit(main())

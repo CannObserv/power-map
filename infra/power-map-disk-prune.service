@@ -1,5 +1,5 @@
 [Unit]
-Description=power-map weekly root-disk prune (issue #665)
+Description=power-map daily root-disk prune (issues #665, #690)
 After=local-fs.target
 
 [Service]
@@ -25,6 +25,10 @@ TimeoutStartSec=1800
 # Housekeeping on the production VM: yield CPU and disk to the API.
 Nice=10
 IOSchedulingClass=idle
+# systemd's default, stated because the script relies on it (#690): its `<4>`
+# etc. line prefixes become journal priorities, so `journalctl -p warning`
+# finds a withheld or failed path.
+SyslogLevelPrefix=yes
 
 # After every run, ok or alert, a check-in with co-status (#566): a failed run
 # reaches a person through Notifier, and a run that never happens goes `missing`.

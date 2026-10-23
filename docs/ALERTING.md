@@ -21,6 +21,9 @@ result (`exit-code`, `timeout`, `signal`, …) or the script's own name for the
 exit from the unit's `STATUS_EXIT_KINDS` (`3:drift`), and `metadata.fault = kind`
 so a change of failure reports at once. A run that never happens (timer
 disabled, unit not reinstalled, VM down, tailnet gone) goes `missing` there.
+The disk-headroom guard holds an alert (#690): it alerts at 85% and keeps
+exiting 3 until `/` is at or below 80%, so its `ok` means recovered, not a
+one-point dip under the line.
 `tests/test_infra_alerting.py` fails on a timer without the hook.
 
 - **Best-effort.** The command carries `-` and always exits 0: a check-in that

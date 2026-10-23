@@ -1,4 +1,4 @@
-"""Tests for scripts.prune_disk — the weekly root-disk prune (#665).
+"""Tests for scripts.prune_disk — the daily root-disk prune (#665, #690).
 
 What it may remove grows without bound and nothing else removes it: a VS Code
 server build per client update (~650M), a Claude Code extension version per

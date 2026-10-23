@@ -1,10 +1,14 @@
 [Unit]
-Description=power-map weekly root-disk prune (issue #665)
+Description=power-map daily root-disk prune (issues #665, #690)
 
 [Timer]
-# Sundays 05:30 UTC: a quiet hour, after the 04:00 a11y sweep has finished. A
-# new VS Code server build lands about weekly, so weekly keeps pace with it.
-OnCalendar=Sun *-*-* 05:30:00 UTC
+# Daily 05:30 UTC: a quiet hour, after the Sunday 04:00 a11y sweep has
+# finished. Weekly until #690: VS Code shipped two ~640M server builds in one
+# week (10-21, 10-23) and three servers sat on disk, taking `/` from 71% to 85%
+# before Sunday came. Daily removes a superseded build within a day of the
+# window reconnecting to the new one; the in-use and one-hour grace rules
+# still hold back anything live or just installed.
+OnCalendar=*-*-* 05:30:00 UTC
 Persistent=true
 RandomizedDelaySec=300
 
