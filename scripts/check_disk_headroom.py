@@ -259,7 +259,6 @@ def main(
     argv: Sequence[str] | None = None,
     usage_fn: Callable[[str], Usage] = usage,
     consumers_fn: Callable[[Iterable[Path]], list[tuple[Path, int]]] = consumers,
-    environ: Mapping[str, str] | None = None,
 ) -> int:
     """Check once; return the exit code."""
     parser = build_parser()
@@ -269,7 +268,7 @@ def main(
         clear_at = min(DEFAULT_CLEAR_AT, args.alert_at - 1)
     elif clear_at >= args.alert_at:
         parser.error(f"--clear-at ({clear_at}) must be below --alert-at ({args.alert_at})")
-    path = state_path(os.environ if environ is None else environ)
+    path = state_path(os.environ)
     previous = read_state(path)
     u = usage_fn(args.path)
     state = decide(u.percent, args.alert_at, clear_at, previous)
