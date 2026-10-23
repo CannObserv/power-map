@@ -27,6 +27,12 @@ badge's link: the host's own ``hx-target="this"``, inherited, loaded the
 duplicates page into the badge. The static rule is
 ``test_self_loading_hosts.py``; these are the real-htmx seam.
 
+``test_empty_state_row_follows_the_tbody`` (#683) cancels a new link row, adds
+the first link and deletes it on an empty org: every write's answer is the whole
+tbody, so the ``data-empty-row`` row leaves and returns with it. The static rule
+is ``test_empty_state_sweep.py``; per-section round trips are
+``test_empty_state_tables.py``.
+
 Every navigation goes through ``goto_with_retry`` (#436) — a bounded retry on
 Chromium renderer crashes, which this VM produces on ~1% of navigations.
 
@@ -34,8 +40,8 @@ Runs on the shared browser-tier session fixtures in ``conftest.py`` (#300/#426):
 ``live_server`` + ``page`` + ``seeded_ids``. Rows a flow mutates or depends on
 beyond that seed are module-owned fixtures below — ``merge_pair`` (the merge
 deletes one), ``dup_twins`` (a person dup count), ``in_scope_ids`` (producer-scope
-rows) — so the shared session seed other files rely on stays as seeded. Session
-teardown truncates, so no cleanup is needed.
+rows), ``empty_org`` (a link-less org) — so the shared session seed other files
+rely on stays as seeded. Session teardown truncates, so no cleanup is needed.
 
 Run (isolated, marker-gated — same constraints as ``test_a11y_browser.py``)::
 
