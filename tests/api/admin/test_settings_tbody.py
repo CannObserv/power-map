@@ -123,6 +123,20 @@ async def _seed_type(db, t: TypeTable, name: str) -> tuple[str, str]:
     return tid, slug
 
 
+_OTHER_SCOPE = {TABLES[1]: TABLES[2], TABLES[2]: TABLES[1]}
+
+
+async def _seed_other_scope(db, t: TypeTable) -> str | None:
+    """A row in the other link-type scope, which this scope's tbody must not show."""
+    other = _OTHER_SCOPE.get(t)
+    return (await _seed_type(db, other, "Tbody Other Scope"))[0] if other else None
+
+
+def _assert_scoped(html: str, t: TypeTable, foreign: str | None) -> None:
+    if foreign:
+        assert f"{t.row_prefix}-{foreign}" not in html, "another scope's row leaked in"
+
+
 @pytest.mark.parametrize("t", TABLES, ids=_IDS)
 async def test_page_tbody_and_new_row_ids(client, t):
     page = await client.get(t.page, headers=AUTH_HEADERS)
@@ -136,6 +150,7 @@ async def test_page_tbody_and_new_row_ids(client, t):
 @pytest.mark.parametrize("t", TABLES, ids=_IDS)
 async def test_create_returns_the_rows(client, db, t):
     sibling, _ = await _seed_type(db, t, "Tbody Sibling")  # don't lean on the reference seed
+    foreign = await _seed_other_scope(db, t)
     slug = f"tbody-new-{generate_id().lower()}"
     r = await client.post(t.base, headers=HTMX_HEADERS, data=t.form("Tbody Created", slug))
     assert r.status_code == 200
@@ -143,12 +158,14 @@ async def test_create_returns_the_rows(client, db, t):
     assert slug in r.text
     assert f"{t.row_prefix}-{sibling}" in r.text  # every row, not just the new one
     assert EMPTY_MARKER not in r.text
+    _assert_scoped(r.text, t, foreign)
 
 
 @pytest.mark.parametrize("t", TABLES, ids=_IDS)
 async def test_edit_returns_the_rows(client, db, t):
     tid, slug = await _seed_type(db, t, "Tbody Before")
     sibling, _ = await _seed_type(db, t, "Tbody Sibling")
+    foreign = await _seed_other_scope(db, t)
     edit = await client.get(f"{t.base}{tid}/edit-row/", headers=HTMX_HEADERS)
     assert f'hx-target="#{t.tbody_id}"' in edit.text
 
@@ -159,16 +176,19 @@ async def test_edit_returns_the_rows(client, db, t):
     assert "Tbody After" in r.text
     assert f"{t.row_prefix}-{sibling}" in r.text
     assert EMPTY_MARKER not in r.text
+    _assert_scoped(r.text, t, foreign)
 
 
 @pytest.mark.parametrize("t", TABLES, ids=_IDS)
 async def test_delete_returns_the_remaining_rows(client, db, t):
     tid, _ = await _seed_type(db, t, "Tbody Doomed")
     keep, _ = await _seed_type(db, t, "Tbody Kept")
+    foreign = await _seed_other_scope(db, t)
     r = await client.delete(f"{t.base}{tid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert f"{t.row_prefix}-{tid}" not in r.text
     assert f"{t.row_prefix}-{keep}" in r.text
+    _assert_scoped(r.text, t, foreign)
 
 
 @pytest.mark.parametrize("t", TABLES, ids=_IDS)
