@@ -240,6 +240,22 @@ async def test_bad_edit_lands_on_its_row(client, db, t):
     assert (row["slug"], row["display_name"]) == (slug, "Tbody Edited")
 
 
+@pytest.mark.parametrize("t", TABLES, ids=_IDS)
+async def test_read_row_is_the_tables_query_narrowed(client, db, t):
+    """Cancel's read-row renders from the fetch function (CR 10): one row, and a
+    404 for an unknown id or (link types) the other scope's id."""
+    tid, _ = await _seed_type(db, t, "Tbody Read")
+    r = await client.get(f"{t.base}{tid}/read-row/", headers=HTMX_HEADERS)
+    assert r.status_code == 200
+    assert r.text.count("<tr") == 1 and f'id="{t.row_prefix}-{tid}"' in r.text
+    missing = await client.get(f"{t.base}{generate_id()}/read-row/", headers=HTMX_HEADERS)
+    assert missing.status_code == 404
+    foreign = await _seed_other_scope(db, t)
+    if foreign:
+        r = await client.get(f"{t.base}{foreign}/read-row/", headers=HTMX_HEADERS)
+        assert r.status_code == 404
+
+
 async def test_invalid_entity_type_lands_on_the_new_row(client):
     data = {**IDENTIFIER_TYPES.form("Tbody", "tbody-bad-et"), "entity_type": "role"}
     r = await client.post(IDENTIFIER_TYPES.base, headers=HTMX_HEADERS, data=data)

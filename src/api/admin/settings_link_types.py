@@ -33,18 +33,22 @@ def _scope_to_is_social(scope: str) -> bool:
     return _SCOPE_MAP[scope]
 
 
-async def fetch_link_types(db, is_social: bool) -> list:
-    """One scope's link types with usage counts — the table's one query (#687)."""
+async def fetch_link_types(db, is_social: bool, item_id: str | None = None) -> list:
+    """One scope's link types with usage counts — the table's one query (#687).
+
+    ``item_id`` narrows it to one row, for read-row (Cancel).
+    """
     return await db.fetch(
         """
         SELECT lt.*, COUNT(l.id) AS usage_count
         FROM link_types lt
         LEFT JOIN links l ON l.link_type_id = lt.id
-        WHERE lt.is_social = $1
+        WHERE lt.is_social = $1 AND ($2::text IS NULL OR lt.id = $2)
         GROUP BY lt.id
         ORDER BY lt.display_name, lt.id
         """,
         is_social,
+        item_id,
     )
 
 
@@ -217,18 +221,8 @@ async def link_type_read_row(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    is_social = _scope_to_is_social(scope)
-    row = await db.fetchrow(
-        """
-        SELECT lt.*, COUNT(l.id) AS usage_count
-        FROM link_types lt
-        LEFT JOIN links l ON l.link_type_id = lt.id
-        WHERE lt.id = $1 AND lt.is_social = $2
-        GROUP BY lt.id
-        """,
-        item_id,
-        is_social,
-    )
+    rows = await fetch_link_types(db, _scope_to_is_social(scope), item_id)
+    row = rows[0] if rows else None
     if not row:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(

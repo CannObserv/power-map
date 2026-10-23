@@ -28,16 +28,21 @@ _PAGE = "/admin/settings/identifier-types/"
 _ROW = "identifier-type-row"
 
 
-async def fetch_identifier_types(db) -> list:
-    """Every identifier type with its usage count — the table's one query (#687)."""
+async def fetch_identifier_types(db, item_id: str | None = None) -> list:
+    """Every identifier type with its usage count — the table's one query (#687).
+
+    ``item_id`` narrows it to one row, for read-row (Cancel).
+    """
     return await db.fetch(
         """
         SELECT eit.*, COUNT(i.id) AS usage_count
         FROM entity_identifier_types eit
         LEFT JOIN identifiers i ON i.entity_identifier_type_id = eit.id
+        WHERE $1::text IS NULL OR eit.id = $1
         GROUP BY eit.id
         ORDER BY eit.display_name, eit.id
-        """
+        """,
+        item_id,
     )
 
 
@@ -213,16 +218,8 @@ async def identifier_type_read_row(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    row = await db.fetchrow(
-        """
-        SELECT eit.*, COUNT(i.id) AS usage_count
-        FROM entity_identifier_types eit
-        LEFT JOIN identifiers i ON i.entity_identifier_type_id = eit.id
-        WHERE eit.id = $1
-        GROUP BY eit.id
-        """,
-        item_id,
-    )
+    rows = await fetch_identifier_types(db, item_id)
+    row = rows[0] if rows else None
     if not row:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
