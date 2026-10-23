@@ -31,7 +31,7 @@ router = APIRouter(
 )
 
 # One edge joined to its type + both endpoint names (for row rendering).
-_REL_ROW_SQL = """
+_REL_SELECT = """
     SELECT jr.id, jr.from_id, jr.to_id, jr.rel_type_id,
            jr.valid_from, jr.valid_until, jr.notes,
            jrt.display_name AS rel_type_name, jrt.category, jrt.is_symmetric,
@@ -40,16 +40,14 @@ _REL_ROW_SQL = """
     JOIN jurisdiction_relationship_types jrt ON jrt.id = jr.rel_type_id
     JOIN jurisdictions jf ON jf.id = jr.from_id
     JOIN jurisdictions jto ON jto.id = jr.to_id
-    WHERE jr.id = $1
 """
-
-
+_REL_ROW_SQL = _REL_SELECT + "    WHERE jr.id = $1\n"
 # The panel's rows: every non-lineage edge touching the jurisdiction (lineage
 # edges have their own panel, fetch_lineage). Shared with the detail route.
-_PANEL_SQL = _REL_ROW_SQL.replace(
-    "WHERE jr.id = $1",
-    "WHERE (jr.from_id = $1 OR jr.to_id = $1) AND jrt.category <> 'lineage'"
-    " ORDER BY jrt.category, jrt.display_name, jr.created_at, jr.id",
+_PANEL_SQL = (
+    _REL_SELECT
+    + "    WHERE (jr.from_id = $1 OR jr.to_id = $1) AND jrt.category <> 'lineage'\n"
+    + "    ORDER BY jrt.category, jrt.display_name, jr.created_at, jr.id\n"
 )
 
 
