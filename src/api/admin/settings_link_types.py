@@ -120,7 +120,7 @@ async def link_type_new_row(
     request: Request,
     user: AdminUser = Depends(get_admin_user),
 ):
-    _scope_to_is_social(scope)
+    _scope_to_is_social(scope)  # 404 on an unknown scope; the form needs no flag
     return _form_row(request, scope, None, {}, None)
 
 
