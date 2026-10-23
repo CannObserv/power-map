@@ -66,6 +66,7 @@ class TypeTable:
     base: str  # write-route prefix
     tbody_id: str
     new_row_id: str
+    row_prefix: str  # read/edit row id prefix
     table: str
     extra: tuple[tuple[str, str], ...] = ()  # form fields beyond display_name/slug
     sql_extra: str = ""  # INSERT columns/values beyond display_name/slug
@@ -79,6 +80,7 @@ IDENTIFIER_TYPES = TypeTable(
     base="/admin/settings/identifier-types/",
     tbody_id="identifier-types-body",
     new_row_id="identifier-type-row-new",
+    row_prefix="identifier-type-row",
     table="entity_identifier_types",
     extra=(("full_name", "Tbody Full Name"), ("entity_type", "organization")),
 )
@@ -90,6 +92,7 @@ TABLES = [
             base=f"/admin/settings/link-types/{scope}/",
             tbody_id=f"{scope}-link-types-body",
             new_row_id=f"{scope}-link-type-row-new",
+            row_prefix="link-type-row",
             table="link_types",
         )
         for scope in ("general", "social")
@@ -138,7 +141,7 @@ async def test_create_returns_the_rows(client, db, t):
     assert r.status_code == 200
     assert "HX-Retarget" not in r.headers
     assert slug in r.text
-    assert f"row-{sibling}" in r.text  # every row, not just the new one
+    assert f"{t.row_prefix}-{sibling}" in r.text  # every row, not just the new one
     assert EMPTY_MARKER not in r.text
 
 
@@ -154,7 +157,7 @@ async def test_edit_returns_the_rows(client, db, t):
     )
     assert r.status_code == 200
     assert "Tbody After" in r.text
-    assert f"row-{sibling}" in r.text
+    assert f"{t.row_prefix}-{sibling}" in r.text
     assert EMPTY_MARKER not in r.text
 
 
@@ -164,8 +167,8 @@ async def test_delete_returns_the_remaining_rows(client, db, t):
     keep, _ = await _seed_type(db, t, "Tbody Kept")
     r = await client.delete(f"{t.base}{tid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
-    assert f"row-{tid}" not in r.text
-    assert f"row-{keep}" in r.text
+    assert f"{t.row_prefix}-{tid}" not in r.text
+    assert f"{t.row_prefix}-{keep}" in r.text
 
 
 @pytest.mark.parametrize("t", TABLES, ids=_IDS)
@@ -211,7 +214,7 @@ async def test_bad_edit_lands_on_its_row(client, db, t):
     ):
         r = await client.post(f"{t.base}{tid}/edit-row/", headers=HTMX_HEADERS, data=data)
         assert r.status_code == 200
-        assert r.headers["HX-Retarget"].endswith(f"-row-{tid}")
+        assert r.headers["HX-Retarget"] == f"#{t.row_prefix}-{tid}"
         assert needle in r.text
     row = await db.fetchrow(f"SELECT slug, display_name FROM {t.table} WHERE id=$1", tid)
     assert (row["slug"], row["display_name"]) == (slug, "Tbody Edited")
