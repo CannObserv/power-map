@@ -13,7 +13,7 @@ The static half (every table, every control) is ``test_empty_state_sweep.py``.
 """
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import pytest
 import pytest_asyncio
@@ -167,7 +167,6 @@ class Section:
     before_delete: str | None = None  # POST <base>/<id>/<this> first (archive-then-delete)
     invalid_create: FormData | None = None
     invalid_edit: FormData | None = None
-    extra: dict = field(default_factory=dict)
 
     @property
     def id(self) -> str:
