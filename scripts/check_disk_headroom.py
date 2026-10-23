@@ -208,8 +208,7 @@ def write_state(path: Path | None, state: str) -> None:
 
 
 def decide(percent: int, alert_at: int, clear_at: int, previous: str) -> str:
-    """``alert`` at or above the alert line, ``ok`` at or below the clear line,
-    and the previous state in between."""
+    """The new state: alert at or above ``alert_at``, ok at or below ``clear_at``, else held."""
     if percent >= alert_at:
         return ALERT
     if percent <= clear_at:
