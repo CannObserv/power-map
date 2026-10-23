@@ -13,7 +13,7 @@ its own install block below. The org-lifecycle (#307) and
 duplicate-assignment (#311) audits are on-demand: no timer, no exit-3. Five
 guards at the end carry timers too: readiness (#347), egress IP (#410), OpenAPI
 parity (#618), infra drift (#560) and root-disk headroom (#665), the last with
-its weekly prune. Every timer, these and the rest in
+its daily prune. Every timer, these and the rest in
 `docs/COMMANDS.md` § Scheduled timers, checks in with co-status after each run,
 so a failure or a missed run reaches a person: [ALERTING.md](ALERTING.md).
 
@@ -510,21 +510,26 @@ uv run python -m scripts.check_infra_drift   # compare once, now
 sudo journalctl -u power-map-infra-drift -f
 ```
 
-## Root-disk headroom guard and weekly prune (issue #665)
+## Root-disk headroom guard and daily prune (issues #665, #690)
 
 Host guards. `/`, `/home` and `/tmp` share one 19G volume, which reached 98–100%
 three times in three weeks. Both scripts are stdlib-only and run by
 `/usr/bin/python3`; each module docstring holds the reasoning.
 
 - **`check_disk_headroom.py`**, every 10 min: `/`'s Use% as `df` reads it. Exit 3
-  (`low-headroom`) at or above `--alert-at` (85), with the largest growth paths
-  in the journal.
-- **`prune_disk.py --execute`**, Sun 05:30 UTC: stale VS Code server builds, CLIs
-  and `.obsolete` extensions, unpinned `~/.npm/_npx` installs, then the npm and
-  uv caches. Anything a live process uses, or touched in the last hour (#669),
-  stays. A window still running a removed extension version needs *Reload Window*.
+  (`low-headroom`) at or above `--alert-at` (85), held until at or below
+  `--clear-at` (80, #690), with the largest growth paths in the journal.
+- **`prune_disk.py --execute`**, daily 05:30 UTC: stale VS Code server builds,
+  CLIs and `.obsolete` extensions, unpinned `~/.npm/_npx` installs, then the npm
+  and uv caches. Anything a live process uses, or touched in the last hour
+  (#669), stays. A window still running a removed extension needs *Reload Window*.
+
+Journal lines carry their level's priority since #690; older ones are all
+`info`, hence the grep.
 
 ```bash
 /usr/bin/python3 scripts/check_disk_headroom.py --alert-at 1   # prove it fires
 /usr/bin/python3 scripts/prune_disk.py                         # the plan, no change
+sudo journalctl -u power-map-disk-headroom --since -7d --no-pager | grep 'low headroom'
+sudo journalctl -u power-map-disk-prune -p warning --since -7d  # unchecked or failed
 ```

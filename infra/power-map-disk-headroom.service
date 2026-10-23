@@ -9,15 +9,27 @@ WorkingDirectory=/home/exedev/power-map
 #
 # Reads `/`'s Use% the way df does and exits 3 at or above --alert-at, so the
 # unit shows in `systemctl --failed` and checks in `low-headroom` below; the
-# journal names the largest known consumers. The next green run's `ok` clears
-# the fault. `/`, `/home` and `/tmp` are one 19G volume: it hit 100% on
-# 2026-09-25 and 98% twice since, and each time the first signal was a failing
-# agent session, while a full root also starves power-map.service and journald.
+# journal names the largest known consumers. `/`, `/home` and `/tmp` are one
+# 19G volume: it hit 100% on 2026-09-25 and 98% twice since, and each time the
+# first signal was a failing agent session, while a full root also starves
+# power-map.service and journald.
+#
+# Hysteresis (#690): once alerting, it stays alerting (exit 3 again, so
+# `low-headroom` again) until Use% is at or below --clear-at; only then does
+# an `ok` clear the fault. Between 80 and 85 it keeps the previous state, one
+# line in $STATE_DIRECTORY/state (/var/lib/power-map-disk-headroom, made by
+# systemd and owned by User=). A test run's ~0.5G of /tmp used to cross 85%
+# both ways with each commit, one page and clear apiece.
 #
 # /usr/bin/python3 straight from the file, not `uv run`: a nearly full disk is
 # when uv may fail to write what it needs. Prove it fires with --alert-at 1.
-ExecStart=/usr/bin/python3 /home/exedev/power-map/scripts/check_disk_headroom.py --alert-at 85
+ExecStart=/usr/bin/python3 /home/exedev/power-map/scripts/check_disk_headroom.py --alert-at 85 --clear-at 80
+StateDirectory=power-map-disk-headroom
 TimeoutStartSec=120
+# systemd's default, stated because the script relies on it (#690): its `<3>`
+# etc. line prefixes become journal priorities, so `journalctl -p err` finds
+# an alert.
+SyslogLevelPrefix=yes
 
 # After every run, ok or alert, a check-in with co-status (#566): a failed run
 # reaches a person through Notifier, and a run that never happens goes `missing`.
