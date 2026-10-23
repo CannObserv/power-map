@@ -517,21 +517,15 @@ three times in three weeks. Both scripts are stdlib-only and run by
 `/usr/bin/python3`; each module docstring holds the reasoning.
 
 - **`check_disk_headroom.py`**, every 10 min: `/`'s Use% as `df` reads it. Exit 3
-  (`low-headroom`) at or above `--alert-at` (85), with the largest growth paths
-  in the journal. Hysteresis (#690): an alert holds, exit 3 each run, until Use%
-  is at or below `--clear-at` (80), so a test run's transient `/tmp` no longer
-  pages and clears with every commit. The state is one line in
-  `/var/lib/power-map-disk-headroom/state` (the unit's `StateDirectory=`);
-  missing reads as `ok`, and a run by hand keeps none.
-- **`prune_disk.py --execute`**, daily 05:30 UTC (weekly until #690): stale VS
-  Code server builds, CLIs and `.obsolete` extensions, unpinned `~/.npm/_npx`
-  installs, then the npm and uv caches. Anything a live process uses, or touched
-  in the last hour (#669), stays. A window still running a removed extension
-  version needs *Reload Window*.
+  (`low-headroom`) at or above `--alert-at` (85), held until at or below
+  `--clear-at` (80, #690), with the largest growth paths in the journal.
+- **`prune_disk.py --execute`**, daily 05:30 UTC: stale VS Code server builds,
+  CLIs and `.obsolete` extensions, unpinned `~/.npm/_npx` installs, then the npm
+  and uv caches. Anything a live process uses, or touched in the last hour
+  (#669), stays. A window still running a removed extension needs *Reload Window*.
 
-Both scripts' journal lines carry their level's priority (#690), so `-p`
-filters work on runs after its deploy; earlier lines are all `info`, which is why
-the headroom recipe greps the text.
+Journal lines carry their level's priority since #690; older ones are all
+`info`, hence the grep.
 
 ```bash
 /usr/bin/python3 scripts/check_disk_headroom.py --alert-at 1   # prove it fires
