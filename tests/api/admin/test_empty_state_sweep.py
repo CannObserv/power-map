@@ -33,7 +33,7 @@ _TAG = re.compile(
     r"<(form|button|a|tr|input|select)\b(?:[^>{]|\{\{.*?\}\}|\{%.*?%\}|\{#.*?#\})*>", re.S
 )
 _WRITE = re.compile(r"\bhx-(post|delete|put|patch)=")
-_TARGET = re.compile(r'hx-target="([^"]*)"')
+_TARGET = re.compile(r"""hx-target=(?:"([^"]*)"|'([^']*)')""")
 _ROW_TARGET = re.compile(r"-row-|closest tr")
 _EMPTY_ROW = re.compile(r"\{%-?\s*else\s*-?%\}\s*(<tr\b[^>]*>)")
 
@@ -74,7 +74,8 @@ def test_write_controls_never_target_a_single_row():
             tag = m.group(0)
             if not _WRITE.search(tag):
                 continue
-            rows = [t for t in _TARGET.findall(tag) if _ROW_TARGET.search(t)]
+            targets = [dq or sq for dq, sq in _TARGET.findall(tag)]
+            rows = [t for t in targets if _ROW_TARGET.search(t)]
             if rows:
                 offenders.append(f"{rel}:{_line(text, m.start())} {rows}")
     assert not offenders, (
