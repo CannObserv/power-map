@@ -7,6 +7,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from src.api.admin.deps import get_db
+from src.api.admin.jurisdictions_addresses import fetch_jurisdictions_addresses
 from src.api.main import app
 from src.core.db import generate_id
 
@@ -203,3 +204,24 @@ async def test_address_edit_confirm_non_htmx_persists_and_redirects(
     assert row is not None
     assert row["address_line_1"] == "123 MAIN ST"
     assert row["standardized"] == "123 MAIN ST OLYMPIA WA 98501"
+
+
+async def test_fetch_addresses_sorts_expired_last(jurisdiction_and_address, db):
+    """Expired addresses sort after current ones, as on people and orgs (CR 6, #683)."""
+    jid, current_eaid = jurisdiction_and_address  # current: no validity window
+    aid, expired_eaid = generate_id(), generate_id()
+    await db.execute(
+        "INSERT INTO addresses (id, address_line_1, city, region, postal_code, country)"
+        " VALUES ($1, '9 Old Rd', 'Olympia', 'WA', '98501', 'US')",
+        aid,
+    )
+    await db.execute(
+        "INSERT INTO entity_addresses (id, entity_type, entity_id, address_id, address_type,"
+        " valid_from, valid_until)"
+        " VALUES ($1, 'jurisdiction', $2, $3, 'mailing', '2020-01-01', '2020-12-31')",
+        expired_eaid,
+        jid,
+        aid,
+    )
+    rows = await fetch_jurisdictions_addresses(db, jid)
+    assert [r["id"] for r in rows] == [current_eaid, expired_eaid]

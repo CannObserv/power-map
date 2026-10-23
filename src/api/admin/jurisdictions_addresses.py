@@ -205,7 +205,8 @@ async def fetch_jurisdictions_addresses(db, jurisdiction_id: str) -> list:
                   a.city, a.region, a.postal_code, a.country
            FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id
            WHERE ea.entity_type = 'jurisdiction' AND ea.entity_id = $1
-           ORDER BY ea.valid_from DESC NULLS LAST, ea.id""",
+           ORDER BY (ea.valid_until IS NOT NULL AND ea.valid_until < CURRENT_DATE),
+                    ea.valid_from DESC NULLS LAST, ea.id""",
         jurisdiction_id,
     )
 
