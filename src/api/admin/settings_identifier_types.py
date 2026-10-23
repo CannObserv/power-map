@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
+from src.api.admin._settings_shared import write_unique_slug
 from src.api.admin.deps import (
     AdminUser,
     flash_trigger,
@@ -74,20 +75,6 @@ async def _rows_response(request: Request, db, headers: dict):
     )
 
 
-async def _write(db, slug: str, sql: str, *args) -> str | None:
-    """Run an INSERT/UPDATE under a savepoint; a slug clash becomes a form error.
-
-    The savepoint aborts only this write, keeping the ambient transaction (and so
-    the error response) usable (#288).
-    """
-    try:
-        async with db.transaction():
-            await db.execute(sql, *args)
-    except asyncpg.UniqueViolationError:
-        return f"Slug \u201c{slug}\u201d is already in use."
-    return None
-
-
 def _base_ctx(user, active_section: str = "settings"):
     return {
         "user": user,
@@ -140,7 +127,7 @@ async def identifier_type_create(
         "full_name": full_name.strip(),
         "entity_type": entity_type,
     }
-    error = _validate(**form) or await _write(
+    error = _validate(**form) or await write_unique_slug(
         db,
         form["slug"],
         "INSERT INTO entity_identifier_types"
@@ -197,7 +184,7 @@ async def identifier_type_edit_row_post(
         "full_name": full_name.strip(),
         "entity_type": entity_type,
     }
-    error = _validate(**form) or await _write(
+    error = _validate(**form) or await write_unique_slug(
         db,
         form["slug"],
         "UPDATE entity_identifier_types"

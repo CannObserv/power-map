@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
+from src.api.admin._settings_shared import write_unique_slug
 from src.api.admin.deps import (
     AdminUser,
     flash_trigger,
@@ -79,20 +80,6 @@ async def _rows_response(request: Request, db, scope: str, headers: dict):
     )
 
 
-async def _write(db, slug: str, sql: str, *args) -> str | None:
-    """Run an INSERT/UPDATE under a savepoint; a slug clash becomes a form error.
-
-    The savepoint aborts only this write, keeping the ambient transaction (and so
-    the error response) usable (#288).
-    """
-    try:
-        async with db.transaction():
-            await db.execute(sql, *args)
-    except asyncpg.UniqueViolationError:
-        return f"Slug \u201c{slug}\u201d is already in use."
-    return None
-
-
 def _base_ctx(user, active_section: str = "settings"):
     return {
         "user": user,
@@ -144,7 +131,7 @@ async def link_type_create(
 ):
     is_social = _scope_to_is_social(scope)
     form = {"display_name": display_name.strip(), "slug": slug.strip()}
-    error = _validate(**form) or await _write(
+    error = _validate(**form) or await write_unique_slug(
         db,
         form["slug"],
         "INSERT INTO link_types (id, display_name, slug, is_social) VALUES ($1, $2, $3, $4)",
@@ -200,7 +187,7 @@ async def link_type_edit_row_post(
 ):
     lt = await _get_or_404(db, item_id, _scope_to_is_social(scope))
     form = {"display_name": display_name.strip(), "slug": slug.strip()}
-    error = _validate(**form) or await _write(
+    error = _validate(**form) or await write_unique_slug(
         db,
         form["slug"],
         "UPDATE link_types SET display_name=$1, slug=$2 WHERE id=$3",
