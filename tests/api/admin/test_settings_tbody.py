@@ -132,18 +132,20 @@ async def test_page_tbody_and_new_row_ids(client, t):
 
 @pytest.mark.parametrize("t", TABLES, ids=_IDS)
 async def test_create_returns_the_rows(client, db, t):
+    sibling, _ = await _seed_type(db, t, "Tbody Sibling")  # don't lean on the reference seed
     slug = f"tbody-new-{generate_id().lower()}"
     r = await client.post(t.base, headers=HTMX_HEADERS, data=t.form("Tbody Created", slug))
     assert r.status_code == 200
     assert "HX-Retarget" not in r.headers
     assert slug in r.text
-    assert r.text.count("<tr ") > 1  # every row, not just the new one
+    assert f"row-{sibling}" in r.text  # every row, not just the new one
     assert EMPTY_MARKER not in r.text
 
 
 @pytest.mark.parametrize("t", TABLES, ids=_IDS)
 async def test_edit_returns_the_rows(client, db, t):
     tid, slug = await _seed_type(db, t, "Tbody Before")
+    sibling, _ = await _seed_type(db, t, "Tbody Sibling")
     edit = await client.get(f"{t.base}{tid}/edit-row/", headers=HTMX_HEADERS)
     assert f'hx-target="#{t.tbody_id}"' in edit.text
 
@@ -152,7 +154,7 @@ async def test_edit_returns_the_rows(client, db, t):
     )
     assert r.status_code == 200
     assert "Tbody After" in r.text
-    assert r.text.count("<tr ") > 1
+    assert f"row-{sibling}" in r.text
     assert EMPTY_MARKER not in r.text
 
 
