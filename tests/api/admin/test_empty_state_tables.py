@@ -329,7 +329,7 @@ def _citation_section(entity: str) -> Section:
         path="citations",
         table_id="citations-table-{eid}",
         tbody_id="citations-tbody-{eid}",
-        empty_text="No citations yet.",
+        empty_text="No citations<",
         row_prefix="citation-row",
         new_row_id="citation-row-new-{eid}",
         child_sql="SELECT id FROM citations WHERE entity_id=$1",

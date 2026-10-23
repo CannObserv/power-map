@@ -6,7 +6,7 @@
 {% include "admin/citations/partials/_citation_row.html" %}
 {% else %}
 <tr id="citations-empty-{{ entity_id }}" data-empty-row>
-  <td colspan="{{ 3 if locked_field else 4 }}" style="color:var(--color-text-muted)">No citations yet.</td>
+  <td colspan="{{ 3 if locked_field else 4 }}" style="color:var(--color-text-muted)">No citations</td>
 </tr>
 {% endfor %}
 {% include "admin/citations/partials/_cite_count_oob.html" %}
