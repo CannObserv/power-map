@@ -537,5 +537,5 @@ the headroom recipe greps the text.
 /usr/bin/python3 scripts/check_disk_headroom.py --alert-at 1   # prove it fires
 /usr/bin/python3 scripts/prune_disk.py                         # the plan, no change
 sudo journalctl -u power-map-disk-headroom --since -7d --no-pager | grep 'low headroom'
-sudo journalctl -u power-map-disk-prune -p warning --since -7d  # withheld or failed
+sudo journalctl -u power-map-disk-prune -p warning --since -7d  # unchecked or failed
 ```

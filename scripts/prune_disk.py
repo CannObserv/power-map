@@ -45,7 +45,7 @@ so it works on a disk too full for ``uv run``, and so ``uv cache prune`` never
 waits on a cache lock held by the ``uv run`` that launched it.
 
 Each journal line carries its syslog ``<N>`` priority when stderr is the
-journal (#690), so ``journalctl -p warning`` finds a withheld or failed path;
+journal (#690), so ``journalctl -p warning`` finds an unchecked or failed path;
 the helper is duplicated from ``check_disk_headroom.py`` because neither file
 imports from the repo, and one test holds both to the same output.
 
