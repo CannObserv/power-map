@@ -16,6 +16,7 @@ Dry run by default (#402); ``--execute`` removes and runs the cache commands.
 """
 
 import json
+import logging
 import os
 import subprocess
 import time
@@ -23,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts import check_disk_headroom, prune_disk
 from scripts.prune_disk import (
     CACHE_COMMANDS,
     GRACE_MINUTES,
@@ -542,3 +544,21 @@ def test_help_exits_cleanly(arg, capsys):
         main([arg])
     assert exc.value.code == 0
     assert "Usage:" in capsys.readouterr().out
+
+
+# --- journal priority (#690) ---------------------------------------------------
+
+
+@pytest.mark.parametrize("level", [logging.ERROR, logging.WARNING, logging.INFO])
+@pytest.mark.parametrize("on_journal", [True, False])
+def test_journal_lines_match_the_headroom_guard(level, on_journal, tmp_path: Path):
+    """The helper is duplicated from check_disk_headroom.py (neither file imports
+    from the repo); its tests there are the spec, and this holds the copy to it."""
+    with open(tmp_path / "stderr", "w") as stream:
+        st = os.fstat(stream.fileno())
+        env = {"JOURNAL_STREAM": f"{st.st_dev}:{st.st_ino}"} if on_journal else {}
+        record = logging.LogRecord("x", level, __file__, 1, "msg %s", ("a",), None)
+        ours = prune_disk.log_handler(stream, env).format(record)
+        theirs = check_disk_headroom.log_handler(stream, env).format(record)
+    assert ours == theirs
+    assert ours.startswith("<") is on_journal

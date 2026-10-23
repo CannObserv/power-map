@@ -25,13 +25,13 @@ from pathlib import Path
 
 import pytest
 
-from scripts import check_disk_headroom, prune_disk
 from scripts.check_disk_headroom import (
     DEFAULT_ALERT_AT,
     DEFAULT_CLEAR_AT,
     STATE_FILE,
     Usage,
     consumers,
+    log_handler,
     main,
     usage,
 )
@@ -308,32 +308,27 @@ def _journal_env(stream) -> dict[str, str]:
     return {"JOURNAL_STREAM": f"{st.st_dev}:{st.st_ino}"}
 
 
-@pytest.mark.parametrize("module", [check_disk_headroom, prune_disk])
 @pytest.mark.parametrize(
     ("level", "prefix"),
     [(logging.ERROR, "<3>"), (logging.WARNING, "<4>"), (logging.INFO, "<6>")],
 )
-def test_on_the_journal_each_line_carries_its_syslog_priority(
-    module, level, prefix, tmp_path: Path
-):
+def test_on_the_journal_each_line_carries_its_syslog_priority(level, prefix, tmp_path: Path):
     with open(tmp_path / "stderr", "w") as stream:
-        handler = module.log_handler(stream, _journal_env(stream))
+        handler = log_handler(stream, _journal_env(stream))
         record = logging.LogRecord("x", level, __file__, 1, "low headroom: %s", ("/",), None)
         assert handler.format(record).startswith(prefix + logging.getLevelName(level))
 
 
-@pytest.mark.parametrize("module", [check_disk_headroom, prune_disk])
-def test_off_the_journal_lines_carry_no_prefix(module, tmp_path: Path):
+def test_off_the_journal_lines_carry_no_prefix(tmp_path: Path):
     """A terminal, or a stream that is not the one systemd named, reads plain."""
     with open(tmp_path / "stderr", "w") as stream, open(tmp_path / "other", "w") as other:
         for env in ({}, _journal_env(other), {"JOURNAL_STREAM": "junk"}):
-            handler = module.log_handler(stream, env)
+            handler = log_handler(stream, env)
             record = logging.LogRecord("x", logging.ERROR, __file__, 1, "boom", (), None)
             assert handler.format(record) == "ERROR x: boom", env
 
 
-@pytest.mark.parametrize("module", [check_disk_headroom, prune_disk])
-def test_a_stream_without_a_descriptor_carries_no_prefix(module):
-    handler = module.log_handler(io.StringIO(), {"JOURNAL_STREAM": "1:2"})
+def test_a_stream_without_a_descriptor_carries_no_prefix():
+    handler = log_handler(io.StringIO(), {"JOURNAL_STREAM": "1:2"})
     record = logging.LogRecord("x", logging.ERROR, __file__, 1, "boom", (), None)
     assert handler.format(record) == "ERROR x: boom"
