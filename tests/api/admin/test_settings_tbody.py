@@ -290,8 +290,7 @@ async def test_api_key_round_trip(client, db):
 
 
 async def test_api_key_create_refreshes_the_tbody_out_of_band(client, db):
-    await _seed_key(db, "Tbody Existing")
-    await db.execute("DELETE FROM api_keys WHERE user_id='usr_test'")
+    await db.execute("DELETE FROM api_keys WHERE user_id='usr_test'")  # start empty
     r = await client.post(KEYS, headers=HTMX_HEADERS, data={"label": "Tbody First"})
     assert r.status_code == 200
     assert "not be shown again" in r.text  # the one-time modal is the main swap
