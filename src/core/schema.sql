@@ -473,8 +473,30 @@ CREATE TABLE IF NOT EXISTS role_assignments (
     notes       TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    archived_at TIMESTAMPTZ
+    archived_at TIMESTAMPTZ,
+
+    -- #671: the role's own holder, or someone serving under that holder. Only
+    -- `principal` counts toward a seat's capacity (the D7 occupancy audit).
+    membership_type TEXT NOT NULL DEFAULT 'principal',
+    CONSTRAINT chk_ra_membership_type
+        CHECK (membership_type IN ('principal', 'substitute', 'ex_officio', 'acting'))
 );
+
+-- Migration (#671): `CREATE TABLE IF NOT EXISTS` no-ops on an existing table,
+-- so the column arrives here (every existing row is its role's own holder) and
+-- its CHECK is reconciled by name.
+ALTER TABLE role_assignments
+    ADD COLUMN IF NOT EXISTS membership_type TEXT NOT NULL DEFAULT 'principal';
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'role_assignments'::regclass AND conname = 'chk_ra_membership_type'
+    ) THEN
+        ALTER TABLE role_assignments ADD CONSTRAINT chk_ra_membership_type
+            CHECK (membership_type IN ('principal', 'substitute', 'ex_officio', 'acting'));
+    END IF;
+END $$;
 
 -- Prevent duplicate role definitions per org (case-insensitive title).
 -- Archived roles are excluded so a re-created role is never blocked.
@@ -596,6 +618,45 @@ CREATE INDEX IF NOT EXISTS idx_assignment_relationships_to
     ON role_assignment_relationships (to_assignment_id);
 CREATE INDEX IF NOT EXISTS idx_assignment_relationships_type
     ON role_assignment_relationships (rel_type_id);
+
+-- =============================================================================
+-- Role capacity periods (#671)
+--
+-- How many principals a role seats at once, per period: a property of the seat
+-- over time (the 1889 Senate's LD-19 seated five, then one), not of its type and
+-- not of one tenure. Landed from usa-wa's `role_periods` by the applier, which
+-- owns every row under an in-scope role. Read only by the seat-occupancy audit;
+-- a role with no covering period falls back to `role_types.occupancy`.
+--
+-- Two date conventions, on purpose: a period's `valid_to` is its last day,
+-- INCLUSIVE (periods tile next.valid_from = prev.valid_to + 1 day), while an
+-- assignment's `end_date` is a handoff date read as exclusive. A period never
+-- writes or derives `roles.established_on` / `abolished_on`.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS role_capacity_periods (
+    id          TEXT        PRIMARY KEY,
+    role_id     TEXT        NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    valid_from  DATE        NOT NULL,
+    valid_to    DATE,                        -- last day, INCLUSIVE; NULL = open
+    max_holders INTEGER,                     -- NULL = no limit
+    archived_at TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_capacity_period_range
+        CHECK (valid_to IS NULL OR valid_from <= valid_to),
+    CONSTRAINT chk_capacity_period_max
+        CHECK (max_holders IS NULL OR max_holders > 0)
+);
+
+COMMENT ON COLUMN role_capacity_periods.valid_to IS
+    'Last day of the period, inclusive; NULL = open. Unlike role_assignments.end_date, a handoff date read as exclusive.';
+COMMENT ON COLUMN role_capacity_periods.max_holders IS
+    'Most principals the role seats at once in this period; NULL = no limit.';
+
+-- One live period per role and start: the applier's key (#671).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_role_capacity_period_start
+    ON role_capacity_periods (role_id, valid_from) WHERE archived_at IS NULL;
 
 -- =============================================================================
 -- Jurisdiction Entities (#168)
@@ -1493,6 +1554,10 @@ CREATE OR REPLACE TRIGGER trg_updated_at_jurisdictions
 -- would stay frozen at created_at). CREATE OR REPLACE → picks up on existing DBs.
 CREATE OR REPLACE TRIGGER trg_updated_at_role_assignment_relationships
     BEFORE UPDATE ON role_assignment_relationships
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE OR REPLACE TRIGGER trg_updated_at_role_capacity_periods
+    BEFORE UPDATE ON role_capacity_periods
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- Migration (#392): jurisdiction_relationships.updated_at — the watermark a
