@@ -97,8 +97,9 @@ def test_persons_match_the_measured_store(real):
     )
 
     # usa-wa#378 tombstoned 18 duplicates (#501): the 17 creates, all twins of
-    # anchored people, and one anchored loser, now resolved `merged`.
-    assert anchored == 3117, f"anchored persons: {anchored}"
+    # anchored people, and one anchored loser, now resolved `merged`. 3118 since
+    # usa-wa#514 registered Marjorie B. Happy, created by the 2026-10-19 execute.
+    assert anchored == 3118, f"anchored persons: {anchored}"
     assert creates == 0, f"person creates: {creates}"
     # A blank published name would land identity and assert no name, leaving
     # PM's to stand; usa-wa#364 fixed the five the design measured.
