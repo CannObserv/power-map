@@ -63,6 +63,12 @@ sources:
           external_location: "read_csv('{{ env_var('PM_SRC_ORG_LINEAGE', '') }}', header=true, all_varchar=true)"
           schema_major: 1
           contract_hash: "sha256:a7585012f837a8c0d2c79e43aff97c82b60a0b176702c4b2e63420e39d8dc019"
+      - name: role_periods
+        description: Seat capacity per role and period, keyed (role_key, valid_from); valid_to is the inclusive last day, max_holders null for no limit (usa-wa 2.1.0, #671).
+        meta:
+          external_location: "read_csv('{{ env_var('PM_SRC_ROLE_PERIODS', '') }}', header=true, all_varchar=true)"
+          schema_major: 1
+          contract_hash: "sha256:e5837f6d9251173c742544119e0aed9eaf03d49739fb60cbc5445d6c7a21e828"
 
   - name: pm
     description: PM's own tables, exported to Parquet by scripts/export_pm_tables.py so the models never open a database connection.

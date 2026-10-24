@@ -75,6 +75,7 @@ USA_WA_SOURCES: dict[str, str] = {
     "assignments": "PM_SRC_ASSIGNMENTS",
     "roles": "PM_SRC_ROLES",
     "org_lineage": "PM_SRC_ORG_LINEAGE",  # #592
+    "role_periods": "PM_SRC_ROLE_PERIODS",  # #671
 }
 
 # PM table → env var, read from `<snapshot_root>/_pm/<table>.parquet`.

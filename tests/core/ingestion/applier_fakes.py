@@ -228,6 +228,10 @@ DESIRED_SPECS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("pm_id", "producer_id", "membership_type"),
         ("TEXT",) * 3,
     ),
+    "desired_role_capacity_periods": (
+        ("pm_id", "producer_id", "valid_from", "valid_to", "max_holders"),
+        ("TEXT", "TEXT", "DATE", "DATE", "INTEGER"),
+    ),
     "desired_roles": (
         (
             "pm_id",

@@ -1542,7 +1542,7 @@ async def _diff_child(
                 kind = "update" if changes else "noop"
                 entries.append(_entry(spec, row, kind, row_id=m.get("id"), changes=changes))
 
-    if absence and spec.owned_event_types and target.match == "key":
+    if absence and (spec.owned_event_types or spec.owns_all_rows) and target.match == "key":
         entries.extend(_absent_children(spec, scope, candidates, seen, pm_value, lookups))
     return entries
 
@@ -1555,7 +1555,8 @@ def _absent_children(
     pm_value: Callable[[dict, str], object],
     lookups: Mapping[str, Mapping[str, str]],
 ) -> list[Entry]:
-    """The owned-type rows of in-scope parents the snapshot no longer carries.
+    """The owned-type rows of in-scope parents the snapshot no longer carries —
+    under `owns_rows: all` (#671), every live row of the parent.
 
     `retraction: report` names each as a `retract` and writes nothing; `archive`
     (#592) archives it, gated as an archive. A row whose `anchored` key column
@@ -1572,6 +1573,7 @@ def _absent_children(
     vocab = lookups.get(type_desired)
     owned = [t for t in spec.owned_event_types if vocab is None or t in vocab]
     owned_values = {pm_value({type_desired: t}, type_desired) for t in owned}
+    every_row = spec.owns_all_rows
     reverse = {c: {v: k for k, v in lookups[c].items()} for c in target.key_columns if c in lookups}
     in_scope = {scope.resolve(spec.entity, p) for p in scope.in_scope(spec.entity)} - {None}
     archiving = spec.retraction == "archive"
@@ -1579,7 +1581,7 @@ def _absent_children(
     for producer_id in sorted(scope.in_scope(spec.entity)):
         pm_id = scope.resolve(spec.entity, producer_id)
         for r in candidates(pm_id):
-            if r.get(type_pm) not in owned_values:
+            if not every_row and r.get(type_pm) not in owned_values:
                 continue
             if any(r.get(columns[c]) not in in_scope for c in target.anchored):
                 continue

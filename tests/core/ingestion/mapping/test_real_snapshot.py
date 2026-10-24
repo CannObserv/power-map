@@ -180,3 +180,27 @@ def test_the_landed_store_matches_the_pins_it_was_landed_under():
     held = held_contracts(STORE)
     assert set(held) == set(USA_WA_SOURCES)
     assert all(held.values()), f"no contract stated anywhere: {held}"
+
+
+def test_every_published_capacity_period_is_claimed(real):
+    """#671: role_periods 1.0.0 measured 317 periods, dense across all 312 roles,
+    every role anchored; five carry max_holders > 1, all in 1889-90."""
+    staged = _count(real, "SELECT count(*) FROM stg_usa_wa__role_periods")
+    claimed = _count(real, "SELECT count(*) FROM desired_role_capacity_periods")
+    multi = _count(real, "SELECT count(*) FROM desired_role_capacity_periods WHERE max_holders > 1")
+
+    assert staged == 317, f"staged periods: {staged}"
+    assert claimed == staged, "a published period failed to resolve to a role"
+    assert multi == 5, f"multi-member periods: {multi}"
+
+
+def test_exactly_three_substitutes_are_claimed(real):
+    """#671: usa-wa 2.1.0 marks three military substitutes; every other span is a principal."""
+    by_type = dict(
+        real.execute(
+            "SELECT membership_type, count(*) FROM desired_role_assignment_membership GROUP BY 1"
+        ).fetchall()
+    )
+
+    assert by_type.get("substitute") == 3, by_type
+    assert set(by_type) <= {"principal", "substitute"}

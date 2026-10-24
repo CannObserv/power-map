@@ -28,7 +28,7 @@ from pathlib import Path
 
 import yaml
 
-from src.core.dataset_ownership import DATASET_OWNED_LINK_TYPES
+from src.core.dataset_ownership import DATASET_OWNED_LINK_TYPES, DATASET_OWNED_TABLES
 
 __all__ = [
     "MANIFEST_PATH",
@@ -191,13 +191,19 @@ class TableSpec:
     # as one field for a table owning one value, or (#527) as a map, owned
     # column → field, where one binding owns several.
     overlays: dict[str, str] = field(default_factory=dict)
+    # #671: `owns_rows: all` — every live row of the child table under an in-scope
+    # parent is the producer's, so absence reaches all of them, not a type's
+    owns_all_rows: bool = False
 
 
 # The shapes that carry a producer-owned value a curator can pin (#498).
 OVERLAY_SHAPES = ("column", "child")
 # #592: the overlay a binding names when its values are locked rather than
-# pinned — a child binding owning only `DATASET_OWNED_LINK_TYPES`.
+# pinned — a child binding owning only `DATASET_OWNED_LINK_TYPES`, or (#671) one
+# owning every row of a table in `DATASET_OWNED_TABLES`.
 OVERLAY_LOCKED = "none"
+# #671: the one value `owns_rows` takes.
+OWNS_ALL_ROWS = "all"
 
 
 @dataclass(frozen=True)
@@ -416,13 +422,16 @@ def _table(name: str, raw: object) -> TableSpec:
             f"{name}: only an archiving binding names dependents — nothing else leaves a row behind"
         )
     owned_event_types = [str(t) for t in raw.get("owned_event_types") or []]
+    owns_all_rows = _owns_rows(name, raw, target, owned_event_types)
     if retraction == "archive" and target.shape == "child":
         # #592: a child archive acts on the owned event types and nothing else —
-        # without them it would reach every unmatched row of the parent — and
-        # sets the column its match already reads past.
-        if target.match != "key" or not owned_event_types:
+        # without them it would reach every unmatched row of the parent — unless
+        # (#671) the table is the producer's outright. It sets the column its
+        # match already reads past.
+        if target.match != "key" or not (owned_event_types or owns_all_rows):
             raise ManifestError(
-                f"{name}: a child binding archives only its owned_event_types, matched by key"
+                f"{name}: a child binding archives only its owned_event_types, or every"
+                " row under owns_rows: all, matched by key"
             )
         if not target.archived:
             raise ManifestError(f"{name}: a child archive names the archived column it sets")
@@ -448,15 +457,17 @@ def _table(name: str, raw: object) -> TableSpec:
         raise ManifestError(f"{name}: an overlay field on a {target.shape} table pins nothing")
     if overlay == OVERLAY_LOCKED:
         # #592: a link is locked, not pinned — every PM write door refuses it —
-        # which holds only for the types the lock knows.
-        if (
-            target.shape != "child"
-            or not owned_event_types
-            or not set(owned_event_types) <= DATASET_OWNED_LINK_TYPES
-        ):
+        # which holds only for the types the lock knows; #671: or for a table the
+        # dataset owns outright, which no PM write door touches.
+        locked_links = bool(owned_event_types) and set(owned_event_types) <= (
+            DATASET_OWNED_LINK_TYPES
+        )
+        locked_table = owns_all_rows and target.table in DATASET_OWNED_TABLES
+        if target.shape != "child" or not (locked_links or locked_table):
             raise ManifestError(
                 f"{name}: overlay none is for a child binding owning only the locked link"
-                f" types {sorted(DATASET_OWNED_LINK_TYPES)}"
+                f" types {sorted(DATASET_OWNED_LINK_TYPES)}, or every row of a table in"
+                f" {sorted(DATASET_OWNED_TABLES)}"
             )
         overlays: dict[str, str] = {}
     elif isinstance(overlay, dict):
@@ -481,7 +492,24 @@ def _table(name: str, raw: object) -> TableSpec:
         target=target,
         types=types,
         overlays=overlays,
+        owns_all_rows=owns_all_rows,
     )
+
+
+def _owns_rows(name: str, raw: dict, target: Target, owned_event_types: list[str]) -> bool:
+    """`owns_rows: all` (#671): a child binding owning its whole table, matched by key."""
+    owns = raw.get("owns_rows")
+    if owns is None:
+        return False
+    if owns != OWNS_ALL_ROWS:
+        raise ManifestError(f"{name}: owns_rows takes only {OWNS_ALL_ROWS!r}, not {owns!r}")
+    if target.shape != "child" or target.match != "key":
+        raise ManifestError(f"{name}: owns_rows is for a child binding matched by key")
+    if owned_event_types:
+        raise ManifestError(
+            f"{name}: owns_rows all and owned_event_types cannot both bound one binding's absence"
+        )
+    return True
 
 
 def _thresholds(raw: object) -> Thresholds:
