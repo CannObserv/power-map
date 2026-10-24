@@ -116,3 +116,18 @@ def test_two_producer_roles_pm_holds_as_one_fail_the_build(build):
     )
 
     assert "unique_desired_roles_pm_id" in b.failures
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        ("1889-01-01,1890-12-31,3,", "1889-01-01,1888-12-31,3,"),  # ends before it starts
+        ("1889-01-01,1890-12-31,3,", "1889-01-01,1890-12-31,0,"),  # seats no one
+    ],
+)
+def test_a_period_the_table_would_refuse_fails_the_build(build, before, after):
+    """CR 2: chk_capacity_period_range / chk_capacity_period_max, mirrored. Planned
+    clean, such a row would abort the supervised execute; it halts the build instead."""
+    b = build(datasets=_with(replace={before: after}), must_succeed=False)
+
+    assert f"{CAPACITY}_invalid" in b.failures

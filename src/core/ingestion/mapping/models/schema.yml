@@ -122,7 +122,7 @@ models:
         tests: [not_null]
 
   - name: desired_role_capacity_periods
-    description: Keyed (producer_id, valid_from) — tests/desired_role_capacity_periods_key_unique.sql. tests/unresolved_role_capacity_periods.sql names a period whose role claims nothing (#671).
+    description: Keyed (producer_id, valid_from) — tests/desired_role_capacity_periods_key_unique.sql. tests/desired_role_capacity_periods_invalid.sql halts on a row the table's CHECKs refuse; tests/unresolved_role_capacity_periods.sql names a period whose role claims nothing (#671).
     columns:
       - name: producer_id
         tests:
