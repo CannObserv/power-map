@@ -307,7 +307,7 @@ sudo journalctl -u power-map-ancillary-orphans -f          # orphan breakdown on
 
 `scripts/audit_seat_occupancy.py` applies usa-wa's occupancy predicate (its spec
 D7, outer bounds: the may tier). At each principal's start and each capacity
-period's start, more **different** people holding a role than its capacity is a
+period's start (plus, PM's addition, the day after a closed period), more **different** people holding a role than its capacity is a
 finding, reported as every pair of them. Capacity is the covering
 `role_capacity_periods` row's `max_holders` (`valid_to` inclusive; null = no
 limit), else the role type's `occupancy` (`single` → 1, otherwise none). No

@@ -13,7 +13,10 @@ bounds only), clause for clause with its ``seat_overlap_pairs('may')``:
   open-ended. No span is invented: an unknown start, or an unknown end that is
   not ``is_current``, is out of scope.
 - **Checked where the count can peak:** at each principal's start, and at each
-  capacity period's start — capacity can drop with no one starting.
+  capacity period's start — capacity can drop with no one starting. PM adds the
+  day after each closed period, where a seat with no next period falls back to
+  its type default; usa-wa's dense tiling makes that a period start everywhere it
+  publishes, so the addition finds nothing usa-wa's predicate would not.
 - **Capacity at an instant** is the covering ``role_capacity_periods`` row's
   ``max_holders`` (``valid_to`` inclusive; null = no limit); with no covering
   period, the role type's ``occupancy`` (``single`` → 1; ``shared`` or no type →
@@ -74,6 +77,11 @@ instants AS (
     UNION
     SELECT p.role_id, p.valid_from FROM periods p
     WHERE p.role_id IN (SELECT role_id FROM principals)
+    UNION
+    -- PM's addition to D7 (CR 4): the day after a closed period, where a seat
+    -- with no next period falls back to its type default.
+    SELECT p.role_id, p.valid_to + 1 FROM periods p
+    WHERE p.valid_to IS NOT NULL AND p.role_id IN (SELECT role_id FROM principals)
 ),
 -- An open span covers every later instant: spelled as its own branch, because
 -- `t < NULL` is NULL and would drop every sitting member from the count.

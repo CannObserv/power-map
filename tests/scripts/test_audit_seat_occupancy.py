@@ -297,11 +297,12 @@ async def test_a_substitute_never_counts_toward_capacity(conn):
 
 @integration
 async def test_holders_within_a_periods_capacity_are_not_findings(conn):
-    """LD-5, 1889: three senators in a seat that held three."""
+    """LD-5, 1889: three senators in a seat that held three. They hand off the day
+    the period ends; running on past it would meet the seat of one after (CR 4)."""
     role = await _role(conn)
     await _period(conn, role, D(1889, 1, 1), D(1890, 12, 31), 3)
     for _ in range(3):
-        await _hold(conn, role, D(1889, 11, 6), D(1891, 1, 12))
+        await _hold(conn, role, D(1889, 11, 6), D(1891, 1, 1))
     assert await _pairs(conn, role) == set()
 
 
@@ -334,6 +335,19 @@ async def test_a_periods_last_day_is_inside_it(conn):
     await _hold(conn, role, D(1889, 11, 6), D(1891, 1, 1))
     await _hold(conn, role, D(1890, 12, 31), D(1891, 1, 1))
     assert await _pairs(conn, role) == set()
+
+
+@integration
+async def test_capacity_dropping_after_a_closed_last_period_is_caught(conn):
+    """CR 4: no period follows 1890-12-31, so from 1891-01-01 the seat falls back
+    to its type's one; nobody starts that day, yet two holders run on past it.
+    PM checks the day after a closed period ends — an instant usa-wa's D7 lacks,
+    and one its dense tiling makes a period start everywhere it publishes today."""
+    role = await _role(conn)
+    await _period(conn, role, D(1889, 1, 1), D(1890, 12, 31), 2)
+    a = await _hold(conn, role, D(1889, 11, 6), D(1892, 12, 31))
+    b = await _hold(conn, role, D(1889, 11, 6), D(1892, 12, 31))
+    assert await _pairs(conn, role) == {frozenset((a, b))}
 
 
 @integration
