@@ -43,7 +43,9 @@ BASELINE is 48 in this PR; the measured count follows in a later PR (S8).
    - Then `schema.sql`: table, comment, trigger, column, `DO` block.
    - Apply with `bash scripts/apply-schema.sh --test`.
    - Done when the new tests pass and the schema-parity test is green.
-2. **Mapping (§3).**
+2. **Mapping (§3).** *Revised:* split into 2a (`membership_type`, an existing
+   binding shape) and 2b, which lands with step 3, because
+   `test_manifest.py` refuses a mart without its manifest binding.
    - Pin `role_periods`; wire `PM_SRC_ROLE_PERIODS` and `USA_WA_SOURCES` like
      `org_lineage`.
    - Add `stg_usa_wa__role_periods`, plus `membership_type` in

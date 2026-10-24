@@ -19,6 +19,7 @@ where not (
     (entity_type = 'person' and field = 'name')
     or (entity_type = 'organization'
         and field in ('parent_id', 'legal_name', 'acronym', 'dissolved_year'))
-    or (entity_type = 'assignment' and field in ('start_date', 'end_date', 'is_current'))
+    or (entity_type = 'assignment'
+        and field in ('start_date', 'end_date', 'is_current', 'membership_type'))
     or (entity_type = 'role' and field = 'title')
 )

@@ -58,7 +58,7 @@ substitutes, from producer defects.
 | S3 | `max_holders_basis` | Not stored. Nothing in PM reads it, and it can be added later without a contract change. |
 | S4 | `membership_type` | A column on `role_assignments`: NOT NULL, default `principal`, a CHECK on the closed enum. A `column` binding owns it, and a curator can pin it (overlay field `membership_type`). |
 | S5 | `/api/v1` | Expose `membership_type` read-only on assignment reads. It is additive and non-breaking. Observations do not accept it; rows they create are `principal`. Capacity is not exposed. |
-| S6 | Admin | A read-only badge when `membership_type` is not `principal`. No editor, and no capacity UI. |
+| S6 | Admin | A read-only badge when `membership_type` is not `principal`. No editor, and no capacity UI. *Revised in build:* the overlay slot `(assignment, membership_type)` is registered and rendered on the assignment detail page, because `test_overlay.py` holds manifest, models and admin slots equal; it offers only "Pin current" / "Unpin". |
 | S7 | The audit | usa-wa's D7 may tier, clause for clause, over PM tables. Where no period covers `t`, capacity falls back to the `role_types.occupancy` default (`single` → 1, otherwise no limit). `role_types.occupancy` stays. |
 | S8 | BASELINE | 55 → **48** in PR B, today's measured count, which the new predicate reproduces before any data lands. A follow-up PR lowers it to the count measured after the execute (expected 25). That leaves no night where the 00:01Z audit can fail. |
 | S9 | Release | Minor bump to v0.68.0, a tag, and a regenerated client. |
@@ -222,7 +222,8 @@ The predicate mirrors usa-wa's `seat_overlap_pairs('may')`:
   classes) next to Current/Former/Archived in
   `people/partials/_assignment_row.html`, `roles/partials/_assignment_row.html`
   and the assignment detail header. The value is producer-owned, so there is no
-  editor and no overlay slot.
+  editor. The overlay slot is registered in `overlay_slots.py` and rendered on
+  the assignment detail page (S6, revised), offering Pin current / Unpin.
 
 ## Testing
 

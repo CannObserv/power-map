@@ -133,6 +133,7 @@ def test_the_four_shapes_cover_the_marts_as_designed():
         "desired_organization_merges": "merge",
         "desired_role_assignments": "entity",
         "desired_role_assignment_dates": "column",
+        "desired_role_assignment_membership": "column",
         "desired_roles": "entity",
         "desired_role_titles": "column",
     }
@@ -328,6 +329,7 @@ OVERLAY_SLOTS = {
     ("assignment", "start_date"),
     ("assignment", "end_date"),
     ("assignment", "is_current"),
+    ("assignment", "membership_type"),  # #671
     ("role", "title"),
 }
 
