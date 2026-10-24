@@ -62,6 +62,11 @@ VALID_ENTITY_TYPES: tuple[EntityType, ...] = (
     "jurisdiction",
 )
 
+# role_assignments chk_ra_membership_type (src/core/schema.sql, #671): who holds
+# a role in their own right. Only `principal` counts toward a seat's capacity.
+MembershipType = Literal["principal", "substitute", "ex_officio", "acting"]
+MEMBERSHIP_TYPES: tuple[MembershipType, ...] = ("principal", "substitute", "ex_officio", "acting")
+
 # addresses.precision CHECK (src/core/schema.sql migration #170).
 # Subset allowed for event_place_address_id linkage — city-level or finer.
 # NULL precision is also accepted (pre-geocoding / historical records); only

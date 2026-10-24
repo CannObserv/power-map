@@ -19,6 +19,7 @@ from pydantic import (
 # `role_assignment_relationship`. Imported rather than re-declared so the
 # published contract inherits the schema-parity guard in tests/core/test_types.py.
 from src.core.types import EntityType as IdentifierEntityType
+from src.core.types import MembershipType
 
 EntityType = Literal[
     "person",
@@ -1597,6 +1598,15 @@ class AssignmentListItem(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     notes: str | None = None
+    membership_type: MembershipType = Field(
+        default="principal",
+        description=(
+            "Whether the holder holds the role in their own right (`principal`) or serves"
+            " under a principal (`substitute`, `ex_officio`, `acting`). Read-only:"
+            " maintained by the producing dataset (#671); only principals count toward"
+            " a seat's capacity."
+        ),
+    )
     archived_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
