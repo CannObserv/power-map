@@ -14,11 +14,13 @@ import pytest
 pytest.importorskip("dbt.adapters.duckdb")
 
 from tests.core.ingestion.mapping.conftest import (  # noqa: E402
+    DEFAULT_CROSSWALK,
     MR1,
     MR2,
     R1,
     R2,
     R3,
+    crosswalk_row,
     fixture_csv,
 )
 
@@ -96,3 +98,21 @@ def test_two_periods_on_one_start_fail_the_build(build):
     b = build(datasets=_with("seat:senate:ld-34,1891-01-01,,2,roster"), must_succeed=False)
 
     assert f"{CAPACITY}_key_unique" in b.failures
+
+
+def test_two_producer_roles_pm_holds_as_one_fail_the_build(build):
+    """CR 1: a `merged` role anchor stays in scope under its survivor's pm_id, so two
+    usa-wa roles PM merged would both claim one (role, start), which the partial
+    unique index would refuse mid-execute. desired_roles' own pm_id key halts the
+    build first, so no capacity period can reach the applier twice."""
+    merged = [
+        r if r[3] != R2 else crosswalk_row(R2, MR1, "merged", kind="role")
+        for r in DEFAULT_CROSSWALK
+    ]
+    b = build(
+        crosswalk=merged,
+        datasets=_with("party-role:republican,2021-01-01,,,kind"),
+        must_succeed=False,
+    )
+
+    assert "unique_desired_roles_pm_id" in b.failures
