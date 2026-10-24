@@ -78,7 +78,8 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
 - **Seat capacity and membership (#671):** `role_periods` lands one row per
   period under its role's PM id (`desired_role_capacity_periods`); a period whose
   role claims nothing is named by `unresolved_role_capacity_periods`, and a
-  `max_holders` that is not a number halts the build. `assignments`' 1.8.0
+  `max_holders` that is not a number halts the build, as does a period the
+  table's CHECKs would refuse (`desired_role_capacity_periods_invalid`). `assignments`' 1.8.0
   `membership_type` lands per span (`desired_role_assignment_membership`),
   pinnable; an unknown value halts.
 - **The overlay wins by presence.** An *active* `curation_overlay` row (a pin)
