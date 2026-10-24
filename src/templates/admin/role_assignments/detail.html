@@ -1,5 +1,6 @@
 {% extends "admin/base.html" %}
 {% from "admin/macros/flash.html" import message %}
+{% from "admin/macros/membership_badge.html" import membership_badge %}
 {% block title %}{{ ra.person_name or '(unnamed)' }} – {{ ra.role_title }} @ {{ ra.org_name or '(unnamed)' }} — Assignment{% endblock %}
 {% block flash %}{% if flash_msg %}{{ message(flash_msg.level, flash_msg.body) }}{% endif %}{% endblock %}
 {% block breadcrumb %}
@@ -23,6 +24,13 @@
       <span class="field-group-label" style="display:block;margin-bottom:var(--space-2)">Status</span>
       {% include "admin/role_assignments/partials/_is_current_toggle.html" %}
       <div class="overlay-slot-host" hx-get="/admin/_overlay/assignment/{{ ra.id }}/is_current/" hx-trigger="load, refreshOverlay from:body" hx-target="this" hx-swap="innerHTML" hx-disinherit="hx-target hx-swap"></div>
+    </div>
+
+    {# #671: who holds the seat in their own right; usa-wa's value, pinnable, not editable #}
+    <div style="margin-bottom:var(--space-4)">
+      <span class="field-group-label" style="display:block;margin-bottom:var(--space-2)">Membership</span>
+      {{ membership_badge(ra.membership_type) or "Principal" }}
+      <div class="overlay-slot-host" hx-get="/admin/_overlay/assignment/{{ ra.id }}/membership_type/" hx-trigger="load, refreshOverlay from:body" hx-target="this" hx-swap="innerHTML" hx-disinherit="hx-target hx-swap"></div>
     </div>
 
     <div style="margin-top:var(--space-5)">

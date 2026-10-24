@@ -290,7 +290,7 @@ async def _get_ra(ra_id: str, db):
     """Fetch enriched RA row for detail/partial rendering, or raise 404."""
     row = await db.fetchrow(
         """SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at,
-                  ra.created_at, ra.notes,
+                  ra.created_at, ra.notes, ra.membership_type,
                   p.id AS person_id,
                   pn.display_name AS person_name,
                   r.id AS role_id, r.title AS role_title,

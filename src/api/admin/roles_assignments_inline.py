@@ -38,6 +38,7 @@ async def fetch_role_assignments(role_id: str, db) -> list:
     """Fetch all assignments for a role, sorted for display."""
     return await db.fetch(
         f"""SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
+                  ra.membership_type,
                   cc_j.citation_count,
                   p.id AS person_id,
                   pn.display_name AS person_name
@@ -55,6 +56,7 @@ async def _get_assignment(assignment_id: str, role_id: str, db):
     """Fetch a single assignment with person name, or raise 404."""
     row = await db.fetchrow(
         f"""SELECT ra.id, ra.is_current, ra.start_date, ra.end_date, ra.archived_at, ra.notes,
+                  ra.membership_type,
                   cc_j.citation_count,
                   p.id AS person_id,
                   pn.display_name AS person_name

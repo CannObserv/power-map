@@ -76,7 +76,7 @@ async def _org(db, *, parent=None) -> str:
     return oid
 
 
-def test_the_registry_holds_the_nine_slots():
+def test_the_registry_holds_the_ten_slots():
     assert set(SLOTS) == {
         ("person", "name"),
         ("organization", "legal_name"),
@@ -86,11 +86,17 @@ def test_the_registry_holds_the_nine_slots():
         ("assignment", "start_date"),
         ("assignment", "end_date"),
         ("assignment", "is_current"),
+        ("assignment", "membership_type"),  # #671
         ("role", "title"),
     }
     assert [s.field for s in slots_for("person")] == ["name"]
     assert [s.field for s in slots_for("role")] == ["title"]
-    assert [s.field for s in slots_for("assignment")] == ["start_date", "end_date", "is_current"]
+    assert [s.field for s in slots_for("assignment")] == [
+        "start_date",
+        "end_date",
+        "is_current",
+        "membership_type",
+    ]
 
 
 # --- reading a slot --------------------------------------------------------------

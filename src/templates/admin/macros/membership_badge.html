@@ -1,0 +1,10 @@
+{# admin/macros/membership_badge.html — #671: a non-principal assignment's badge.
+   usa-wa owns the value; only a principal counts toward a seat's capacity, so a
+   substitute, ex officio or acting holder is called out wherever the row shows.
+   A principal — nearly every row — carries no badge. #}
+{% macro membership_badge(membership_type) -%}
+{%- set labels = {"substitute": "Substitute", "ex_officio": "Ex officio", "acting": "Acting"} -%}
+{%- if membership_type in labels -%}
+<span class="badge badge--neutral">{{ labels[membership_type] }}</span>
+{%- endif -%}
+{%- endmacro %}
