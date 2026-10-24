@@ -75,11 +75,18 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   lands the night after its create executes. No overlay: such a link is
   **locked** — admin and the observation API refuse it — so a correction goes
   upstream to usa-wa. An unknown slug halts the build.
+- **Seat capacity and membership (#671):** `role_periods` lands one row per
+  period under its role's PM id (`desired_role_capacity_periods`); a period whose
+  role claims nothing is named by `unresolved_role_capacity_periods`, and a
+  `max_holders` that is not a number halts the build. `assignments`' 1.8.0
+  `membership_type` lands per span (`desired_role_assignment_membership`),
+  pinnable; an unknown value halts.
 - **The overlay wins by presence.** An *active* `curation_overlay` row (a pin)
   overrides the mapped value even when its value is null (the row then drops
   out); an unpinned one is archived and applies nowhere. Its vocabulary —
   person `name`, organization `legal_name`, `acronym`, `parent_id`,
-  `dissolved_year` — is enforced per entity type by `overlay_field_unmapped`, so
+  `dissolved_year`, assignment `start_date`, `end_date`, `is_current`,
+  `membership_type`, role `title` — is enforced per entity type by `overlay_field_unmapped`, so
   a row naming a field no model maps is warned by name and applied nowhere; a
   `dissolved_year` that is not an integer is named by `overlay_value_malformed`
   and the producer's year stands. Pins are written by the admin: an edit that
@@ -204,6 +211,13 @@ versions are the ones it offered (`currency`, #535).
   Health edge, dated 2026 — beside the assignment entries the nightly already
   carried; the update lands with the next supervised execute (the nightly unit
   never executes; #656).
+- **Capacity periods (#671).** The first child binding to own a whole table
+  (`owns_rows: all`; `DATASET_OWNED_TABLES` in `src/core/dataset_ownership.py`):
+  every live `role_capacity_periods` row under an in-scope role is the
+  producer's, so a period the snapshot dropped (a re-tiled role) is an
+  `archive`, gated like any other, and inserts and updates are not. A null in
+  `valid_to` or `max_holders` is a value. A period under a role no anchor names
+  is PM's own and invisible.
 - **Roles (#529).** A role the snapshot drops archives too — unless live rows
   still name it that this plan does not archive, which makes it a `conflict`
   naming them (`dependents`). The ordinary case is a re-key, where usa-wa drops
