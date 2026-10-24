@@ -1,7 +1,7 @@
 ---
 title: "#671 usa-wa 2.1.0 seat model: role capacity periods, membership_type, the D7 occupancy audit"
 date: 2026-10-24
-status: draft
+status: approved
 ---
 
 # #671 seat model (PR B)
