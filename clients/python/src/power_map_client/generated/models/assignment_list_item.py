@@ -24,15 +24,14 @@ class AssignmentListItem:
         person_id (str):
         role_id (str):
         is_current (bool):
+        membership_type (AssignmentListItemMembershipType): Whether the holder holds the role in their own right
+            (`principal`) or serves under a principal (`substitute`, `ex_officio`, `acting`). Read-only: maintained by the
+            producing dataset (#671); only principals count toward a seat's capacity.
         created_at (datetime.datetime):
         updated_at (datetime.datetime):
         start_date (datetime.date | None | Unset):
         end_date (datetime.date | None | Unset):
         notes (None | str | Unset):
-        membership_type (AssignmentListItemMembershipType | Unset): Whether the holder holds the role in their own right
-            (`principal`) or serves under a principal (`substitute`, `ex_officio`, `acting`). Read-only: maintained by the
-            producing dataset (#671); only principals count toward a seat's capacity. Default:
-            AssignmentListItemMembershipType.PRINCIPAL.
         archived_at (datetime.datetime | None | Unset):
     """
 
@@ -40,14 +39,12 @@ class AssignmentListItem:
     person_id: str
     role_id: str
     is_current: bool
+    membership_type: AssignmentListItemMembershipType
     created_at: datetime.datetime
     updated_at: datetime.datetime
     start_date: datetime.date | None | Unset = UNSET
     end_date: datetime.date | None | Unset = UNSET
     notes: None | str | Unset = UNSET
-    membership_type: AssignmentListItemMembershipType | Unset = (
-        AssignmentListItemMembershipType.PRINCIPAL
-    )
     archived_at: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -59,6 +56,8 @@ class AssignmentListItem:
         role_id = self.role_id
 
         is_current = self.is_current
+
+        membership_type = self.membership_type.value
 
         created_at = self.created_at.isoformat()
 
@@ -86,10 +85,6 @@ class AssignmentListItem:
         else:
             notes = self.notes
 
-        membership_type: str | Unset = UNSET
-        if not isinstance(self.membership_type, Unset):
-            membership_type = self.membership_type.value
-
         archived_at: None | str | Unset
         if isinstance(self.archived_at, Unset):
             archived_at = UNSET
@@ -106,6 +101,7 @@ class AssignmentListItem:
                 "person_id": person_id,
                 "role_id": role_id,
                 "is_current": is_current,
+                "membership_type": membership_type,
                 "created_at": created_at,
                 "updated_at": updated_at,
             }
@@ -116,8 +112,6 @@ class AssignmentListItem:
             field_dict["end_date"] = end_date
         if notes is not UNSET:
             field_dict["notes"] = notes
-        if membership_type is not UNSET:
-            field_dict["membership_type"] = membership_type
         if archived_at is not UNSET:
             field_dict["archived_at"] = archived_at
 
@@ -133,6 +127,8 @@ class AssignmentListItem:
         role_id = d.pop("role_id")
 
         is_current = d.pop("is_current")
+
+        membership_type = AssignmentListItemMembershipType(d.pop("membership_type"))
 
         created_at = datetime.datetime.fromisoformat(d.pop("created_at"))
 
@@ -181,13 +177,6 @@ class AssignmentListItem:
 
         notes = _parse_notes(d.pop("notes", UNSET))
 
-        _membership_type = d.pop("membership_type", UNSET)
-        membership_type: AssignmentListItemMembershipType | Unset
-        if isinstance(_membership_type, Unset):
-            membership_type = UNSET
-        else:
-            membership_type = AssignmentListItemMembershipType(_membership_type)
-
         def _parse_archived_at(data: object) -> datetime.datetime | None | Unset:
             if data is None:
                 return data
@@ -210,12 +199,12 @@ class AssignmentListItem:
             person_id=person_id,
             role_id=role_id,
             is_current=is_current,
+            membership_type=membership_type,
             created_at=created_at,
             updated_at=updated_at,
             start_date=start_date,
             end_date=end_date,
             notes=notes,
-            membership_type=membership_type,
             archived_at=archived_at,
         )
 

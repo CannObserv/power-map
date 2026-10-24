@@ -1598,8 +1598,8 @@ class AssignmentListItem(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     notes: str | None = None
+    # Required, like OrgDetail.active (#240): no silent default masks a handler omission.
     membership_type: MembershipType = Field(
-        default="principal",
         description=(
             "Whether the holder holds the role in their own right (`principal`) or serves"
             " under a principal (`substitute`, `ex_officio`, `acting`). Read-only:"
