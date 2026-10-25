@@ -1,21 +1,35 @@
-"""Daily ratchet: two people holding one single-seat role at the same time (#506).
+"""Daily ratchet: more principals holding a seat than it can seat (#506, #671).
 
 No constraint forbids concurrent occupancy — at-large seats need it (#302) — so
-nothing else notices two live holders of a seat that takes one. This audit reads
-``role_types.occupancy`` and reports every pair of live assignments that:
+nothing else notices a seat holding more people than it lawfully can. This audit
+applies usa-wa's occupancy predicate (its spec D7, may tier — PM stores outer
+bounds only), clause for clause with its ``seat_overlap_pairs('may')``:
 
-- sits on one live role whose type is ``single``,
-- belongs to two different people (one person twice is #311's duplicate audit),
-- overlaps **strictly**: each starts before the other ends. A span that ends the
-  day the next begins is a same-day handoff (mid-term succession), not a finding.
+- **Principals only.** Live assignments on live roles whose ``membership_type``
+  is ``principal``; a substitute serving under one is not a second holder. One
+  person twice is one holder (#311's duplicate audit owns that shape).
+- **Half-open tenures.** ``[start_date, end_date)``: a span ending the day the
+  next begins is a same-day handoff, not an overlap. A current holder runs
+  open-ended. No span is invented: an unknown start, or an unknown end that is
+  not ``is_current``, is out of scope.
+- **Checked where the count can peak:** at each principal's start, and at each
+  capacity period's start — capacity can drop with no one starting. PM adds the
+  day after each closed period, where a seat with no next period falls back to
+  its type default; usa-wa's dense tiling makes that a period start everywhere it
+  publishes, so the addition finds nothing usa-wa's predicate would not.
+- **Capacity at an instant** is the covering ``role_capacity_periods`` row's
+  ``max_holders`` (``valid_to`` inclusive; null = no limit); with no covering
+  period, the role type's ``occupancy`` (``single`` → 1; ``shared`` or no type →
+  no limit). The fallback is PM's own divergence from usa-wa, which reads a
+  missing period as one: it covers PM's legacy and admin rows (usa-wa D7).
 
-No span is invented: a row with an unknown start, or an unknown end that is not
-``is_current``, is out of scope. A current holder runs open-ended.
+A finding is every pair of principals holding the role at an instant where more
+distinct people hold it than its capacity.
 
 It is a **ratchet**, not a zero gate. ``BASELINE`` is the count measured on
-production on 2026-10-10 — 56 pairs, 55 once #639 landed, listed on usa-wa#489
-and broken down in ``docs/AUDITS.md`` — and the run exits 3 only when the count
-rises above it.
+production — 56 on 2026-10-10 (#506), 55 after #639, 48 after #671's re-pin
+(2026-10-23), listed on usa-wa#489 and broken down in ``docs/AUDITS.md`` — and
+the run exits 3 only when the count rises above it.
 A lower count passes with a WARNING naming the number to lower ``BASELINE``
 to. Every pair is logged each run, so a day-over-day journal diff names the
 pair a failure added. A count cannot see a fix and a new defect landing
@@ -38,38 +52,97 @@ from src.core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
 
-#: Strictly overlapping pairs on production: 56 on 2026-10-10 (#506), 55 after #639.
-#: Lower it as triage lands; never raise it to clear a failure.
-BASELINE = 55
+#: Pairs over capacity on production: 56 on 2026-10-10 (#506), 55 after #639, 48
+#: after #671's re-pin (2026-10-23). Lower it as triage lands; never raise it to
+#: clear a failure.
+BASELINE = 48
 
 _OVERLAPS_SQL = """
-WITH live AS (
-    SELECT ra.id, ra.person_id, ra.role_id, ra.start_date, ra.end_date,
-           COALESCE(ra.end_date, 'infinity'::date) AS until
+WITH principals AS (
+    SELECT ra.id, ra.person_id, ra.role_id, ra.start_date, ra.end_date
     FROM role_assignments ra
-    JOIN roles r       ON r.id = ra.role_id AND r.archived_at IS NULL
-    JOIN role_types rt ON rt.id = r.role_type_id AND rt.occupancy = 'single'
+    JOIN roles r ON r.id = ra.role_id AND r.archived_at IS NULL
     WHERE ra.archived_at IS NULL
+      AND ra.membership_type = 'principal'
       AND ra.start_date IS NOT NULL
       AND (ra.end_date IS NOT NULL OR ra.is_current)
+),
+periods AS (
+    SELECT role_id, valid_from, valid_to, max_holders
+    FROM role_capacity_periods
+    WHERE archived_at IS NULL
+),
+instants AS (
+    SELECT role_id, start_date AS t FROM principals
+    UNION
+    SELECT p.role_id, p.valid_from FROM periods p
+    WHERE p.role_id IN (SELECT role_id FROM principals)
+    UNION
+    -- PM's addition to D7 (CR 4): the day after a closed period, where a seat
+    -- with no next period falls back to its type default.
+    SELECT p.role_id, p.valid_to + 1 FROM periods p
+    WHERE p.valid_to IS NOT NULL AND p.role_id IN (SELECT role_id FROM principals)
+),
+-- An open span covers every later instant: spelled as its own branch, because
+-- `t < NULL` is NULL and would drop every sitting member from the count.
+holding AS (
+    SELECT i.role_id, i.t, p.id, p.person_id
+    FROM instants i
+    JOIN principals p
+      ON p.role_id = i.role_id
+     AND p.start_date <= i.t
+     AND (p.end_date IS NULL OR i.t < p.end_date)
+),
+capacity AS (
+    SELECT h.role_id, h.t,
+           CASE WHEN cp.covered THEN cp.max_holders
+                WHEN rt.occupancy = 'single' THEN 1
+           END AS max_holders
+    FROM (SELECT DISTINCT role_id, t FROM holding) h
+    JOIN roles r ON r.id = h.role_id
+    LEFT JOIN role_types rt ON rt.id = r.role_type_id
+    LEFT JOIN LATERAL (
+        SELECT TRUE AS covered, p.max_holders
+        FROM periods p
+        WHERE p.role_id = h.role_id
+          AND p.valid_from <= h.t
+          AND (p.valid_to IS NULL OR h.t <= p.valid_to)
+        ORDER BY p.valid_from DESC
+        LIMIT 1
+    ) cp ON TRUE
+),
+excess AS (
+    SELECT h.role_id, h.t
+    FROM holding h
+    JOIN capacity c ON c.role_id = h.role_id AND c.t = h.t
+    WHERE c.max_holders IS NOT NULL
+    GROUP BY h.role_id, h.t, c.max_holders
+    HAVING count(DISTINCT h.person_id) > c.max_holders
+),
+pairs AS (
+    SELECT DISTINCT e.role_id, a.id AS a_id, b.id AS b_id
+    FROM excess e
+    JOIN holding a ON a.role_id = e.role_id AND a.t = e.t
+    JOIN holding b ON b.role_id = e.role_id AND b.t = e.t
+     AND a.id < b.id AND a.person_id <> b.person_id
 )
-SELECT a.role_id, r.title AS role_title,
+SELECT p.role_id, r.title AS role_title,
        a.id AS a_id, a.person_id AS a_person_id, pa.display_name AS a_name,
        a.start_date AS a_start, a.end_date AS a_end,
        b.id AS b_id, b.person_id AS b_person_id, pb.display_name AS b_name,
        b.start_date AS b_start, b.end_date AS b_end
-FROM live a
-JOIN live b  ON b.role_id = a.role_id AND a.id < b.id AND b.person_id <> a.person_id
-JOIN roles r ON r.id = a.role_id
+FROM pairs p
+JOIN roles r ON r.id = p.role_id
+JOIN role_assignments a ON a.id = p.a_id
+JOIN role_assignments b ON b.id = p.b_id
 LEFT JOIN v_person_display_names pa ON pa.person_id = a.person_id
 LEFT JOIN v_person_display_names pb ON pb.person_id = b.person_id
-WHERE a.start_date < b.until AND b.start_date < a.until
-ORDER BY r.title, a.role_id, a.id, b.id
+ORDER BY r.title, p.role_id, a.id, b.id
 """
 
 
 async def find_overlaps(conn: asyncpg.Connection) -> list[asyncpg.Record]:
-    """Every strictly overlapping pair of live holders on a single-seat role."""
+    """Every pair of principals holding a role at an instant it is over capacity (D7)."""
     return await conn.fetch(_OVERLAPS_SQL)
 
 
@@ -100,7 +173,8 @@ async def audit(conn: asyncpg.Connection, *, baseline: int = BASELINE) -> int:
     if code:
         logger.warning(
             "seat occupancy: %d pairs, above baseline %d — a new concurrent holder of a"
-            " single seat; diff the pair log against the last passing run (docs/AUDITS.md)",
+            " seat over its capacity; diff the pair log against the last passing run"
+            " (docs/AUDITS.md)",
             count,
             baseline,
         )

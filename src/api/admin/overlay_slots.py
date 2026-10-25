@@ -118,6 +118,13 @@ _SLOTS = (
     Slot("assignment", "start_date", "Start date", _ASSIGNMENT_COLUMN.format("start_date")),
     Slot("assignment", "end_date", "End date", _ASSIGNMENT_COLUMN.format("end_date")),
     Slot("assignment", "is_current", "Current", _ASSIGNMENT_COLUMN.format("is_current")),
+    # #671: usa-wa says who holds a seat in their own right; a pin keeps PM's value
+    Slot(
+        "assignment",
+        "membership_type",
+        "Membership",
+        _ASSIGNMENT_COLUMN.format("membership_type"),
+    ),
     # #529: usa-wa owns a role's title; its structure is identity and PM may move it
     Slot("role", "title", "Title", "SELECT title FROM roles WHERE id = $1"),
 )

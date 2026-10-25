@@ -68,6 +68,12 @@ WHERE conrelid = $1::regclass AND conname = $2
         ("import_batches", "import_batches_row_count_check", ("row_count >= 0",)),
         ("import_batches", "import_batches_loaded_count_check", ("loaded_count >= 0",)),
         ("import_batches", "import_batches_error_count_check", ("error_count >= 0",)),
+        # #671 — the closed membership vocabulary on an existing table.
+        (
+            "role_assignments",
+            "chk_ra_membership_type",
+            ("principal", "substitute", "ex_officio", "acting"),
+        ),
     ],
 )
 async def test_apply_schema_adds_missing_check(db_pool, table, conname, expected_fragments):

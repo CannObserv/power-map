@@ -302,43 +302,37 @@ sudo journalctl -u power-map-ancillary-orphans -f          # orphan breakdown on
 
 ---
 
-## Seat-occupancy ratchet (issue #506)
+## Seat-occupancy ratchet (issues #506, #671)
 
 
-`scripts/audit_seat_occupancy.py` reports two **different** people holding one
-role of a `role_types.occupancy='single'` type (`state_senator`,
-`state_representative`) over **strictly** overlapping spans: each starts before
-the other ends. No constraint forbids it, because at-large seats need concurrent
-holders (#302), so this audit is the only thing that notices.
+`scripts/audit_seat_occupancy.py` applies usa-wa's occupancy predicate (its spec
+D7, outer bounds: the may tier). At each principal's start and each capacity
+period's start (plus, PM's addition, the day after a closed period), more **different** people holding a role than its capacity is a
+finding, reported as every pair of them. Capacity is the covering
+`role_capacity_periods` row's `max_holders` (`valid_to` inclusive; null = no
+limit), else the role type's `occupancy` (`single` → 1, otherwise none). No
+constraint forbids concurrent holders, because at-large seats need them (#302).
 
+- **Principals only.** A `membership_type` other than `principal` (a military
+  substitute serving under a principal on leave) is never a second holder.
 - **Same-day handoffs are not findings.** A span ending the day the next begins
-  is mid-term succession (`Jim Clements 2007-01-05→2007-11-29 || Curtis King
-  2007-11-29→open`); an inclusive rule would report 58 of those forever.
+  is mid-term succession; an inclusive rule would report 58 of those forever.
 - **No span is invented.** An unknown start, or an unknown end that is not
   `is_current`, is out of scope; a current holder runs open-ended.
-- **One person twice** on a role is the duplicate audit's shape (#311), not this one's.
-- Archived assignments and archived roles are not live.
+- **One person twice** on a role is the duplicate audit's shape (#311).
+- Archived assignments, roles and periods are not live.
 
-**It is a ratchet, not a zero gate.** `BASELINE` in the script is the count on
-production on 2026-10-10: **56** pairs (55 Senate, 1 House), each listed on usa-wa#489; **55**, all
-Senate, once #639 truncated the House one. The run exits 3 only
-when the count rises above it; a lower count passes with a WARNING naming the
-value to lower `BASELINE` to, in a PR. Never raise it to clear a failure. What the 56 were:
+**It is a ratchet, not a zero gate.** `BASELINE` in the script is the measured
+production count: 56 on 2026-10-10 (#506, listed on usa-wa#489), 55 after #639
+truncated Robinson's legacy House row, 48 after #671's re-pin re-keyed 17 spans.
+The run exits 3 only when the count rises above it; a lower count passes with a
+WARNING naming the value to lower `BASELINE` to, in a PR. Never raise it to clear
+a failure. The lawful 1889–90 multi-member Senate seats and the three substitutes
+leave the count once #671's execute lands their capacity periods and membership.
 
-- **35** producer pairs, the same count usa-wa's own gate baselines (usa-wa#359,
-  drained in usa-wa#360): mostly a successor arriving mid-term while the
-  predecessor's span, built from roster appearances, runs to the biennium's end.
-- **20** are the 1889–90 multi-member Senate (LD-2/5/8/18/19), where two to five
-  senators lawfully shared a district. usa-wa's gate excludes them from the
-  roster; PM cannot, because both sides model them as one `state_senator` seat
-  (usa-wa#362). They are baselined findings, not defects.
-- **1** paired a dataset row with a legacy PM row that no dataset anchors (#639):
-  Robinson's 2019–20 House tenure on LD-38 Pos. 1 was real but ran only to her
-  Senate appointment, so the admin editor truncated the row's end to Wicks's
-  start, 2020-05-13, a same-day handoff. Cleared; the dataset still lacks that
-  tenure (usa-wa report).
-
-#639 is the one PM-side data fix; the rest drain upstream.
+**Cross-check.** usa-wa's `assignments_seat_occupancy_may` test lists its pairs
+(`store_failures`); a pair on one side only is a predicate divergence, or a PM
+overlay such as #639.
 
 Every run logs every pair (`seat overlap: <role> (<role_id>) — <name> (<a_id>) <span>
 || <name> (<b_id>) <span>`; the id alone when a person has no canonical name). A count cannot see a fix and a new defect landing together, so

@@ -2,9 +2,11 @@
 -- A pinned value its slot cannot read (#498). organization.dissolved_year is a
 -- year: a value that does not cast to an integer is skipped by
 -- desired_entity_events, so the producer's year stands. An assignment's dates and
--- currency (#527) are skipped the same way by desired_role_assignment_dates. This
--- names the row, because an override is never silently ignored (docs/SCHEMA.md §
--- Curation overlay). A null value is not malformed: it withdraws the claim.
+-- currency (#527) are skipped the same way by desired_role_assignment_dates, and
+-- a membership_type outside its vocabulary by desired_role_assignment_membership
+-- (#671). This names the row, because an override is never silently ignored
+-- (docs/SCHEMA.md § Curation overlay). A null value is not malformed: it
+-- withdraws the claim.
 select
     entity_type,
     entity_id,
@@ -25,6 +27,11 @@ where
             and (
                 (field in ('start_date', 'end_date') and try_cast(value as date) is null)
                 or (field = 'is_current' and try_cast(value as boolean) is null)
+                -- #671: the closed vocabulary, case and all
+                or (
+                    field = 'membership_type'
+                    and value not in ('principal', 'substitute', 'ex_officio', 'acting')
+                )
             )
         )
     )

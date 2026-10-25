@@ -4,8 +4,10 @@ from .api_root_response import ApiRootResponse
 from .assignment_address import AssignmentAddress
 from .assignment_contact_method import AssignmentContactMethod
 from .assignment_detail import AssignmentDetail
+from .assignment_detail_membership_type import AssignmentDetailMembershipType
 from .assignment_link import AssignmentLink
 from .assignment_list_item import AssignmentListItem
+from .assignment_list_item_membership_type import AssignmentListItemMembershipType
 from .assignment_list_response import AssignmentListResponse
 from .assignment_observation_request import AssignmentObservationRequest
 from .assignment_observation_request_op import AssignmentObservationRequestOp
@@ -151,8 +153,10 @@ __all__ = (
     "AssignmentAddress",
     "AssignmentContactMethod",
     "AssignmentDetail",
+    "AssignmentDetailMembershipType",
     "AssignmentLink",
     "AssignmentListItem",
+    "AssignmentListItemMembershipType",
     "AssignmentListResponse",
     "AssignmentObservationRequest",
     "AssignmentObservationRequestOp",

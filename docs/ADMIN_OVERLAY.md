@@ -23,9 +23,10 @@ applies: editing is direct curation, as before.
 | `assignment.start_date` | `role_assignments.start_date` | `role_assignments.py` dates form; the person- and role-page edit rows |
 | `assignment.end_date` | `role_assignments.end_date` | as `start_date` |
 | `assignment.is_current` | `role_assignments.is_current` (a pin stores `True`/`False`) | `role_assignments.py` currency toggle; both edit rows |
+| `assignment.membership_type` | `role_assignments.membership_type` (#671) | none: no admin editor moves it, so only "Pin current" pins it |
 | `role.title` | `roles.title` | `roles_detail.py` title editor (its structural editor writes the title back unchanged, #497) |
 
-The three assignment slots (#527) show on the assignment page. The model keeps
+The four assignment slots (#527, #671) show on the assignment page. The model keeps
 each pinned pair legal against `chk_current_no_end_date`: a pinned current span
 drops the producer's end date, and a pinned end date makes the span former.
 

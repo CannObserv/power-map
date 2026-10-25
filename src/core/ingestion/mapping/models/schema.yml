@@ -113,6 +113,25 @@ models:
               arguments:
                 values: [succeeded_by, merged_with, split_from]
 
+  - name: stg_usa_wa__role_periods
+    description: Keyed (role_key, valid_from); the mart's key test halts on a duplicate (#671).
+    columns:
+      - name: role_key
+        tests: [not_null]
+      - name: valid_from
+        tests: [not_null]
+
+  - name: desired_role_capacity_periods
+    description: Keyed (producer_id, valid_from) — tests/desired_role_capacity_periods_key_unique.sql. tests/desired_role_capacity_periods_invalid.sql halts on a row the table's CHECKs refuse; tests/unresolved_role_capacity_periods.sql names a period whose role claims nothing (#671).
+    columns:
+      - name: producer_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('desired_roles')
+                field: producer_id
+
   - name: stg_usa_wa__org_crosswalk
     columns:
       - name: natural_key
@@ -245,6 +264,13 @@ models:
           - not_null:
               config:
                 severity: warn
+      - name: membership_type
+        description: Halts on a blank or unknown value (#671) — usa-wa declares the enum closed and non-null, so a new value is a contract change to map, never a row to guess at.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [principal, substitute, ex_officio, acting]
 
   - name: stg_usa_wa__roles
     columns:
@@ -294,6 +320,23 @@ models:
         tests: [unique]
       - name: person_producer_id
         tests: [not_null]
+
+  - name: desired_role_assignment_membership
+    columns:
+      - name: producer_id
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('desired_role_assignments')
+                field: producer_id
+      - name: membership_type
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [principal, substitute, ex_officio, acting]
 
   - name: desired_role_assignment_dates
     columns:

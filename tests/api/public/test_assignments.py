@@ -45,7 +45,7 @@ async def assignment_fixtures(db, link_type):
     """Seed person, org, roles, and assignments for read tests.
 
     a1 — active, with start/end dates, seeded link + contact method + address
-    a2 — active, is_current=True, no dates
+    a2 — active, is_current=True, no dates, a substitute (#671)
     a3 — archived
     All under person1 + org1 / role1 / role2.
     """
@@ -77,7 +77,8 @@ async def assignment_fixtures(db, link_type):
         role1,
     )
     await db.execute(
-        "INSERT INTO role_assignments (id, person_id, role_id, is_current) VALUES ($1,$2,$3,TRUE)",
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current, membership_type)"
+        " VALUES ($1,$2,$3,TRUE,'substitute')",
         a2,
         person1,
         role2,
@@ -226,9 +227,21 @@ async def test_list_item_shape(client, api_key, assignment_fixtures):
     assert item["end_date"] == "2024-12-31"
     assert item["is_current"] is False
     assert item["notes"] == "a1 notes"
+    assert item["membership_type"] == "principal"
     assert "created_at" in item
     assert "updated_at" in item
     assert "archived_at" in item
+
+
+async def test_list_item_names_a_substitute(client, api_key, assignment_fixtures):
+    """#671: read-only and producer-owned; only principals count toward a seat's capacity."""
+    r = await client.get(
+        _LIST,
+        params={"person_id": assignment_fixtures["person1"]},
+        headers={"X-API-Key": api_key},
+    )
+    item = next(i for i in r.json()["data"] if i["id"] == assignment_fixtures["a2"])
+    assert item["membership_type"] == "substitute"
 
 
 async def test_list_pagination(client, api_key, assignment_fixtures):
@@ -261,6 +274,7 @@ async def test_detail_shape(client, api_key, assignment_fixtures):
     assert body["end_date"] == "2024-12-31"
     assert body["is_current"] is False
     assert body["notes"] == "a1 notes"
+    assert body["membership_type"] == "principal"
     assert "links" in body
     assert "contact_methods" in body
     assert "addresses" in body
@@ -404,3 +418,9 @@ async def test_list_pagination_stable_under_tied_sort_key(client, api_key, db):
     assert set(collected) == set(assignment_ids)
     # Deterministic total order: full tie → id ascending.
     assert collected == sorted(assignment_ids)
+
+
+async def test_detail_names_a_substitute(client, api_key, assignment_fixtures):
+    r = await client.get(f"{_LIST}/{assignment_fixtures['a2']}", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    assert r.json()["membership_type"] == "substitute"

@@ -13,7 +13,7 @@ import yaml
 
 pytest.importorskip("dbt.adapters.duckdb")
 
-from src.core.dataset_ownership import DATASET_OWNED_LINK_TYPES  # noqa: E402
+from src.core.dataset_ownership import DATASET_OWNED_LINK_TYPES, DATASET_OWNED_TABLES  # noqa: E402
 from src.core.ingestion.mapping import (  # noqa: E402
     PROJECT_DIR,
     load_manifest,
@@ -133,8 +133,10 @@ def test_the_four_shapes_cover_the_marts_as_designed():
         "desired_organization_merges": "merge",
         "desired_role_assignments": "entity",
         "desired_role_assignment_dates": "column",
+        "desired_role_assignment_membership": "column",
         "desired_roles": "entity",
         "desired_role_titles": "column",
+        "desired_role_capacity_periods": "child",
     }
 
 
@@ -328,6 +330,7 @@ OVERLAY_SLOTS = {
     ("assignment", "start_date"),
     ("assignment", "end_date"),
     ("assignment", "is_current"),
+    ("assignment", "membership_type"),  # #671
     ("role", "title"),
 }
 
@@ -678,4 +681,74 @@ def test_a_child_archive_names_the_archived_column_it_sets():
     raw["tables"][LINEAGE]["target"].pop("archived")
 
     with pytest.raises(ManifestError, match="archived"):
+        parse_manifest(raw)
+
+
+# --- #671: a child binding that owns its whole table ------------------------------
+
+CAPACITY = "desired_role_capacity_periods"
+
+
+def test_the_capacity_binding_owns_every_period_under_a_role():
+    spec = load_manifest().tables[CAPACITY]
+
+    assert spec.entity == "role"
+    assert spec.key == ["producer_id", "valid_from"]
+    assert spec.retraction == "archive"
+    assert spec.owns_all_rows is True
+    assert spec.owned_event_types == []
+    assert spec.owned_columns == ["valid_to", "max_holders"]
+    assert spec.overlays == {}  # `overlay: none` — a dataset-owned table, not a pin
+    assert spec.target.shape == "child"
+    assert spec.target.table == "role_capacity_periods"
+    assert spec.target.key_columns == ["valid_from"]
+
+
+def test_the_dataset_owned_tables_are_exactly_the_bindings_owning_all_rows():
+    """Admin cannot import the manifest (dbt), so the lock carries its own copy."""
+    owning = {s.target.table for s in load_manifest().tables.values() if s.owns_all_rows}
+
+    assert owning == set(DATASET_OWNED_TABLES)
+
+
+def test_owns_rows_takes_only_all():
+    raw = _raw()
+    raw["tables"][CAPACITY]["owns_rows"] = "some"
+
+    with pytest.raises(ManifestError, match="owns_rows"):
+        parse_manifest(raw)
+
+
+@pytest.mark.parametrize("table", ["desired_role_assignment_dates", "desired_roles"])
+def test_owns_rows_is_for_a_child_binding_only(table):
+    raw = _raw()
+    raw["tables"][table]["owns_rows"] = "all"
+
+    with pytest.raises(ManifestError, match="owns_rows"):
+        parse_manifest(raw)
+
+
+def test_owns_rows_beside_owned_event_types_fails_at_load():
+    """Either every row is the dataset's or only its types are — never both."""
+    raw = _raw()
+    raw["tables"][LINEAGE]["owns_rows"] = "all"
+
+    with pytest.raises(ManifestError, match="owns_rows"):
+        parse_manifest(raw)
+
+
+def test_a_child_archive_without_owned_types_or_owns_rows_fails_at_load():
+    raw = _raw()
+    raw["tables"][CAPACITY].pop("owns_rows")
+
+    with pytest.raises(ManifestError, match="owned_event_types"):
+        parse_manifest(raw)
+
+
+def test_overlay_none_on_a_table_no_dataset_owns_fails_at_load():
+    """The lock is only as wide as DATASET_OWNED_TABLES: the admin enforces that list."""
+    raw = _raw()
+    raw["tables"][CAPACITY]["target"]["table"] = "role_assignment_relationships"
+
+    with pytest.raises(ManifestError, match="overlay none"):
         parse_manifest(raw)

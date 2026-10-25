@@ -1,0 +1,5 @@
+role_key,valid_from,valid_to,max_holders,max_holders_basis
+committee-member-role:31640,2021-01-01,,,kind
+party-role:republican,2017-01-01,,,kind
+seat:senate:ld-34,1889-01-01,1890-12-31,3,roster
+seat:senate:ld-34,1891-01-01,,1,kind

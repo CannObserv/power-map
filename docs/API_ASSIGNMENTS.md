@@ -34,7 +34,9 @@ Query parameters:
 | `limit` | 20 | 1–100 |
 | `offset` | 0 | |
 
-Response item fields: `id`, `person_id`, `role_id`, `is_current`, `start_date`, `end_date`, `notes`, `archived_at`, `created_at`, `updated_at`.
+Response item fields: `id`, `person_id`, `role_id`, `is_current`, `start_date`, `end_date`, `notes`, `membership_type`, `archived_at`, `created_at`, `updated_at`.
+
+`membership_type` (#671) is `principal` (holds the role in their own right), `substitute`, `ex_officio` or `acting`. It is read-only: the producing dataset maintains it, observations do not accept it, and rows they create are `principal`. Only principals count toward a seat's capacity (`docs/AUDITS.md` §"Seat-occupancy ratchet").
 
 ### Detail — `GET /api/v1/assignments/{id}`
 

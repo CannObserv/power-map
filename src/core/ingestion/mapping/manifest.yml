@@ -18,13 +18,17 @@
 #                  is held to this from an empty store and a populated one (#569)
 #   owned_event_types  events only: retraction-as-absence reaches these types
 #                  and no others — 315 org events in PM have no producer column
+#   owns_rows      `all` (#671), child only, never beside owned_event_types:
+#                  every live row of the child table under an in-scope parent
+#                  is the producer's, so retraction-as-absence reaches all of them
 #   overlay        the curation_overlay field that pins the owned value (#498):
 #                  (entity, overlay) is the pair a curator's pin is keyed on.
 #                  Required on column and child tables, refused elsewhere. A
 #                  binding owning several columns maps each to its field (#527)
 #                  `none` (#592): the values are locked, not pinned — every PM
 #                  write door refuses them; only a child binding owning nothing
-#                  but src/core/dataset_ownership.py's link types may say it
+#                  but src/core/dataset_ownership.py's link types, or (#671) one
+#                  owning all rows of a table it lists, may say it
 #   target         the binding (v2): one of four shapes the applier interprets
 #                    entity  — a row in an entity table: identity, create,
 #                              retraction. `identity` names what a create writes
@@ -289,6 +293,21 @@ tables:
       table: role_assignments
       columns: {start_date: start_date, end_date: end_date, is_current: is_current}
       asserts_null: [end_date]   # an open span clears PM's end date
+  desired_role_assignment_membership:
+    entity: assignment
+    key: [producer_id]
+    pm_key: pm_id
+    retraction: none
+    owned_columns: [membership_type]   # #671: only principals count toward capacity
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
+      membership_type: VARCHAR
+    overlay: {membership_type: membership_type}
+    target:
+      shape: column
+      table: role_assignments
+      columns: {membership_type: membership_type}
   desired_roles:
     entity: role
     key: [producer_id]           # usa-wa's role entity_id
@@ -320,6 +339,31 @@ tables:
           when: {jurisdiction_id: null}
       dependents:                # a role archive must strand no live assignment
         role_assignments: [role_id]
+  desired_role_capacity_periods:
+    entity: role
+    key: [producer_id, valid_from]   # usa-wa's (role_key, valid_from), the role resolved (#671)
+    pm_key: pm_id
+    # A re-tiled period drops out of the next version; PM archives it, gated as an
+    # archive. The table is the dataset's outright: every live period under an
+    # in-scope role is the producer's, so absence reaches all of them.
+    retraction: archive
+    owns_rows: all
+    owned_columns: [valid_to, max_holders]   # a null in either is a value: open, no limit
+    overlay: none                 # src/core/dataset_ownership.py DATASET_OWNED_TABLES
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
+      valid_from: DATE
+      valid_to: DATE
+      max_holders: INTEGER
+    target:
+      shape: child
+      table: role_capacity_periods
+      parent: role_id
+      columns: {valid_from: valid_from, valid_to: valid_to, max_holders: max_holders}
+      match: key
+      key_columns: [valid_from]
+      archived: archived_at
   desired_role_titles:
     entity: role
     key: [producer_id]

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.assignment_detail_membership_type import AssignmentDetailMembershipType
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
@@ -27,6 +28,9 @@ class AssignmentDetail:
         person_id (str):
         role_id (str):
         is_current (bool):
+        membership_type (AssignmentDetailMembershipType): Whether the holder holds the role in their own right
+            (`principal`) or serves under a principal (`substitute`, `ex_officio`, `acting`). Read-only: maintained by the
+            producing dataset (#671); only principals count toward a seat's capacity.
         created_at (datetime.datetime):
         updated_at (datetime.datetime):
         start_date (datetime.date | None | Unset):
@@ -42,6 +46,7 @@ class AssignmentDetail:
     person_id: str
     role_id: str
     is_current: bool
+    membership_type: AssignmentDetailMembershipType
     created_at: datetime.datetime
     updated_at: datetime.datetime
     start_date: datetime.date | None | Unset = UNSET
@@ -61,6 +66,8 @@ class AssignmentDetail:
         role_id = self.role_id
 
         is_current = self.is_current
+
+        membership_type = self.membership_type.value
 
         created_at = self.created_at.isoformat()
 
@@ -125,6 +132,7 @@ class AssignmentDetail:
                 "person_id": person_id,
                 "role_id": role_id,
                 "is_current": is_current,
+                "membership_type": membership_type,
                 "created_at": created_at,
                 "updated_at": updated_at,
             }
@@ -162,6 +170,8 @@ class AssignmentDetail:
         role_id = d.pop("role_id")
 
         is_current = d.pop("is_current")
+
+        membership_type = AssignmentDetailMembershipType(d.pop("membership_type"))
 
         created_at = datetime.datetime.fromisoformat(d.pop("created_at"))
 
@@ -259,6 +269,7 @@ class AssignmentDetail:
             person_id=person_id,
             role_id=role_id,
             is_current=is_current,
+            membership_type=membership_type,
             created_at=created_at,
             updated_at=updated_at,
             start_date=start_date,

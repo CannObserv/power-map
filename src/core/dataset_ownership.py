@@ -1,4 +1,5 @@
-"""What a subscribed dataset owns outright: links PM curates nowhere (#592).
+"""What a subscribed dataset owns outright: links PM curates nowhere (#592), and
+tables PM holds only as the dataset's copy (#671).
 
 The applier owns the org link types below wherever both orgs are in scope, an
 *anchored pair*. A curator's disagreement with one of those links goes upstream:
@@ -15,10 +16,21 @@ import asyncpg
 
 from src.core.ingestion.crosswalk import IN_SCOPE, PRODUCER_SOURCE
 
-__all__ = ["DATASET_OWNED_LINK_TYPES", "anchored_orgs", "dataset_owned_link", "owned_link"]
+__all__ = [
+    "DATASET_OWNED_LINK_TYPES",
+    "DATASET_OWNED_TABLES",
+    "anchored_orgs",
+    "dataset_owned_link",
+    "owned_link",
+]
 
 # The org→org link types a dataset owns on anchored pairs.
 DATASET_OWNED_LINK_TYPES: frozenset[str] = frozenset({"succeeded_by", "merged_with", "split_from"})
+
+# #671: tables a dataset owns outright under each in-scope parent (the manifest's
+# `owns_rows: all`). No PM write door touches them, so nothing here needs a guard
+# yet; a door added later refuses rows under an anchored parent, as the links do.
+DATASET_OWNED_TABLES: frozenset[str] = frozenset({"role_capacity_periods"})
 
 # The orgs among $1 carrying an in-scope anchor of the producer whose dataset
 # owns the links — the applier's own row scope (it reads one source's crosswalk),

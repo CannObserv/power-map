@@ -43,6 +43,7 @@ def _row_to_dict(r: Any) -> dict[str, Any]:
         "start_date": r["start_date"],
         "end_date": r["end_date"],
         "notes": r["notes"],
+        "membership_type": r["membership_type"],
         "archived_at": r["archived_at"],
         "created_at": r["created_at"],
         "updated_at": r["updated_at"],
@@ -67,7 +68,7 @@ async def list_assignments(
     rows = await db.fetch(
         """
         SELECT id, person_id, role_id, is_current, start_date, end_date,
-               notes, archived_at, created_at, updated_at
+               notes, membership_type, archived_at, created_at, updated_at
         FROM role_assignments
         WHERE ($1::TEXT IS NULL OR person_id = $1)
           AND ($2::TEXT IS NULL OR role_id = $2)
@@ -151,7 +152,7 @@ async def get_assignment(
     row = await db.fetchrow(
         """
         SELECT id, person_id, role_id, is_current, start_date, end_date,
-               notes, archived_at, created_at, updated_at
+               notes, membership_type, archived_at, created_at, updated_at
         FROM role_assignments
         WHERE id = $1
         """,

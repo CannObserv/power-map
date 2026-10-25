@@ -20,10 +20,12 @@ from pathlib import Path
 from typing import get_args
 
 from src.core.types import (
+    MEMBERSHIP_TYPES,
     ORG_NAME_TYPES,
     PERSON_NAME_TYPES,
     VALID_ENTITY_TYPES,
     EntityType,
+    MembershipType,
     OrgNameType,
     PersonNameType,
 )
@@ -215,3 +217,24 @@ def test_entity_types_tuple_matches_literal():
         f"Tuple: {set(VALID_ENTITY_TYPES)} | "
         f"Literal: {set(get_args(EntityType))}"
     )
+
+
+# --- membership_type (#671) --------------------------------------------------
+#
+# Published through OpenAPI on every assignment read: a CHECK value the Literal
+# does not know raises inside the response model and 500s the read.
+
+
+def test_membership_types_match_every_schema_check():
+    """The inline CHECK and its reconciliation block must agree with the Literal."""
+    found = re.findall(
+        r"chk_ra_membership_type\s+CHECK\s*\(\s*membership_type\s+IN\s*\(([^)]*)\)", SCHEMA
+    )
+    assert len(found) == 2, f"expected the inline and the reconciliation CHECK, found {found}"
+    for values in found:
+        assert set(re.findall(r"'([^']+)'", values)) == set(MEMBERSHIP_TYPES)
+
+
+def test_membership_types_tuple_matches_literal():
+    assert set(MEMBERSHIP_TYPES) == set(get_args(MembershipType))
+    assert len(MEMBERSHIP_TYPES) == len(set(MEMBERSHIP_TYPES))

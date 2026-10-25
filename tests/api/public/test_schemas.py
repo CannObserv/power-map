@@ -6,6 +6,8 @@ import pytest
 from pydantic import ValidationError
 
 from src.api.public.schemas import (
+    AssignmentDetail,
+    AssignmentListItem,
     OrgAcronym,
     OrgAffiliationType,
     OrgDetail,
@@ -257,3 +259,16 @@ def test_org_affiliation_type_fields():
     t = OrgAffiliationType(id="x", slug="registered", display_name="is registered in")
     assert t.slug == "registered"
     assert t.display_name == "is registered in"
+
+
+# ---------------------------------------------------------------------------
+# Assignments
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("model", [AssignmentListItem, AssignmentDetail])
+def test_assignment_membership_type_is_required(model):
+    """CR 3 (#671): the column is NOT NULL and every builder selects it. A default
+    would publish it optional — `Unset` in the client — and report a substitute
+    as a principal the day a SELECT forgot it."""
+    assert "membership_type" in model.model_json_schema()["required"]

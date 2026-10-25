@@ -117,6 +117,7 @@ def test_a_span_whose_role_is_unpublished_is_kept_and_named(build):
     line = ",".join(
         [P1, "1", "usa_wa_legislature", "caucus-role:9", "caucus", "9"]
         + ["2021-22", "2021-22", "2021-01-11", "", "true", orphan]
+        + ["observed", "open", "2021-01-11", "", "principal"]
     )
 
     built = build(datasets={"assignments": fixture_csv("assignments", add=[line])})

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "power-map",
-    "version": "0.67.0"
+    "version": "0.68.0"
   },
   "paths": {
     "/health": {
@@ -4642,6 +4642,17 @@
             ],
             "title": "Notes"
           },
+          "membership_type": {
+            "type": "string",
+            "enum": [
+              "principal",
+              "substitute",
+              "ex_officio",
+              "acting"
+            ],
+            "title": "Membership Type",
+            "description": "Whether the holder holds the role in their own right (`principal`) or serves under a principal (`substitute`, `ex_officio`, `acting`). Read-only: maintained by the producing dataset (#671); only principals count toward a seat's capacity."
+          },
           "archived_at": {
             "anyOf": [
               {
@@ -4692,6 +4703,7 @@
           "person_id",
           "role_id",
           "is_current",
+          "membership_type",
           "created_at",
           "updated_at"
         ],
@@ -4790,6 +4802,17 @@
             ],
             "title": "Notes"
           },
+          "membership_type": {
+            "type": "string",
+            "enum": [
+              "principal",
+              "substitute",
+              "ex_officio",
+              "acting"
+            ],
+            "title": "Membership Type",
+            "description": "Whether the holder holds the role in their own right (`principal`) or serves under a principal (`substitute`, `ex_officio`, `acting`). Read-only: maintained by the producing dataset (#671); only principals count toward a seat's capacity."
+          },
           "archived_at": {
             "anyOf": [
               {
@@ -4819,6 +4842,7 @@
           "person_id",
           "role_id",
           "is_current",
+          "membership_type",
           "created_at",
           "updated_at"
         ],
