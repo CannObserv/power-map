@@ -33,6 +33,7 @@ dev = [
     "anyio>=4.12.1",
     "lxml>=6.1.1",
     "openapi-python-client>=0.29.1,<0.30",
+    "packaging>=26.0",
     # clients/python (#618), installed so its tests import what consumers import.
     "power-map-client",
     "pre-commit>=4.5.1",
