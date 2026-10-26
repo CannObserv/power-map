@@ -484,6 +484,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now <unit>.timer
 systemctl list-timers <unit>.timer     # next / last run
 sudo systemctl start <unit>.service    # run once, now
 sudo journalctl -u <unit> -f           # findings
+sudo journalctl -u 'power-map*' -p warning --since -7d  # every unit's WARNING and up (#704)
 ```
 
 ---
