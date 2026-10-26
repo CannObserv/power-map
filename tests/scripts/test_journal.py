@@ -7,7 +7,7 @@ priority; off the journal the lines read plain.
 
 The module is the one copy: the scripts that log through it run as
 ``/usr/bin/python3 <file>``, where their own directory is ``sys.path[0]``, so
-they import it as a sibling. The last test holds every script to it.
+they import it as a sibling. The last two tests hold every script to it.
 """
 
 import ast
