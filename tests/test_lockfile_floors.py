@@ -20,7 +20,7 @@ LOCKFILE = Path(__file__).resolve().parents[1] / "uv.lock"
 FLOORS = {
     # PYSEC-2026-4320 / TS-2026-013: compromised emSign/eMudhra intermediates.
     # httpx and requests verify TLS against certifi's bundle, not the system store.
-    "certifi": ("2026.10.19", "PYSEC-2026-4320 (#698)"),
+    "certifi": ("2026.10.19", "PYSEC-2026-4320, #698"),
 }
 
 
