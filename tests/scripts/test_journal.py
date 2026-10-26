@@ -100,16 +100,24 @@ def test_each_script_logs_through_the_one_helper(name):
     assert calls, f"{name} never calls _journal.log_handler"
 
 
+# Each script's cheapest clean run, and a line only that run prints. The hook
+# has no --help: with no unit it logs its usage line and exits 0.
+FILE_RUNS = {
+    "check_disk_headroom.py": (["--help"], "Usage:"),
+    "prune_disk.py": (["--help"], "Usage:"),
+    "status_checkin.py": ([], "usage: status_checkin.py <unit>"),
+}
+
+
 @pytest.mark.parametrize("name", USERS)
 def test_each_script_imports_it_when_run_as_a_file(name):
     """The units' form: ``/usr/bin/python3 <file>``, no venv, cwd elsewhere.
-    The script's directory is ``sys.path[0]``, so the sibling import resolves."""
+    The script's directory is ``sys.path[0]``, so the sibling import resolves;
+    the hook would survive without it, so its fallback warning must be absent."""
+    argv, expected = FILE_RUNS[name]
+    python = shutil.which("python3", path="/usr/bin") or sys.executable
     proc = subprocess.run(
-        [
-            shutil.which("python3", path="/usr/bin") or sys.executable,
-            str(SCRIPTS_DIR / name),
-            "--help",
-        ],
+        [python, str(SCRIPTS_DIR / name), *argv],
         env={"PATH": "/usr/bin:/bin"},
         capture_output=True,
         text=True,
@@ -118,4 +126,6 @@ def test_each_script_imports_it_when_run_as_a_file(name):
         check=False,
     )
     assert proc.returncode == 0, proc.stderr
+    assert expected in proc.stdout + proc.stderr
     assert "Traceback" not in proc.stderr, proc.stderr
+    assert "helper unavailable" not in proc.stderr, proc.stderr
