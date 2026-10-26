@@ -16,8 +16,9 @@ first; that list is most of the triage. The walk only happens on an alert.
 
 **Standard library only, run by ``/usr/bin/python3`` straight from the file.**
 A nearly full disk is exactly when ``uv run`` may fail to write what it needs,
-so this file imports nothing from the repo and logs with plain ``logging`` to
-stderr (the journal), as ``status_checkin.py`` does.
+so this file imports nothing from the repo but its stdlib sibling
+``_journal.py``, and logs with plain ``logging`` to stderr (the journal), as
+``status_checkin.py`` does.
 
 **Hysteresis (#690).** It alerts at ``--alert-at`` (85) and clears only at or
 below ``--clear-at`` (80); a reading between the two keeps the previous state.
@@ -34,7 +35,8 @@ reads ``ok``. A held alert exits 3 again, so the unit keeps checking in
 line at ``info``, so ``journalctl -p err`` never saw an alert. When stderr is
 the journal (``$JOURNAL_STREAM`` names it), each line starts with its syslog
 ``<N>``, which systemd's default ``SyslogLevelPrefix=yes`` turns into the
-entry's priority. Off the journal the lines read plain.
+entry's priority. Off the journal the lines read plain. The helper is
+``scripts/_journal.py``, shared with ``prune_disk.py`` and the hook (#692).
 
 Exit codes: 0 = ok (below the alert line and not held); 3 = alerting, at or
 above the alert line or held in the band (the unit checks in ``low-headroom``;
@@ -46,7 +48,6 @@ Usage:
 """
 
 import argparse
-import io
 import logging
 import math
 import os
@@ -54,7 +55,11 @@ import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TextIO
+
+try:  # run as a file (the units): the script's directory is sys.path[0]
+    import _journal
+except ImportError:  # imported as scripts.<name> (tests, python -m)
+    from scripts import _journal
 
 logger = logging.getLogger("check_disk_headroom")
 
@@ -216,44 +221,6 @@ def decide(percent: int, alert_at: int, clear_at: int, previous: str) -> str:
     return previous
 
 
-# --- journal priority (#690) ---------------------------------------------------
-
-# logging level -> syslog priority, for systemd's SyslogLevelPrefix=.
-_SYSLOG_PRIORITY = {
-    logging.CRITICAL: 2,
-    logging.ERROR: 3,
-    logging.WARNING: 4,
-    logging.INFO: 6,
-    logging.DEBUG: 7,
-}
-LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"
-
-
-class _JournalFormatter(logging.Formatter):
-    """Prefixes each line with its ``<N>`` syslog priority."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        priority = _SYSLOG_PRIORITY.get(record.levelno, 6)
-        return f"<{priority}>{super().format(record)}"
-
-
-def _is_journal(stream: TextIO, environ: Mapping[str, str]) -> bool:
-    """True when ``stream`` is the journal stream systemd names in ``$JOURNAL_STREAM``."""
-    try:
-        st = os.fstat(stream.fileno())
-    except (OSError, ValueError, io.UnsupportedOperation):
-        return False
-    return environ.get("JOURNAL_STREAM") == f"{st.st_dev}:{st.st_ino}"
-
-
-def log_handler(stream: TextIO, environ: Mapping[str, str]) -> logging.Handler:
-    """A stderr handler whose lines carry their journal priority when on the journal."""
-    handler = logging.StreamHandler(stream)
-    cls = _JournalFormatter if _is_journal(stream, environ) else logging.Formatter
-    handler.setFormatter(cls(LOG_FORMAT))
-    return handler
-
-
 def main(
     argv: Sequence[str] | None = None,
     usage_fn: Callable[[str], Usage] = usage,
@@ -291,5 +258,5 @@ def main(
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, handlers=[log_handler(sys.stderr, os.environ)])
+    logging.basicConfig(level=logging.INFO, handlers=[_journal.log_handler(sys.stderr, os.environ)])
     sys.exit(main())

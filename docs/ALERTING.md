@@ -28,8 +28,14 @@ one-point dip under the line.
 
 - **Best-effort.** The command carries `-` and always exits 0: a check-in that
   cannot be sent is a journal WARNING, never a change to the unit's result.
+  That's true by priority too, not only by text: each line carries its syslog
+  `<N>` on the journal, so `journalctl -p warning` finds it (#692).
 - **Standard library, `/usr/bin/python3`.** It must work when the venv or `uv`
-  is what broke, so it imports nothing from the repo.
+  is what broke, so it imports nothing from the repo but its stdlib sibling
+  `scripts/_journal.py`, the journal-priority helper it shares with the disk
+  scripts. Without it (missing, broken, or dropped from `sys.path` by
+  `python3 -I`/`-P` or `PYTHONSAFEPATH`) the check-in still goes out; only the
+  priority is lost, and the run logs that once as a WARNING.
 - **No journal text.** The body is one sentence and `journalctl -u <unit> -n 100`;
   this repo is public, and the detail stays on the host.
 - **The key is a credential**, `LoadCredential=` from a root-only file, never an
@@ -77,6 +83,7 @@ sudo systemd-run --wait --pipe -p LoadCredential=status-checkin:/etc/power-map/s
   power-map-ready.service --test
 
 sudo journalctl -u 'power-map-*' -g status_checkin      # every check-in, sent or not
+sudo journalctl -u 'power-map-*' -g status_checkin -p warning  # not sent, or skipped
 sudo journalctl -t power-map-unit-failure               # the handler's fallback line
 ```
 

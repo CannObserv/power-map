@@ -19,6 +19,7 @@ on the path, no venv — against a real local HTTP server.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -402,4 +403,85 @@ def test_the_script_exits_zero_when_status_is_down(creds):
     proc = _run(_main_env(creds, STATUS_URL="http://127.0.0.1:9"))
 
     assert proc.returncode == 0
-    assert "not sent" in proc.stderr
+    [line] = [ln for ln in proc.stderr.splitlines() if "not sent" in ln]
+    assert line.startswith("WARNING status_checkin: "), "off the journal, lines read plain"
+
+
+# --- journal priority (#692) --------------------------------------------------
+
+
+def _run_on_the_journal(env: dict[str, str], tmp_path: Path) -> tuple[int, list[str]]:
+    """stderr is a file that ``$JOURNAL_STREAM`` names, as systemd sets it up."""
+    with open(tmp_path / "stderr", "w") as stream:
+        st = os.fstat(stream.fileno())
+        proc = subprocess.run(
+            [_system_python(), str(SCRIPT), UNIT],
+            env={
+                "PATH": "/usr/bin:/bin",
+                "JOURNAL_STREAM": f"{st.st_dev}:{st.st_ino}",
+                **env,
+            },
+            stdout=subprocess.DEVNULL,
+            stderr=stream,
+            timeout=60,
+            cwd="/",
+            check=False,
+        )
+    return proc.returncode, (tmp_path / "stderr").read_text().splitlines()
+
+
+def test_on_the_journal_a_check_in_not_sent_is_a_warning(creds, tmp_path):
+    """``journalctl -p warning`` finds it: the line carries syslog priority 4."""
+    code, lines = _run_on_the_journal(_main_env(creds, STATUS_URL="http://127.0.0.1:9"), tmp_path)
+
+    assert code == 0
+    [line] = [ln for ln in lines if "not sent" in ln]
+    assert line.startswith("<4>WARNING status_checkin: ")
+
+
+def test_on_the_journal_a_sent_check_in_is_info(status_server, creds, tmp_path):
+    url, received = status_server
+
+    code, lines = _run_on_the_journal(_main_env(creds, STATUS_URL=url), tmp_path)
+
+    assert code == 0
+    assert len(received) == 1
+    [line] = [ln for ln in lines if " sent for " in ln]
+    assert line.startswith("<6>INFO status_checkin: ")
+
+
+# A sibling ``_journal.py`` as it might be found: absent, mid-edit, renamed away.
+BROKEN_HELPERS = {
+    "missing": None,
+    "syntax-error": "def log_handler(:\n",
+    "no-log-handler": "x = 1\n",
+}
+
+
+@pytest.mark.parametrize("helper", BROKEN_HELPERS, ids=list(BROKEN_HELPERS))
+def test_without_a_working_journal_helper_the_hook_still_checks_in(
+    helper, status_server, creds, tmp_path
+):
+    """Priority is a nicety; the check-in is the product. A missing or broken
+    sibling ``_journal.py`` costs the ``<N>`` prefix, never the POST (#692 CR 1, 4)."""
+    url, received = status_server
+    alone = tmp_path / "alone"
+    alone.mkdir()
+    shutil.copy(SCRIPT, alone / SCRIPT.name)
+    if BROKEN_HELPERS[helper] is not None:
+        (alone / "_journal.py").write_text(BROKEN_HELPERS[helper])
+
+    proc = subprocess.run(
+        [_system_python(), str(alone / SCRIPT.name), UNIT],
+        env={"PATH": "/usr/bin:/bin", **_main_env(creds, STATUS_URL=url)},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd="/",
+        check=False,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert len(received) == 1
+    assert "journal priority helper unavailable" in proc.stderr
+    assert " sent for " in proc.stderr

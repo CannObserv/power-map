@@ -20,8 +20,11 @@ bodies reach places it does not control.
 
 **Standard library only, run by ``/usr/bin/python3`` straight from the file.**
 The alert matters most when the venv or ``uv`` is what broke, so this file
-imports nothing from the repo and logs with plain ``logging`` to stderr (the
-journal) instead of ``src.core.logging``.
+imports nothing from the repo but its stdlib sibling ``_journal.py``, and logs
+with plain ``logging`` to stderr (the journal) instead of ``src.core.logging``.
+Each line carries its syslog priority on the journal (#692), so a check-in
+that was not sent shows in ``journalctl -p warning``. Without a working sibling the
+check-in still goes out, with plain lines: the priority never outranks it.
 
 Usage (in a unit):
     ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n
@@ -51,6 +54,18 @@ import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+
+# The check-in outranks its priority prefix (#692): a helper that is missing or
+# broken in any way leaves plain lines, never a lost check-in.
+_journal_error: Exception | None = None
+try:
+    try:  # run as a file (the units): the script's directory is sys.path[0]
+        import _journal
+    except ImportError:  # imported as scripts.<name> (tests, python -m)
+        from scripts import _journal
+except Exception as exc:
+    _journal = None
+    _journal_error = exc
 
 logger = logging.getLogger("status_checkin")
 
@@ -82,7 +97,7 @@ def parse_exit_kinds(raw: str) -> dict[str, str]:
     return kinds
 
 
-def _journal(unit: str) -> str:
+def _journal_command(unit: str) -> str:
     return f"journalctl -u {unit} -n {JOURNAL_LINES}"
 
 
@@ -97,7 +112,7 @@ def outcome(unit: str, env: Mapping[str, str]) -> Outcome:
                 "ok",
                 "ok",
                 f"{unit} succeeded with its declared warning exit {exit_status}. "
-                f"Read it on the host: {_journal(unit)}",
+                f"Read it on the host: {_journal_command(unit)}",
             )
         return Outcome("ok", "ok", f"{unit} ran clean.")
 
@@ -108,7 +123,7 @@ def outcome(unit: str, env: Mapping[str, str]) -> Outcome:
     parts = (result if kind != result else "", f"{exit_code} {exit_status}".strip())
     detail = ", ".join(part for part in parts if part)
     summary = f"{unit} failed: {kind} ({detail})" if detail else f"{unit} failed: {kind}"
-    return Outcome("alert", kind, f"{summary}. Read it on the host: {_journal(unit)}")
+    return Outcome("alert", kind, f"{summary}. Read it on the host: {_journal_command(unit)}")
 
 
 def deliberate_alert(unit: str) -> Outcome:
@@ -117,7 +132,7 @@ def deliberate_alert(unit: str) -> Outcome:
         "alert",
         "test",
         f"Deliberate test alert for {unit}; its next ok check-in clears it. "
-        f"Read it on the host: {_journal(unit)}",
+        f"Read it on the host: {_journal_command(unit)}",
     )
 
 
@@ -237,6 +252,24 @@ def main(
     return 0
 
 
-if __name__ == "__main__":
+def _setup_logging(environ: Mapping[str, str]) -> None:
+    """Lines carry their journal priority; without a working helper they still log, at info."""
+    error = _journal_error
+    if _journal is not None:
+        try:
+            handler = _journal.log_handler(sys.stderr, environ)
+        except Exception as exc:
+            error = exc
+        else:
+            logging.basicConfig(level=logging.INFO, handlers=[handler])
+            return
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logger.warning(
+        "journal priority helper unavailable (_journal.py: %s); lines log at info",
+        type(error).__name__,
+    )
+
+
+if __name__ == "__main__":
+    _setup_logging(os.environ)
     sys.exit(main())
