@@ -324,11 +324,11 @@ constraint forbids concurrent holders, because at-large seats need them (#302).
 
 **It is a ratchet, not a zero gate.** `BASELINE` in the script is the measured
 production count: 56 on 2026-10-10 (#506, listed on usa-wa#489), 55 after #639
-truncated Robinson's legacy House row, 48 after #671's re-pin re-keyed 17 spans.
-The run exits 3 only when the count rises above it; a lower count passes with a
-WARNING naming the value to lower `BASELINE` to, in a PR. Never raise it to clear
-a failure. The lawful 1889–90 multi-member Senate seats and the three substitutes
-leave the count once #671's execute lands their capacity periods and membership.
+truncated Robinson's legacy House row, 48 after #671's re-pin re-keyed 17 spans,
+25 once #671's execute (2026-10-25) landed the lawful 1889–90 multi-member Senate
+seats' capacity and the three substitutes. The run exits 3 only when the count
+rises above it; a lower count passes with a WARNING naming the value to lower
+`BASELINE` to, in a PR. Never raise it to clear a failure.
 
 **Cross-check.** usa-wa's `assignments_seat_occupancy_may` test lists its pairs
 (`store_failures`); a pair on one side only is a predicate divergence, or a PM
