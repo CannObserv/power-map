@@ -87,5 +87,6 @@ sudo systemd-run --wait --pipe -p LoadCredential=status-checkin:/etc/power-map/s
 sudo journalctl -u 'power-map-*' -g status_checkin      # every check-in, sent or not
 sudo journalctl -u 'power-map-*' -g status_checkin -p warning  # not sent, or skipped
 sudo journalctl -t power-map-unit-failure               # the handler's fallback line
+sudo journalctl -u 'power-map*' -p warning --since -7d  # every unit's WARNING and up (#704)
 ```
 
