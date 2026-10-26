@@ -45,9 +45,9 @@ so it works on a disk too full for ``uv run``, and so ``uv cache prune`` never
 waits on a cache lock held by the ``uv run`` that launched it.
 
 Each journal line carries its syslog ``<N>`` priority when stderr is the
-journal (#690), so ``journalctl -p warning`` finds an unchecked or failed path;
-the helper is duplicated from ``check_disk_headroom.py`` because neither file
-imports from the repo, and one test holds both to the same output.
+journal (#690), so ``journalctl -p warning`` finds an unchecked or failed path.
+The helper is ``scripts/_journal.py``, a stdlib sibling and the one thing this
+file imports from the repo (#692).
 
 Dry run by default (#402): it prints the plan with sizes. ``--execute`` removes
 and runs the cache commands.
@@ -63,7 +63,6 @@ Usage:
 
 import argparse
 import hashlib
-import io
 import json
 import logging
 import os
@@ -72,9 +71,13 @@ import stat
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import TextIO
+
+try:  # run as a file (the units): the script's directory is sys.path[0]
+    import _journal
+except ImportError:  # imported as scripts.<name> (tests, python -m)
+    from scripts import _journal
 
 logger = logging.getLogger("prune_disk")
 
@@ -306,44 +309,6 @@ def split_recent(
     return remove, withheld
 
 
-# --- journal priority (#690; as check_disk_headroom.py) --------------------------
-
-# logging level -> syslog priority, for systemd's SyslogLevelPrefix=.
-_SYSLOG_PRIORITY = {
-    logging.CRITICAL: 2,
-    logging.ERROR: 3,
-    logging.WARNING: 4,
-    logging.INFO: 6,
-    logging.DEBUG: 7,
-}
-LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"
-
-
-class _JournalFormatter(logging.Formatter):
-    """Prefixes each line with its ``<N>`` syslog priority."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        priority = _SYSLOG_PRIORITY.get(record.levelno, 6)
-        return f"<{priority}>{super().format(record)}"
-
-
-def _is_journal(stream: TextIO, environ: Mapping[str, str]) -> bool:
-    """True when ``stream`` is the journal stream systemd names in ``$JOURNAL_STREAM``."""
-    try:
-        st = os.fstat(stream.fileno())
-    except (OSError, ValueError, io.UnsupportedOperation):
-        return False
-    return environ.get("JOURNAL_STREAM") == f"{st.st_dev}:{st.st_ino}"
-
-
-def log_handler(stream: TextIO, environ: Mapping[str, str]) -> logging.Handler:
-    """A stderr handler whose lines carry their journal priority when on the journal."""
-    handler = logging.StreamHandler(stream)
-    cls = _JournalFormatter if _is_journal(stream, environ) else logging.Formatter
-    handler.setFormatter(cls(LOG_FORMAT))
-    return handler
-
-
 # --- doing it -------------------------------------------------------------------
 
 
@@ -474,5 +439,5 @@ def main(
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, handlers=[log_handler(sys.stderr, os.environ)])
+    logging.basicConfig(level=logging.INFO, handlers=[_journal.log_handler(sys.stderr, os.environ)])
     sys.exit(main())

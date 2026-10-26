@@ -19,6 +19,7 @@ on the path, no venv — against a real local HTTP server.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -402,4 +403,48 @@ def test_the_script_exits_zero_when_status_is_down(creds):
     proc = _run(_main_env(creds, STATUS_URL="http://127.0.0.1:9"))
 
     assert proc.returncode == 0
-    assert "not sent" in proc.stderr
+    [line] = [ln for ln in proc.stderr.splitlines() if "not sent" in ln]
+    assert line.startswith("WARNING status_checkin: "), "off the journal, lines read plain"
+
+
+# --- journal priority (#692) --------------------------------------------------
+
+
+def _run_on_the_journal(env: dict[str, str], tmp_path: Path) -> tuple[int, list[str]]:
+    """stderr is a file that ``$JOURNAL_STREAM`` names, as systemd sets it up."""
+    with open(tmp_path / "stderr", "w") as stream:
+        st = os.fstat(stream.fileno())
+        proc = subprocess.run(
+            [_system_python(), str(SCRIPT), UNIT],
+            env={
+                "PATH": "/usr/bin:/bin",
+                "JOURNAL_STREAM": f"{st.st_dev}:{st.st_ino}",
+                **env,
+            },
+            stdout=subprocess.DEVNULL,
+            stderr=stream,
+            timeout=60,
+            cwd="/",
+            check=False,
+        )
+    return proc.returncode, (tmp_path / "stderr").read_text().splitlines()
+
+
+def test_on_the_journal_a_check_in_not_sent_is_a_warning(creds, tmp_path):
+    """``journalctl -p warning`` finds it: the line carries syslog priority 4."""
+    code, lines = _run_on_the_journal(_main_env(creds, STATUS_URL="http://127.0.0.1:9"), tmp_path)
+
+    assert code == 0
+    [line] = [ln for ln in lines if "not sent" in ln]
+    assert line.startswith("<4>WARNING status_checkin: ")
+
+
+def test_on_the_journal_a_sent_check_in_is_info(status_server, creds, tmp_path):
+    url, received = status_server
+
+    code, lines = _run_on_the_journal(_main_env(creds, STATUS_URL=url), tmp_path)
+
+    assert code == 0
+    assert len(received) == 1
+    [line] = [ln for ln in lines if " sent for " in ln]
+    assert line.startswith("<6>INFO status_checkin: ")
