@@ -252,7 +252,7 @@ def main(
     return 0
 
 
-def configure_logging(environ: Mapping[str, str]) -> None:
+def _setup_logging(environ: Mapping[str, str]) -> None:
     """Lines carry their journal priority; without a working helper they still log, at info."""
     error = _journal_error
     if _journal is not None:
@@ -271,5 +271,5 @@ def configure_logging(environ: Mapping[str, str]) -> None:
 
 
 if __name__ == "__main__":
-    configure_logging(os.environ)
+    _setup_logging(os.environ)
     sys.exit(main())
