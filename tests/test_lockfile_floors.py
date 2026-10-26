@@ -1,11 +1,12 @@
 """Security floors on resolved dependencies (#698).
 
 A floor here is a version the lockfile must never resolve below, because the
-releases under it carry a known vulnerability. ``uv lock`` honours the
-constraints in ``pyproject.toml`` but not a transitive dependency's history, so
-a later re-lock (a downgrade forced by another package, a hand-resolved
-conflict) could quietly bring a bad release back. These tests read ``uv.lock``
-itself, the file ``ExecStartPre``'s ``uv sync`` installs from.
+releases under it carry a known vulnerability. The resolver knows nothing of
+advisories, and ``pyproject.toml`` constrains none of these packages (they
+arrive transitively), so a later re-lock (a downgrade forced by another
+package, a hand-resolved conflict) could quietly bring a bad release back.
+These tests read ``uv.lock`` itself, the file ``ExecStartPre``'s ``uv sync``
+installs from.
 """
 
 import tomllib
