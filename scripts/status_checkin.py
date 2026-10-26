@@ -23,7 +23,8 @@ The alert matters most when the venv or ``uv`` is what broke, so this file
 imports nothing from the repo but its stdlib sibling ``_journal.py``, and logs
 with plain ``logging`` to stderr (the journal) instead of ``src.core.logging``.
 Each line carries its syslog priority on the journal (#692), so a check-in
-that was not sent shows in ``journalctl -p warning``.
+that was not sent shows in ``journalctl -p warning``. Without the sibling the
+check-in still goes out, with plain lines: the priority never outranks it.
 
 Usage (in a unit):
     ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n
@@ -56,8 +57,11 @@ from pathlib import Path
 
 try:  # run as a file (the units): the script's directory is sys.path[0]
     import _journal
-except ImportError:  # imported as scripts.<name> (tests, python -m)
-    from scripts import _journal
+except ImportError:
+    try:  # imported as scripts.<name> (tests, python -m)
+        from scripts import _journal
+    except ImportError:  # the check-in outranks its priority prefix (#692)
+        _journal = None
 
 logger = logging.getLogger("status_checkin")
 
@@ -244,6 +248,15 @@ def main(
     return 0
 
 
+def configure_logging(environ: Mapping[str, str]) -> None:
+    """Lines carry their journal priority; without the helper they still log, at info."""
+    if _journal is None:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+        logger.warning("journal priority helper unavailable (_journal.py); lines log at info")
+        return
+    logging.basicConfig(level=logging.INFO, handlers=[_journal.log_handler(sys.stderr, environ)])
+
+
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, handlers=[_journal.log_handler(sys.stderr, os.environ)])
+    configure_logging(os.environ)
     sys.exit(main())

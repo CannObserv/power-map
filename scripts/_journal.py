@@ -19,7 +19,8 @@ fallback::
         from scripts import _journal
 
 ``python3 -I`` / ``-P`` or ``PYTHONSAFEPATH`` drop ``sys.path[0]``, and with
-them this import; no unit or env file sets them.
+them this import; no unit or env file sets them. The disk scripts would fail
+on it; ``status_checkin.py`` catches it and checks in with plain lines.
 """
 
 import io

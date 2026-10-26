@@ -448,3 +448,27 @@ def test_on_the_journal_a_sent_check_in_is_info(status_server, creds, tmp_path):
     assert len(received) == 1
     [line] = [ln for ln in lines if " sent for " in ln]
     assert line.startswith("<6>INFO status_checkin: ")
+
+
+def test_without_its_journal_helper_the_hook_still_checks_in(status_server, creds, tmp_path):
+    """Priority is a nicety; the check-in is the product. A missing sibling
+    ``_journal.py`` costs the ``<N>`` prefix, never the POST (#692 CR 1)."""
+    url, received = status_server
+    alone = tmp_path / "alone"
+    alone.mkdir()
+    shutil.copy(SCRIPT, alone / SCRIPT.name)
+
+    proc = subprocess.run(
+        [_system_python(), str(alone / SCRIPT.name), UNIT],
+        env={"PATH": "/usr/bin:/bin", **_main_env(creds, STATUS_URL=url)},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd="/",
+        check=False,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert len(received) == 1
+    assert "journal priority helper unavailable" in proc.stderr
+    assert " sent for " in proc.stderr
