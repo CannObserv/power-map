@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts import _journal
 from scripts._journal import log_handler
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
@@ -85,6 +86,15 @@ def test_the_rule_comes_from_src_core_journal(tmp_path: Path):
     names = _names(ast.parse((SCRIPTS_DIR / "_journal.py").read_text()))
     assert "JOURNAL_STREAM" not in names
     assert "_SYSLOG_PRIORITY" not in names
+
+
+def test_a_failed_rule_load_leaves_no_half_built_module(tmp_path: Path, monkeypatch):
+    """importlib's own contract: a module whose execution raised is not left in
+    ``sys.modules``, or the next load would return it without its handler."""
+    monkeypatch.delitem(sys.modules, _journal.RULE_MODULE)
+    with pytest.raises(FileNotFoundError):
+        _journal._load_rule(tmp_path / "absent.py")
+    assert _journal.RULE_MODULE not in sys.modules
 
 
 def _names(tree: ast.Module) -> set[str]:

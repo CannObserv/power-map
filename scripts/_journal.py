@@ -36,18 +36,22 @@ from pathlib import Path
 from typing import TextIO
 
 LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"
+RULE_MODULE = "_power_map_core_journal"
+_RULE_PATH = Path(__file__).resolve().parent.parent / "src" / "core" / "journal.py"
 
 
-def _load_rule():
+def _load_rule(path: Path = _RULE_PATH):
     """``src/core/journal.py``, executed from its file: no ``src`` package, no venv."""
-    path = Path(__file__).resolve().parent.parent / "src" / "core" / "journal.py"
-    name = "_power_map_core_journal"
-    if name in sys.modules:
-        return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(name, path)
+    if RULE_MODULE in sys.modules:
+        return sys.modules[RULE_MODULE]
+    spec = importlib.util.spec_from_file_location(RULE_MODULE, path)
     module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module  # importlib's recipe: inspect and pickle find it
-    spec.loader.exec_module(module)
+    sys.modules[RULE_MODULE] = module  # importlib's recipe: inspect and pickle find it
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[RULE_MODULE]  # as importlib does: no half-built module left behind
+        raise
     return module
 
 
