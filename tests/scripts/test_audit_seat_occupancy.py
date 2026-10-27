@@ -30,15 +30,16 @@ INFRA = Path(__file__).resolve().parents[2] / "infra"
 # --------------------------------------------------------------------------- #
 
 
-def test_baseline_only_ratchets_down_from_the_2026_10_25_measurement():
+def test_baseline_only_ratchets_down_from_the_2026_10_27_measurement():
     """Lowering it as triage lands is the point; raising it to clear a failure is not.
 
     56 on 2026-10-10; 55 once #639 truncated Robinson's legacy LD-38 Pos. 1 row;
     48 after #671's re-pin re-keyed 17 spans (measured 2026-10-23); 25 once #671's
     execute landed capacity periods and substitutes (measured 2026-10-25, equal
-    pair for pair to usa-wa's may-tier list).
+    pair for pair to usa-wa's may-tier list); 22 once #703's execute split four
+    return tenures (measured 2026-10-27, again equal pair for pair).
     """
-    assert 0 <= BASELINE <= 25
+    assert 0 <= BASELINE <= 22
 
 
 def test_exit_code_at_baseline_is_zero():

@@ -29,7 +29,8 @@ distinct people hold it than its capacity.
 It is a **ratchet**, not a zero gate. ``BASELINE`` is the count measured on
 production — 56 on 2026-10-10 (#506), 55 after #639, 48 after #671's re-pin
 (2026-10-23), 25 after #671's execute (2026-10-25, equal to usa-wa's may-tier
-list on usa-wa#501), listed on usa-wa#489 and broken down in ``docs/AUDITS.md`` — and
+list on usa-wa#501), 22 after #703's execute (2026-10-27, again equal pair for
+pair), listed on usa-wa#489 and broken down in ``docs/AUDITS.md`` — and
 the run exits 3 only when the count rises above it.
 A lower count passes with a WARNING naming the number to lower ``BASELINE``
 to. Every pair is logged each run, so a day-over-day journal diff names the
@@ -54,9 +55,10 @@ from src.core.logging import configure_logging, get_logger
 logger = get_logger(__name__)
 
 #: Pairs over capacity on production: 56 on 2026-10-10 (#506), 55 after #639, 48
-#: after #671's re-pin (2026-10-23), 25 after #671's execute (2026-10-25). Lower
-#: it as triage lands; never raise it to clear a failure.
-BASELINE = 25
+#: after #671's re-pin (2026-10-23), 25 after #671's execute (2026-10-25), 22
+#: after #703's execute (2026-10-27). Lower it as triage lands; never raise it
+#: to clear a failure.
+BASELINE = 22
 
 _OVERLAPS_SQL = """
 WITH principals AS (
