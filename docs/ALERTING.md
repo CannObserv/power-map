@@ -33,7 +33,9 @@ one-point dip under the line.
 - **Standard library, `/usr/bin/python3`.** It must work when the venv or `uv`
   is what broke, so it imports nothing from the repo but its stdlib sibling
   `scripts/_journal.py`, the journal-priority helper it shares with the disk
-  scripts. Without it (missing, broken, or dropped from `sys.path` by
+  scripts. That helper loads the one rule, the stdlib-only
+  `src/core/journal.py` that `configure_logging()` also uses, by file path
+  (#704). Without either (missing, broken, or dropped from `sys.path` by
   `python3 -I`/`-P` or `PYTHONSAFEPATH`) the check-in still goes out; only the
   priority is lost, and the run logs that once as a WARNING.
 - **No journal text.** The body is one sentence and `journalctl -u <unit> -n 100`;
@@ -85,5 +87,6 @@ sudo systemd-run --wait --pipe -p LoadCredential=status-checkin:/etc/power-map/s
 sudo journalctl -u 'power-map-*' -g status_checkin      # every check-in, sent or not
 sudo journalctl -u 'power-map-*' -g status_checkin -p warning  # not sent, or skipped
 sudo journalctl -t power-map-unit-failure               # the handler's fallback line
+sudo journalctl -u 'power-map*' -p warning --since -7d  # every unit's WARNING and up (#704)
 ```
 

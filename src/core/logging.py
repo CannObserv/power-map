@@ -5,6 +5,8 @@ import sys
 
 from pythonjsonlogger.json import JsonFormatter
 
+from src.core.journal import JournalStreamHandler
+
 
 def build_json_formatter() -> JsonFormatter:
     """The single JSON formatter definition for the whole process.
@@ -54,8 +56,11 @@ def configure_logging(level: int = logging.INFO) -> None:
     whole logging tree at boot instead; this call is then a harmless reinstall
     of an identical root handler, which keeps app logs JSON even if someone
     launches uvicorn without ``--log-config``.
+
+    On the journal each line carries its syslog ``<N>``, so ``journalctl -p``
+    filters by the record's level; off it the lines are bare JSON (#704).
     """
-    handler = logging.StreamHandler(sys.stdout)
+    handler = JournalStreamHandler(sys.stdout)
     handler.setFormatter(build_json_formatter())
     root = logging.getLogger()
     root.setLevel(level)

@@ -20,7 +20,8 @@ bodies reach places it does not control.
 
 **Standard library only, run by ``/usr/bin/python3`` straight from the file.**
 The alert matters most when the venv or ``uv`` is what broke, so this file
-imports nothing from the repo but its stdlib sibling ``_journal.py``, and logs
+imports nothing from the repo but its stdlib sibling ``_journal.py`` (which
+loads the stdlib-only ``src/core/journal.py`` by path, #704), and logs
 with plain ``logging`` to stderr (the journal) instead of ``src.core.logging``.
 Each line carries its syslog priority on the journal (#692), so a check-in
 that was not sent shows in ``journalctl -p warning``. Without a working sibling the

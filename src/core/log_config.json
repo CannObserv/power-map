@@ -9,7 +9,7 @@
   },
   "handlers": {
     "stdout": {
-      "class": "logging.StreamHandler",
+      "class": "src.core.journal.JournalStreamHandler",
       "formatter": "json",
       "stream": "ext://sys.stdout"
     }

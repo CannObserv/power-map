@@ -1,12 +1,18 @@
 """Regression tests: JSON log records carry timestamp, level, and logger name,
 and uvicorn's own loggers share the app's JSON formatter (skills#69, skills#81).
+On the journal each line carries its syslog ``<N>`` (#704).
 """
 
 import json
 import logging
 import logging.config
+import os
+import sys
 from pathlib import Path
 
+import pytest
+
+from src.core.journal import JournalStreamHandler
 from src.core.logging import (
     ColorMessageFilter,
     build_json_formatter,
@@ -15,6 +21,25 @@ from src.core.logging import (
 )
 
 LOG_CONFIG_PATH = Path("src/core/log_config.json")
+
+
+@pytest.fixture
+def journal_file(tmp_path: Path, monkeypatch):
+    """A real file that ``$JOURNAL_STREAM`` names, as systemd names stdout.
+    The test swaps it in as sys.stdout itself: pytest's capture re-sets
+    sys.stdout when the call phase starts, undoing a fixture's patch."""
+    with open(tmp_path / "stdout", "w") as stream:
+        st = os.fstat(stream.fileno())
+        monkeypatch.setenv("JOURNAL_STREAM", f"{st.st_dev}:{st.st_ino}")
+        yield stream
+
+
+@pytest.fixture
+def saved_root():
+    root = logging.getLogger()
+    saved_handlers, saved_level = root.handlers[:], root.level
+    yield
+    root.handlers, root.level = saved_handlers, saved_level
 
 
 def test_log_record_includes_structured_fields(capsys):
@@ -31,6 +56,43 @@ def test_log_record_includes_structured_fields(capsys):
     assert record["level"] == "WARNING"
     assert record["logger"] == "src.some.module"
     assert "timestamp" in record
+
+
+@pytest.mark.parametrize(
+    ("level", "prefix"), [(logging.WARNING, "<4>"), (logging.ERROR, "<3>"), (logging.INFO, "<6>")]
+)
+def test_on_the_journal_each_json_line_carries_its_priority(
+    level, prefix, journal_file, saved_root, monkeypatch
+):
+    """journald strips the ``<N>`` (SyslogLevelPrefix=yes), so what follows it
+    must be the whole JSON object, alone on its line."""
+    monkeypatch.setattr(sys, "stdout", journal_file)
+    configure_logging()
+    get_logger("src.some.module").log(level, "hello")
+    journal_file.flush()
+
+    line = Path(journal_file.name).read_text()
+    assert line.startswith(prefix + "{") and line.endswith("}\n"), line
+    record = json.loads(line.removeprefix(prefix))
+    assert record["level"] == logging.getLevelName(level)
+    assert record["message"] == "hello"
+
+
+def test_off_the_journal_a_real_file_gets_plain_json(tmp_path: Path, monkeypatch, saved_root):
+    """A terminal or a pipe: no ``$JOURNAL_STREAM``, so the line is bare JSON."""
+    monkeypatch.delenv("JOURNAL_STREAM", raising=False)
+    with open(tmp_path / "stdout", "w") as stream:
+        monkeypatch.setattr(sys, "stdout", stream)
+        configure_logging()
+        get_logger("x").error("hello")
+    assert json.loads((tmp_path / "stdout").read_text())["level"] == "ERROR"
+
+
+def test_configure_logging_writes_through_the_journal_handler(saved_root):
+    configure_logging()
+    (handler,) = logging.getLogger().handlers
+    assert isinstance(handler, JournalStreamHandler)
+    assert handler.stream is sys.stdout
 
 
 def test_uvicorn_log_config_is_valid_and_shares_formatter():
@@ -53,6 +115,10 @@ def test_uvicorn_log_config_is_valid_and_shares_formatter():
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         assert name in config["loggers"]
         assert "strip_color_message" in config["loggers"][name]["filters"]
+    # uvicorn's own lines (an unhandled ASGI exception is a uvicorn.error ERROR)
+    # carry their journal priority through the same handler (#704).
+    for handler in config["handlers"].values():
+        assert handler["class"] == "src.core.journal.JournalStreamHandler"
 
     names = ("", "uvicorn", "uvicorn.error", "uvicorn.access")
     saved = {
@@ -66,6 +132,9 @@ def test_uvicorn_log_config_is_valid_and_shares_formatter():
     }
     try:
         logging.config.dictConfig(config)  # raises on a malformed config
+        for name in names:
+            for handler in logging.getLogger(name).handlers:
+                assert isinstance(handler, JournalStreamHandler), name
     finally:
         # Restore level AND filters: dictConfig sets root + uvicorn loggers to
         # INFO and attaches the strip filter, and leaking either into later

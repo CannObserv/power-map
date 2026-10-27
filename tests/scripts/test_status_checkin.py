@@ -450,11 +450,14 @@ def test_on_the_journal_a_sent_check_in_is_info(status_server, creds, tmp_path):
     assert line.startswith("<6>INFO status_checkin: ")
 
 
-# A sibling ``_journal.py`` as it might be found: absent, mid-edit, renamed away.
+# A sibling ``_journal.py`` as it might be found: absent, mid-edit, renamed away,
+# or intact but with no ``../src/core/journal.py`` to load the rule from (#704).
+REAL_HELPER = SCRIPT.parent / "_journal.py"
 BROKEN_HELPERS = {
     "missing": None,
     "syntax-error": "def log_handler(:\n",
     "no-log-handler": "x = 1\n",
+    "no-shared-rule": REAL_HELPER,
 }
 
 
@@ -463,13 +466,17 @@ def test_without_a_working_journal_helper_the_hook_still_checks_in(
     helper, status_server, creds, tmp_path
 ):
     """Priority is a nicety; the check-in is the product. A missing or broken
-    sibling ``_journal.py`` costs the ``<N>`` prefix, never the POST (#692 CR 1, 4)."""
+    sibling ``_journal.py``, or the rule file it loads, costs the ``<N>``
+    prefix, never the POST (#692 CR 1, 4; #704)."""
     url, received = status_server
     alone = tmp_path / "alone"
     alone.mkdir()
     shutil.copy(SCRIPT, alone / SCRIPT.name)
-    if BROKEN_HELPERS[helper] is not None:
-        (alone / "_journal.py").write_text(BROKEN_HELPERS[helper])
+    broken = BROKEN_HELPERS[helper]
+    if isinstance(broken, Path):
+        shutil.copy(broken, alone / "_journal.py")
+    elif broken is not None:
+        (alone / "_journal.py").write_text(broken)
 
     proc = subprocess.run(
         [_system_python(), str(alone / SCRIPT.name), UNIT],

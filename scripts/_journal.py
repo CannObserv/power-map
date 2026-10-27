@@ -21,45 +21,45 @@ fallback::
 ``python3 -I`` / ``-P`` or ``PYTHONSAFEPATH`` drop ``sys.path[0]``, and with
 them this import; no unit or env file sets them. The disk scripts would fail
 on it; ``status_checkin.py`` catches it and checks in with plain lines.
+
+**The rule itself lives in** ``src/core/journal.py`` (#704), shared with
+``configure_logging()`` and uvicorn's ``log_config.json``. These scripts have
+no venv and must not import the ``src`` package, so this module loads that one
+stdlib-only file by path; there is no second copy to drift.
 """
 
-import io
+import importlib.util
 import logging
-import os
+import sys
 from collections.abc import Mapping
+from pathlib import Path
 from typing import TextIO
 
-# logging level -> syslog priority, for systemd's SyslogLevelPrefix=.
-_SYSLOG_PRIORITY = {
-    logging.CRITICAL: 2,
-    logging.ERROR: 3,
-    logging.WARNING: 4,
-    logging.INFO: 6,
-    logging.DEBUG: 7,
-}
 LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"
+RULE_MODULE = "_power_map_core_journal"
+_RULE_PATH = Path(__file__).resolve().parent.parent / "src" / "core" / "journal.py"
 
 
-class _JournalFormatter(logging.Formatter):
-    """Prefixes each line with its ``<N>`` syslog priority."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        priority = _SYSLOG_PRIORITY.get(record.levelno, 6)
-        return f"<{priority}>{super().format(record)}"
-
-
-def _is_journal(stream: TextIO, environ: Mapping[str, str]) -> bool:
-    """True when ``stream`` is the journal stream systemd names in ``$JOURNAL_STREAM``."""
+def _load_rule(path: Path = _RULE_PATH):
+    """``src/core/journal.py``, executed from its file: no ``src`` package, no venv."""
+    if RULE_MODULE in sys.modules:
+        return sys.modules[RULE_MODULE]
+    spec = importlib.util.spec_from_file_location(RULE_MODULE, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[RULE_MODULE] = module  # importlib's recipe: inspect and pickle find it
     try:
-        st = os.fstat(stream.fileno())
-    except (OSError, ValueError, io.UnsupportedOperation):
-        return False
-    return environ.get("JOURNAL_STREAM") == f"{st.st_dev}:{st.st_ino}"
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[RULE_MODULE]  # as importlib does: no half-built module left behind
+        raise
+    return module
+
+
+_rule = _load_rule()
 
 
 def log_handler(stream: TextIO, environ: Mapping[str, str]) -> logging.Handler:
     """A stderr handler whose lines carry their journal priority when on the journal."""
-    handler = logging.StreamHandler(stream)
-    cls = _JournalFormatter if _is_journal(stream, environ) else logging.Formatter
-    handler.setFormatter(cls(LOG_FORMAT))
+    handler = _rule.JournalStreamHandler(stream, environ)
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
     return handler

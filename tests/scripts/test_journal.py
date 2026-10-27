@@ -5,12 +5,15 @@ journald files a plain stderr line at ``info``. When stderr is the journal
 which systemd's default ``SyslogLevelPrefix=yes`` turns into the entry's
 priority; off the journal the lines read plain.
 
-The module is the one copy: the scripts that log through it run as
-``/usr/bin/python3 <file>``, where their own directory is ``sys.path[0]``, so
-they import it as a sibling. The last two tests hold every script to it.
+The module is the one copy for the scripts: they run as ``/usr/bin/python3
+<file>``, where their own directory is ``sys.path[0]``, so they import it as a
+sibling. The rule itself lives in ``src/core/journal.py`` (#704), which the
+module loads by path; the guard below holds it to that, and the last two tests
+hold every script to the module.
 """
 
 import ast
+import inspect
 import io
 import logging
 import os
@@ -21,9 +24,11 @@ from pathlib import Path
 
 import pytest
 
+from scripts import _journal
 from scripts._journal import log_handler
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
+CORE_JOURNAL = Path(__file__).resolve().parents[2] / "src" / "core" / "journal.py"
 USERS = ("check_disk_headroom.py", "prune_disk.py", "status_checkin.py")
 
 
@@ -69,6 +74,27 @@ def test_a_stream_without_a_descriptor_carries_no_prefix():
     handler = log_handler(io.StringIO(), {"JOURNAL_STREAM": "1:2"})
     record = logging.LogRecord("x", logging.ERROR, __file__, 1, "boom", (), None)
     assert handler.format(record) == "ERROR x: boom"
+
+
+def test_the_rule_comes_from_src_core_journal(tmp_path: Path):
+    """One rule for both homes (#704): the handler is the src module's class,
+    and the helper keeps no priority map or ``$JOURNAL_STREAM`` check of its own."""
+    with open(tmp_path / "stderr", "w") as stream:
+        handler = log_handler(stream, {})
+    assert type(handler).__name__ == "JournalStreamHandler"
+    assert Path(inspect.getfile(type(handler))) == CORE_JOURNAL
+    names = _names(ast.parse((SCRIPTS_DIR / "_journal.py").read_text()))
+    assert "JOURNAL_STREAM" not in names
+    assert "_SYSLOG_PRIORITY" not in names
+
+
+def test_a_failed_rule_load_leaves_no_half_built_module(tmp_path: Path, monkeypatch):
+    """importlib's own contract: a module whose execution raised is not left in
+    ``sys.modules``, or the next load would return it without its handler."""
+    monkeypatch.delitem(sys.modules, _journal.RULE_MODULE)
+    with pytest.raises(FileNotFoundError):
+        _journal._load_rule(tmp_path / "absent.py")
+    assert _journal.RULE_MODULE not in sys.modules
 
 
 def _names(tree: ast.Module) -> set[str]:
