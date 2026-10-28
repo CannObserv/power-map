@@ -28,7 +28,11 @@ from pathlib import Path
 
 import yaml
 
-from src.core.dataset_ownership import DATASET_OWNED_LINK_TYPES, DATASET_OWNED_TABLES
+from src.core.dataset_ownership import (
+    DATASET_OWNED_IDENTIFIER_TYPES,
+    DATASET_OWNED_LINK_TYPES,
+    DATASET_OWNED_TABLES,
+)
 
 __all__ = [
     "MANIFEST_PATH",
@@ -151,6 +155,9 @@ class Target:
     # value is out of scope is not the producer's: absence never reaches it
     anchored: list[str] = field(default_factory=list)
     hint_on_create: bool = False
+    # key (#710): a key no other parent may hold — a value already on another PM
+    # row is a conflict, never a second holder resolve_entity cannot choose between
+    exclusive: bool = False
     primitive: str | None = None  # merge: the core merge it acts through; None = report-only
     # entity (#527): desired column → what a create writes; the PM columns of the
     # partial index a create or restore must not collide on; the columns an
@@ -194,13 +201,17 @@ class TableSpec:
     # #671: `owns_rows: all` — every live row of the child table under an in-scope
     # parent is the producer's, so absence reaches all of them, not a type's
     owns_all_rows: bool = False
+    # #710: the identifier types a child binding of `identifiers` asserts — the
+    # lock's scope, held to `DATASET_OWNED_IDENTIFIER_TYPES`
+    owned_identifier_types: list[str] = field(default_factory=list)
 
 
 # The shapes that carry a producer-owned value a curator can pin (#498).
 OVERLAY_SHAPES = ("column", "child")
 # #592: the overlay a binding names when its values are locked rather than
-# pinned — a child binding owning only `DATASET_OWNED_LINK_TYPES`, or (#671) one
-# owning every row of a table in `DATASET_OWNED_TABLES`.
+# pinned — a child binding owning only `DATASET_OWNED_LINK_TYPES`, (#671) one
+# owning every row of a table in `DATASET_OWNED_TABLES`, or (#710) one asserting
+# only `DATASET_OWNED_IDENTIFIER_TYPES`.
 OVERLAY_LOCKED = "none"
 # #671: the one value `owns_rows` takes.
 OWNS_ALL_ROWS = "all"
@@ -304,6 +315,11 @@ def _target(name: str, raw: object) -> Target:
                 raise ManifestError(f"{where}: only an entity binding names {key}, not {shape}")
     if shape != "column" and "asserts_null" in raw:
         raise ManifestError(f"{where}: only a column binding names asserts_null, not {shape}")
+    exclusive = raw.get("exclusive", False)
+    if not isinstance(exclusive, bool):
+        raise ManifestError(f"{where}: exclusive takes true or false, not {exclusive!r}")
+    if exclusive and (shape != "child" or raw.get("match") != "key"):
+        raise ManifestError(f"{where}: exclusive is for a child binding matched by key")
     target = Target(
         shape=shape,
         table=raw.get("table"),
@@ -319,6 +335,7 @@ def _target(name: str, raw: object) -> Target:
         insert_defaults=dict(raw.get("insert_defaults") or {}),
         archived=raw.get("archived"),
         hint_on_create=bool(raw.get("hint_on_create", False)),
+        exclusive=exclusive,
         primitive=raw.get("primitive"),
         identity=_identity(where, raw["identity"]) if "identity" in raw else {},
         unique_live=_indexes(where, raw.get("unique_live") or []),
@@ -422,6 +439,11 @@ def _table(name: str, raw: object) -> TableSpec:
             f"{name}: only an archiving binding names dependents — nothing else leaves a row behind"
         )
     owned_event_types = [str(t) for t in raw.get("owned_event_types") or []]
+    owned_identifier_types = [str(t) for t in raw.get("owned_identifier_types") or []]
+    if owned_identifier_types and (target.shape != "child" or target.table != "identifiers"):
+        raise ManifestError(
+            f"{name}: owned_identifier_types is for a child binding of the identifiers table"
+        )
     owns_all_rows = _owns_rows(name, raw, target, owned_event_types)
     if retraction == "archive" and target.shape == "child":
         # #592: a child archive acts on the owned event types and nothing else —
@@ -447,6 +469,9 @@ def _table(name: str, raw: object) -> TableSpec:
             )
     owned = list(_require(raw, "owned_columns", name))
     types = _types(name, _require(raw, "types", name), [*key, *owned])
+    if target.exclusive and any(types.get(c) != "VARCHAR" for c in target.key_columns):
+        # #710 CR 1: the holder probe compares the key as text, in one join.
+        raise ManifestError(f"{name}: an exclusive key's columns are VARCHAR")
     overlay = raw.get("overlay")
     if target.shape in OVERLAY_SHAPES and not overlay:
         raise ManifestError(
@@ -463,11 +488,17 @@ def _table(name: str, raw: object) -> TableSpec:
             DATASET_OWNED_LINK_TYPES
         )
         locked_table = owns_all_rows and target.table in DATASET_OWNED_TABLES
-        if target.shape != "child" or not (locked_links or locked_table):
+        # #710: identifiers are presence only — an admin edit or delete of one
+        # would be re-inserted, so the lock refuses both.
+        locked_identifiers = bool(owned_identifier_types) and set(owned_identifier_types) <= (
+            DATASET_OWNED_IDENTIFIER_TYPES
+        )
+        if target.shape != "child" or not (locked_links or locked_table or locked_identifiers):
             raise ManifestError(
                 f"{name}: overlay none is for a child binding owning only the locked link"
-                f" types {sorted(DATASET_OWNED_LINK_TYPES)}, or every row of a table in"
-                f" {sorted(DATASET_OWNED_TABLES)}"
+                f" types {sorted(DATASET_OWNED_LINK_TYPES)}, every row of a table in"
+                f" {sorted(DATASET_OWNED_TABLES)}, or only the locked identifier types"
+                f" {sorted(DATASET_OWNED_IDENTIFIER_TYPES)}"
             )
         overlays: dict[str, str] = {}
     elif isinstance(overlay, dict):
@@ -493,6 +524,7 @@ def _table(name: str, raw: object) -> TableSpec:
         types=types,
         overlays=overlays,
         owns_all_rows=owns_all_rows,
+        owned_identifier_types=owned_identifier_types,
     )
 
 

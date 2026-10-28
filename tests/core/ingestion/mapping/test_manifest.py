@@ -13,7 +13,11 @@ import yaml
 
 pytest.importorskip("dbt.adapters.duckdb")
 
-from src.core.dataset_ownership import DATASET_OWNED_LINK_TYPES, DATASET_OWNED_TABLES  # noqa: E402
+from src.core.dataset_ownership import (  # noqa: E402
+    DATASET_OWNED_IDENTIFIER_TYPES,
+    DATASET_OWNED_LINK_TYPES,
+    DATASET_OWNED_TABLES,
+)
 from src.core.ingestion.mapping import (  # noqa: E402
     PROJECT_DIR,
     load_manifest,
@@ -125,6 +129,7 @@ def test_the_four_shapes_cover_the_marts_as_designed():
         "desired_organizations": "entity",
         "desired_organization_parents": "column",
         "desired_person_names": "child",
+        "desired_person_identifiers": "child",  # #710
         "desired_organization_names": "child",
         "desired_organization_acronyms": "child",
         "desired_entity_events": "child",
@@ -751,4 +756,91 @@ def test_overlay_none_on_a_table_no_dataset_owns_fails_at_load():
     raw["tables"][CAPACITY]["target"]["table"] = "role_assignment_relationships"
 
     with pytest.raises(ManifestError, match="overlay none"):
+        parse_manifest(raw)
+
+
+# --- #710: person identifiers are locked, presence only ---------------------------
+
+IDENTIFIERS = "desired_person_identifiers"
+
+
+def test_the_identifier_binding_asserts_presence_of_two_locked_types():
+    spec = load_manifest().tables[IDENTIFIERS]
+
+    assert spec.entity == "person"
+    assert spec.key == ["producer_id", "identifier_type", "value"]
+    assert spec.retraction == "none"  # absence says nothing; nothing is ever removed
+    assert spec.owned_columns == []  # the key is the whole claim: no value to update
+    assert spec.overlays == {}  # `overlay: none` — a lock, since a slot holds one value
+    assert spec.target.shape == "child"
+    assert spec.target.table == "identifiers"
+    assert spec.target.parent == "entity_id"
+    assert spec.target.match == "key"
+    assert spec.target.key_columns == ["identifier_type", "value"]
+    assert spec.target.exclusive is True
+    assert spec.target.lookups == {
+        "identifier_type": {"table": "entity_identifier_types", "from": "slug", "to": "id"}
+    }
+
+
+def test_the_identifier_lock_covers_exactly_the_types_the_applier_owns():
+    """Admin cannot import the manifest (dbt), so the lock carries its own copy."""
+    spec = load_manifest().tables[IDENTIFIERS]
+
+    assert set(spec.owned_identifier_types) == set(DATASET_OWNED_IDENTIFIER_TYPES)
+
+
+def test_the_mart_emits_only_the_types_the_lock_covers():
+    """A type the mart emits outside the lock is one a curator edits and the next run
+    re-inserts beside the edit; the accepted_values test holds the mart to the list."""
+    with (PROJECT_DIR / "models" / "schema.yml").open() as f:
+        model = next(m for m in yaml.safe_load(f)["models"] if m["name"] == IDENTIFIERS)
+    column = next(c for c in model["columns"] if c["name"] == "identifier_type")
+    (test,) = [t for t in column["tests"] if isinstance(t, dict) and "accepted_values" in t]
+
+    assert set(test["accepted_values"]["arguments"]["values"]) == set(
+        DATASET_OWNED_IDENTIFIER_TYPES
+    )
+
+
+def test_overlay_none_on_an_unlocked_identifier_type_fails_at_load():
+    raw = _raw()
+    raw["tables"][IDENTIFIERS]["owned_identifier_types"].append("person_wikidata")
+
+    with pytest.raises(ManifestError, match="overlay none"):
+        parse_manifest(raw)
+
+
+def test_owned_identifier_types_bind_only_the_identifiers_table():
+    raw = _raw()
+    raw["tables"]["desired_person_names"]["owned_identifier_types"] = [
+        "person_wa_legislature_roster"
+    ]
+
+    with pytest.raises(ManifestError, match="owned_identifier_types"):
+        parse_manifest(raw)
+
+
+def test_exclusive_is_for_a_child_binding_matched_by_key():
+    raw = _raw()
+    raw["tables"]["desired_person_names"]["target"]["exclusive"] = True
+
+    with pytest.raises(ManifestError, match="exclusive"):
+        parse_manifest(raw)
+
+
+def test_exclusive_takes_a_boolean():
+    raw = _raw()
+    raw["tables"][IDENTIFIERS]["target"]["exclusive"] = "yes"
+
+    with pytest.raises(ManifestError, match="exclusive"):
+        parse_manifest(raw)
+
+
+def test_an_exclusive_key_on_a_non_varchar_column_fails_at_load():
+    """CR 1: the holder probe compares the key as text, in one join."""
+    raw = _raw()
+    raw["tables"][IDENTIFIERS]["types"]["value"] = "INTEGER"
+
+    with pytest.raises(ManifestError, match="exclusive"):
         parse_manifest(raw)

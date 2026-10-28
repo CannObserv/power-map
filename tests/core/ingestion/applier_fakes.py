@@ -27,6 +27,11 @@ DEFAULT_LOOKUPS: dict[tuple[str, str, str], dict[str, str]] = {
     # consults them, but the engine loads a binding's vocabularies once per run.
     ("role_types", "slug", "id"): {"committee_member": "RT_CM", "state_senator": "RT_SEN"},
     ("jurisdictions", "slug", "id"): {"usa-wa-ld-34": "J34"},
+    # #710: the identifiers binding's vocabulary.
+    ("entity_identifier_types", "slug", "id"): {
+        "person_wa_legislature_roster": "EIT_ROSTER",
+        "person_wa_legislature_member_id": "EIT_MEMBER",
+    },
 }
 
 
@@ -82,6 +87,19 @@ class FakeLiveStore:
     async def lookup(self, table: str, from_col: str, to_col: str) -> dict[str, str]:
         self.requested.append(("lookup", table, (from_col, to_col)))
         return dict(self._lookups[(table, from_col, to_col)])
+
+    async def key_holders(
+        self, table: str, parent: str, columns: Sequence[str], tuples: Sequence[tuple]
+    ) -> dict[tuple, set[str]]:
+        """Per tuple, every parent of a ``table`` row carrying it (#710)."""
+        self.requested.append(("key_holders", table, tuple(columns), tuple(tuples)))
+        wanted = {tuple(t) for t in tuples}
+        out: dict[tuple, set[str]] = {}
+        for r in self.tables.get(table, []):
+            key = tuple(r.get(c) for c in columns)
+            if key in wanted:
+                out.setdefault(key, set()).add(r[parent])
+        return out
 
     async def tombstones(self, entity_type: str, ids: Sequence[str]) -> dict[str, str | None]:
         """``deleted_entities`` rows for ``ids``: entity id → merged_into (None = no survivor)."""
@@ -196,6 +214,10 @@ class _FakeTransaction:
 DESIRED_SPECS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "desired_people": (("pm_id", "producer_id"), ("TEXT", "TEXT")),
     "desired_person_names": (("pm_id", "producer_id", "name", "name_type"), ("TEXT",) * 4),
+    "desired_person_identifiers": (
+        ("pm_id", "producer_id", "identifier_type", "value"),
+        ("TEXT",) * 4,
+    ),
     "desired_person_merges": (
         ("loser_pm_id", "survivor_pm_id", "loser_producer_id", "survivor_producer_id"),
         ("TEXT",) * 4,

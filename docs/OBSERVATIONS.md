@@ -69,7 +69,12 @@ ones worth knowing before minting:
 `role_wa_pdc`) hold identifiers recorded before the #490 cutover. The rows stay, and
 `schema.sql` keeps seeding the types so a rebuilt database can hold what references
 them. But the nightly applier writes none of them, and usa-wa's published crosswalk owns
-the WA scheme graph: don't build a new integration on one.
+the WA scheme graph: don't build a new integration on one. Two exceptions (#710):
+`person_wa_legislature_roster` and `person_wa_legislature_member_id` are asserted from
+usa-wa's `person_crosswalk` on every anchored person (`desired_person_identifiers`),
+and every PM door refuses adding, editing or deleting one there — an observation's
+`additional_identifiers` answers `identifier_locked: '<slug>'` unless the person
+already holds the value (`docs/ADMIN_OVERLAY.md` § Locked).
 
 ---
 

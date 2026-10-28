@@ -1,8 +1,14 @@
 {# admin/people/partials/_identifier_row.html #}
 <tr id="identifier-row-{{ ident.id }}">
   <td>{{ ident.type_name }}{% if ident.type_full_name and ident.type_full_name != ident.type_name %}<span class="visually-hidden">, {{ ident.type_full_name }}</span>{% endif %}</td>
-  <td>{{ ident.value }}</td>
+  <td>{{ ident.value }}
+    {# #710: a key a dataset asserts is read-only here; it is fixed upstream. #}
+    {% if ident.dataset_owned %}
+      <span class="badge badge--pinned">usa-wa<span class="sr-only">: from its person_crosswalk dataset, read-only here; change it upstream</span></span>
+    {% endif %}
+  </td>
   <td style="text-align:right;white-space:nowrap">
+    {% if not ident.dataset_owned %}
     <button type="button" class="btn btn--sm btn--secondary"
             aria-label="Edit {{ ident.type_name }} identifier {{ ident.value }}"
             hx-get="/admin/people/{{ person_id }}/identifiers/{{ ident.id }}/edit-row/"
@@ -14,5 +20,6 @@
             hx-target="#identifiers-table tbody"
             hx-swap="innerHTML"
             hx-confirm="Delete this identifier?">Delete</button>
+    {% endif %}
   </td>
 </tr>

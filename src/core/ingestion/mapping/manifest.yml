@@ -18,6 +18,8 @@
 #                  is held to this from an empty store and a populated one (#569)
 #   owned_event_types  events only: retraction-as-absence reaches these types
 #                  and no others — 315 org events in PM have no producer column
+#   owned_identifier_types  identifiers only (#710): the identifier types the
+#                  binding asserts, and the lock's scope (overlay none)
 #   owns_rows      `all` (#671), child only, never beside owned_event_types:
 #                  every live row of the child table under an in-scope parent
 #                  is the producer's, so retraction-as-absence reaches all of them
@@ -27,8 +29,9 @@
 #                  binding owning several columns maps each to its field (#527)
 #                  `none` (#592): the values are locked, not pinned — every PM
 #                  write door refuses them; only a child binding owning nothing
-#                  but src/core/dataset_ownership.py's link types, or (#671) one
-#                  owning all rows of a table it lists, may say it
+#                  but src/core/dataset_ownership.py's link types, (#671) one
+#                  owning all rows of a table it lists, or (#710) one asserting
+#                  only its identifier types, may say it
 #   target         the binding (v2): one of four shapes the applier interprets
 #                    entity  — a row in an entity table: identity, create,
 #                              retraction. `identity` names what a create writes
@@ -43,7 +46,10 @@
 #                              any_then_canonical (any row of the type carrying
 #                              the value satisfies; else the canonical row is
 #                              the one in dispute) or key (match on the key
-#                              columns among unarchived rows; >1 is a conflict)
+#                              columns among unarchived rows; >1 is a conflict).
+#                              `exclusive` (#710, key only, VARCHAR key columns):
+#                              a key another parent holds, or another desired
+#                              row claims this run, is a conflict, not an insert
 #                    merge   — a producer tombstone: the loser's PM row folds into
 #                              the survivor's. `primitive` names the core merge
 #                              that acts on it (#514); without one, report-only
@@ -102,6 +108,29 @@ tables:
       canonical: is_canonical
       insert_defaults: {visibility: public}
       hint_on_create: true     # a create whose name PM already holds is probably a twin
+  desired_person_identifiers:
+    entity: person
+    key: [producer_id, identifier_type, value]
+    pm_key: pm_id
+    retraction: none           # presence only: 2,477 roster + 641 member-id rows PM held at #710
+    owned_columns: []          # the key is the claim; there is no value to update
+    owned_identifier_types: [person_wa_legislature_roster, person_wa_legislature_member_id]
+    overlay: none              # locked: a slot holds one value; every PM door refuses these
+    types:
+      producer_id: VARCHAR
+      pm_id: VARCHAR
+      identifier_type: VARCHAR
+      value: VARCHAR
+    target:
+      shape: child
+      table: identifiers
+      parent: entity_id
+      columns: {identifier_type: entity_identifier_type_id, value: value}
+      match: key
+      key_columns: [identifier_type, value]
+      exclusive: true          # a key on another PM person is a hidden duplicate
+      lookups:
+        identifier_type: {table: entity_identifier_types, from: slug, to: id}
   desired_person_merges:
     entity: person
     key: [loser_pm_id]

@@ -58,7 +58,15 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   notices. `test_output_types.py` holds the build to the manifest from an
   empty store and a populated one. A new or changed mart column updates `types`.
 - **Persons:** identity plus one legal name; pronouns, notes and every non-legal
-  name stay PM's. **Organizations:** identity, legal name
+  name stay PM's. **Person identifiers (#710):** each WA Legislature key in
+  usa-wa's `person_crosswalk` (`usa_wa_legislature_roster` →
+  `person_wa_legislature_roster`, `wa_legislature_member_id` →
+  `person_wa_legislature_member_id`), presence only (`retraction: none`, no
+  owned column), on the key's own person while in scope, else its tombstone's
+  survivor. `exclusive: true`: a key another PM row holds, or that a second
+  desired row claims, is a `conflict`, never a second holder. Locked
+  (`DATASET_OWNED_IDENTIFIER_TYPES`): on an anchored person admin add, edit and
+  delete and the observation API refuse them, so they come only from usa-wa. **Organizations:** identity, legal name
   (`coalesce(long_name, name)` — no dba), acronym, a row-scoped parent claim
   (House/Senate/Joint/chambers only), and `dissolved` from `last_biennium`
   (year = first year + 1; none at the dataset's newest biennium). usa-wa's

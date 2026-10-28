@@ -12,7 +12,7 @@ import asyncpg
 if TYPE_CHECKING:
     from src.api.public.schemas import ObservationAcronym, ObservationOrgName, ObservationPersonName
 
-from src.core.dataset_ownership import dataset_owned_link
+from src.core.dataset_ownership import dataset_owned_identifier, dataset_owned_link
 from src.core.db import generate_id, linked_entity_vanished
 from src.core.logging import get_logger
 from src.core.normalizers.address import get_address_normalizer
@@ -1482,10 +1482,12 @@ async def write_additional_identifiers(
     Each item must expose ``.identifier_type_slug`` and ``.identifier_value``.
 
     Policy:
-      - Same type + same value on entity → no-op
-      - Same type + different value on entity → raise IdentifierConflict
+      - Same type + same value on entity, in any of its rows of the type → no-op
+      - Same type + only different values on entity → raise IdentifierConflict
       - Unknown type slug → raise ObservationRejected
       - Type for another entity type → raise ObservationRejected (#617)
+      - A type a dataset owns on this entity, not already held → raise
+        ObservationRejected ``identifier_locked`` (#710)
       - New type → insert
     """
     for item in additional_identifiers:
@@ -1506,14 +1508,23 @@ async def write_additional_identifiers(
             # *type's* table and mislabels the UBI's lookup organization_archived.
             raise ObservationRejected(f"identifier_type_mismatch: {slug!r}")
         eit_id = eit["id"]
-        existing = await conn.fetchrow(
-            "SELECT value FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",
-            entity_id,
-            eit_id,
-        )
-        if existing is not None:
-            if existing["value"] == value:
-                continue
+        # Every row of the type, not one: a person may carry several keys of a type
+        # (#710: a returning legislator's two roster keys), and any of them satisfies.
+        held = {
+            r["value"]
+            for r in await conn.fetch(
+                "SELECT value FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",
+                entity_id,
+                eit_id,
+            )
+        }
+        if value in held:
+            continue
+        # #710 decision (a): a type a dataset asserts on this entity comes only
+        # from the dataset — an observed key could never be removed here.
+        if await dataset_owned_identifier(conn, entity_type, entity_id, eit_id):
+            raise ObservationRejected(f"identifier_locked: {slug!r}")
+        if held:
             raise IdentifierConflict(slug)
         await conn.execute(
             "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"

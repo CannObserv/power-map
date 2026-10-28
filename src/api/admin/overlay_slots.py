@@ -29,6 +29,7 @@ import asyncpg
 from src.core.curation_overlay import Pin, active_pin, in_scope, pin_changed
 
 __all__ = [
+    "IDENTIFIER_LOCKED_MSG",
     "LINK_LOCKED_MSG",
     "PRODUCER_LABEL",
     "SLOTS",
@@ -51,6 +52,11 @@ PRODUCER_LABEL = "usa-wa"
 # #592: the refusal every door gives a link the dataset owns — what to do instead.
 LINK_LOCKED_MSG = (
     f"Links between {PRODUCER_LABEL} organizations come from its org_lineage dataset;"
+    " change it upstream."
+)
+# #710: WA Legislature keys on a usa-wa person are asserted by its person_crosswalk.
+IDENTIFIER_LOCKED_MSG = (
+    f"WA Legislature keys on {PRODUCER_LABEL} people come from its person_crosswalk dataset;"
     " change it upstream."
 )
 

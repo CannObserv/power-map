@@ -56,6 +56,19 @@ ordinary curation. The predicate is `src/core/dataset_ownership.py`
 (`dataset_owned_link`); its type list is held to the manifest by
 `test_manifest.py`, since the admin cannot read the manifest.
 
+**Person identifiers (#710)** are locked the same way, and for the same reason:
+a person carries several roster keys. On a person with an in-scope anchor, a
+`person_wa_legislature_roster` / `person_wa_legislature_member_id` row renders
+read-only with the badge, the add and edit pickers do not offer the two types,
+and the identifiers panel's add, edit (as the row is and as it would be) and
+delete refuse one with the `identifier_locked` flash; so does the observation
+API's `additional_identifiers` (`identifier_locked: '<slug>'`), unless the
+person already holds the value. Add is refused too (#710 CR 10): the binding
+never removes a row, so a curator-added key could not be removed either. A
+person merge moves every loser identifier across the lock: before merging a
+person into a usa-wa one, check the loser's WA keys, since none can be removed
+afterwards. The predicate is `dataset_owned_identifier`.
+
 ## The pin rule
 
 **A write that changes a slot's value pins the value after the edit.** Each

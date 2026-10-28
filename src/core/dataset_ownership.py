@@ -1,5 +1,6 @@
-"""What a subscribed dataset owns outright: links PM curates nowhere (#592), and
-tables PM holds only as the dataset's copy (#671).
+"""What a subscribed dataset owns outright: links PM curates nowhere (#592),
+tables PM holds only as the dataset's copy (#671), and person identifier types
+the dataset asserts on its anchored persons (#710).
 
 The applier owns the org link types below wherever both orgs are in scope, an
 *anchored pair*. A curator's disagreement with one of those links goes upstream:
@@ -17,10 +18,14 @@ import asyncpg
 from src.core.ingestion.crosswalk import IN_SCOPE, PRODUCER_SOURCE
 
 __all__ = [
+    "DATASET_OWNED_IDENTIFIER_TYPES",
     "DATASET_OWNED_LINK_TYPES",
     "DATASET_OWNED_TABLES",
     "anchored_orgs",
+    "anchored_people",
+    "dataset_owned_identifier",
     "dataset_owned_link",
+    "owned_identifier",
     "owned_link",
 ]
 
@@ -32,22 +37,39 @@ DATASET_OWNED_LINK_TYPES: frozenset[str] = frozenset({"succeeded_by", "merged_wi
 # yet; a door added later refuses rows under an anchored parent, as the links do.
 DATASET_OWNED_TABLES: frozenset[str] = frozenset({"role_capacity_periods"})
 
-# The orgs among $1 carrying an in-scope anchor of the producer whose dataset
-# owns the links — the applier's own row scope (it reads one source's crosswalk),
-# so the lock reaches exactly the links absence can archive (CR 2).
+# #710: the person identifier types a dataset asserts on its anchored persons —
+# the manifest's `owned_identifier_types`. Presence only: an edit or delete of
+# one would be re-inserted by the next run, and an added one could never be
+# removed (CR 10), so every PM door refuses all three; a correction goes upstream.
+DATASET_OWNED_IDENTIFIER_TYPES: frozenset[str] = frozenset(
+    {"person_wa_legislature_roster", "person_wa_legislature_member_id"}
+)
+
+# The entities among $1 of kind $4 carrying an in-scope anchor of the producer
+# whose dataset owns the links — the applier's own row scope (it reads one
+# source's crosswalk), so the lock reaches exactly the rows it writes (CR 2).
 _ANCHORED_SQL = (
     "SELECT DISTINCT pm_id FROM producer_crosswalk"
-    " WHERE source = $3 AND kind = 'organization' AND pm_id = ANY($1::text[])"
+    " WHERE source = $3 AND kind = $4 AND pm_id = ANY($1::text[])"
     " AND resolution = ANY($2::text[])"
 )
 
 
-async def anchored_orgs(conn: asyncpg.Connection, ids: list[str]) -> set[str]:
-    """The orgs among ``ids`` the producer's anchors hold in scope — one query for a list."""
+async def _anchored(conn: asyncpg.Connection, kind: str, ids: list[str]) -> set[str]:
     if not ids:
         return set()
-    rows = await conn.fetch(_ANCHORED_SQL, ids, list(IN_SCOPE), PRODUCER_SOURCE)
+    rows = await conn.fetch(_ANCHORED_SQL, ids, list(IN_SCOPE), PRODUCER_SOURCE, kind)
     return {r["pm_id"] for r in rows}
+
+
+async def anchored_orgs(conn: asyncpg.Connection, ids: list[str]) -> set[str]:
+    """The orgs among ``ids`` the producer's anchors hold in scope — one query for a list."""
+    return await _anchored(conn, "organization", ids)
+
+
+async def anchored_people(conn: asyncpg.Connection, ids: list[str]) -> set[str]:
+    """The people among ``ids`` the producer's anchors hold in scope (#710)."""
+    return await _anchored(conn, "person", ids)
 
 
 def owned_link(
@@ -91,3 +113,29 @@ async def dataset_owned_link(
         return False  # decided without the anchors: not an owned org→org link
     anchored = await anchored_orgs(conn, [entity_id, linked_id])
     return owned_link(entity_type, entity_id, slug, linked_type, linked_id, anchored)
+
+
+def owned_identifier(
+    entity_type: str, entity_id: str, slug: str | None, anchored: set[str]
+) -> bool:
+    """`dataset_owned_identifier` given the anchored people already read (a list renders many)."""
+    return (
+        entity_type == "person" and slug in DATASET_OWNED_IDENTIFIER_TYPES and entity_id in anchored
+    )
+
+
+async def dataset_owned_identifier(
+    conn: asyncpg.Connection, entity_type: str, entity_id: str, type_id: str
+) -> bool:
+    """Whether an identifier of this type on this entity is one a dataset owns (#710) —
+    and so no PM door may add, edit or delete it.
+
+    True for a `DATASET_OWNED_IDENTIFIER_TYPES` type on a person in a producer's
+    scope. A door checks the row as it is and as the edit would leave it.
+    """
+    if entity_type != "person":
+        return False  # every non-person identifier panel asks; answer it without a read (CR 3)
+    slug = await conn.fetchval("SELECT slug FROM entity_identifier_types WHERE id = $1", type_id)
+    if not owned_identifier(entity_type, entity_id, slug, {entity_id}):
+        return False  # decided without the anchor: not an owned type on a person
+    return owned_identifier(entity_type, entity_id, slug, await anchored_people(conn, [entity_id]))
