@@ -285,3 +285,16 @@ async def test_a_locked_key_renders_read_only_with_its_owner(client, db, people)
     assert "usa-wa" in row_of[locked]
     assert "/edit-row/" not in row_of[locked] and "hx-delete" not in row_of[locked]
     assert "/edit-row/" in row_of[own] and "hx-delete" in row_of[own]
+
+
+async def test_a_locked_key_edited_with_an_unknown_type_still_names_the_lock(client, db, people):
+    """CR 8: the lock is decided before the posted type is validated."""
+    row = await _ident(db, people["anchored"], await _type_id(db, ROSTER))
+
+    r = await client.post(
+        _url(people["anchored"], row, "edit-row/"),
+        headers=HTMX_HEADERS,
+        data={"entity_identifier_type_id": "no-such-type", "value": "smith:1999"},
+    )
+
+    _assert_refused(r)

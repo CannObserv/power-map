@@ -266,10 +266,10 @@ def make_identifiers_router(
     ):
         """Update an identifier — judged as it is and as it would be (#710)."""
         existing = await _get_identifier_or_404(ident_id, entity_id, db)
+        if existing["dataset_owned"]:
+            return await _locked(request, entity_id, db)  # before the type check (CR 8)
         await _require_attachable_type(entity_identifier_type_id, db)
-        if existing["dataset_owned"] or await dataset_owned_identifier(
-            db, entity_type, entity_id, entity_identifier_type_id
-        ):
+        if await dataset_owned_identifier(db, entity_type, entity_id, entity_identifier_type_id):
             return await _locked(request, entity_id, db)
         await db.execute(
             "UPDATE identifiers SET entity_identifier_type_id=$1, value=$2 WHERE id=$3",
