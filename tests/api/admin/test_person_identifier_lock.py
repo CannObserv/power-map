@@ -3,9 +3,10 @@ edits and deletes.
 
 usa-wa's person crosswalk asserts `person_wa_legislature_roster` and
 `person_wa_legislature_member_id` on every person it anchors, presence only. A
-deleted or re-valued key would be re-inserted by the next execute, so edit and
-delete refuse one — as it is and as the edit would leave it — and the row
-renders read-only. Adding one stays open: nothing reverts an extra row.
+deleted or re-valued key would be re-inserted by the next execute, and a
+curator-added one could never be removed (CR 10), so on an anchored person every
+door refuses one — add, edit (as it is and as it would be) and delete — the
+pickers do not offer the types, and the row renders read-only.
 """
 
 import pytest
@@ -255,18 +256,78 @@ async def test_deleting_a_wa_key_on_an_unanchored_person_still_works(client, db,
     assert await _value(db, row) is None
 
 
-# --- add stays open -----------------------------------------------------------------
+# --- add ----------------------------------------------------------------------------
 
 
-async def test_adding_a_wa_key_to_an_anchored_person_is_allowed(client, db, people):
-    """#710 decision 1: presence only, so an extra row is never reverted."""
+async def _count(db, person):
+    return await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id = $1", person)
+
+
+@pytest.mark.parametrize("slug", [ROSTER, MEMBER])
+async def test_adding_a_wa_key_to_an_anchored_person_is_refused(client, db, people, slug):
+    """CR 10 / decision (a): a curator's own typo could otherwise never be deleted."""
     r = await client.post(
         _url(people["anchored"]),
+        headers=HTMX_HEADERS,
+        data={"entity_identifier_type_id": await _type_id(db, slug), "value": "smith:1941"},
+    )
+
+    _assert_refused(r)
+    assert await _count(db, people["anchored"]) == 0
+
+
+async def test_adding_a_wa_key_fallback_names_the_lock(client, db, people):
+    r = await client.post(
+        _url(people["anchored"]),
+        headers=AUTH_HEADERS,
+        data={"entity_identifier_type_id": await _type_id(db, ROSTER), "value": "smith:1941"},
+    )
+
+    _assert_refused_fallback(r)
+
+
+async def test_adding_a_wa_key_to_an_unanchored_person_still_works(client, db, people):
+    r = await client.post(
+        _url(people["pm"]),
         headers=HTMX_HEADERS,
         data={"entity_identifier_type_id": await _type_id(db, ROSTER), "value": "smith:1941"},
     )
 
     assert "success" in r.headers["HX-Trigger"]
+    assert await _count(db, people["pm"]) == 1
+
+
+async def test_adding_another_type_to_an_anchored_person_still_works(client, db, people):
+    r = await client.post(
+        _url(people["anchored"]),
+        headers=HTMX_HEADERS,
+        data={"entity_identifier_type_id": await _other_type_id(db), "value": "Q42"},
+    )
+
+    assert "success" in r.headers["HX-Trigger"]
+
+
+@pytest.mark.parametrize("form", ["new", "edit"])
+async def test_the_pickers_offer_no_locked_type_on_an_anchored_person(client, db, people, form):
+    """Serve no choice that cannot save."""
+    own = await _ident(db, people["anchored"], await _other_type_id(db), "Q42")
+    url = (
+        _url(people["anchored"], own, "edit-row/")
+        if form == "edit"
+        else _url(people["anchored"]) + "new-row/"
+    )
+
+    r = await client.get(url, headers=HTMX_HEADERS)
+
+    assert r.status_code == 200 and "<form" in r.text
+    for slug in (ROSTER, MEMBER):
+        assert f'value="{await _type_id(db, slug)}"' not in r.text
+
+
+async def test_the_picker_offers_the_wa_types_on_an_unanchored_person(client, db, people):
+    r = await client.get(_url(people["pm"]) + "new-row/", headers=HTMX_HEADERS)
+
+    assert f'value="{await _type_id(db, ROSTER)}"' in r.text
 
 
 # --- the read-only row ----------------------------------------------------------------

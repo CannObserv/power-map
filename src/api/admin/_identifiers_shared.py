@@ -17,7 +17,11 @@ from src.api.admin.deps import (
     with_flash,
 )
 from src.api.admin.overlay_slots import IDENTIFIER_LOCKED_MSG
-from src.core.dataset_ownership import anchored_people, dataset_owned_identifier, owned_identifier
+from src.core.dataset_ownership import (
+    anchored_people,
+    dataset_owned_identifier,
+    owned_identifier,
+)
 from src.core.db import generate_id, identifier_entity_vanished
 
 templates = Jinja2Templates(directory="src/templates")
@@ -139,6 +143,19 @@ def make_identifiers_router(
         if not ok:
             raise HTTPException(status_code=400, detail="Unknown identifier type")
 
+    async def _picker_types(db, entity_id: str) -> list:
+        """The types the add and edit pickers offer: attachable, and (#710) none a
+        dataset owns on this entity — every door would refuse it."""
+        types = await db.fetch(
+            "SELECT * FROM entity_identifier_types"
+            " WHERE entity_type=$1 AND NOT is_internal ORDER BY display_name",
+            entity_type,
+        )
+        anchored = await anchored_people(db, [entity_id]) if entity_type == "person" else set()
+        return [
+            t for t in types if not owned_identifier(entity_type, entity_id, t["slug"], anchored)
+        ]
+
     def _ctx(entity_id: str, **extra) -> dict:
         """Build template context with the correct entity-id key."""
         return {entity_id_key: entity_id, **extra}
@@ -171,11 +188,7 @@ def make_identifiers_router(
     ):
         """Return empty identifier form row."""
         await _get_entity_or_404(entity_id, db)
-        ident_types = await db.fetch(
-            "SELECT * FROM entity_identifier_types"
-            " WHERE entity_type=$1 AND NOT is_internal ORDER BY display_name",
-            entity_type,
-        )
+        ident_types = await _picker_types(db, entity_id)
         return templates.TemplateResponse(
             request,
             tmpl_form_row,
@@ -191,9 +204,12 @@ def make_identifiers_router(
         user: AdminUser = Depends(get_admin_user),
         db=Depends(get_db),
     ):
-        """Create a new identifier."""
+        """Create a new identifier, unless a dataset owns its type on this entity (#710)."""
         await _get_entity_or_404(entity_id, db)
         await _require_attachable_type(entity_identifier_type_id, db)
+        # #710 CR 10: a key added here could never be deleted, so the add is refused too.
+        if await dataset_owned_identifier(db, entity_type, entity_id, entity_identifier_type_id):
+            return await _locked(request, entity_id, db)
         iid = generate_id()
         await _insert_or_404(
             db,
@@ -243,11 +259,7 @@ def make_identifiers_router(
                 _ctx(entity_id, ident=row),
                 headers=flash_trigger("warning", IDENTIFIER_LOCKED_MSG),
             )
-        ident_types = await db.fetch(
-            "SELECT * FROM entity_identifier_types"
-            " WHERE entity_type=$1 AND NOT is_internal ORDER BY display_name",
-            entity_type,
-        )
+        ident_types = await _picker_types(db, entity_id)
         return templates.TemplateResponse(
             request,
             tmpl_form_row,
