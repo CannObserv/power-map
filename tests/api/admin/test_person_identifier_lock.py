@@ -215,11 +215,14 @@ async def test_a_wa_key_on_a_person_out_of_scope_is_ordinary_curation(client, db
 async def test_the_edit_form_of_a_locked_key_is_not_served(client, db, people):
     """A form that can never save is a dead end; hand back the row and why."""
     row = await _ident(db, people["anchored"], await _type_id(db, ROSTER))
+    await _ident(db, people["anchored"], await _other_type_id(db), "Q42")
 
     r = await client.get(_url(people["anchored"], row, "edit-row/"), headers=HTMX_HEADERS)
 
     _assert_refused(r)
     assert "<form" not in r.text and f'id="identifier-row-{row}"' in r.text
+    # CR 6: the caller swaps this into the one row (outerHTML), never the tbody.
+    assert r.text.count("<tr") == 1
 
 
 # --- delete -------------------------------------------------------------------------

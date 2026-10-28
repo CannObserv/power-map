@@ -236,7 +236,13 @@ def make_identifiers_router(
         """Return identifier edit form row — or, for a key a dataset owns, the rows and why."""
         row = await _get_identifier_or_404(ident_id, entity_id, db)
         if row["dataset_owned"]:
-            return await _locked(request, entity_id, db)
+            # The caller swaps this row (outerHTML): answer with the row, never the tbody (CR 6).
+            return templates.TemplateResponse(
+                request,
+                tmpl_read_row,
+                _ctx(entity_id, ident=row),
+                headers=flash_trigger("warning", IDENTIFIER_LOCKED_MSG),
+            )
         ident_types = await db.fetch(
             "SELECT * FROM entity_identifier_types"
             " WHERE entity_type=$1 AND NOT is_internal ORDER BY display_name",
