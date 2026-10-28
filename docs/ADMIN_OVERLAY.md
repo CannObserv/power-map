@@ -64,8 +64,10 @@ and the identifiers panel's add, edit (as the row is and as it would be) and
 delete refuse one with the `identifier_locked` flash; so does the observation
 API's `additional_identifiers` (`identifier_locked: '<slug>'`), unless the
 person already holds the value. Add is refused too (#710 CR 10): the binding
-never removes a row, so a curator-added key could not be removed either. The
-predicate is `dataset_owned_identifier`.
+never removes a row, so a curator-added key could not be removed either. A
+person merge moves every loser identifier across the lock: before merging a
+person into a usa-wa one, check the loser's WA keys, since none can be removed
+afterwards. The predicate is `dataset_owned_identifier`.
 
 ## The pin rule
 
