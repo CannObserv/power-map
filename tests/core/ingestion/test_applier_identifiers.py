@@ -7,6 +7,7 @@ second holder — `resolve_entity` could not choose between them. Every other
 identifier on the person is invisible, and nothing is ever removed.
 """
 
+import dataclasses
 import itertools
 
 import pytest
@@ -191,7 +192,7 @@ async def test_inserts_count_under_the_updates_threshold():
     diff = await diff_desired(
         _state(claim(PM1, P1, "a:2001"), claim(PM2, P2, "b:2001")), MANIFEST, _store()
     )
-    capped = MANIFEST.thresholds.__class__(**{**vars(MANIFEST.thresholds), "updates": 1})
+    capped = dataclasses.replace(MANIFEST.thresholds, updates=1)
 
     assert verdict_for(diff, capped).exceeded == {"updates": (2, 1)}
 
