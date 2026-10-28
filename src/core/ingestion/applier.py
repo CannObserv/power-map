@@ -1475,7 +1475,9 @@ async def _diff_child(
         canonical_taken.add(parent)
         return True
 
-    foreign = await _foreign_holders(spec, rows, store, pm_value) if target.exclusive else None
+    foreign = (
+        await _foreign_holders(spec, rows, creating, store, pm_value) if target.exclusive else None
+    )
 
     entries: list[Entry] = []
     seen: set[tuple[str, tuple]] = set()
@@ -1564,6 +1566,7 @@ async def _diff_child(
 async def _foreign_holders(
     spec: TableSpec,
     rows: Sequence[dict],
+    creating: set[tuple[str, str]],
     store: LiveStore,
     pm_value: Callable[[dict, str], object],
 ) -> Callable[[dict], str | None]:
@@ -1583,16 +1586,23 @@ async def _foreign_holders(
         pm_id = row.get(spec.pm_key)
         return pm_id if pm_id is not None else f"create {row['producer_id']}"
 
-    keys = sorted({key_of(r) for r in rows}, key=repr)
+    # A row with no parent and no create is stale: it writes nothing, so it
+    # claims nothing (CR 2).
+    writing = [
+        r
+        for r in rows
+        if r.get(spec.pm_key) is not None or (spec.entity, r["producer_id"]) in creating
+    ]
+    keys = sorted({key_of(r) for r in writing}, key=repr)
     held = await store.key_holders(target.table, target.parent, pm_columns, keys) if keys else {}
     claimed: dict[tuple, set[str]] = {}
-    for r in rows:
+    for r in writing:
         claimed.setdefault(key_of(r), set()).add(parent_of(r))
 
     def reason(row: dict) -> str | None:
         key, own = key_of(row), parent_of(row)
         on_pm = sorted(held.get(key, set()) - {own})
-        in_run = sorted(claimed[key] - {own})
+        in_run = sorted(claimed.get(key, set()) - {own})
         if not (on_pm or in_run):
             return None
         where = "; ".join(

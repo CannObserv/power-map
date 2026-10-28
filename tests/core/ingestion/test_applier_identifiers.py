@@ -212,3 +212,12 @@ async def test_an_insert_writes_one_identifiers_row_on_the_person():
         " VALUES ($1, $2, $3, $4)"
     )
     assert insert.args == ("NEW0", PM1, ROSTER, "juriebsmith:1943")
+
+
+async def test_a_stale_row_does_not_make_anothers_insert_a_conflict():
+    """CR 2: a row that will be stale writes nothing, so it claims nothing."""
+    state = _state(claim(PM1, P1, "dup:2001"), claim(None, P3, "dup:2001"))
+
+    diff = await diff_desired(state, MANIFEST, _store())
+
+    assert {k: len(v) for k, v in _ids(diff).items()} == {"insert": 1, "stale": 1}
