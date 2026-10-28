@@ -46,7 +46,10 @@
 #                              any_then_canonical (any row of the type carrying
 #                              the value satisfies; else the canonical row is
 #                              the one in dispute) or key (match on the key
-#                              columns among unarchived rows; >1 is a conflict)
+#                              columns among unarchived rows; >1 is a conflict).
+#                              `exclusive` (#710, key only, VARCHAR key columns):
+#                              a key another parent holds, or another desired
+#                              row claims this run, is a conflict, not an insert
 #                    merge   — a producer tombstone: the loser's PM row folds into
 #                              the survivor's. `primitive` names the core merge
 #                              that acts on it (#514); without one, report-only
