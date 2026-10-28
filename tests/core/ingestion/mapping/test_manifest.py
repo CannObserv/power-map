@@ -835,3 +835,12 @@ def test_exclusive_takes_a_boolean():
 
     with pytest.raises(ManifestError, match="exclusive"):
         parse_manifest(raw)
+
+
+def test_an_exclusive_key_on_a_non_varchar_column_fails_at_load():
+    """CR 1: the holder probe compares the key as text, in one join."""
+    raw = _raw()
+    raw["tables"][IDENTIFIERS]["types"]["value"] = "INTEGER"
+
+    with pytest.raises(ManifestError, match="exclusive"):
+        parse_manifest(raw)

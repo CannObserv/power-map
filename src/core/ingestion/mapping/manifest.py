@@ -469,6 +469,9 @@ def _table(name: str, raw: object) -> TableSpec:
             )
     owned = list(_require(raw, "owned_columns", name))
     types = _types(name, _require(raw, "types", name), [*key, *owned])
+    if target.exclusive and any(types.get(c) != "VARCHAR" for c in target.key_columns):
+        # #710 CR 1: the holder probe compares the key as text, in one join.
+        raise ManifestError(f"{name}: an exclusive key's columns are VARCHAR")
     overlay = raw.get("overlay")
     if target.shape in OVERLAY_SHAPES and not overlay:
         raise ManifestError(
