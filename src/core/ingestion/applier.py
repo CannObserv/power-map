@@ -114,6 +114,13 @@ class LiveStore(Protocol):
 
     async def lookup(self, table: str, from_col: str, to_col: str) -> dict[str, str]: ...
 
+    async def key_holders(
+        self, table: str, parent: str, columns: Sequence[str], tuples: Sequence[tuple]
+    ) -> dict[tuple, set[str]]:
+        """Per tuple of ``columns`` values, every parent in ``table`` holding it — in
+        scope or not, since an exclusive key on any other row is the conflict (#710)."""
+        ...
+
     async def tombstones(self, entity_type: str, ids: Sequence[str]) -> dict[str, str | None]: ...
 
     async def merge_preview(self, primitive: str, loser_id: str, survivor_id: str) -> dict: ...
@@ -1468,6 +1475,8 @@ async def _diff_child(
         canonical_taken.add(parent)
         return True
 
+    foreign = await _foreign_holders(spec, rows, store, pm_value) if target.exclusive else None
+
     entries: list[Entry] = []
     seen: set[tuple[str, tuple]] = set()
     for row in rows:
@@ -1475,6 +1484,9 @@ async def _diff_child(
         if pm_id is None:
             if (spec.entity, row["producer_id"]) not in creating:
                 entries.append(_entry(spec, row, "stale", reason="no entity row is created for it"))
+                continue
+            if foreign is not None and (reason := foreign(row)):
+                entries.append(_entry(spec, row, "conflict", reason=reason))
                 continue
             changes = insert_changes(row)
             if target.match == "any_then_canonical":
@@ -1520,7 +1532,9 @@ async def _diff_child(
             key = {columns[c]: pm_value(row, c) for c in target.key_columns}
             seen.add((pm_id, tuple(sorted(key.items()))))
             matches = [r for r in found if all(r.get(k) == v for k, v in key.items())]
-            if not matches:
+            if not matches and foreign is not None and (reason := foreign(row)):
+                entries.append(_entry(spec, row, "conflict", reason=reason))
+            elif not matches:
                 entries.append(_entry(spec, row, "insert", changes=insert_changes(row)))
             elif len(matches) > 1:
                 ids = ", ".join(str(r.get("id")) for r in matches)
@@ -1545,6 +1559,53 @@ async def _diff_child(
     if absence and (spec.owned_event_types or spec.owns_all_rows) and target.match == "key":
         entries.extend(_absent_children(spec, scope, candidates, seen, pm_value, lookups))
     return entries
+
+
+async def _foreign_holders(
+    spec: TableSpec,
+    rows: Sequence[dict],
+    store: LiveStore,
+    pm_value: Callable[[dict, str], object],
+) -> Callable[[dict], str | None]:
+    """`exclusive` (#710): why a row's key may not be written — another PM row holds
+    it, or another desired row claims it for a different parent this run — else None.
+
+    Asked only of a row whose own parent lacks the key: a key both rows already
+    hold is PM's own state, and blocking every run on it would fix nothing.
+    """
+    target = spec.target
+    pm_columns = [target.columns[c] for c in target.key_columns]
+
+    def key_of(row: dict) -> tuple:
+        return tuple(pm_value(row, c) for c in target.key_columns)
+
+    def parent_of(row: dict) -> str:
+        pm_id = row.get(spec.pm_key)
+        return pm_id if pm_id is not None else f"create {row['producer_id']}"
+
+    keys = sorted({key_of(r) for r in rows}, key=repr)
+    held = await store.key_holders(target.table, target.parent, pm_columns, keys) if keys else {}
+    claimed: dict[tuple, set[str]] = {}
+    for r in rows:
+        claimed.setdefault(key_of(r), set()).add(parent_of(r))
+
+    def reason(row: dict) -> str | None:
+        key, own = key_of(row), parent_of(row)
+        on_pm = sorted(held.get(key, set()) - {own})
+        in_run = sorted(claimed[key] - {own})
+        if not (on_pm or in_run):
+            return None
+        where = "; ".join(
+            part
+            for part in (
+                f"PM {target.parent} {', '.join(on_pm)} already holds it" if on_pm else "",
+                f"this run also claims it for {', '.join(in_run)}" if in_run else "",
+            )
+            if part
+        )
+        return f"exclusive key {dict(zip(pm_columns, key, strict=True))}: {where}; a person decides"
+
+    return reason
 
 
 def _absent_children(

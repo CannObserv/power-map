@@ -70,6 +70,22 @@ models:
               arguments:
                 values: [legal]
 
+  - name: desired_person_identifiers
+    description: >-
+      Keyed (producer_id, identifier_type, value) — tests/desired_person_identifiers_key_unique.sql
+      (#710). No relationship to desired_people: a tombstone PM has not merged yet
+      keeps its key on its own anchor.
+    columns:
+      - name: producer_id
+        tests: [not_null]
+      - name: value
+        tests: [not_null]
+      - name: identifier_type
+        tests:
+          - accepted_values:
+              arguments:
+                values: [person_wa_legislature_roster, person_wa_legislature_member_id]
+
   - name: desired_person_merges
     columns:
       - name: loser_pm_id

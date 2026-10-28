@@ -68,6 +68,24 @@ class PostgresLiveStore:
         )
         return {r["k"]: r["v"] for r in await self._conn.fetch(sql)}
 
+    async def key_holders(
+        self, table: str, parent: str, columns: Sequence[str], tuples: Sequence[tuple]
+    ) -> dict[tuple, set[str]]:
+        """One probe per tuple, as `slot_holders` does, so each column's type is
+        Postgres's to infer; served by an index on the key where one exists
+        (idx_identifiers_lookup for #710's binding)."""
+        where = " AND ".join(f"{sql_identifier(c)} = ${i}" for i, c in enumerate(columns, 1))
+        sql = (
+            f"SELECT DISTINCT {sql_identifier(parent)} AS parent FROM {sql_identifier(table)}"
+            f" WHERE {where}"
+        )
+        out: dict[tuple, set[str]] = {}
+        for key in tuples:
+            rows = await self._conn.fetch(sql, *key)
+            if rows:
+                out[tuple(key)] = {r["parent"] for r in rows}
+        return out
+
     async def tombstones(self, entity_type: str, ids: Sequence[str]) -> dict[str, str | None]:
         rows = await self._conn.fetch(
             "SELECT entity_id, merged_into FROM deleted_entities"

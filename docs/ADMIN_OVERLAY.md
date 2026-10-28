@@ -56,6 +56,14 @@ ordinary curation. The predicate is `src/core/dataset_ownership.py`
 (`dataset_owned_link`); its type list is held to the manifest by
 `test_manifest.py`, since the admin cannot read the manifest.
 
+**Person identifiers (#710)** are locked the same way, and for the same reason:
+a person carries several roster keys. On a person with an in-scope anchor, a
+`person_wa_legislature_roster` / `person_wa_legislature_member_id` row renders
+read-only with the badge, and the identifiers panel's edit (as the row is and
+as it would be) and delete refuse it with the `identifier_locked` flash. Add
+stays open: the binding asserts presence only, so an extra row is never
+reverted. The predicate is `dataset_owned_identifier`.
+
 ## The pin rule
 
 **A write that changes a slot's value pins the value after the edit.** Each
