@@ -133,6 +133,8 @@ async def dataset_owned_identifier(
     True for a `DATASET_OWNED_IDENTIFIER_TYPES` type on a person in a producer's
     scope. A door checks the row as it is and as the edit would leave it.
     """
+    if entity_type != "person":
+        return False  # every non-person identifier panel asks; answer it without a read (CR 3)
     slug = await conn.fetchval("SELECT slug FROM entity_identifier_types WHERE id = $1", type_id)
     if not owned_identifier(entity_type, entity_id, slug, {entity_id}):
         return False  # decided without the anchor: not an owned type on a person
