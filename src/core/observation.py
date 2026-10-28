@@ -1482,8 +1482,8 @@ async def write_additional_identifiers(
     Each item must expose ``.identifier_type_slug`` and ``.identifier_value``.
 
     Policy:
-      - Same type + same value on entity → no-op
-      - Same type + different value on entity → raise IdentifierConflict
+      - Same type + same value on entity, in any of its rows of the type → no-op
+      - Same type + only different values on entity → raise IdentifierConflict
       - Unknown type slug → raise ObservationRejected
       - Type for another entity type → raise ObservationRejected (#617)
       - New type → insert
@@ -1506,14 +1506,19 @@ async def write_additional_identifiers(
             # *type's* table and mislabels the UBI's lookup organization_archived.
             raise ObservationRejected(f"identifier_type_mismatch: {slug!r}")
         eit_id = eit["id"]
-        existing = await conn.fetchrow(
-            "SELECT value FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",
-            entity_id,
-            eit_id,
-        )
-        if existing is not None:
-            if existing["value"] == value:
-                continue
+        # Every row of the type, not one: a person may carry several keys of a type
+        # (#710: a returning legislator's two roster keys), and any of them satisfies.
+        held = {
+            r["value"]
+            for r in await conn.fetch(
+                "SELECT value FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",
+                entity_id,
+                eit_id,
+            )
+        }
+        if value in held:
+            continue
+        if held:
             raise IdentifierConflict(slug)
         await conn.execute(
             "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
