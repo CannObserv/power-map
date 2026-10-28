@@ -38,9 +38,9 @@ DATASET_OWNED_LINK_TYPES: frozenset[str] = frozenset({"succeeded_by", "merged_wi
 DATASET_OWNED_TABLES: frozenset[str] = frozenset({"role_capacity_periods"})
 
 # #710: the person identifier types a dataset asserts on its anchored persons —
-# the manifest's `owned_identifier_types`. Presence only, so adding one is open;
-# an admin edit or delete of one would be re-inserted by the next run, so both
-# refuse it, and a correction goes upstream.
+# the manifest's `owned_identifier_types`. Presence only: an edit or delete of
+# one would be re-inserted by the next run, and an added one could never be
+# removed (CR 10), so every PM door refuses all three; a correction goes upstream.
 DATASET_OWNED_IDENTIFIER_TYPES: frozenset[str] = frozenset(
     {"person_wa_legislature_roster", "person_wa_legislature_member_id"}
 )
@@ -128,7 +128,7 @@ async def dataset_owned_identifier(
     conn: asyncpg.Connection, entity_type: str, entity_id: str, type_id: str
 ) -> bool:
     """Whether an identifier of this type on this entity is one a dataset owns (#710) —
-    and so no PM door may edit or delete it.
+    and so no PM door may add, edit or delete it.
 
     True for a `DATASET_OWNED_IDENTIFIER_TYPES` type on a person in a producer's
     scope. A door checks the row as it is and as the edit would leave it.

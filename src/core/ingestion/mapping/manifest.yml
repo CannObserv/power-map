@@ -115,7 +115,7 @@ tables:
     retraction: none           # presence only: 2,477 roster + 641 member-id rows PM held at #710
     owned_columns: []          # the key is the claim; there is no value to update
     owned_identifier_types: [person_wa_legislature_roster, person_wa_legislature_member_id]
-    overlay: none              # locked: a slot holds one value; admin edit/delete refuse these
+    overlay: none              # locked: a slot holds one value; every PM door refuses these
     types:
       producer_id: VARCHAR
       pm_id: VARCHAR

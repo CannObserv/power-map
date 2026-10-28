@@ -72,7 +72,9 @@ them. But the nightly applier writes none of them, and usa-wa's published crossw
 the WA scheme graph: don't build a new integration on one. Two exceptions (#710):
 `person_wa_legislature_roster` and `person_wa_legislature_member_id` are asserted from
 usa-wa's `person_crosswalk` on every anchored person (`desired_person_identifiers`),
-and admin refuses editing or deleting them there — `docs/ADMIN_OVERLAY.md` § Locked.
+and every PM door refuses adding, editing or deleting one there — an observation's
+`additional_identifiers` answers `identifier_locked: '<slug>'` unless the person
+already holds the value (`docs/ADMIN_OVERLAY.md` § Locked).
 
 ---
 

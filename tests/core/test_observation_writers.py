@@ -1991,6 +1991,78 @@ async def test_write_additional_identifiers_rejects_other_entity_types_slug(db, 
     assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", person_id) == 0
 
 
+async def _anchor(db, person_id: str) -> None:
+    """Give the person a usa-wa anchor in scope (#710)."""
+    await db.execute(
+        "INSERT INTO producer_crosswalk"
+        " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
+        " VALUES ($1, 'usa_wa', 'person', $2, $3, $3, 'live')",
+        generate_id(),
+        f"P-{person_id}",
+        person_id,
+    )
+
+
+def _roster(value: str) -> list:
+    return [
+        ObservationAdditionalIdentifier(
+            identifier_type_slug="person_wa_legislature_roster", identifier_value=value
+        )
+    ]
+
+
+async def test_write_additional_identifiers_refuses_a_locked_key_on_an_anchored_person(
+    db, person_id
+):
+    """#710 decision (a): the type comes only from usa-wa on a person it anchors."""
+    await _anchor(db, person_id)
+
+    with pytest.raises(ObservationRejected) as exc:
+        await write_additional_identifiers(db, person_id, "person", _roster("smith:1941"))
+
+    assert exc.value.detail == "identifier_locked: 'person_wa_legislature_roster'"
+    assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", person_id) == 0
+
+
+async def test_write_additional_identifiers_echoing_a_held_locked_key_is_a_noop(db, person_id):
+    """An observer repeating the key the person holds writes nothing and is not refused."""
+    await write_additional_identifiers(db, person_id, "person", _roster("smith:1933"))
+    await _anchor(db, person_id)
+
+    await write_additional_identifiers(db, person_id, "person", _roster("smith:1933"))
+
+    assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", person_id) == 1
+
+
+async def test_write_additional_identifiers_a_locked_type_on_an_unanchored_person_inserts(
+    db, person_id
+):
+    await write_additional_identifiers(db, person_id, "person", _roster("smith:1941"))
+
+    assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", person_id) == 1
+
+
+async def test_write_additional_identifiers_any_held_row_of_the_value_is_a_noop(db, person_id):
+    """CR 11: four persons will hold two roster keys (#710 decision 2); a claim of
+    either is satisfied, not a conflict with whichever row the read found first."""
+    await write_additional_identifiers(db, person_id, "person", _roster("abbarno:2019"))
+    eit = await db.fetchval(
+        "SELECT id FROM entity_identifier_types WHERE slug = 'person_wa_legislature_roster'"
+    )
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, 'abbarno:2021')",
+        generate_id(),
+        person_id,
+        eit,
+    )
+
+    for value in ("abbarno:2019", "abbarno:2021"):
+        await write_additional_identifiers(db, person_id, "person", _roster(value))
+
+    assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", person_id) == 2
+
+
 # --- CR round 3: identity-based eligibility + display-aware promotion --------
 
 

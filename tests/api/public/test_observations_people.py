@@ -520,6 +520,46 @@ async def test_additional_identifier_of_another_entity_type_is_rejected(client, 
     assert written == 0
 
 
+async def test_a_locked_wa_key_on_an_anchored_person_is_rejected(client, ppl_write_key, db):
+    """#710 decision (a): on a usa-wa person the roster key comes only from usa-wa."""
+    raw, _ = ppl_write_key
+    value = _unique_id()
+    first = await _post(
+        client, raw, {"identifier_type": "person_wa_pdc", "identifier_value": value}
+    )
+    pid = first.json()["entity_id"]
+    await db.execute(
+        "INSERT INTO producer_crosswalk"
+        " (id, source, kind, producer_id, exported_pm_id, pm_id, resolution)"
+        " VALUES ($1, 'usa_wa', 'person', $2, $3, $3, 'live')",
+        generate_id(),
+        f"P-{pid}",
+        pid,
+    )
+
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": value,
+            "additional_identifiers": [
+                {
+                    "identifier_type_slug": "person_wa_legislature_roster",
+                    "identifier_value": "x:1941",
+                }
+            ],
+        },
+    )
+
+    body = r.json()
+    assert (body["disposition"], body["reason"]) == (
+        "rejected",
+        "identifier_locked: 'person_wa_legislature_roster'",
+    )
+    assert not await db.fetchval("SELECT 1 FROM identifiers WHERE value = 'x:1941'")
+
+
 async def test_rejected_observation_creates_no_person(client, ppl_write_key, db):
     """A payload-stage rejection must roll back the person resolve_entity just created.
 

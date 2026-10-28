@@ -12,7 +12,7 @@ import asyncpg
 if TYPE_CHECKING:
     from src.api.public.schemas import ObservationAcronym, ObservationOrgName, ObservationPersonName
 
-from src.core.dataset_ownership import dataset_owned_link
+from src.core.dataset_ownership import dataset_owned_identifier, dataset_owned_link
 from src.core.db import generate_id, linked_entity_vanished
 from src.core.logging import get_logger
 from src.core.normalizers.address import get_address_normalizer
@@ -1486,6 +1486,8 @@ async def write_additional_identifiers(
       - Same type + only different values on entity → raise IdentifierConflict
       - Unknown type slug → raise ObservationRejected
       - Type for another entity type → raise ObservationRejected (#617)
+      - A type a dataset owns on this entity, not already held → raise
+        ObservationRejected ``identifier_locked`` (#710)
       - New type → insert
     """
     for item in additional_identifiers:
@@ -1518,6 +1520,10 @@ async def write_additional_identifiers(
         }
         if value in held:
             continue
+        # #710 decision (a): a type a dataset asserts on this entity comes only
+        # from the dataset — an observed key could never be removed here.
+        if await dataset_owned_identifier(conn, entity_type, entity_id, eit_id):
+            raise ObservationRejected(f"identifier_locked: {slug!r}")
         if held:
             raise IdentifierConflict(slug)
         await conn.execute(
