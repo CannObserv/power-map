@@ -52,5 +52,7 @@ def test_lockfile_resolves_at_or_above_the_floor(name):
     below = [v for v in locked if Version(v) < Version(floor)]
     assert not below, (
         f"uv.lock resolves {name} {', '.join(below)}, below the {floor} floor ({why}): "
-        f"run `uv lock --upgrade-package {name}`"
+        # The bare `--upgrade-package {name}` can stop short: it holds every other
+        # package, and virtualenv's fix needs a newer packaging (#715).
+        f"run `uv lock --upgrade-package '{name}>={floor}'`"
     )
