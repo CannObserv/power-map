@@ -380,8 +380,12 @@ ESLint config: `eslint.config.js` (flat config). Targets: `src/static/admin/` (b
 
 Hooks run automatically on `git commit`. Covers: ruff, pytest (unit), ESLint, Prettier check, vitest.
 
+Install from the main checkout only (#715). The hook is shared by every worktree and pins the
+installing venv (`INSTALL_PYTHON`). Once a worktree's venv is deleted, the hook falls back to the
+`pre-commit` on `PATH`, which `uv.lock` doesn't govern.
+
 ```bash
-# Install hooks (once per clone)
+# Install hooks (once per clone, main checkout)
 uv run pre-commit install
 
 # Run all hooks manually against all files
