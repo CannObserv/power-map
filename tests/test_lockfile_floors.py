@@ -39,7 +39,7 @@ FLOORS = {
     # API runtime through starlette and httpx. pyproject.toml's dev declaration
     # carries the same floor; this row guards the runtime path if that one moves.
     "anyio": ("4.14.2", "GHSA-82r6-8w77-94w6 and GHSA-5p39-cfhj-2xmp, #721/#729"),
-    # Runtime, via requests.
+    # The mapping build, via dbt's requests: not on the API's runtime path.
     "urllib3": ("2.8.0", "GHSA-8988-9cw3-xx77 and 2 more, #723/#729"),
     # The mapping build, via dbt-core and dbt-common.
     "opentelemetry-api": ("1.45.1", "GHSA-xcq7-p3pf-p88h, #720/#729"),
