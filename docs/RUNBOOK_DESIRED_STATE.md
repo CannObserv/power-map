@@ -293,6 +293,11 @@ versions are the ones it offered (`currency`, #535).
   org-cycle guard) is the same rollback. A refused `--execute` is recorded as
   mode `refused`, which is not a dry run and so restarts the streak: attempts at
   the gate never add up to opening it, and only the nightly chain builds it.
+  **After an execute that creates, rebuild before the confirming dry run**
+  (steps 2–3 above): the old build still asks to create each minted row, which
+  the live crosswalk now resolves, so a bare dry run reads them `stale` ("rebuild,
+  never mint", exit 3) — not a failed write (#726). Archives and updates need no
+  rebuild.
 - **Entries waiting longer than three days exit 4 (#656).** The nightly never
   executes, so a clean streak waits like a blocked one: 10-04's sat unapplied
   until 10-14, every night exit 0. A dry run whose actionable entries first
