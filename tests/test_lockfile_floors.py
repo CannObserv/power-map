@@ -2,9 +2,9 @@
 
 A floor here is a version the lockfile must never resolve below, because the
 releases under it carry a known vulnerability. The resolver knows nothing of
-advisories, and ``pyproject.toml`` constrains none of these packages (they
-arrive transitively), so a later re-lock (a downgrade forced by another
-package, a hand-resolved conflict) could quietly bring a bad release back.
+advisories, and most of these packages arrive transitively, unconstrained by
+``pyproject.toml``, so a later re-lock (a downgrade forced by another package,
+a hand-resolved conflict) could quietly bring a bad release back.
 These tests read ``uv.lock`` itself, the file ``ExecStartPre``'s ``uv sync``
 installs from.
 """
@@ -33,6 +33,16 @@ FLOORS = {
     # Needs packaging>=26.3 from 21.14.6 on; a re-lock that holds packaging
     # back resolves 21.14.5, still vulnerable.
     "virtualenv": ("21.14.13", "GHSA-cx6f-vjhg-g3cc and 19 more, #700/#715"),
+    # Round 2 (#729).
+    # API runtime, under FastAPI. No 0.x backport: the fix is 1.x only.
+    "starlette": ("1.3.1", "GHSA-82w8-qh3p-5jfq and 3 more, #722/#729"),
+    # API runtime through starlette and httpx. pyproject.toml's dev declaration
+    # carries the same floor; this row guards the runtime path if that one moves.
+    "anyio": ("4.14.2", "GHSA-82r6-8w77-94w6 and GHSA-5p39-cfhj-2xmp, #721/#729"),
+    # Runtime, via requests.
+    "urllib3": ("2.8.0", "GHSA-8988-9cw3-xx77 and 2 more, #723/#729"),
+    # The mapping build, via dbt-core and dbt-common.
+    "opentelemetry-api": ("1.45.1", "GHSA-xcq7-p3pf-p88h, #720/#729"),
 }
 
 

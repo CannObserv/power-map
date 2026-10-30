@@ -1,6 +1,6 @@
 {
   "name": "power-map",
-  "version": "0.69.1",
+  "version": "0.69.2",
   "description": "Web service for mapping political and corporate power",
   "private": true,
   "type": "module",
@@ -22,7 +22,7 @@
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-vitest": "^0.5.4",
-    "happy-dom": "^20.8.9",
+    "happy-dom": "^21.0.4",
     "prettier": "^3.8.1",
     "vitest": "^2.0.0"
   }
