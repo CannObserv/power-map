@@ -1421,7 +1421,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 browser = [{ name = "playwright", specifier = ">=1.49" }]
 dev = [
-    { name = "anyio", specifier = ">=4.12.1" },
+    { name = "anyio", specifier = ">=4.14.2" },
     { name = "lxml", specifier = ">=6.1.1" },
     { name = "openapi-python-client", specifier = ">=0.29.1,<0.30" },
     { name = "packaging", specifier = ">=26.0" },
