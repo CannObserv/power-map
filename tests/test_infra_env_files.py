@@ -5,7 +5,7 @@ and a production process has no use for them. Loaded after
 ``/etc/power-map/.env``, it would also let a dev-only value silently override
 production config. So every unit reads ``/etc/power-map/.env`` only, and a repo
 shell script a unit runs doesn't pass the repo ``.env`` back in through
-``uv run --env-file``.
+``uv run --env-file`` or by sourcing ``scripts/load-env.sh``.
 
 These read the tracked units, not the live host: the #560 drift guard holds the
 installed copies to them.
