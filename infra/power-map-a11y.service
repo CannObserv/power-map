@@ -7,8 +7,9 @@ Type=oneshot
 User=exedev
 WorkingDirectory=/home/exedev/power-map
 EnvironmentFile=/etc/power-map/.env
-EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv) and gh (/bin/gh); see infra/power-map.service.
+# No GH_TOKEN since #724 (the repo .env is no longer loaded): gh surfacing logs a
+# skip, and the co-status check-in below carries the alert. #740 retires the sweep.
 # One-time VM setup:
 #   uv sync --group browser && uv run --group browser playwright install chromium
 # The runner's guard launches Chromium and exits 2 if it is absent, so a missing

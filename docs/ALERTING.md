@@ -45,8 +45,10 @@ one-point dip under the line.
   fallback a missing file fails the unit (243). An empty key or an empty
   `STATUS_MONITOR_ID` skips the check-in, logged.
 
-The weekly a11y sweep keeps its `a11y-regression` issue as well: that is a work
-item, not a page. `ready` and `egress-ip` no longer open issues.
+The weekly a11y sweep's `a11y-regression` issue was a work item, not a page.
+Since #724 its unit has no `GH_TOKEN`, so the issue step logs a skip and the
+check-in alone alerts; #740 retires the sweep. `ready` and `egress-ip` no longer
+open issues.
 
 ## The API's OnFailure= dispatch
 

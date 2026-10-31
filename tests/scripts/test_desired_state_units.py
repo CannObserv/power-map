@@ -47,13 +47,11 @@ def test_the_service_never_executes():
     assert not any("--execute" in s for s in _lines(SERVICE, "ExecStart"))
 
 
-def test_the_service_is_a_oneshot_in_the_main_checkout_with_both_env_files():
-    text = SERVICE.read_text()
-
+def test_the_service_is_a_oneshot_in_the_main_checkout_with_the_system_env_only():
+    """#724: never the repo `.env` — `tests/test_infra_env_files.py` sweeps every unit."""
     assert _lines(SERVICE, "Type") == ["oneshot"]
     assert _lines(SERVICE, "WorkingDirectory") == ["/home/exedev/power-map"]
-    assert "EnvironmentFile=/etc/power-map/.env" in text
-    assert "EnvironmentFile=-/home/exedev/power-map/.env" in text
+    assert _lines(SERVICE, "EnvironmentFile") == ["/etc/power-map/.env"]
 
 
 def test_the_timer_fires_after_the_pull_and_catches_up_a_missed_night():

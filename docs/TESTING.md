@@ -204,7 +204,9 @@ opens-or-updates a single `a11y-regression` GitHub issue (closing it on the next
 green run — GitHub's notification email covers the "email me" need). The issue
 carries a **one-line summary + a pointer to the journal only** — never raw
 output, since this is a public repo. Full failing detail (axe violations,
-tracebacks) lives in `journalctl -u power-map-a11y` on the VM.
+tracebacks) lives in `journalctl -u power-map-a11y` on the VM. Since #724 the
+unit carries no `GH_TOKEN`, so the issue layer logs a skip and the co-status
+check-in carries the alert; #740 retires the sweep.
 
 To exercise the failure → open-issue → recover → close cycle without breaking a
 tier, run with the self-test hatch: `A11Y_SWEEP_FORCE_FAIL=1 bash

@@ -7,7 +7,6 @@ Type=oneshot
 User=exedev
 WorkingDirectory=/home/exedev/power-map
 EnvironmentFile=/etc/power-map/.env
-EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
 # Requires USA_WA_TOKEN — an exe.dev VM bearer token for usa-wa's private
 # proxy. Without it the script exits 2 before making a request rather than
