@@ -7,6 +7,10 @@ advisories, and most of these packages arrive transitively, unconstrained by
 a hand-resolved conflict) could quietly bring a bad release back.
 These tests read ``uv.lock`` itself, the file ``ExecStartPre``'s ``uv sync``
 installs from.
+
+A package ``pyproject.toml`` declares directly carries its floor there too
+(#729 CR 1, #736): a lower bound inside the advisory range tells the resolver,
+and anyone reading the declaration, that a vulnerable release is acceptable.
 """
 
 import tomllib
