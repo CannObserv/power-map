@@ -75,7 +75,7 @@ def _declared_lower_bounds() -> dict[str, list[tuple[str, Version | None]]]:
     """Each direct ``pyproject.toml`` declaration's lower bound, by package name.
 
     Covers the main dependencies and every dependency group; a declaration
-    with no ``>=``, ``>``, ``~=`` or ``==`` bound maps to ``None``.
+    with no bound (see ``_lower_bound``) maps to ``None``.
     """
     pyproject = tomllib.loads(PYPROJECT.read_text())
     sections = {"dependencies": pyproject["project"]["dependencies"]}
@@ -86,15 +86,38 @@ def _declared_lower_bounds() -> dict[str, list[tuple[str, Version | None]]]:
             if not isinstance(declaration, str):  # {include-group = ...}
                 continue
             requirement = Requirement(declaration)
-            lower = [
-                Version(spec.version)
-                for spec in requirement.specifier
-                if spec.operator in (">=", ">", "~=", "==")
-            ]
             bounds.setdefault(canonicalize_name(requirement.name), []).append(
-                (section, max(lower, default=None))
+                (section, _lower_bound(requirement))
             )
     return bounds
+
+
+def _lower_bound(requirement: Requirement) -> Version | None:
+    """The highest ``>=``/``>``/``~=``/``==`` version, or None when there is none.
+
+    A wildcard pin (``==1.*``) names no single version, so it counts as no bound.
+    """
+    lower = [
+        Version(spec.version)
+        for spec in requirement.specifier
+        if spec.operator in (">=", ">", "~=", "==") and "*" not in spec.version
+    ]
+    return max(lower, default=None)
+
+
+@pytest.mark.parametrize(
+    ("declaration", "expected"),
+    [
+        ("pkg>=1.2", "1.2"),
+        ("pkg>=1.2,<2", "1.2"),
+        ("pkg~=1.4", "1.4"),
+        ("pkg==1.12.4", "1.12.4"),
+        ("pkg==1.*", None),
+        ("pkg", None),
+    ],
+)
+def test_lower_bound(declaration, expected):
+    assert _lower_bound(Requirement(declaration)) == (expected and Version(expected))
 
 
 @pytest.mark.parametrize("name", sorted(FLOORS))
