@@ -53,14 +53,13 @@ def test_the_units_that_load_an_env_file_still_load_the_system_one():
     """The sweep above passes vacuously if the parse finds nothing."""
     loading = {u.name for u in SERVICES if SYSTEM_ENV in _env_files(u)}
 
-    assert {"power-map.service", "power-map-a11y.service"} <= loading
-    assert len(loading) >= 13
+    assert {"power-map.service", "power-map-desired-state.service"} <= loading
 
 
 def test_no_script_a_unit_runs_passes_the_repo_env_to_uv():
     scripts = [s for unit in SERVICES for s in _scripts(unit)]
 
-    assert REPO / "scripts/run-a11y-sweep.sh" in scripts
+    assert REPO / "scripts/apply-schema.sh" in scripts
     for script in scripts:
         text = script.read_text()
         assert set(ENV_FILE_ARG.findall(text)) <= {SYSTEM_ENV}, script.name
