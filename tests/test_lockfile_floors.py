@@ -7,15 +7,22 @@ advisories, and most of these packages arrive transitively, unconstrained by
 a hand-resolved conflict) could quietly bring a bad release back.
 These tests read ``uv.lock`` itself, the file ``ExecStartPre``'s ``uv sync``
 installs from.
+
+A package ``pyproject.toml`` declares directly carries its floor there too
+(#729 CR 1, #736): a lower bound inside the advisory range tells the resolver,
+and anyone reading the declaration, that a vulnerable release is acceptable.
 """
 
 import tomllib
 from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 from packaging.version import Version
 
 LOCKFILE = Path(__file__).resolve().parents[1] / "uv.lock"
+PYPROJECT = LOCKFILE.with_name("pyproject.toml")
 
 # package -> (minimum version, why)
 FLOORS = {
@@ -43,6 +50,16 @@ FLOORS = {
     "urllib3": ("2.8.0", "GHSA-8988-9cw3-xx77 and 2 more, #723/#729"),
     # The mapping build, via dbt-core and dbt-common.
     "opentelemetry-api": ("1.45.1", "GHSA-xcq7-p3pf-p88h, #720/#729"),
+    # Round 3 (#736).
+    # API runtime: Starlette's form parser, under every admin form post.
+    # pyproject.toml's declaration carries the same floor.
+    "python-multipart": ("0.0.31", "GHSA-5rvq-cxj2-64vf and 5 more, #731/#736"),
+    # API runtime through anyio, httpx and email-validator.
+    "idna": ("3.15", "GHSA-65pc-fj4g-8rjx, #734/#736"),
+    # Dev only, via pytest and openapi-python-client's rich.
+    "pygments": ("2.20.0", "GHSA-5239-wwwm-4pmq, #732/#736"),
+    # Dev. pyproject.toml's declaration carries the same floor.
+    "pytest": ("9.0.3", "GHSA-6w46-j5rx-g56g, #733/#736"),
 }
 
 
@@ -52,6 +69,70 @@ def _locked_versions() -> dict[str, list[str]]:
     for package in tomllib.loads(LOCKFILE.read_text())["package"]:
         versions.setdefault(package["name"], []).append(package["version"])
     return versions
+
+
+def _declared_lower_bounds() -> dict[str, list[tuple[str, Version | None]]]:
+    """Each direct ``pyproject.toml`` declaration's lower bound, by package name.
+
+    Covers the main dependencies and every dependency group; a declaration
+    with no bound (see ``_lower_bound``) maps to ``None``.
+    """
+    pyproject = tomllib.loads(PYPROJECT.read_text())
+    sections = {"dependencies": pyproject["project"]["dependencies"]}
+    sections |= {f"[dependency-groups] {g}": d for g, d in pyproject["dependency-groups"].items()}
+    bounds: dict[str, list[tuple[str, Version | None]]] = {}
+    for section, declarations in sections.items():
+        for declaration in declarations:
+            if not isinstance(declaration, str):  # {include-group = ...}
+                continue
+            requirement = Requirement(declaration)
+            bounds.setdefault(canonicalize_name(requirement.name), []).append(
+                (section, _lower_bound(requirement))
+            )
+    return bounds
+
+
+def _lower_bound(requirement: Requirement) -> Version | None:
+    """The highest ``>=``/``>``/``~=``/``==`` version, or None when there is none.
+
+    A wildcard pin (``==1.*``) names no single version, so it counts as no bound.
+    """
+    lower = [
+        Version(spec.version)
+        for spec in requirement.specifier
+        if spec.operator in (">=", ">", "~=", "==") and "*" not in spec.version
+    ]
+    return max(lower, default=None)
+
+
+@pytest.mark.parametrize(
+    ("declaration", "expected"),
+    [
+        ("pkg>=1.2", "1.2"),
+        ("pkg>=1.2,<2", "1.2"),
+        ("pkg~=1.4", "1.4"),
+        ("pkg==1.12.4", "1.12.4"),
+        ("pkg==1.*", None),
+        ("pkg", None),
+    ],
+)
+def test_lower_bound(declaration, expected):
+    assert _lower_bound(Requirement(declaration)) == (expected and Version(expected))
+
+
+@pytest.mark.parametrize("name", sorted(FLOORS))
+def test_direct_declaration_carries_the_floor(name):
+    """A package declared directly may not admit a release under its floor (#729 CR 1, #736).
+
+    The lock alone satisfies the floor today, but a declaration inside the
+    advisory range tells the resolver a vulnerable release is acceptable.
+    """
+    floor, why = FLOORS[name]
+    for section, lower in _declared_lower_bounds().get(canonicalize_name(name), []):
+        assert lower is not None and lower >= Version(floor), (
+            f"pyproject.toml declares {name} in {section} with lower bound {lower}, "
+            f"inside the advisory range under the {floor} floor ({why}): raise it to >={floor}"
+        )
 
 
 @pytest.mark.parametrize("name", sorted(FLOORS))
