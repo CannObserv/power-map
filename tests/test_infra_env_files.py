@@ -39,6 +39,8 @@ def _scripts(unit: Path) -> list[Path]:
                     continue
                 path = Path(token)
                 if path.is_absolute():
+                    if not path.is_relative_to(DEPLOYED):
+                        continue  # a system script: not this repo's to read
                     path = path.relative_to(DEPLOYED)
                 found.append(REPO / path)
     return found
