@@ -23,6 +23,8 @@ from fastapi.dependencies.utils import get_flat_dependant
 from fastapi.routing import APIRoute
 
 from src.api.main import app
+from src.api.public.embeddings import _get_registry as _emb_get_registry
+from src.api.public.people import _get_registry as _people_get_registry
 from src.core.db import generate_id
 from src.core.embedding_registry import EmbeddingRegistry, ModelMeta
 
@@ -308,7 +310,11 @@ _EMBEDDING_CASES = [
 async def test_embedding_route_with_unstorable_text_is_422(
     client, all_scopes_key, monkeypatch, method, url, body, loc
 ):
-    monkeypatch.setattr(app.state, "embedding_registry", _REGISTRY)
+    # Through the getters, never `monkeypatch.setattr(app.state, ...)`: from
+    # pytest 9.2 its undo deletes a Starlette `State` attribute it replaced
+    # (pytest#15099), stripping the session's registry from every later test.
+    for getter in (_people_get_registry, _emb_get_registry):
+        monkeypatch.setitem(app.dependency_overrides, getter, lambda: _REGISTRY)
     r = await client.request(
         method,
         url,
