@@ -7,7 +7,6 @@ Type=oneshot
 User=exedev
 WorkingDirectory=/home/exedev/power-map
 EnvironmentFile=/etc/power-map/.env
-EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
 #
 # Polls GET /ready on the production worker. A failing run exits 3, so the unit

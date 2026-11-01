@@ -7,7 +7,6 @@ Type=oneshot
 User=exedev
 WorkingDirectory=/home/exedev/power-map
 EnvironmentFile=/etc/power-map/.env
-EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
 # Counts polymorphic rows (links, contact_methods, identifiers, entity_events, …)
 # keyed on (entity_type, entity_id) that name an entity id no longer present, for

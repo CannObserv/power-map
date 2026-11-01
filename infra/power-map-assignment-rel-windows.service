@@ -7,7 +7,6 @@ Type=oneshot
 User=exedev
 WorkingDirectory=/home/exedev/power-map
 EnvironmentFile=/etc/power-map/.env
-EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
 # Report-only (no --execute): flags active role_assignment_relationships edges whose
 # window drifted outside the intersection of both endpoint assignment windows, or

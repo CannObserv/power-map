@@ -18,6 +18,8 @@
 #     `a11y-regression` (dedup → one issue, not spam) carrying only a one-line
 #     summary + a pointer to the journal; on recovery, comment + close it.
 #     GitHub's own notification emails cover the "email me" need — no MTA here.
+#     Since #724 the unit carries no GH_TOKEN, so this layer logs a skip; the
+#     unit's co-status check-in alerts on exit 1 instead. #740 retires the sweep.
 #   - Ambient: `systemctl --failed` (this unit) drives the SessionStart hook note.
 #
 # Exit codes: 0 = both tiers green; 1 = a tier failed; 2 = environment guard
@@ -40,7 +42,6 @@ log() { echo "[$(date -u +%FT%TZ)] $*"; }
 
 env_args=()
 [ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
-[ -f "$REPO_ROOT/.env" ] && env_args+=(--env-file "$REPO_ROOT/.env")
 
 # --- GitHub surfacing ------------------------------------------------------
 # gh_surface <fail|pass> [summary]

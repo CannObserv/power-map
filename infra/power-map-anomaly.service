@@ -7,7 +7,6 @@ Type=oneshot
 User=exedev
 WorkingDirectory=/home/exedev/power-map
 EnvironmentFile=/etc/power-map/.env
-EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
 # Logs a WARNING per key at/above the threshold (default 5000/hr; env
 # API_ANOMALY_HOURLY_THRESHOLD, <= 0 disables) and exits 3 — the unit shows as

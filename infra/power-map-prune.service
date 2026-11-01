@@ -7,7 +7,6 @@ Type=oneshot
 User=exedev
 WorkingDirectory=/home/exedev/power-map
 EnvironmentFile=/etc/power-map/.env
-EnvironmentFile=-/home/exedev/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
 # Each table prunes on its own window, 90 days by default (src.core.maintenance
 # Retention); override one with --tombstone-retention-days or
