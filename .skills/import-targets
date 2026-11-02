@@ -1,0 +1,5 @@
+# Modules the vendored pre-ship.sh imports in its import check (#739).
+# Without this file it guesses `power_map` from the [project] name, finds no such
+# package, and skips. The ASGI module power-map.service boots, so an import-time
+# error anywhere the app reaches fails the gate. Guard: tests/scripts/test_pre_ship_gate.py.
+src.api.main

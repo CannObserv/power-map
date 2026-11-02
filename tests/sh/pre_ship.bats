@@ -1,11 +1,13 @@
 #!/usr/bin/env bats
 # The ship gate as this repo runs it: the VENDORED pre-ship.sh plus our
-# `.skills/pre-ship-uv-args` (#549; the local copy #539 added is retired).
+# `.skills/pre-ship-uv-args` (#549; the local copy #539 added is retired) and
+# `.skills/import-targets` (#739).
 #
 # `tests/scripts/test_pre_ship_gate.py` asserts the configuration's TEXT — no
 # local gate, the knob upstream reads, the hook's uv args. None of that runs the
 # gate, so this suite does: our real args file, copied into a fixture repo, must
-# reach every uv call, and pytest must run without a `-m` (any `-m` replaces the
+# reach every uv call, each of our import targets must get its own import check,
+# and pytest must run without a `-m` (any `-m` replaces the
 # addopts marker and requests the browser tier — the #539 defect). The gate's own
 # stamp and help are upstream's to test, not ours; we assert only that a pytest
 # failure fails it.
@@ -44,7 +46,7 @@ case "$args" in
     *"import pytest_cov"*) shape=COV_PROBE ;;
     *"import xdist"*)      shape=XDIST_PROBE ;;
     *"python --version"*)  shape=PY_VERSION ;;
-    *"import tomllib"*)    shape=NAME_PROBE ;;
+    *"-c import "*)        shape=IMPORT ;;
     *pytest*)              shape=PYTEST ;;
     *)                     shape=OTHER ;;
 esac
@@ -67,19 +69,20 @@ SH
     unset GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
     unset GIT_AUTHOR_DATE GIT_COMMITTER_DATE GIT_EDITOR GIT_REFLOG_ACTION
 
-    # A throwaway repo carrying our real args file and a uv pyproject that
-    # names fastapi, committed so the tree is clean. No package.json, so the
-    # JS block is skipped.
+    # A throwaway repo carrying our real args and import-targets files and a uv
+    # pyproject that names fastapi, committed so the tree is clean. No
+    # package.json, so the JS block is skipped.
     REPO="$BATS_TEST_TMPDIR/fixture-repo"
     mkdir -p "$REPO/.skills"
     cp "$ROOT/.skills/pre-ship-uv-args" "$REPO/.skills/pre-ship-uv-args"
+    cp "$ROOT/.skills/import-targets" "$REPO/.skills/import-targets"
     printf '[project]\nname = "fixture"\nversion = "0"\ndependencies = ["fastapi"]\n\n[tool.uv]\n' \
         > "$REPO/pyproject.toml"
     git -C "$REPO" init --quiet
     git -C "$REPO" config user.email t@example.invalid
     git -C "$REPO" config user.name t
     git -C "$REPO" config commit.gpgsign false
-    git -C "$REPO" add .skills/pre-ship-uv-args pyproject.toml
+    git -C "$REPO" add .skills/pre-ship-uv-args .skills/import-targets pyproject.toml
     git -C "$REPO" commit --quiet -m init
 
     # The scrub above is load-bearing; assert it took rather than trusting it.
@@ -95,6 +98,11 @@ run_gate() {
     run bash -c "cd '$REPO' && bash '$GATE'"
 }
 
+# The import-targets file's entries, one per line.
+import_targets() {
+    grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$ROOT/.skills/import-targets" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
 # The uv-args file's words, as one string ("--group seed").
 uv_args() {
     grep -v '^[[:space:]]*#' "$ROOT/.skills/pre-ship-uv-args" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'
@@ -106,6 +114,12 @@ uv_args() {
     [[ "$output" == *"Detected: toolchain uv, framework fastapi"* ]]
     [[ "$output" == *"Lint (ruff)"* ]]
     [[ "$output" == *"Format check (ruff)"* ]]
+    local target targets
+    targets="$(import_targets)"
+    [ -n "$targets" ]
+    while IFS= read -r target; do
+        [[ "$output" == *"=== Import $target ==="* ]] || { echo "no import check for $target" >&2; return 1; }
+    done <<< "$targets"
     [[ "$output" == *"Tests (pytest)"* ]]
     [[ "$output" == *"Pre-ship checks passed."* ]]
 }
@@ -116,15 +130,15 @@ uv_args() {
     local args shape
     args="$(uv_args)"
     [ -n "$args" ]
-    for shape in RUFF_CHECK RUFF_FORMAT COV_PROBE PY_VERSION PYTEST; do
+    for shape in RUFF_CHECK RUFF_FORMAT IMPORT COV_PROBE PY_VERSION PYTEST; do
         run grep -- "^$shape uv run $args " "$UV_CALL_LOG"
         [ "$status" -eq 0 ] || { echo "$shape ran without '$args'" >&2; cat "$UV_CALL_LOG" >&2; return 1; }
     done
     # The shapes above must be there; no other `uv run` may lack the args — a
-    # call upstream adds later is otherwise invisible to the loop. Exempt:
-    # detect-import-targets.sh's [project]-name probe, a bare `uv run` upstream
-    # does not route through the args file (it only reads pyproject.toml).
-    run bash -c 'grep -- "^[A-Z_]* uv run " "$1" | grep -v -- "^NAME_PROBE " | grep -v -- "^[A-Z_]* uv run $2 "' _ "$UV_CALL_LOG" "$args"
+    # call upstream adds later is otherwise invisible to the loop. Our
+    # import-targets file is what keeps detect-import-targets.sh's bare
+    # `uv run` [project]-name probe from running at all (skills#553).
+    run bash -c 'grep -- "^[A-Z_]* uv run " "$1" | grep -v -- "^[A-Z_]* uv run $2 "' _ "$UV_CALL_LOG" "$args"
     [ "$status" -eq 1 ] || { echo "uv run without '$args':" >&2; echo "$output" >&2; return 1; }
 }
 

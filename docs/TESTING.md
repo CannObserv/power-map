@@ -362,13 +362,12 @@ the vendored gate runs. It detects the stack (`uv`, `npm`, `fastapi`) and runs
 ruff check, ruff format --check, an import check, the Python suite, then ESLint /
 Prettier / vitest. Every check runs even after one fails; it then exits 1 naming
 each. A pass is stamped against the exact clean tree, shared by every worktree,
-and a re-run on that tree reuses it (`GATE_STAMP=off` forces one). The import
-check skips: there is no `.skills/import-targets`, and the `[project]` name
-names no package here (#739).
+and a re-run on that tree reuses it (`GATE_STAMP=off` forces one).
 
-One file tailors it: `.skills/pre-ship-uv-args` (`--group seed`), which the gate
-puts after `uv run` in every uv call so it runs the suite the pre-commit
-`pytest (unit)` hook runs. The gate passes **no `-m`**: it deselects
+Two files tailor it. `.skills/import-targets` names `src.api.main`, the module
+`power-map.service` boots, for the import check (#739). `.skills/pre-ship-uv-args`
+(`--group seed`) goes after `uv run` in every uv call, so the gate runs the suite
+the pre-commit `pytest (unit)` hook runs. The gate passes **no `-m`**: it deselects
 integration-marked tests with a collection plugin, so `addopts`'
 `-m 'not integration and not browser'` still applies. A command-line `-m`
 *replaces* `addopts` and requests the browser tier, which is why #539 kept a
@@ -376,6 +375,7 @@ local copy until upstream fixed both points (skills#304). #549 deleted the copy
 (#463: a divergence retires itself).
 
 Guards: `tests/scripts/test_pre_ship_gate.py` fails if a local gate reappears,
-if the vendored gate stops reading the args file or passes `-m` again, or if the
-args file and the hook disagree. `tests/sh/pre_ship.bats` runs the vendored gate
-against our real args file with a stubbed `uv`.
+if the vendored gate stops reading either file or passes `-m` again, if the args
+file and the hook disagree, or if the import targets drop the service's module.
+`tests/sh/pre_ship.bats` runs the vendored gate against both real files with a
+stubbed `uv`.
