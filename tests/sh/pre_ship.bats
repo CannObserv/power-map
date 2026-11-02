@@ -10,7 +10,7 @@
 # and pytest must run without a `-m` (any `-m` replaces the
 # addopts marker and requests the browser tier — the #539 defect). The gate's own
 # stamp and help are upstream's to test, not ours; we assert only that a pytest
-# failure fails it.
+# failure, and a failed import of our target, fails it.
 #
 # The gate is the unified `shipping-work` one (#739): it detects the stack, so the
 # fixture carries a uv `pyproject.toml` naming fastapi, as this repo's does.
@@ -53,6 +53,7 @@ esac
 printf '%s uv %s\n' "$shape" "${args//$'\n'/ }" >> "$UV_CALL_LOG"
 case "$shape" in
     PYTEST)      exit "${STUB_PYTEST_RC:-0}" ;;
+    IMPORT)      exit "${STUB_IMPORT_RC:-0}" ;;
     XDIST_PROBE) exit 1 ;;
     PY_VERSION)  echo "Python 3.12.0" ;;
 esac
@@ -95,6 +96,7 @@ SH
 run_gate() {
     # Exported: the gate runs in a `bash -c` child, which inherits only exports.
     export STUB_PYTEST_RC="${STUB_PYTEST_RC:-0}"
+    export STUB_IMPORT_RC="${STUB_IMPORT_RC:-0}"
     run bash -c "cd '$REPO' && bash '$GATE'"
 }
 
@@ -157,5 +159,16 @@ uv_args() {
     STUB_PYTEST_RC=3 run_gate
     [ "$status" -eq 1 ]
     [[ "$output" == *"Tests (pytest) (exit 3)"* ]]
+    [[ "$output" != *"Pre-ship checks passed."* ]]
+}
+
+@test "a failed import of our target fails the gate" {
+    # What .skills/import-targets is for: an import-time error the app reaches.
+    local target
+    target="$(import_targets | head -n 1)"
+    [ -n "$target" ]
+    STUB_IMPORT_RC=1 run_gate
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Import $target (exit 1)"* ]]
     [[ "$output" != *"Pre-ship checks passed."* ]]
 }

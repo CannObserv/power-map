@@ -27,9 +27,12 @@ What keeps the vendored gate right for this repo:
   import check (#739) guesses a package from the `[project]` name, and
   `power_map` is none here, so without `.skills/import-targets` it skips. The
   target is the ASGI module `power-map.service` runs, so an import-time error
-  in any module the app reaches fails the gate even when no test imports it.
-* `test_the_vendored_resolver_reads_our_import_targets_file` — the knob that
-  carries it must still exist upstream.
+  in any module the app reaches fails the gate as its own labelled check. pytest
+  collection imports the app too; this line names the failure ahead of it.
+* `test_the_vendored_scripts_read_our_import_targets_file` — the knob that
+  carries it must still exist upstream, in code rather than a comment or help
+  line: the resolver reads it, and the gate runs a named target that is no
+  directory (`src.api.main`) only because that file exists.
 
 `tests/sh/pre_ship.bats` runs the vendored gate against our real args and
 import-targets files.
@@ -146,6 +149,13 @@ def _import_targets() -> list[str]:
     ]
 
 
+def _code_lines(source: str) -> str:
+    """A shell script without its comment and `echo` lines: what it does, not what it says."""
+    return "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith(("#", "echo "))
+    )
+
+
 def test_the_gate_imports_the_module_the_service_boots() -> None:
     """The import check imports what production boots, not a guess from the project name."""
     match = UVICORN_MODULE.search(SERVICE_UNIT.read_text())
@@ -154,16 +164,23 @@ def test_the_gate_imports_the_module_the_service_boots() -> None:
         f"missing {IMPORT_TARGETS_FILE.relative_to(REPO_ROOT)}: the gate's import check "
         "guesses `power_map` from the [project] name, finds no such package, and skips"
     )
-    assert match[1] in _import_targets(), (
-        f".skills/import-targets lists {_import_targets()}, not {match[1]!r}, the module "
+    targets = _import_targets()
+    assert match[1] in targets, (
+        f".skills/import-targets lists {targets}, not {match[1]!r}, the module "
         f"{SERVICE_UNIT.name} runs"
     )
 
 
-def test_the_vendored_resolver_reads_our_import_targets_file() -> None:
-    """Without the knob, our list does nothing and the import check skips again."""
-    if not VENDORED_IMPORT_RESOLVER.is_file():
+@pytest.mark.parametrize("script", [VENDORED_IMPORT_RESOLVER, VENDORED_GATE], ids=lambda p: p.name)
+def test_the_vendored_scripts_read_our_import_targets_file(script: Path) -> None:
+    """Without the knob, our list does nothing and the import check skips again.
+
+    The resolver must read the file; the gate must key "always run a named
+    target" on it, or `src.api.main` — no directory — is guessed away and skipped.
+    Comments and help text are dropped first: both name the file too.
+    """
+    if not script.is_file():
         pytest.skip(vendor_skills.SKIP_REASON)
-    assert ".skills/import-targets" in VENDORED_IMPORT_RESOLVER.read_text(), (
-        "the vendored detect-import-targets.sh no longer reads .skills/import-targets"
+    assert ".skills/import-targets" in _code_lines(script.read_text()), (
+        f"the vendored {script.name} no longer reads .skills/import-targets"
     )
