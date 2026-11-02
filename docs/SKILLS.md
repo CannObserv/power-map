@@ -49,6 +49,8 @@ Force-refresh: `git submodule update --remote --merge -- skills-vendor/`
 
 Two checks arrived with the `d3f91c8` pin. `main` ahead of its upstream is named at every session start (skills#293) — reported whoever wrote the commits, since only something running *on* the checkout can tell "the hook never ran" from "its commits are stranded here". And each override is compared against its vendor on **both** comparands: the recorded `version:`, and a diff of its `synced-from:` commit scoped to the override's own real files (skills#286). Only the second sees a vendor `SKILL.md` edited without a version bump. Advisory in every mode including `--check-only`, never an exit code, never auto-merged.
 
+**Exit `0` is not "changed nothing" (#739).** Since `2026-10-31-1` the doctor reads each vendor's `retired-skills` map (skills#537) and **repoints tracked links** `skills/<old>` and `.claude/skills/<old>`, printing a `git add -A -- …` line it never commits. `shipping-work`, `reviewing-code-python-fastapi` and `reviewing-architecture` run it in Step 1, so in the main checkout a new retirement leaves uncommitted links: check `git status`, land them via a worktree PR. Its hold sees only `skills/<old>/` paths; `tests/test_retired_skill_refs.py` sweeps bare names too.
+
 To add a new external skill repo: follow the `managing-skills` skill.
 
 ### Sensitive-path list and its advice (#488, #510/#540)
