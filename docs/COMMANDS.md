@@ -397,7 +397,7 @@ uv run pre-commit run pytest --all-files
 
 Hook ids: `ruff`, `pytest`, `eslint`, `prettier`, `vitest`, `bats`, `shellcheck`
 
-Ship gate: `bash skills/shipping-work-python-fastapi/scripts/pre-ship.sh` — the
+Ship gate: `bash skills/shipping-work/scripts/pre-ship.sh` — the
 vendored gate, given `--group seed` by `.skills/pre-ship-uv-args` (#549) →
 [TESTING.md](TESTING.md) § Ship gate.
 

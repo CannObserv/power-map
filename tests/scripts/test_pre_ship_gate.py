@@ -1,6 +1,6 @@
-"""Guards this repo's ship gate: the vendored `pre-ship.sh`, tailored by one file (#549).
+"""Guards this repo's ship gate: the vendored `pre-ship.sh`, tailored by two files (#549, #739).
 
-`shipping-work-python-fastapi` Step 1 resolves `scripts/<name>.sh` from the repo
+`shipping-work` Step 1 resolves `scripts/<name>.sh` from the repo
 root **before** the skill directory. #539 put a copy there because the vendored
 gate ran `uv run pytest … -m "not integration"` — that `-m` **replaced** our
 `addopts` default of `-m 'not integration and not browser'` and so requested the
@@ -23,8 +23,19 @@ What keeps the vendored gate right for this repo:
   rather than the ship gate silently acquiring the browser tier.
 * `test_our_uv_args_match_the_pre_commit_hook` — the ship gate and the pre-commit
   `pytest (unit)` hook run one suite definition.
+* `test_the_gate_imports_the_module_the_service_boots` — the unified gate's
+  import check (#739) guesses a package from the `[project]` name, and
+  `power_map` is none here, so without `.skills/import-targets` it skips. The
+  target is the ASGI module `power-map.service` runs, so an import-time error
+  in any module the app reaches fails the gate as its own labelled check. pytest
+  collection imports the app too; this line names the failure ahead of it.
+* `test_the_vendored_scripts_read_our_import_targets_file` — the knob that
+  carries it must still exist upstream, in code rather than a comment or help
+  line: the resolver reads it, and the gate runs a named target that is no
+  directory (`src.api.main`) only because that file exists.
 
-`tests/sh/pre_ship.bats` runs the vendored gate against our real args file.
+`tests/sh/pre_ship.bats` runs the vendored gate against our real args and
+import-targets files.
 """
 
 import re
@@ -39,14 +50,14 @@ REPO_ROOT = Path(__file__).parents[2]
 LOCAL_GATE = REPO_ROOT / "scripts" / "pre-ship.sh"
 UV_ARGS_FILE = REPO_ROOT / ".skills" / "pre-ship-uv-args"
 PRE_COMMIT = REPO_ROOT / ".pre-commit-config.yaml"
+IMPORT_TARGETS_FILE = REPO_ROOT / ".skills" / "import-targets"
+SERVICE_UNIT = REPO_ROOT / "infra" / "power-map.service"
 
-VENDORED_GATE = (
-    vendor_skills.VENDOR_ROOT
-    / "skills"
-    / "shipping-work-python-fastapi"
-    / "scripts"
-    / "pre-ship.sh"
-)
+VENDORED_GATE = vendor_skills.VENDOR_ROOT / "skills" / "shipping-work" / "scripts" / "pre-ship.sh"
+VENDORED_IMPORT_RESOLVER = VENDORED_GATE.with_name("detect-import-targets.sh")
+
+# The ASGI module on the unit's `uvicorn <module>:<app>` command line.
+UVICORN_MODULE = re.compile(r"^ExecStart=.*\buvicorn\s+([\w.]+):\w+", re.MULTILINE)
 
 # An executable pytest run through uv, either spelling: `uv run … pytest` or the
 # vendored `uv_run pytest`. `\bpytest\b` does not match the `pytest_cov` probe.
@@ -126,4 +137,50 @@ def test_our_uv_args_match_the_pre_commit_hook() -> None:
     assert _uv_args_file() == _uv_args_of(entry), (
         f".skills/pre-ship-uv-args gives {_uv_args_file()}, the pre-commit pytest hook "
         f"{_uv_args_of(entry)}: the ship gate would run a different suite from the hook"
+    )
+
+
+def _import_targets() -> list[str]:
+    """`.skills/import-targets` as the vendored resolver reads it: trimmed, `#` lines skipped."""
+    return [
+        line.strip()
+        for line in IMPORT_TARGETS_FILE.read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def _code_lines(source: str) -> str:
+    """A shell script without its comment and `echo` lines: what it does, not what it says."""
+    return "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith(("#", "echo "))
+    )
+
+
+def test_the_gate_imports_the_module_the_service_boots() -> None:
+    """The import check imports what production boots, not a guess from the project name."""
+    match = UVICORN_MODULE.search(SERVICE_UNIT.read_text())
+    assert match, f"no `uvicorn <module>:<app>` ExecStart in {SERVICE_UNIT.name}; re-anchor"
+    assert IMPORT_TARGETS_FILE.is_file(), (
+        f"missing {IMPORT_TARGETS_FILE.relative_to(REPO_ROOT)}: the gate's import check "
+        "guesses `power_map` from the [project] name, finds no such package, and skips"
+    )
+    targets = _import_targets()
+    assert match[1] in targets, (
+        f".skills/import-targets lists {targets}, not {match[1]!r}, the module "
+        f"{SERVICE_UNIT.name} runs"
+    )
+
+
+@pytest.mark.parametrize("script", [VENDORED_IMPORT_RESOLVER, VENDORED_GATE], ids=lambda p: p.name)
+def test_the_vendored_scripts_read_our_import_targets_file(script: Path) -> None:
+    """Without the knob, our list does nothing and the import check skips again.
+
+    The resolver must read the file; the gate must key "always run a named
+    target" on it, or `src.api.main` — no directory — is guessed away and skipped.
+    Comments and help text are dropped first: both name the file too.
+    """
+    if not script.is_file():
+        pytest.skip(vendor_skills.SKIP_REASON)
+    assert ".skills/import-targets" in _code_lines(script.read_text()), (
+        f"the vendored {script.name} no longer reads .skills/import-targets"
     )

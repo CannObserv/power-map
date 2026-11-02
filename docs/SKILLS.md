@@ -49,11 +49,13 @@ Force-refresh: `git submodule update --remote --merge -- skills-vendor/`
 
 Two checks arrived with the `d3f91c8` pin. `main` ahead of its upstream is named at every session start (skills#293) — reported whoever wrote the commits, since only something running *on* the checkout can tell "the hook never ran" from "its commits are stranded here". And each override is compared against its vendor on **both** comparands: the recorded `version:`, and a diff of its `synced-from:` commit scoped to the override's own real files (skills#286). Only the second sees a vendor `SKILL.md` edited without a version bump. Advisory in every mode including `--check-only`, never an exit code, never auto-merged.
 
+**Exit `0` is not "changed nothing" (#739).** Since `2026-10-31-1` the doctor reads each vendor's `retired-skills` map (skills#537) and **repoints tracked links** `skills/<old>` and `.claude/skills/<old>`, printing a `git add -A -- …` line it never commits. `shipping-work`, `reviewing-code-python-fastapi` and `reviewing-architecture` run it in Step 1, so in the main checkout a new retirement leaves uncommitted links: check `git status`, land them via a worktree PR. Its hold sees only `skills/<old>/` paths; `tests/test_retired_skill_refs.py` sweeps bare names too.
+
 To add a new external skill repo: follow the `managing-skills` skill.
 
 ### Sensitive-path list and its advice (#488, #510/#540)
 
-`.skills/doc-sensitive-paths` is this repo's replacement for the built-in `SENSITIVE_PATHS` in `shipping-work-python-fastapi/scripts/doc-check.sh` (Step 1.5) — one path per line, blank lines and `#`-comments ignored, same grammar as `.skills/import-targets`. It **replaces** the defaults wholesale; five of those twelve (`CHANGELOG.md`, `alembic/versions/`, `deploy/`, `src/models/`, `.env.example`) describe a layout this service does not have.
+`.skills/doc-sensitive-paths` is this repo's replacement for the built-in `SENSITIVE_PATHS` in `shipping-work/scripts/doc-check.sh` (Step 1.5) — one path per line, blank lines and `#`-comments ignored, same grammar as `.skills/import-targets`. It **replaces** the defaults wholesale; five of those twelve (`CHANGELOG.md`, `alembic/versions/`, `deploy/`, `src/models/`, `.env.example`) describe a layout this service does not have.
 
 - Entries match whole path **segments** at any depth (upstream skills#252), so `scripts/` also reaches `tests/scripts/`. Over-matching is the cheap failure for a gate that exits `1` and asks a human to look; the under-match it replaced printed as a clean green. Do not re-anchor.
 - A list where **no** entry matches a tracked file exits `2`; dead entries on a green run print as a note. `tests/test_doc_sensitive_paths.py` is the ratchet: every entry must match a tracked file, each documented tree must stay covered, and the pin must contain skills#252 (below it the file is ignored in silence).
@@ -73,7 +75,7 @@ To add a new external skill repo: follow the `managing-skills` skill.
 | `reviewing-code-python-fastapi` | `gregoryfoster-skills` | CR, code review, perform a review |
 | `reviewing-architecture` | `gregoryfoster-skills` | AR, architecture review, architectural review |
 | `enforcing-architecture` | `gregoryfoster-skills` | add a fitness function, enforce this contract, lock this rule |
-| `shipping-work-python-fastapi` | `gregoryfoster-skills` | ship it, push GH, close GH, wrap up |
+| `shipping-work` | `gregoryfoster-skills` | ship it, push GH, close GH, wrap up |
 | `brainstorming` | Local override | brainstorm, design this, let's design |
 | `systematic-debugging` | `obra-superpowers` | description-driven¹ |
 | `verification-before-completion` | `obra-superpowers` | description-driven¹ |
