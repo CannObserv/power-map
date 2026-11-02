@@ -356,10 +356,15 @@ longer mutate the environment the live uvicorn workers import from.
 
 ## Ship gate
 
-`shipping-work-python-fastapi` Step 1 resolves `scripts/<name>.sh` from the repo
+`shipping-work` Step 1 resolves `scripts/<name>.sh` from the repo
 root **before** the skill directory; this repo has no `scripts/pre-ship.sh`, so
-the vendored gate runs: ruff check, ruff format --check, the Python suite, then
-ESLint / Prettier / vitest when `package.json` declares them.
+the vendored gate runs. It detects the stack (`uv`, `npm`, `fastapi`) and runs
+ruff check, ruff format --check, an import check, the Python suite, then ESLint /
+Prettier / vitest. Every check runs even after one fails; it then exits 1 naming
+each. A pass is stamped against the exact clean tree, shared by every worktree,
+and a re-run on that tree reuses it (`GATE_STAMP=off` forces one). The import
+check skips: there is no `.skills/import-targets`, and the `[project]` name
+names no package here (#739).
 
 One file tailors it: `.skills/pre-ship-uv-args` (`--group seed`), which the gate
 puts after `uv run` in every uv call so it runs the suite the pre-commit

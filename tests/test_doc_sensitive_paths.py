@@ -1,6 +1,6 @@
 """Guards `.skills/doc-sensitive-paths`, this repo's sensitive-path list (#488).
 
-`shipping-work-python-fastapi`'s `doc-check.sh` (Step 1.5) flags branch changes
+`shipping-work`'s `doc-check.sh` (Step 1.5) flags branch changes
 that touch files whose existence, names or structure the docs inventory, so the
 matching doc sections get a look before shipping. Upstream skills#252 changed it
 in two ways that make a committed list worth having here:
@@ -56,13 +56,7 @@ LIST_PATH = REPO_ROOT / ".skills" / "doc-sensitive-paths"
 # our list is ignored in silence and the defaults run instead.
 SEGMENT_MATCH_COMMIT = "662de71"
 
-DOC_CHECK_PATH = (
-    vendor_skills.VENDOR_ROOT
-    / "skills"
-    / "shipping-work-python-fastapi"
-    / "scripts"
-    / "doc-check.sh"
-)
+DOC_CHECK_PATH = vendor_skills.VENDOR_ROOT / "skills" / "shipping-work" / "scripts" / "doc-check.sh"
 
 ROLLBACK_HINT = (
     f"The vendored gregoryfoster/skills pin does not contain {SEGMENT_MATCH_COMMIT} "

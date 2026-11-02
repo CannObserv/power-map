@@ -1,6 +1,6 @@
 """Guards this repo's ship gate: the vendored `pre-ship.sh`, tailored by one file (#549).
 
-`shipping-work-python-fastapi` Step 1 resolves `scripts/<name>.sh` from the repo
+`shipping-work` Step 1 resolves `scripts/<name>.sh` from the repo
 root **before** the skill directory. #539 put a copy there because the vendored
 gate ran `uv run pytest … -m "not integration"` — that `-m` **replaced** our
 `addopts` default of `-m 'not integration and not browser'` and so requested the
@@ -40,13 +40,7 @@ LOCAL_GATE = REPO_ROOT / "scripts" / "pre-ship.sh"
 UV_ARGS_FILE = REPO_ROOT / ".skills" / "pre-ship-uv-args"
 PRE_COMMIT = REPO_ROOT / ".pre-commit-config.yaml"
 
-VENDORED_GATE = (
-    vendor_skills.VENDOR_ROOT
-    / "skills"
-    / "shipping-work-python-fastapi"
-    / "scripts"
-    / "pre-ship.sh"
-)
+VENDORED_GATE = vendor_skills.VENDOR_ROOT / "skills" / "shipping-work" / "scripts" / "pre-ship.sh"
 
 # An executable pytest run through uv, either spelling: `uv run … pytest` or the
 # vendored `uv_run pytest`. `\bpytest\b` does not match the `pytest_cov` probe.
