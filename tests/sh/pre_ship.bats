@@ -7,7 +7,8 @@
 # gate, so this suite does: our real args file, copied into a fixture repo, must
 # reach every uv call, and pytest must run without a `-m` (any `-m` replaces the
 # addopts marker and requests the browser tier — the #539 defect). The gate's own
-# stamp, help and exit-code behaviour are upstream's to test, not ours.
+# stamp and help are upstream's to test, not ours; we assert only that a pytest
+# failure fails it.
 #
 # The gate is the unified `shipping-work` one (#739): it detects the stack, so the
 # fixture carries a uv `pyproject.toml` naming fastapi, as this repo's does.
@@ -31,7 +32,8 @@ setup() {
     # `uv` shim. A canonical shape tag, then the raw argv. The cov probe also
     # contains "pytest", so "did the suite run" keys on the tag, not the argv.
     # The xdist probe fails, as it does in this repo's environment, so the
-    # gate runs serially on any core count.
+    # gate runs serially on any core count. Newlines in an argv (a `python -c`
+    # script) are folded, so one call is one log line.
     cat > "$STUBS/uv" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -42,10 +44,11 @@ case "$args" in
     *"import pytest_cov"*) shape=COV_PROBE ;;
     *"import xdist"*)      shape=XDIST_PROBE ;;
     *"python --version"*)  shape=PY_VERSION ;;
+    *"import tomllib"*)    shape=NAME_PROBE ;;
     *pytest*)              shape=PYTEST ;;
     *)                     shape=OTHER ;;
 esac
-echo "$shape uv $*" >> "$UV_CALL_LOG"
+printf '%s uv %s\n' "$shape" "${args//$'\n'/ }" >> "$UV_CALL_LOG"
 case "$shape" in
     PYTEST)      exit "${STUB_PYTEST_RC:-0}" ;;
     XDIST_PROBE) exit 1 ;;
@@ -117,6 +120,12 @@ uv_args() {
         run grep -- "^$shape uv run $args " "$UV_CALL_LOG"
         [ "$status" -eq 0 ] || { echo "$shape ran without '$args'" >&2; cat "$UV_CALL_LOG" >&2; return 1; }
     done
+    # The shapes above must be there; no other `uv run` may lack the args — a
+    # call upstream adds later is otherwise invisible to the loop. Exempt:
+    # detect-import-targets.sh's [project]-name probe, a bare `uv run` upstream
+    # does not route through the args file (it only reads pyproject.toml).
+    run bash -c 'grep -- "^[A-Z_]* uv run " "$1" | grep -v -- "^NAME_PROBE " | grep -v -- "^[A-Z_]* uv run $2 "' _ "$UV_CALL_LOG" "$args"
+    [ "$status" -eq 1 ] || { echo "uv run without '$args':" >&2; echo "$output" >&2; return 1; }
 }
 
 @test "pytest runs with --group seed and no -m" {
