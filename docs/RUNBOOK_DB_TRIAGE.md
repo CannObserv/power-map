@@ -89,7 +89,7 @@ already-applied schema, so for them coming back unaided is worth more.
 | `pool_timeout` | pool acquire or probe query timed out | the table above |
 | `no_pool` | lifespan never built the pool | `journalctl -u power-map` around the last restart |
 | `db_error` | the query raised | the logged exception carries the detail; `/ready` deliberately does not |
-| `unreachable` (guard-side) | nothing listening on :8000 | `systemctl status power-map` |
+| `unreachable` (guard-side) | nothing listening on :8000 | `systemctl status power-map`; `activating (start-pre)` is an outage, so don't restart (§ Restarting during an outage) |
 
 A TLS failure (`SSLCertVerificationError`, or `FileNotFoundError` naming the `sslrootcert`
 path) reads as `db_error` on a running service. On a restart it is worse: `ExecStartPre`'s
