@@ -303,3 +303,8 @@ tests/test_socraticode_doc_parity.py :: f"docs/SKILLS.md prescribes a full re-em
 tests/test_socraticode_health_parity.py :: block carried now lives in `docs/SKILLS.md` § Context artifacts, which is
 tests/test_socraticode_health_parity.py :: (`docs/SKILLS.md` § Reading the daily `unresolved N%` line) of what a confidently
 tests/test_socraticode_health_parity.py :: "resolve-but-unindexed guidance in docs/SKILLS.md § Context artifacts."
+
+# #747: the retired brainstorming override's deltas live in AGENTS.md § Design & Planning,
+# a section the policy file still has; both lines route a skills reader to it.
+docs/SKILLS.md :: ¹ Description-driven: `brainstorming` before any creative work (this project's preferences: AGENTS.md § Design & Planning); `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
+docs/SKILLS.md :: None. A committed directory in `skills/` would completely supersede its vendor skill (no inheritance) and must be fully self-contained. The last, `brainstorming`, became a vendor link in #747: its project deltas live in AGENTS.md § Design & Planning.
