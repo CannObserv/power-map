@@ -14,9 +14,10 @@
 # read the vendored tree — and every other commit runs <full cmd>. An empty
 # subset skips the stage.
 #
-# The staged set comes from `git diff --cached --name-only` with no diff
-# filter. pre-commit's own file list leaves deletions out, so a files:/exclude:
-# rule would have skipped the tier on a deletion-only commit too. Under the
+# The staged set comes from `git diff --cached --raw` with no diff filter, and
+# each pointer must stay a gitlink (mode 160000) while nothing is deleted.
+# pre-commit's own file list leaves deletions out, so a files:/exclude: rule
+# would have skipped the tier on a deletion-only commit too. Under the
 # hook's `git commit -- <paths>`, git hands this the temporary index, so a
 # file the operator had staged does not count.
 #
@@ -72,16 +73,25 @@ registered_vendor_paths() {
 }
 
 vendor_only() {
-    local staged registered path
-    # --no-renames: a rename lists only its destination, so a file moved onto
-    # .skills/doctor.sh would hide the deletion it carries. --ignore-submodules=none:
-    # a diff.ignoreSubmodules setting would hide the pointer itself.
-    staged="$(git diff --cached --name-only --no-renames --ignore-submodules=none 2>/dev/null)" \
+    local staged registered line meta path
+    local -a fields
+    # --raw: the paths alone cannot tell a pointer bump from a gitlink deleted
+    # (`git rm --cached`) or replaced by a file. --no-renames: a rename lists
+    # only its destination, so a file moved onto .skills/doctor.sh would hide
+    # the deletion it carries. --ignore-submodules=none: a diff.ignoreSubmodules
+    # setting would hide the pointer itself.
+    staged="$(git diff --cached --raw --no-renames --ignore-submodules=none 2>/dev/null)" \
         || return 1
     [ -n "$staged" ] || return 1
     registered="$(registered_vendor_paths)"
-    while IFS= read -r path; do
+    while IFS= read -r line; do
+        # :<old mode> <new mode> <old sha> <new sha> <status>\t<path>
+        meta="${line%%$'\t'*}"
+        path="${line#*$'\t'}"
+        read -ra fields <<<"$meta"
+        [ "${fields[4]:-}" != "D" ] || return 1
         [ "$path" = ".skills/doctor.sh" ] && continue
+        [ "${fields[1]:-}" = "160000" ] || return 1
         grep -qxF -- "$path" <<<"$registered" || return 1
     done <<<"$staged"
     return 0

@@ -114,6 +114,31 @@ gate() {
     [[ "$output" != *"VENDOR"* ]]
 }
 
+@test "a gitlink removed from the index runs the full command" {
+    # .gitmodules untouched, and the subset would read the working-tree copy.
+    git -C "$REPO" rm --quiet --cached skills-vendor/fake
+    gate pytest echo VENDOR ::: echo FULL
+    [[ "$output" == *"FULL"* ]]
+    [[ "$output" != *"VENDOR"* ]]
+}
+
+@test "a gitlink replaced by a file runs the full command" {
+    git -C "$REPO" rm --quiet --cached skills-vendor/fake
+    mkdir -p "$REPO/skills-vendor"
+    echo vendored-by-hand > "$REPO/skills-vendor/fake"
+    git -C "$REPO" add skills-vendor/fake
+    gate pytest echo VENDOR ::: echo FULL
+    [[ "$output" == *"FULL"* ]]
+    [[ "$output" != *"VENDOR"* ]]
+}
+
+@test "a deleted .skills/doctor.sh runs the full command" {
+    git -C "$REPO" rm --quiet .skills/doctor.sh
+    gate pytest echo VENDOR ::: echo FULL
+    [[ "$output" == *"FULL"* ]]
+    [[ "$output" != *"VENDOR"* ]]
+}
+
 @test "a file moved onto .skills/doctor.sh runs the full command" {
     # Rename detection would list only the destination, hiding the deletion.
     git -C "$REPO" rm --quiet .skills/doctor.sh
