@@ -656,3 +656,12 @@ def test_probe_does_not_warn_about_where_schema_comes_from(tmp_path):
     result = _probe(tmp_path, MIGRATIONS_DATABASE_URL=_refused_dsn())
 
     assert "production schema should come from" not in _out(result)
+
+
+@pytest.mark.parametrize("value", ["0", "0.0", "00"])
+def test_probe_rejects_a_zero_timeout(tmp_path, value):
+    """A zero timeout fails every connect at once and would read as an outage."""
+    result = _probe(tmp_path, MIGRATIONS_DATABASE_URL=_refused_dsn(), POWER_MAP_PROBE_TIMEOUT=value)
+
+    assert result.returncode == 1, _out(result)
+    assert "POWER_MAP_PROBE_TIMEOUT" in _out(result)

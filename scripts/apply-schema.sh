@@ -224,11 +224,17 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 if [ "$PROBE" -eq 1 ]; then
+    # A number, and not zero: a zero timeout fails every connect at once and
+    # would read as an outage.
     case "$PROBE_TIMEOUT" in
-        "" | . | *[!0-9.]* | *.*.*)
-            echo "POWER_MAP_PROBE_TIMEOUT must be a number of seconds" >&2
-            exit 1 ;;
+        "" | . | *[!0-9.]* | *.*.*) bad_timeout=1 ;;
+        *[1-9]*)                    bad_timeout=0 ;;
+        *)                          bad_timeout=1 ;;
     esac
+    if [ "$bad_timeout" -eq 1 ]; then
+        echo "POWER_MAP_PROBE_TIMEOUT must be a positive number of seconds" >&2
+        exit 1
+    fi
     # --no-sync: a probe must not rewrite the venv the running service imports
     # from, which in the main checkout is production's (#450). Only the class of
     # a failure is printed: asyncpg's messages can carry the user and host, and
