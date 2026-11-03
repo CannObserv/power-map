@@ -69,3 +69,21 @@ class TestSkillsListing:
             "listed in docs/SKILLS.md § Available Skills but not linked "
             f"in .claude/skills/: {stale}"
         )
+
+
+class TestDesignSkillsAreLinked:
+    """AGENTS.md § Design & Planning says both are linked, never overridden (#747).
+
+    Its lines are project preferences layered on the vendor skills' defaults,
+    which only holds while the vendor text is what loads. A regular directory
+    here is a local override back again, and the section would then describe a
+    skill the repo no longer runs.
+    """
+
+    def test_brainstorming_and_writing_plans_are_vendor_links(self) -> None:
+        for name in ("brainstorming", "writing-plans"):
+            entry = AGENTSKILLS_DIR / name
+            assert entry.is_symlink(), f"skills/{name} is a local override, not a link"
+            assert os.readlink(entry).startswith("../skills-vendor/"), (
+                f"skills/{name} links outside skills-vendor/: {os.readlink(entry)}"
+            )

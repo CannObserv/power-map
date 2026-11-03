@@ -90,33 +90,19 @@ Full conventions → `docs/SCHEMA.md`
 
 ## Infrastructure
 
-Single VM; port split:
+Single VM: production API on 8000 (`--workers 2`, systemd `power-map.service`); dev server on 8001 (`--reload`), worktrees only.
 
-| Port | Process | Managed by |
-|---|---|---|
-| 8000 | Production API (`--workers 2`) | systemd (`power-map.service`) |
-| 8001 | Dev server (`--reload`) | manual, always from a worktree |
+**All development work must be done in a git worktree** — never edit the main checkout directly. After teardown, run `git worktree prune`. Sole exemption (#505): a **spike** — a read-only or throwaway probe answering a feasibility question, keeping no code. Keeping anything re-classifies the task, and that lands in a worktree.
 
-**All development work must be done in a git worktree** — never edit the main checkout directly. `brainstorming` is the entry point that triggers worktree setup via `using-git-worktrees`. After teardown, run `git worktree prune`. Sole exemption (#505): a **spike** — a read-only or throwaway probe answering a feasibility question, keeping no code. Keeping anything re-classifies the task, and that lands in a worktree.
+**Worktree setup (required after creation, #450):** `bash scripts/worktree-setup.sh <worktree-path>`. **Never share a venv with the main checkout**: production's units `uv run` / `ExecStartPre=uv sync` there, rewriting a shared venv mid-suite. What it provisions → `docs/COMMANDS.md` § Worktree setup.
 
-**Worktree setup (required after creation, #450):** run
-```bash
-bash scripts/worktree-setup.sh <worktree-path>
-```
-Gives the worktree its own `.venv` and its own `node_modules` (#554), initialises the `skills-vendor/` submodules, and symlinks the gitignored `.env` and `data/cannabis_observer`; refuses (exit 2) against the main checkout. **Never share a venv with the main checkout** — that is production's working directory, and its units' `uv run` / `ExecStartPre=uv sync` rewrite a shared venv mid-suite, taking the browser tier with it. Full rules → `docs/COMMANDS.md` § Worktree setup.
-
-exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
-
-Only the hazards are here; every command itself is in `docs/COMMANDS.md`.
+Only the hazards are here; every command, and the timer roster, is in `docs/COMMANDS.md`.
 
 - `bash scripts/apply-schema.sh` **targets PRODUCTION from any directory** — main checkout only, and it refuses in a linked worktree (exit 2, #398). From a worktree, `--test`.
 - `bash scripts/pre-restart-check.sh && sudo systemctl restart power-map`: the restart also applies any pending schema change, and without the check a DB outage loops it in `start-pre` (#748).
-- The dev server on 8001 always runs from a worktree, never the main checkout.
 - `/health` + `/ready` are unauthenticated probes (#343); a `pool_timeout` from `/ready` means the egress IP likely rotated out of DO Trusted Sources → `docs/RUNBOOK_DB_TRIAGE.md` (#410).
 
-Timer roster: `docs/COMMANDS.md` § Scheduled timers.
-
-**Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates its write behind `--execute` and echoes its target first. Uniform flags, the `scripts/_dsn.py` resolver, and the AST sweep enforcing them → `docs/RUNBOOKS.md` § Operational scripts.
+**Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates its write behind `--execute` and echoes its target first. Rules → `docs/RUNBOOKS.md` § Operational scripts.
 
 ### Environment files
 
@@ -126,25 +112,22 @@ Timer roster: `docs/COMMANDS.md` § Scheduled timers.
 
 Skills in `skills/` (agentskills.io) and `.claude/skills/` (Claude Code). Reference: `docs/SKILLS.md`
 
+## Design & Planning
+
+Project preferences over the defaults of `brainstorming` and `writing-plans`, both linked from `skills-vendor/`, never overridden.
+
+- **When:** an explicit "brainstorm" / "design this", a new feature, or ambiguous scope. A bug fix with an agreed cause, a directed task with no design ambiguity, or more work on an approved design needs no brainstorming.
+- **Design doc:** `docs/plans/YYYY-MM-DD-<topic>-design.md`, committed as `#<n> docs: add design doc for <topic>`. Goal, approved approach, key decisions with rationale, out of scope.
+- **After approval:** `gh issue create` (summary, the design doc's path, scope), then `using-git-worktrees` for a feature branch.
+- **Plan:** after a design, `writing-plans` isn't automatic (obra's `brainstorming` makes it the next step). Its own Phase 1 decides: multi-session work or work across subsystems gets a plan; otherwise straight to TDD.
+
 ## Conventions
 
-**Commit Messages:**
-```
-#<number> [type]: <description>      # with issue
-[type]: <description>                # without issue
-```
-Types: feat, fix, refactor, docs, test, chore
+**Commit Messages:** `#<number> [type]: <description>`, or `[type]: <description>` without an issue. Types: feat, fix, refactor, docs, test, chore
 
-**Logging:**
-```python
-from src.core.logging import get_logger
-logger = get_logger(__name__)
-```
-Entry points only: call `configure_logging()` once.
+**Logging:** `logger = get_logger(__name__)` from `src.core.logging`; entry points only call `configure_logging()`, once.
 
-**Date & Time:**
-- All UTC
-- ISO 8601 on the API wire (#440 guards it; JSON logs use `+00:00`): `YYYY-MM-DDTHH:MM:SS.ffffffZ`, `YYYY-MM-DD` dates
+**Date & Time:** all UTC; ISO 8601 on the API wire (#440 guards it; JSON logs use `+00:00`): `YYYY-MM-DDTHH:MM:SS.ffffffZ`, `YYYY-MM-DD` dates
 
 **Version bumps & public-schema changes:** bump `pyproject.toml` + `package.json` together, then `uv run python -m scripts.regenerate_client` — the client's `generated/` tree is never hand-edited (#618). `check-version-sync` + the drift test enforce both.
 

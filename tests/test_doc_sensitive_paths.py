@@ -81,7 +81,7 @@ REPRESENTATIVE_PATHS = (
     "scripts/worktree-setup.sh",  # operational scripts (docs/RUNBOOKS.md)
     "infra/power-map.service",  # deployment units (docs/COMMANDS.md)
     ".claude/hooks/socraticode-health.sh",  # hook inventory (docs/SKILLS.md)
-    "skills/brainstorming/SKILL.md",  # skill inventory (docs/SKILLS.md)
+    "skills/brainstorming",  # skill inventory (docs/SKILLS.md); a tracked symlink (#747)
     ".github/workflows/context-cadence.yml",  # weekly cadence (docs/CONTEXT.md, #471)
 )
 

@@ -182,10 +182,10 @@ regenerated rather than below this marker. The server pin (#537) and the daily
 `graph was built by` line are the exception, below: they describe the server,
 not the repo's graph.
 
-**`.socraticodeignore` here** excludes `skills-vendor/` and `.claude/skills/`
-but deliberately keeps `skills/`, which holds the first-party `brainstorming`
-override; `skills/`'s other entries are symlinks resolving into the excluded
-vendor tree, so nothing is double-indexed (#360).
+**`.socraticodeignore` here** excludes `skills-vendor/` (#360) and both link
+trees into it, `skills/` and `.claude/skills/`. `skills/` held the first-party
+`brainstorming` override until #747; with only symlinks left, it is excluded
+with the tree it points into.
 
 **`docs/plans/` is design history, not reference (#542).** It is out of the code
 index (the repo-root `.socraticodeignore`) and out of the `reference-docs`
