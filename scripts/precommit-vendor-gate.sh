@@ -74,8 +74,10 @@ registered_vendor_paths() {
 vendor_only() {
     local staged registered path
     # --no-renames: a rename lists only its destination, so a file moved onto
-    # .skills/doctor.sh would hide the deletion it carries.
-    staged="$(git diff --cached --name-only --no-renames 2>/dev/null)" || return 1
+    # .skills/doctor.sh would hide the deletion it carries. --ignore-submodules=none:
+    # a diff.ignoreSubmodules setting would hide the pointer itself.
+    staged="$(git diff --cached --name-only --no-renames --ignore-submodules=none 2>/dev/null)" \
+        || return 1
     [ -n "$staged" ] || return 1
     registered="$(registered_vendor_paths)"
     while IFS= read -r path; do

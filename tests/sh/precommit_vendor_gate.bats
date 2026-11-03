@@ -69,6 +69,16 @@ gate() {
     [[ "$output" == *"pytest: vendor-only commit (#751)"* ]]
 }
 
+@test "a pointer-only commit is seen through diff.ignoreSubmodules" {
+    # Hidden, the pointer would read as nothing staged: the full tier, and the
+    # hook's commit killed at 120 s again.
+    git -C "$REPO" config diff.ignoreSubmodules all
+    bump_pointer
+    gate pytest echo VENDOR ::: echo FULL
+    [[ "$output" == *"VENDOR"* ]]
+    [[ "$output" != *"FULL"* ]]
+}
+
 @test "a doctor-only commit runs the vendored subset" {
     bump_doctor
     gate pytest echo VENDOR ::: echo FULL
