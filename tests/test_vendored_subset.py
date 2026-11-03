@@ -28,10 +28,10 @@ TESTS = ROOT / "tests"
 GATE = "scripts/precommit-vendor-gate.sh"
 
 # What reading the vendored tree looks like in a test: the submodules, the
-# doctor and the other .skills/ knobs, the skill symlinks, and the helper that
-# locates vendored drivers.
+# doctor and the other .skills/ knobs (in a path string or a pathlib join), the
+# skill symlinks, and the helper that locates vendored drivers.
 VENDOR_READ = re.compile(
-    r'skills-vendor|\.skills/|\.claude/skills|\bskills/|/ "skills"|vendor_skills'
+    r'skills-vendor|\.skills/|"\.skills"|\.claude/skills|\bskills/|/ "skills"|vendor_skills'
 )
 
 # The full commands before #751, which the gate must still run on every other
@@ -69,6 +69,23 @@ def _is_marked_vendored(path: Path) -> bool:
 
 def _vendor_reading(paths: list[Path]) -> list[Path]:
     return [p for p in paths if VENDOR_READ.search(p.read_text())]
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        'ROOT / "skills-vendor" / "gregoryfoster-skills"',
+        '"$ROOT/skills-vendor/gregoryfoster-skills"',
+        'REPO_ROOT / ".skills" / "doc-sections"',
+        '".skills/doctor.sh"',
+        'REPO_ROOT / ".claude" / "skills"',
+        'REPO_ROOT / "skills"',
+        "from tests import vendor_skills",
+    ],
+)
+def test_vendor_read_matches_each_spelling_this_repo_uses(spelling: str):
+    """A test reaching the vendored tree by a spelling the sweep misses escapes the subset."""
+    assert VENDOR_READ.search(spelling)
 
 
 def test_the_vendored_marker_is_registered():
