@@ -76,7 +76,7 @@ To add a new external skill repo: follow the `managing-skills` skill.
 | `reviewing-architecture` | `gregoryfoster-skills` | AR, architecture review, architectural review |
 | `enforcing-architecture` | `gregoryfoster-skills` | add a fitness function, enforce this contract, lock this rule |
 | `shipping-work` | `gregoryfoster-skills` | ship it, push GH, close GH, wrap up |
-| `brainstorming` | Local override | brainstorm, design this, let's design |
+| `brainstorming` | `obra-superpowers` | description-driven¹ |
 | `systematic-debugging` | `obra-superpowers` | description-driven¹ |
 | `verification-before-completion` | `obra-superpowers` | description-driven¹ |
 | `test-driven-development` | `obra-superpowers` | description-driven¹ |
@@ -103,7 +103,7 @@ Opt-out requested upstream in [gregoryfoster/skills#201](https://github.com/greg
 per the vendored-skill policy, never edit `skills-vendor/`. Details → `docs/COMMANDS.md`
 § Development.
 
-¹ Description-driven: `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
+¹ Description-driven: `brainstorming` before any creative work (this project's preferences: AGENTS.md § Design & Planning); `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
 
 ³ **Initializers — power-map is long past bootstrap.** Neither is for setting this project up again. `init-socraticode` is linked for its **audit re-run** (`references/audit-rerun.md`): every phase is idempotent, so re-running it re-validates the policy block, manifest, hooks and graph yield, and is the only thing that catches a manifest the server silently rejected. `init-project-fastapi` is linked for its reference docs, which are the written form of several conventions this repo already follows. A re-run replaces `docs/SOCRATICODE.md` **only between its `<!-- BEGIN socraticode-doc -->` / `<!-- END socraticode-doc -->` markers** (skills#210, adopted in #463) — the `## Repo-specific notes` section below `END` survives. Above it there is nothing left to lose either: no local corrections remain, and `tests/test_socraticode_doc_parity.py` reds if the markers go missing, if § Prefetch or § Graph health drifts from the pinned template (the two sections the retirements rest on; the rest of the span is left to a re-run), or if a divergence block reappears unguarded.
 
@@ -206,15 +206,7 @@ The SessionStart hook `.claude/hooks/claude-canonical-check.sh` warns when any l
 
 ## Local Overrides
 
-A committed directory in `skills/` completely supersedes the vendor version (no inheritance). Must be fully self-contained.
-
-| Skill | Override reason |
-|---|---|
-| `brainstorming` | Project conventions (docs/plans/ path, `#<n> [type]:` commit format, the `gh issue create` block); invokes using-git-worktrees after design approval; writing-plans optional rather than mandatory; FastAPI stack context; a Scope detection section upstream has no equivalent for |
-
-Re-based onto the three-path router at `synced-from: 5bf4e78` (obra v6.4.1), v2.0 — #505/#530/#532 (the pin had moved past the v6.3.0 the issues named; the router is unchanged between them). The doctor reports no drift for it.
-
-**Spike is deliberately exempt from two otherwise-unconditional project rules** — AGENTS.md's worktree rule and this skill's design-doc rule. That is the decision #505 implements, not an oversight: re-tightening Spike back to always-worktree undoes it. The skill's *What the path costs here* table and AGENTS.md's worktree paragraph are the two halves of that carve-out and must keep agreeing.
+None. A committed directory in `skills/` would completely supersede its vendor skill (no inheritance) and must be fully self-contained. The last, `brainstorming`, became a vendor link in #747: its project deltas live in AGENTS.md § Design & Planning.
 
 ## Authoring New Skills
 

@@ -296,3 +296,41 @@ docs/SKILLS.md :: retarget :: **Cleared by the #537 pin — kept because it expl
 # --- #618 curation: COMMANDS.md's Deploy → Guards (#398) block moved to docs/SCHEMA.md
 #     § Guards (#398); the operational-script-safety pointer that named it now links there.
 docs/COMMANDS.md :: retarget :: guards are in § Deploy → Guards (#398) above.
+
+# --- #747: AGENTS.md gained § Design & Planning (the retired brainstorming override's
+#     deltas, ~390 tokens) at 5,959 / 6,000. Paid for in place; --claims drops no atom.
+#     duplicate: the proxy URL is in docs/COMMANDS.md § Development; the 8001 worktree rule
+#     is the paragraph after it. tighten: table, fenced blocks and bullets reflowed inline,
+#     and the worktree-setup inventory cut to a pointer at docs/COMMANDS.md § Worktree setup.
+AGENTS.md :: duplicate :: exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
+AGENTS.md :: duplicate :: - The dev server on 8001 always runs from a worktree, never the main checkout.
+AGENTS.md :: tighten :: Gives the worktree its own `.venv` and its own `node_modules` (#554), initialises the `skills-vendor/` submodules, and symlinks the gitignored `.env` and `data/cannabis_observer`; refuses (exit 2) against the main checkout. **Never share a venv with the main checkout** — that is production's working directory, and its units' `uv run` / `ExecStartPre=uv sync` rewrite a shared venv mid-suite, taking the browser tier with it. Full rules → `docs/COMMANDS.md` § Worktree setup.
+AGENTS.md :: tighten :: Single VM; port split:
+AGENTS.md :: tighten :: | Port | Process | Managed by |
+AGENTS.md :: tighten :: | 8000 | Production API (`--workers 2`) | systemd (`power-map.service`) |
+AGENTS.md :: tighten :: | 8001 | Dev server (`--reload`) | manual, always from a worktree |
+AGENTS.md :: tighten :: **Worktree setup (required after creation, #450):** run
+AGENTS.md :: tighten :: bash scripts/worktree-setup.sh <worktree-path>
+AGENTS.md :: tighten :: Only the hazards are here; every command itself is in `docs/COMMANDS.md`.
+AGENTS.md :: tighten :: Timer roster: `docs/COMMANDS.md` § Scheduled timers.
+AGENTS.md :: tighten :: **Commit Messages:**
+AGENTS.md :: tighten :: #<number> [type]: <description>      # with issue
+AGENTS.md :: tighten :: [type]: <description>                # without issue
+AGENTS.md :: tighten :: Types: feat, fix, refactor, docs, test, chore
+AGENTS.md :: tighten :: **Logging:**
+AGENTS.md :: tighten :: from src.core.logging import get_logger
+AGENTS.md :: tighten :: logger = get_logger(__name__)
+AGENTS.md :: tighten :: Entry points only: call `configure_logging()` once.
+AGENTS.md :: tighten :: **Date & Time:**
+AGENTS.md :: tighten :: - All UTC
+AGENTS.md :: tighten :: - ISO 8601 on the API wire (#440 guards it; JSON logs use `+00:00`): `YYYY-MM-DDTHH:MM:SS.ffffffZ`, `YYYY-MM-DD` dates
+#     docs/SKILLS.md § Local Overrides: the override is gone, so its row, re-base stamp and
+#     the Spike paragraph's override half no longer hold; the inventory row and footnote
+#     now name the vendor. The #505 exemption itself stays in AGENTS.md § Infrastructure.
+docs/SKILLS.md :: retarget :: | `brainstorming` | Local override | brainstorm, design this, let's design |
+docs/SKILLS.md :: retarget :: ¹ Description-driven: `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
+docs/SKILLS.md :: retarget :: A committed directory in `skills/` completely supersedes the vendor version (no inheritance). Must be fully self-contained.
+docs/SKILLS.md :: disproven :: | Skill | Override reason |
+docs/SKILLS.md :: disproven :: | `brainstorming` | Project conventions (docs/plans/ path, `#<n> [type]:` commit format, the `gh issue create` block); invokes using-git-worktrees after design approval; writing-plans optional rather than mandatory; FastAPI stack context; a Scope detection section upstream has no equivalent for |
+docs/SKILLS.md :: disproven :: Re-based onto the three-path router at `synced-from: 5bf4e78` (obra v6.4.1), v2.0 — #505/#530/#532 (the pin had moved past the v6.3.0 the issues named; the router is unchanged between them). The doctor reports no drift for it.
+docs/SKILLS.md :: disproven :: **Spike is deliberately exempt from two otherwise-unconditional project rules** — AGENTS.md's worktree rule and this skill's design-doc rule. That is the decision #505 implements, not an oversight: re-tightening Spike back to always-worktree undoes it. The skill's *What the path costs here* table and AGENTS.md's worktree paragraph are the two halves of that carve-out and must keep agreeing.

@@ -292,7 +292,7 @@ docs/SOCRATICODE.md :: **Measurements live in [`SKILLS.md`](SKILLS.md).** The gr
 # skill inventories, § Context artifacts, § Reading the daily `unresolved N%` line, and the
 # codebase_update recovery lines in § Declared ≠ indexed — none at the moved pair.
 tests/test_doc_sensitive_paths.py :: ".claude/hooks/socraticode-health.sh",  # hook inventory (docs/SKILLS.md)
-tests/test_doc_sensitive_paths.py :: "skills/brainstorming/SKILL.md",  # skill inventory (docs/SKILLS.md)
+tests/test_doc_sensitive_paths.py :: "skills/brainstorming",  # skill inventory (docs/SKILLS.md); a tracked symlink (#747)
 tests/test_doc_sensitive_paths.py :: "docs/SKILLS.md",  # .claude/, skills/, .gitmodules
 tests/test_socraticode_doc_parity.py :: `docs/SKILLS.md` § Context artifacts; `tests/test_socraticode_health_parity.py`
 tests/test_socraticode_doc_parity.py :: `docs/SKILLS.md` § Reading the daily `unresolved N%` line.
