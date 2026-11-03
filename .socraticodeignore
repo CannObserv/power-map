@@ -2,6 +2,8 @@
 # Layered on SocratiCode's built-in defaults + .gitignore.
 # skills/ holds only symlinks into skills-vendor/ since #747 retired the last
 # local override, so it is excluded with the tree it points into.
+# A first-party skill added under skills/<name>/ (docs/SKILLS.md § Authoring New
+# Skills) would be unindexed: drop the skills/ line when one lands.
 skills-vendor/
 skills/
 .claude/skills/
