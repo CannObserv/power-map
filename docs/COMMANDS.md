@@ -97,7 +97,7 @@ bash scripts/apply-schema.sh
 uv run --env-file /etc/power-map/.env --group seed scripts/seed_locales_scripts.py --execute
 
 # 8. Start the service and confirm it reaches the DB (retries: Type=simple)
-sudo systemctl restart power-map
+bash scripts/pre-restart-check.sh && sudo systemctl restart power-map
 curl -fsS --retry 10 --retry-connrefused --retry-delay 2 localhost:8000/ready
 ```
 
@@ -147,8 +147,8 @@ Production runs on port 8000 under systemd.
 # Status
 sudo systemctl status power-map
 
-# Restart after code changes
-sudo systemctl restart power-map
+# Restart after code changes — the check refuses (exit 3) while the DB is unreachable (#748)
+bash scripts/pre-restart-check.sh && sudo systemctl restart power-map
 
 # Tail logs
 sudo journalctl -u power-map -f
@@ -230,11 +230,16 @@ sudo tailscale debug netmap | jq -c .PacketFilter   # [] — nothing may connect
 
 
 Schema is applied automatically on every `systemctl restart` via `ExecStartPre=bash scripts/apply-schema.sh`.
-A bare restart is sufficient for both code-only and schema changes.
+A restart is sufficient for both code-only and schema changes. Run
+`scripts/pre-restart-check.sh` before it, always: while the DB is unreachable the restart
+does not fail, it loops in `start-pre` and applies the schema unwatched whenever the DB
+returns. The check refuses with exit 3 and names the triage runbook; `--force` overrides
+it. A unit already stuck in `start-pre` → `docs/RUNBOOK_DB_TRIAGE.md` § Restarting during
+an outage.
 
 ```bash
 git pull                              # pull merged commits
-sudo systemctl restart power-map     # applies schema then starts server
+bash scripts/pre-restart-check.sh && sudo systemctl restart power-map   # applies schema then starts server
 sudo journalctl -u power-map -f      # watch startup; schema errors surface here
 ```
 

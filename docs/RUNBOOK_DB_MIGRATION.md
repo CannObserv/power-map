@@ -71,10 +71,11 @@ sudo systemctl daemon-reload
 ### Step 4 — Start the service against DO
 
 `/etc/power-map/.env` already points `DATABASE_URL` at DO (written by
-`write-db-secrets.sh`). Simply start:
+`write-db-secrets.sh`). Check the
+DSN reaches it, then start:
 
 ```bash
-sudo systemctl start power-map
+bash scripts/pre-restart-check.sh && sudo systemctl start power-map
 sudo systemctl status power-map   # confirm: active (running)
 sudo journalctl -u power-map -n 50 --no-pager
 ```
@@ -152,8 +153,8 @@ sudo systemctl start postgresql
 git show main:infra/power-map.service | sudo tee /etc/systemd/system/power-map.service
 sudo systemctl daemon-reload
 
-# 5. Start the service
-sudo systemctl start power-map
+# 5. Start the service — the check probes the restored DSN first (#748)
+bash scripts/pre-restart-check.sh && sudo systemctl start power-map
 sudo systemctl status power-map
 
 # 6. Verify

@@ -10,6 +10,7 @@
 #   bash scripts/apply-schema.sh --test       # TEST_DATABASE_URL; allowed anywhere
 #   bash scripts/apply-schema.sh --yes|-y     # PRODUCTION; skip the guards
 #   bash scripts/apply-schema.sh --dry-run    # guards + target echo, then stop
+#   bash scripts/apply-schema.sh --probe      # connect + SELECT 1, apply nothing (#748)
 #
 # Called automatically by the systemd unit (ExecStartPre) on every restart.
 #
@@ -26,8 +27,14 @@
 # That last rule is the same rule: diagnostics on this path may not abort a
 # restart, and a DSN that is not a parseable URL is never echoed at all.
 #
-# Exit codes: 0 applied (or dry run), 1 usage or configuration error,
-# 2 guard refusal (nothing was applied).
+# --probe answers "would this script's connect succeed right now?" for
+# scripts/pre-restart-check.sh (#748): the same DSN resolution, a short connect
+# timeout (POWER_MAP_PROBE_TIMEOUT, default 10 s) in place of asyncpg's 60 s, and
+# no apply. It applies nothing, so the production guards do not apply to it.
+#
+# Exit codes: 0 applied (or dry run, or probe reachable), 1 usage or
+# configuration error, 2 guard refusal (nothing was applied), 3 the probe could
+# not reach the database.
 
 set -euo pipefail
 
@@ -36,6 +43,8 @@ TARGET_LABEL=PRODUCTION
 IS_PROD=1
 ASSUME_YES=0
 DRY_RUN=0
+PROBE=0
+PROBE_TIMEOUT="${POWER_MAP_PROBE_TIMEOUT:-10}"
 DEFAULT_BRANCH=main
 # POWER_MAP_ENV_FILE is a test seam — it redirects where the DSN fallback reads
 # credentials from. Production never sets it.
@@ -43,12 +52,14 @@ ENV_FILE="${POWER_MAP_ENV_FILE:-/etc/power-map/.env}"
 
 usage() {
     cat <<'EOF'
-usage: bash scripts/apply-schema.sh [--test] [--yes|-y] [--dry-run]
+usage: bash scripts/apply-schema.sh [--test] [--yes|-y] [--dry-run] [--probe]
 
   (no flags)  apply to PRODUCTION (MIGRATIONS_DATABASE_URL); main checkout only
   --test      apply to the test database (TEST_DATABASE_URL); allowed anywhere
   --yes, -y   skip the production guards (worktree refusal, confirmation)
   --dry-run   run the guards and echo the target, then stop without applying
+  --probe     connect and SELECT 1 with a short timeout, apply nothing; exit 3
+              when the database cannot be reached (scripts/pre-restart-check.sh)
 EOF
 }
 
@@ -57,6 +68,7 @@ while [ $# -gt 0 ]; do
         --test)    TARGET_VAR="TEST_DATABASE_URL"; TARGET_LABEL="test"; IS_PROD=0 ;;
         --yes|-y)  ASSUME_YES=1 ;;
         --dry-run) DRY_RUN=1 ;;
+        --probe)   PROBE=1 ;;
         -h|--help) usage; exit 0 ;;
         *)         echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -164,7 +176,7 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
     toplevel="$(git rev-parse --show-toplevel 2>/dev/null || true)"
     echo "checkout: ${toplevel:-?} (branch=${branch:-?} sha=${sha:-?})" >&2
 
-    if [ "$IS_PROD" -eq 1 ]; then
+    if [ "$IS_PROD" -eq 1 ] && [ "$PROBE" -eq 0 ]; then
         # Tracked modifications only: untracked files cannot change schema.sql,
         # and a warning that fires on every restart stops being read.
         if [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then
@@ -179,7 +191,7 @@ else
 fi
 
 # ── Production guards ────────────────────────────────────────────────────────
-if [ "$IS_PROD" -eq 1 ] && [ "$ASSUME_YES" -eq 0 ]; then
+if [ "$IS_PROD" -eq 1 ] && [ "$ASSUME_YES" -eq 0 ] && [ "$PROBE" -eq 0 ]; then
     if [ "$LINKED_WORKTREE" -eq 1 ]; then
         cat >&2 <<EOF
 refusing: this applies schema.sql to PRODUCTION (${TARGET_DESC}) and you are in
@@ -209,6 +221,46 @@ fi
 if [ "$DRY_RUN" -eq 1 ]; then
     echo "dry run — nothing was applied" >&2
     exit 0
+fi
+
+if [ "$PROBE" -eq 1 ]; then
+    case "$PROBE_TIMEOUT" in
+        "" | . | *[!0-9.]* | *.*.*)
+            echo "POWER_MAP_PROBE_TIMEOUT must be a number of seconds" >&2
+            exit 1 ;;
+    esac
+    # --no-sync: a probe must not rewrite the venv the running service imports
+    # from, which in the main checkout is production's (#450). Only the class of
+    # a failure is printed: asyncpg's messages can carry the user and host, and
+    # a traceback would carry more.
+    POWER_MAP_TARGET_DSN="$DSN" POWER_MAP_PROBE_TIMEOUT="$PROBE_TIMEOUT" \
+        uv run --no-sync python - <<'PY'
+import asyncio
+import os
+import sys
+
+import asyncpg
+
+url = os.environ["POWER_MAP_TARGET_DSN"]
+timeout = float(os.environ["POWER_MAP_PROBE_TIMEOUT"])
+
+
+async def main():
+    conn = await asyncpg.connect(url, timeout=timeout)
+    try:
+        await conn.fetchval("SELECT 1", timeout=timeout)
+    finally:
+        await conn.close()
+
+
+try:
+    asyncio.run(main())
+except Exception as exc:  # every failure here means "the restart's connect fails too"
+    print(f"probe: cannot reach the database ({type(exc).__name__})", file=sys.stderr)
+    sys.exit(3)
+print("probe: database reachable", file=sys.stderr)
+PY
+    exit $?
 fi
 
 POWER_MAP_TARGET_DSN="$DSN" uv run python - <<'PY'

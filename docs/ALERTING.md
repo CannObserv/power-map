@@ -60,8 +60,11 @@ handler logs a crit line tagged `power-map-unit-failure` first, then runs
 and `journal_cmd`, refused unless Notifier's `/health` says `production`.
 `RestartMode=direct` keeps each restart out of `failed`, so the handler fires
 once, when 10 starts land inside 600 s (a refused `ExecStartPre` schema apply
-included) and systemd gives up. The service then stays down until
-`sudo systemctl reset-failed power-map && sudo systemctl start power-map`. The
+included) and systemd gives up. Only a fast failure trips it. A connect that
+hangs because the DB is unreachable takes about 65 s per attempt, so it never
+trips, and that loop is kept on purpose (`docs/RUNBOOK_DB_TRIAGE.md` § Restarting
+during an outage, #748). The service then stays down until
+`sudo systemctl reset-failed power-map && bash scripts/pre-restart-check.sh && sudo systemctl start power-map`. The
 stored template's wording is `scripts/notifier/unit-failure.json`.
 
 ## Install and prove
