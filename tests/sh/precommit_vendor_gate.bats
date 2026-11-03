@@ -180,9 +180,18 @@ gate() {
     git -C "$REPO" config core.hooksPath hooks
     echo b >> "$REPO/src/a.py"
     git -C "$REPO" add src/a.py
+    # A pathspec commit re-reads its paths from the working tree, so the pointer
+    # needs a real repo behind it: its HEAD is the bumped gitlink.
+    local sub="$REPO/skills-vendor/fake"
+    git init --quiet --template= "$sub"
+    git -C "$sub" -c user.email=t@example.invalid -c user.name=t \
+        commit --quiet --allow-empty -m upstream
+    git -C "$REPO" -c advice.addEmbeddedRepo=false add skills-vendor/fake
     bump_doctor
-    run git -C "$REPO" commit --quiet -m bump -- .skills/doctor.sh
+    run git -C "$REPO" commit --quiet -m bump -- skills-vendor/fake .skills/doctor.sh
     [ "$status" -eq 0 ]
+    run git -C "$REPO" show --name-only --format= HEAD
+    [ "$output" = $'.skills/doctor.sh\nskills-vendor/fake' ]
     run cat "$BATS_TEST_TMPDIR/gate.out"
     [[ "$output" == *"VENDOR"* ]]
     [[ "$output" != *"FULL"* ]]
