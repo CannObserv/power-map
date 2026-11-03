@@ -13,6 +13,7 @@ and never see the real DSNs.
 import os
 import pty
 import shutil
+import socket
 import subprocess
 from pathlib import Path
 
@@ -529,3 +530,138 @@ def test_confirmation_falls_back_when_the_dsn_is_unparsable(repo, tmp_path):
     assert code == 0, out
     assert "(production)" in out
     assert "hunter2" not in out
+
+
+# --------------------------------------------------------------------------- #
+# --probe — "would ExecStartPre's connect succeed?" (#748)
+#
+# These run the real script, not a throwaway copy: the probe connects through
+# this checkout's venv. This checkout is a linked worktree whenever the suite
+# runs in one, which is what the guard-skip tests below rely on.
+# --------------------------------------------------------------------------- #
+
+
+def _closed_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _refused_dsn() -> str:
+    return f"postgresql://guard_user:{SECRET}-prod@127.0.0.1:{_closed_port()}/guarddb"
+
+
+def _probe(tmp_path: Path, *args: str, **over: str | None) -> subprocess.CompletedProcess:
+    over.setdefault("POWER_MAP_PROBE_TIMEOUT", "1")
+    over.setdefault("HOME", os.environ.get("HOME"))
+    return subprocess.run(
+        ["bash", str(SCRIPT), "--probe", *args],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        env=_env(tmp_path, **over),
+        timeout=60,
+    )
+
+
+def test_probe_unreachable_exits_3(tmp_path):
+    result = _probe(tmp_path, MIGRATIONS_DATABASE_URL=_refused_dsn())
+
+    assert result.returncode == 3, _out(result)
+    assert "schema applied" not in _out(result)
+
+
+def test_probe_reports_the_exception_class_only(tmp_path):
+    result = _probe(tmp_path, MIGRATIONS_DATABASE_URL=_refused_dsn())
+
+    out = _out(result)
+    assert "ConnectionRefusedError" in out or "OSError" in out, out
+    assert SECRET not in out
+    assert "Traceback" not in out
+
+
+def test_probe_skips_the_worktree_refusal(tmp_path):
+    """It applies nothing, so the #398 production guards have nothing to guard."""
+    result = _probe(tmp_path, MIGRATIONS_DATABASE_URL=_refused_dsn())
+
+    assert result.returncode == 3, _out(result)
+    assert "refusing" not in _out(result)
+
+
+def test_probe_never_prompts_on_a_tty(tmp_path):
+    master, slave = pty.openpty()
+    proc = subprocess.Popen(
+        ["bash", str(SCRIPT), "--probe"],
+        cwd=tmp_path,
+        stdin=slave,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=_env(
+            tmp_path,
+            MIGRATIONS_DATABASE_URL=_refused_dsn(),
+            POWER_MAP_PROBE_TIMEOUT="1",
+            HOME=os.environ.get("HOME"),
+        ),
+    )
+    os.close(slave)
+    try:
+        out, _ = proc.communicate(timeout=60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        pytest.fail("--probe blocked on a confirmation prompt")
+    finally:
+        os.close(master)
+
+    assert proc.returncode == 3, out
+    assert "type the database name" not in out
+
+
+def test_probe_rejects_a_non_numeric_timeout(tmp_path):
+    result = _probe(
+        tmp_path, MIGRATIONS_DATABASE_URL=_refused_dsn(), POWER_MAP_PROBE_TIMEOUT="soon"
+    )
+
+    assert result.returncode == 1, _out(result)
+    assert "POWER_MAP_PROBE_TIMEOUT" in _out(result)
+
+
+def test_probe_missing_dsn_exits_1(tmp_path):
+    result = _probe(tmp_path, MIGRATIONS_DATABASE_URL=None)
+
+    assert result.returncode == 1
+    assert "MIGRATIONS_DATABASE_URL not set" in _out(result)
+
+
+def test_probe_is_in_the_usage(repo, tmp_path):
+    result = _run(repo, tmp_path, "--help")
+
+    assert "--probe" in result.stdout
+
+
+@pytest.mark.integration
+def test_probe_reachable_exits_0_and_applies_nothing(tmp_path):
+    dsn = os.environ.get("TEST_DATABASE_URL")
+    if not dsn:
+        pytest.skip("TEST_DATABASE_URL not set")
+    result = _probe(tmp_path, "--test", TEST_DATABASE_URL=dsn, POWER_MAP_PROBE_TIMEOUT="10")
+
+    assert result.returncode == 0, _out(result)
+    assert "reachable" in _out(result)
+    assert "schema applied" not in _out(result)
+
+
+def test_probe_does_not_warn_about_where_schema_comes_from(tmp_path):
+    """The dirty-tree and branch warnings are about an apply; a probe makes none."""
+    result = _probe(tmp_path, MIGRATIONS_DATABASE_URL=_refused_dsn())
+
+    assert "production schema should come from" not in _out(result)
+
+
+@pytest.mark.parametrize("value", ["0", "0.0", "00"])
+def test_probe_rejects_a_zero_timeout(tmp_path, value):
+    """A zero timeout fails every connect at once and would read as an outage."""
+    result = _probe(tmp_path, MIGRATIONS_DATABASE_URL=_refused_dsn(), POWER_MAP_PROBE_TIMEOUT=value)
+
+    assert result.returncode == 1, _out(result)
+    assert "POWER_MAP_PROBE_TIMEOUT" in _out(result)

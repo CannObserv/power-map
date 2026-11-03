@@ -7,7 +7,11 @@ After=network.target
 # each restart out of `failed`, so the handler fires once: when 10 starts land
 # inside 600s (a refused ExecStartPre schema apply included) and systemd gives
 # up. Manual restarts count too. After a trip the service stays down:
-#   sudo systemctl reset-failed power-map && sudo systemctl start power-map
+#   sudo systemctl reset-failed power-map && bash scripts/pre-restart-check.sh && sudo systemctl start power-map
+# Only a fast failure trips it. A DB outage hangs apply-schema's connect for ~60 s
+# per attempt, so 10 starts outrun the 600s window and the unit loops in start-pre
+# until the DB returns. That is kept on purpose; don't tighten these to "fix" it:
+# docs/RUNBOOK_DB_TRIAGE.md § Restarting during an outage (#748).
 OnFailure=power-map-notify-failure@%n.service
 StartLimitIntervalSec=600
 StartLimitBurst=10

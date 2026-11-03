@@ -110,7 +110,7 @@ exe.dev proxy: dev server at `https://power-map.exe.xyz:8001/`.
 Only the hazards are here; every command itself is in `docs/COMMANDS.md`.
 
 - `bash scripts/apply-schema.sh` **targets PRODUCTION from any directory** — main checkout only, and it refuses in a linked worktree (exit 2, #398). From a worktree, `--test`.
-- `sudo systemctl restart power-map` also applies any pending schema change.
+- `bash scripts/pre-restart-check.sh && sudo systemctl restart power-map`: the restart also applies any pending schema change, and without the check a DB outage loops it in `start-pre` (#748).
 - The dev server on 8001 always runs from a worktree, never the main checkout.
 - `/health` + `/ready` are unauthenticated probes (#343); a `pool_timeout` from `/ready` means the egress IP likely rotated out of DO Trusted Sources → `docs/RUNBOOK_DB_TRIAGE.md` (#410).
 

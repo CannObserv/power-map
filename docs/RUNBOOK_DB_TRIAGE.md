@@ -57,6 +57,31 @@ Then close the loop so it does not silently recur:
    terraform -chdir=infra/terraform plan                  # expect: No changes
    ```
 
+### Restarting during an outage (#748)
+
+**Don't.** `ExecStartPre`'s `apply-schema.sh` connects before the server starts.
+While the source-IP gate drops it, each attempt hangs for asyncpg's 60 s connect
+default, so the unit loops in `start-pre`. That turns a degraded API into a down
+one, and any pending schema then applies unwatched when the DB returns. Every
+documented restart therefore runs `bash scripts/pre-restart-check.sh` first. It
+probes the migrations DSN directly, with a 10 s timeout, and refuses with exit 3
+while that probe fails. `/ready` is only context, so the check works with :8000
+down. `--force` overrides it.
+
+**A unit stuck in `start-pre` is the signature of an outage, not of a bad
+deploy.** The journal shows a connect `TimeoutError` from `apply-schema.sh`
+about every 66 s. Fix the gate (§ Fix). The unit comes up on its own at the next
+attempt: no restart, and no `reset-failed`.
+
+The loop is kept on purpose. 10 starts take about 650 s, longer than the 600 s
+window, so the start limit never trips and #566's crash-loop alert stays silent.
+`power-map-ready` and `power-map-egress-ip` alert instead (§ Scheduled guards).
+A bounded loop (a short connect timeout, or a tighter `StartLimit*`) would land
+the unit in `failed` and need a person to restart it. That trade only pays on a
+supervised restart, and the check now gates that. The restarts nobody issues
+(a crash under `Restart=on-failure`, an OOM kill, a reboot) carry
+already-applied schema, so for them coming back unaided is worth more.
+
 ### Other reasons on `/ready`
 
 | Slug | Meaning | First move |
@@ -64,7 +89,7 @@ Then close the loop so it does not silently recur:
 | `pool_timeout` | pool acquire or probe query timed out | the table above |
 | `no_pool` | lifespan never built the pool | `journalctl -u power-map` around the last restart |
 | `db_error` | the query raised | the logged exception carries the detail; `/ready` deliberately does not |
-| `unreachable` (guard-side) | nothing listening on :8000 | `systemctl status power-map` |
+| `unreachable` (guard-side) | nothing listening on :8000 | `systemctl status power-map`; `activating (start-pre)` is an outage, so don't restart (§ Restarting during an outage) |
 
 A TLS failure (`SSLCertVerificationError`, or `FileNotFoundError` naming the `sslrootcert`
 path) reads as `db_error` on a running service. On a restart it is worse: `ExecStartPre`'s
@@ -185,7 +210,9 @@ recycled, but the timers that start in that gap fail.
    (stopping on any failed statement) and smoke-tests all three new DSNs against the staged
    CA. Only then does it rename the CA and the env file into place. A failure exits non-zero
    with both untouched. Passwords travel in `PGPASSWORD`, never on a command line.
-4. App or migrations user: `sudo systemctl restart power-map`, then
-   `curl -fsS localhost:8000/ready`. The test user needs no restart. Timers read the env
+4. App or migrations user: `bash scripts/pre-restart-check.sh && sudo systemctl restart power-map`,
+   then `curl -fsS localhost:8000/ready`. The check passes here even while `/ready` still
+   fails on the old app password: it probes the migrations DSN, which step 3 smoke-tested
+   (§ Restarting during an outage). The test user needs no restart. Timers read the env
    file on each run.
 5. Delete any commented DSN lines that still carry the old password; the writer keeps them.
