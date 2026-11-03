@@ -34,6 +34,9 @@ VENDOR_READ = re.compile(
     r'skills-vendor|\.skills/|"\.skills"|\.claude/skills|\bskills/|/ "skills"|vendor_skills'
 )
 
+# The marker itself, not a look-alike such as `vendored_slow`.
+VENDORED_MARK = re.compile(r"\bpytest\.mark\.vendored\b")
+
 # The full commands before #751, which the gate must still run on every other
 # commit unchanged.
 FULL = {
@@ -63,7 +66,7 @@ def _is_marked_vendored(path: Path) -> bool:
         if isinstance(node, ast.Assign) and any(
             isinstance(t, ast.Name) and t.id == "pytestmark" for t in node.targets
         ):
-            return "pytest.mark.vendored" in ast.unparse(node.value)
+            return VENDORED_MARK.search(ast.unparse(node.value)) is not None
     return False
 
 
@@ -86,6 +89,22 @@ def _vendor_reading(paths: list[Path]) -> list[Path]:
 def test_vendor_read_matches_each_spelling_this_repo_uses(spelling: str):
     """A test reaching the vendored tree by a spelling the sweep misses escapes the subset."""
     assert VENDOR_READ.search(spelling)
+
+
+@pytest.mark.parametrize(
+    ("assignment", "marked"),
+    [
+        ("pytestmark = pytest.mark.vendored", True),
+        ("pytestmark = [pytest.mark.vendored, pytest.mark.skipif(True, reason='x')]", True),
+        ("pytestmark = pytest.mark.vendored_slow", False),
+        ("pytestmark = pytest.mark.integration", False),
+    ],
+)
+def test_is_marked_vendored_reads_the_marker_itself(tmp_path: Path, assignment: str, marked: bool):
+    """A look-alike marker would pass the sweep yet stay out of `-m vendored`."""
+    module = tmp_path / "test_x.py"
+    module.write_text(f"import pytest\n\n{assignment}\n")
+    assert _is_marked_vendored(module) is marked
 
 
 def test_the_vendored_marker_is_registered():
