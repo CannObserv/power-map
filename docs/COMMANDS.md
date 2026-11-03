@@ -230,12 +230,9 @@ sudo tailscale debug netmap | jq -c .PacketFilter   # [] — nothing may connect
 
 
 Schema is applied automatically on every `systemctl restart` via `ExecStartPre=bash scripts/apply-schema.sh`.
-A restart is sufficient for both code-only and schema changes. Run
-`scripts/pre-restart-check.sh` before it, always: while the DB is unreachable the restart
-does not fail, it loops in `start-pre` and applies the schema unwatched whenever the DB
-returns. The check refuses with exit 3 and names the triage runbook; `--force` overrides
-it. A unit already stuck in `start-pre` → `docs/RUNBOOK_DB_TRIAGE.md` § Restarting during
-an outage.
+A restart is sufficient for both code-only and schema changes. Always run the check first
+(#748). Why, and what a unit stuck in `start-pre` means: `docs/RUNBOOK_DB_TRIAGE.md`
+§ Restarting during an outage.
 
 ```bash
 git pull                              # pull merged commits
