@@ -104,6 +104,17 @@ gate() {
     [[ "$output" != *"VENDOR"* ]]
 }
 
+@test "a file moved onto .skills/doctor.sh runs the full command" {
+    # Rename detection would list only the destination, hiding the deletion.
+    git -C "$REPO" rm --quiet .skills/doctor.sh
+    git -C "$REPO" commit --quiet --no-verify -m "drop doctor"
+    mkdir -p "$REPO/.skills"
+    git -C "$REPO" mv src/a.py .skills/doctor.sh
+    gate pytest echo VENDOR ::: echo FULL
+    [[ "$output" == *"FULL"* ]]
+    [[ "$output" != *"VENDOR"* ]]
+}
+
 @test "a pointer bump with .gitmodules changed runs the full command" {
     bump_pointer
     printf '# edited\n' >> "$REPO/.gitmodules"
