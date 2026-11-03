@@ -28,6 +28,9 @@ uv run pytest tests/path/to/test_file.py --no-cov
 
 # Run integration tests (hits live external services)
 uv run pytest -m integration
+
+# The vendored subset, all a skills-vendor/ bump's commit runs (#751, docs/SKILLS.md)
+uv run --group seed pytest -m "vendored and not integration and not browser"
 ```
 
 ---

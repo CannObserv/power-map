@@ -24,6 +24,11 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
+# Reads the vendored tree: runs on a skills-vendor/ bump's commit too (#751).
+pytestmark = pytest.mark.vendored
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # base64url alphabet; an id is 16 bytes (22 chars), a key 32 bytes (43 chars).

@@ -18,7 +18,13 @@ repos:
       - id: pytest
         name: pytest (unit)
         language: system
-        entry: uv run --group seed pytest --no-cov -x -m "not integration and not browser"
+        # Gated (#751): a commit staging only skills-vendor/ pointers and
+        # .skills/doctor.sh — the SessionStart hook's daily bump, which has 120 s
+        # — runs the subset before `:::` instead. docs/SKILLS.md § Auto-refresh hook.
+        entry: >-
+          bash scripts/precommit-vendor-gate.sh pytest
+          uv run --group seed pytest --no-cov -x -m "vendored and not integration and not browser"
+          ::: uv run --group seed pytest --no-cov -x -m "not integration and not browser"
         pass_filenames: false
         always_run: true
 
@@ -39,14 +45,22 @@ repos:
       - id: vitest
         name: vitest
         language: system
-        entry: npm run test:js
+        # Gated (#751); no JS test reads the vendored tree, so no subset.
+        entry: >-
+          bash scripts/precommit-vendor-gate.sh vitest
+          ::: npm run test:js
         pass_filenames: false
         always_run: true
 
       - id: bats
         name: bats (shell tests)
         language: system
-        entry: npm run test:sh
+        # Gated (#751); tests/test_vendored_subset.py keeps the file list complete.
+        entry: >-
+          bash scripts/precommit-vendor-gate.sh bats
+          npx --no-install bats tests/sh/claude_hooks.bats tests/sh/pre_ship.bats
+          tests/sh/precommit_vendor_gate.bats tests/sh/worktree_setup.bats
+          ::: npm run test:sh
         pass_filenames: false
         always_run: true
 

@@ -21,6 +21,9 @@ import pytest
 
 from tests import vendor_skills
 
+# Reads the vendored tree: runs on a skills-vendor/ bump's commit too (#751).
+pytestmark = pytest.mark.vendored
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 

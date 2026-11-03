@@ -47,10 +47,14 @@ HOOK_PATH = REPO_ROOT / ".claude" / "hooks" / "socraticode-health.sh"
 # The batch/a merge that landed gregoryfoster/skills#214.
 PARITY_COMMIT = "2d0f4f5"
 
-pytestmark = pytest.mark.skipif(
-    not vendor_skills.vendor_skills_present(),
-    reason=vendor_skills.SKIP_REASON,
-)
+pytestmark = [
+    # Reads the vendored tree: runs on a skills-vendor/ bump's commit too (#751).
+    pytest.mark.vendored,
+    pytest.mark.skipif(
+        not vendor_skills.vendor_skills_present(),
+        reason=vendor_skills.SKIP_REASON,
+    ),
+]
 
 ROLLBACK_HINT = (
     f"The vendored gregoryfoster/skills pin does not contain {PARITY_COMMIT} "
