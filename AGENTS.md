@@ -90,7 +90,7 @@ Full conventions → `docs/SCHEMA.md`
 
 ## Infrastructure
 
-Single VM: production API on 8000 (`--workers 2`, systemd `power-map.service`); dev server on 8001 (`--reload`).
+Single VM: production API on 8000 (`--workers 2`, systemd `power-map.service`); dev server on 8001 (`--reload`), worktrees only.
 
 **All development work must be done in a git worktree** — never edit the main checkout directly. After teardown, run `git worktree prune`. Sole exemption (#505): a **spike** — a read-only or throwaway probe answering a feasibility question, keeping no code. Keeping anything re-classifies the task, and that lands in a worktree.
 
@@ -102,7 +102,7 @@ Only the hazards are here; every command, and the timer roster, is in `docs/COMM
 - `bash scripts/pre-restart-check.sh && sudo systemctl restart power-map`: the restart also applies any pending schema change, and without the check a DB outage loops it in `start-pre` (#748).
 - `/health` + `/ready` are unauthenticated probes (#343); a `pool_timeout` from `/ready` means the egress IP likely rotated out of DO Trusted Sources → `docs/RUNBOOK_DB_TRIAGE.md` (#410).
 
-**Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates its write behind `--execute` and echoes its target first. Flags, resolver and sweep → `docs/RUNBOOKS.md` § Operational scripts.
+**Operational scripts are dry run by default (#402/#399):** `DATABASE_URL` resolves to **production** from any directory, so a `scripts/` writer gates its write behind `--execute` and echoes its target first. Rules → `docs/RUNBOOKS.md` § Operational scripts.
 
 ### Environment files
 
