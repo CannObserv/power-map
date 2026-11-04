@@ -74,6 +74,7 @@ tmp_path_retention_policy = "failed"
 markers = [
     "integration: marks tests that hit live external services; excluded by default (run with -m integration)",
     "browser: marks Playwright real-browser tests (axe sweeps + flow smoke; #300/#367/#368); excluded by default, never pre-commit (run with -m browser after `uv sync --group browser && playwright install chromium`)",
+    "vendored: reads the vendored skills tree; the only pytest a skills-vendor/ bump's commit runs (#751, scripts/precommit-vendor-gate.sh)",
 ]
 
 [tool.ruff]

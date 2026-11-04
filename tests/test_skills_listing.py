@@ -19,6 +19,11 @@ import os
 import re
 from pathlib import Path
 
+import pytest
+
+# Reads the vendored tree: runs on a skills-vendor/ bump's commit too (#751).
+pytestmark = pytest.mark.vendored
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DISCOVERY_DIR = REPO_ROOT / ".claude" / "skills"
 AGENTSKILLS_DIR = REPO_ROOT / "skills"

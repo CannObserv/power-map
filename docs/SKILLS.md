@@ -26,7 +26,7 @@ Init after cloning: `git submodule update --init --recursive`
 
 Submodule freshness is maintained by the vendored `SessionStart` hook `.claude/hooks/skills-submodule-update.sh` — a **symlink** into `skills-vendor/gregoryfoster-skills/skills/managing-skills/scripts/`, so upstream fixes to the hook arrive with the next submodule bump.
 
-- Once per UTC day (`.git/skills-update.lock`), `main` only, scoped to `skills-vendor/` — never other submodules
+- Once per UTC day (`.git/skills-update.lock`), spent when a run *ends*: a killed run's staging is undone and retried next session (skills#555). `main` only, scoped to `skills-vendor/` — never other submodules
 - Auto-commits the pointer bump (`chore: update skills submodules`) under a pathspec of what it staged **itself**, so a file you had staged is never swept into its commit; logs to `.git/skills-update.log`
 - **Pushes what it commits**, and retries anything an earlier run left unpushed — that pass runs on *every* session, ahead of the daily lock (upstream skills#293: unpushed is unshared, and a service reading the checkout may refuse to start on it). Never pulls, never force-pushes, explicit refspec only
 - **Touches no commit it did not write.** It matches its own three subjects exactly; a range carrying anything else is left alone, with a stderr warning when one of its own is stranded behind. A failed push is rolled back (`--soft`, to `HEAD~N`, so an unrelated dirty file survives) and the next session retries
@@ -35,11 +35,13 @@ Submodule freshness is maintained by the vendored `SessionStart` hook `.claude/h
 - Opportunistically runs `install-doctor.sh` on **every** branch (not day-gated) so `.skills/doctor.sh` self-heals; the commit of that refresh stays behind the `main`-only + daily gates
 - `timeout: 120` (#534, skills#259): one budget covers a `--remote` fetch per vendored repo *plus* the push, and a kill between them strands `main`. Registered **ahead of** the socraticode hooks, which read vendored scripts this one heals — `install-refresh.sh` appends last, so re-check the order after a re-run
 
+**Daily bumps, on purpose (#751).** No `.skills/skills-pin`; the hook needs a session in the main checkout on `main` now and then. Its commit runs our pre-commit inside the 120 s, and the unit tier takes about nine minutes, so from 2026-10-24 every commit was killed. `scripts/precommit-vendor-gate.sh` wraps the three `always_run` test stages: a commit staging only `skills-vendor/` pointers and `.skills/doctor.sh` runs pytest's `vendored` marker and the vendor-reading bats files, and skips vitest; any other commit, deletion-only included, runs the full stage. Guard: `tests/test_vendored_subset.py`. A subset failure undoes the bump (skills#550). **Accepted:** a bump breaking only an unmarked test reaches `main`, caught by the next worktree commit or the ship gate; a hand bump takes the same fast path. No larger `timeout`: upstream's `MARKER_MAX_AGE=300` reads a longer run as dead.
+
 **What that means for ordinary work:** while `main` carries any commit the hook did not author — a review fix, a revert, anything unpushed — it refuses to commit *and* to push, and says so on stderr. Push `main` and the next session resumes on its own. `.skills/doctor.sh` reports the same state independently at session start.
 
-Replaced the legacy inline `UserPromptSubmit` one-liner, which committed submodule bumps on any branch and never refreshed the doctor. Do not re-add it — two mechanisms racing on the same submodule.
+Never re-add the legacy inline `UserPromptSubmit` one-liner it replaced (it committed on any branch, never refreshed the doctor): two mechanisms would race on one submodule.
 
-The `command` string is `bash "${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/skills-submodule-update.sh"`, the same anchored form as every other hook — see [Hook command form](#hook-command-form) below. An earlier note here claimed this one had to stay cwd-relative because `managing-skills` keyed its idempotence and uninstall jq on that exact string; it does not. Both the strip and the uninstall filter match on the *script path* substring precisely so an entry written in either form stays removable, and `install-refresh.sh --check` confirms it recognizes the anchored form.
+The `command` string is `bash "${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/skills-submodule-update.sh"`, the same anchored form as every other hook — see [Hook command form](#hook-command-form) below. It need not stay cwd-relative: `managing-skills`' strip and uninstall filter match the *script path* substring, so either form stays removable, and `install-refresh.sh --check` recognizes the anchored form.
 
 Force-refresh: `git submodule update --remote --merge -- skills-vendor/`
 

@@ -25,6 +25,9 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import pytest
 
+# Reads the vendored tree: runs on a skills-vendor/ bump's commit too (#751).
+pytestmark = pytest.mark.vendored
+
 REPO = Path(__file__).parents[2]
 SCRIPT = REPO / "scripts" / "write-db-secrets.sh"
 CA_PATH = "/etc/power-map/do-ca.crt"

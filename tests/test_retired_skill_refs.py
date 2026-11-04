@@ -33,6 +33,9 @@ import pytest
 
 from tests import vendor_skills
 
+# Reads the vendored tree: runs on a skills-vendor/ bump's commit too (#751).
+pytestmark = pytest.mark.vendored
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RETIRED_MAP = vendor_skills.VENDOR_ROOT / "retired-skills"
 DISCOVERY_DIRS = (REPO_ROOT / "skills", REPO_ROOT / ".claude" / "skills")

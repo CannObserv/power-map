@@ -43,8 +43,12 @@ import shlex
 from pathlib import Path
 
 import pytest
+import yaml
 
 from tests import vendor_skills
+
+# Reads the vendored tree: runs on a skills-vendor/ bump's commit too (#751).
+pytestmark = pytest.mark.vendored
 
 REPO_ROOT = Path(__file__).parents[2]
 LOCAL_GATE = REPO_ROOT / "scripts" / "pre-ship.sh"
@@ -123,16 +127,17 @@ def test_the_vendored_gate_leaves_the_marker_alone(vendored_source: str) -> None
 
 
 def test_our_uv_args_match_the_pre_commit_hook() -> None:
-    """One suite definition, two gates: the ship gate runs what the hook runs."""
+    """One suite definition, two gates: the ship gate runs what the hook runs.
+
+    The hook's entry is gated (#751): its full command is the part after `:::`.
+    """
+    config = yaml.safe_load(PRE_COMMIT.read_text())
     entry = next(
-        (
-            line.split("entry:", 1)[1].strip()
-            for line in PRE_COMMIT.read_text().splitlines()
-            if "entry:" in line and "pytest" in line
-        ),
+        (h["entry"] for r in config["repos"] for h in r["hooks"] if h["id"] == "pytest"),
         None,
     )
     assert entry is not None, "no pytest entry found in .pre-commit-config.yaml"
+    entry = entry.split(":::", 1)[-1]
     assert UV_ARGS_FILE.is_file(), f"missing {UV_ARGS_FILE.relative_to(REPO_ROOT)}"
     assert _uv_args_file() == _uv_args_of(entry), (
         f".skills/pre-ship-uv-args gives {_uv_args_file()}, the pre-commit pytest hook "
