@@ -22,7 +22,8 @@
 # hook's `git commit -- <paths>`, git hands this the temporary index, so a
 # file the operator had staged does not count.
 #
-# Fails closed: nothing staged, a git error, or any other path runs <full cmd>.
+# Fails closed: nothing staged, a git error, any other path, or a permitted
+# path changed any other way (deleted, or the wrong mode) runs <full cmd>.
 #
 # Exit codes: the command it runs; 0 for a skipped stage; 2 usage error.
 
