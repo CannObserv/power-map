@@ -15,7 +15,8 @@
 # subset skips the stage.
 #
 # The staged set comes from `git diff --cached --raw` with no diff filter, and
-# each pointer must stay a gitlink (mode 160000) while nothing is deleted.
+# each pointer must stay a gitlink (mode 160000) and the doctor a regular file
+# (100644 or 100755) while nothing is deleted.
 # pre-commit's own file list leaves deletions out, so a files:/exclude: rule
 # would have skipped the tier on a deletion-only commit too. Under the
 # hook's `git commit -- <paths>`, git hands this the temporary index, so a
@@ -76,10 +77,11 @@ vendor_only() {
     local staged registered line meta path
     local -a fields
     # --raw: the paths alone cannot tell a pointer bump from a gitlink deleted
-    # (`git rm --cached`) or replaced by a file. --no-renames: a rename lists
-    # only its destination, so a file moved onto .skills/doctor.sh would hide
-    # the deletion it carries. --ignore-submodules=none: a diff.ignoreSubmodules
-    # setting would hide the pointer itself.
+    # (`git rm --cached`) or replaced by a file. --no-renames: one path per line,
+    # so a file moved onto .skills/doctor.sh reads as its deletion plus an add;
+    # without it the raw line carries both paths, matches nothing, and still
+    # runs the full command. --ignore-submodules=none: diff.ignoreSubmodules, or
+    # an `ignore = all` in .gitmodules, would hide the pointer itself.
     staged="$(git diff --cached --raw --no-renames --ignore-submodules=none 2>/dev/null)" \
         || return 1
     [ -n "$staged" ] || return 1
@@ -90,7 +92,13 @@ vendor_only() {
         path="${line#*$'\t'}"
         read -ra fields <<<"$meta"
         [ "${fields[4]:-}" != "D" ] || return 1
-        [ "$path" = ".skills/doctor.sh" ] && continue
+        if [ "$path" = ".skills/doctor.sh" ]; then
+            # A regular file, as install-doctor.sh writes it: never a symlink (#753).
+            case "${fields[1]:-}" in
+                100644 | 100755) continue ;;
+                *) return 1 ;;
+            esac
+        fi
         [ "${fields[1]:-}" = "160000" ] || return 1
         grep -qxF -- "$path" <<<"$registered" || return 1
     done <<<"$staged"
