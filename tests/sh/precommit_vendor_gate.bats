@@ -139,6 +139,36 @@ gate() {
     [[ "$output" != *"VENDOR"* ]]
 }
 
+@test "a .skills/doctor.sh replaced by a symlink runs the full command" {
+    # The hook only commits the doctor as a regular file (#753, from
+    # CannObserv/cli's port, gregoryfoster/skills#572).
+    ln -sfn /dev/null "$REPO/.skills/doctor.sh"
+    git -C "$REPO" add .skills/doctor.sh
+    gate pytest echo VENDOR ::: echo FULL
+    [[ "$output" == *"FULL"* ]]
+    [[ "$output" != *"VENDOR"* ]]
+}
+
+@test "an executable .skills/doctor.sh runs the vendored subset" {
+    # The installed doctor is 100755; both regular-file modes stay on the fast path.
+    bump_doctor
+    chmod +x "$REPO/.skills/doctor.sh"
+    git -C "$REPO" add .skills/doctor.sh
+    gate pytest echo VENDOR ::: echo FULL
+    [[ "$output" == *"VENDOR"* ]]
+    [[ "$output" != *"FULL"* ]]
+}
+
+@test "a pointer bump plus a deletion runs the full command" {
+    # A diff filter that dropped deletions would leave the pointer alone and
+    # read this as vendor-only (CannObserv/cli's port, gregoryfoster/skills#572).
+    bump_pointer
+    git -C "$REPO" rm --quiet src/a.py
+    gate pytest echo VENDOR ::: echo FULL
+    [[ "$output" == *"FULL"* ]]
+    [[ "$output" != *"VENDOR"* ]]
+}
+
 @test "a file moved onto .skills/doctor.sh runs the full command" {
     # Rename detection would list only the destination, hiding the deletion.
     git -C "$REPO" rm --quiet .skills/doctor.sh
