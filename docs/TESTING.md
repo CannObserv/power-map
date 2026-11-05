@@ -326,7 +326,7 @@ exit), an unreachable test DB (infrastructure, not an a11y finding: #744) or a
 missing Chromium. A tier that passes nothing, or errors without failing a test, is
 exit 2 too. The tiers hold a `flock` in the git common dir, so two worktrees never
 seed the shared test DB at once. Only the tier calls get the env files, and the step isn't stamped: it
-reruns on every admin ship (~75 s). A failed tier is exit 1, and the vendored gate
+reruns on every admin ship (~90 s). A failed tier is exit 1, and the vendored gate
 still runs. `PRE_SHIP_A11Y=on` forces the tiers; `off` is honoured under `CI=true`
 only (#727) and says it verified nothing. It replaces the weekly sweep (#369).
 
