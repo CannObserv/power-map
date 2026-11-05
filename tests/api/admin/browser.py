@@ -54,7 +54,7 @@ GOTO_ATTEMPTS = 2
 
 # Process-wide count of retries fired, so a crash storm is visible (each retry
 # also emits a RendererCrashRetry warning — pytest prints those in its warnings
-# summary, which the weekly #369 sweep captures in the journal).
+# summary, part of the ship gate's a11y output, #740).
 RENDERER_CRASH_RETRIES = 0
 
 

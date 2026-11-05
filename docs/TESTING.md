@@ -142,9 +142,8 @@ Notes:
   entry in `[dependency-groups]` must register an import probe in
   `OPTIONAL_GROUPS` — `tests/test_optional_groups.py` ratchets it against
   `pyproject.toml`.
-- **Automated weekly** by `power-map-a11y.timer` (#369, below) — it runs this tier
-  plus the lxml render tier and surfaces failures. Run it manually too as a
-  pre-release gate (before tagging a version / restarting prod).
+- **Gated at ship** with the lxml render tier, on any admin diff: `scripts/pre-ship.sh`
+  (#740, § Ship gate).
 - **Isolation:** the tier launches uvicorn on an ephemeral port against the
   dedicated test DB, which it truncates-and-seeds at session start and resets on
   teardown (the managed-PG test role has no `CREATEDB`, so a disposable
@@ -166,8 +165,7 @@ Notes:
   **once**, on a **fresh page** (a crashed page is unusable), and **only** for
   `net::ERR_ABORTED` / `Page crashed` / `Target crashed`. Timeouts, HTTP errors,
   connection failures and axe violations still fail on the first attempt. Every
-  retry emits a `RendererCrashRetry` warning (pytest's warnings summary → the
-  weekly timer's journal) and bumps `browser.RENDERER_CRASH_RETRIES`, so a crash
+  retry emits a `RendererCrashRetry` warning (pytest's warnings summary) and bumps `browser.RENDERER_CRASH_RETRIES`, so a crash
   storm stays visible. The predicate and the loop are unit-tested browser-free in
   `test_browser_retry.py` — add any new crash signature there first.
   - **Boundary:** only the navigation is retried. A crash *mid-test* — during the
@@ -180,7 +178,7 @@ Notes:
     That costs one wasted attempt, never a masked failure — a *persistent*
     `ERR_ABORTED` is a real bug in the route.
 - **Three files, one marker** — the tier is marker-gated over the whole admin test
-  dir, so a new browser file is swept automatically (the weekly timer runs the same
+  dir, so a new browser file is swept automatically (the ship gate runs the same
   invocation):
   - `test_a11y_browser.py` (#300) — axe over every full-page admin GET route.
   - `test_a11y_browser_interactions.py` (#367) — axe over post-interaction DOM the
@@ -192,62 +190,18 @@ Notes:
     own disposable rows and never touches the shared session seed — keep that
     rule when adding flows.
 
-### Weekly a11y sweep timer (production, #369)
-
-`power-map-a11y.timer` runs `scripts/run-a11y-sweep.sh` weekly (Sundays 04:00 UTC):
-both a11y tiers (lxml `test_a11y_render.py -m integration` + browser
-`test_a11y_browser.py -m browser`) against the test DB. A **Chromium guard**
-launches a real browser first and exits 2 if it's absent, so a missing install
-fails loudly instead of the browser tier importorskipping to a vacuous pass.
-
-Surfacing (two layers): the unit shows in `systemctl --failed` on any failure
-(the ambient signal the SessionStart hook `.claude/hooks/a11y-status-reminder.sh`
-reads and echoes when you open Claude on the VM); and on failure the runner
-opens-or-updates a single `a11y-regression` GitHub issue (closing it on the next
-green run — GitHub's notification email covers the "email me" need). The issue
-carries a **one-line summary + a pointer to the journal only** — never raw
-output, since this is a public repo. Full failing detail (axe violations,
-tracebacks) lives in `journalctl -u power-map-a11y` on the VM. Since #724 the
-unit carries no `GH_TOKEN`, so the issue layer logs a skip and the co-status
-check-in carries the alert; #740 retires the sweep.
-
-To exercise the failure → open-issue → recover → close cycle without breaking a
-tier, run with the self-test hatch: `A11Y_SWEEP_FORCE_FAIL=1 bash
-scripts/run-a11y-sweep.sh` (opens a synthetic-failure issue), then a normal green
-run closes it. `A11Y_SWEEP_NO_GH=1` logs the GitHub actions instead of doing them.
-
-One-time VM setup (the guard fails until this is done):
-
-```bash
-uv sync --group browser && uv run --group browser playwright install chromium
-```
-
-Install / update the timer:
-
-```bash
-sudo cp infra/power-map-a11y.service infra/power-map-a11y.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now power-map-a11y.timer
-
-# Inspect
-systemctl list-timers power-map-a11y.timer     # next/last run
-sudo systemctl start power-map-a11y.service    # run once, now (~60s)
-sudo journalctl -u power-map-a11y -f           # live run + surfacing log
-```
-
 ---
 
 ## Shell testing (bats, #373)
 
 
 The repo's shell entrypoints are covered by bats-core suites in `tests/sh/`:
-the #369 a11y sweep and its reminder hook, `scripts/worktree-setup.sh`, the ship
-gate, the `.claude/settings.json` hook registrations, the #751 pre-commit vendor gate,
+`scripts/worktree-setup.sh`, the ship gate and its a11y wrapper, the
+`.claude/settings.json` hook registrations, the #751 pre-commit vendor gate,
 and `scripts/claude-system.sh` with its SessionStart hook (#542). Fully hermetic:
-`uv`, `gh`, and `systemctl` are PATH shims from `tests/sh/stubs/`, driven by
-`STUB_*` env knobs, and the #542 suite builds its system prefix, home and
-installer stub under `$BATS_TEST_TMPDIR` — no network, GitHub, systemd, root,
-or DB. Runs in pre-commit (fast), alongside a `shellcheck` hook over
+`uv` and `npm` are PATH shims from `tests/sh/stubs/`, driven by `STUB_*` env
+knobs, and the #542 suite builds its system prefix, home and installer stub
+under `$BATS_TEST_TMPDIR` — no network, GitHub, systemd, root, or DB. Runs in pre-commit (fast), alongside a `shellcheck` hook over
 `scripts/*.sh` + `.claude/hooks/*.sh` (vendored-skill symlink hooks excluded).
 
 ```bash
@@ -359,9 +313,24 @@ longer mutate the environment the live uvicorn workers import from.
 
 ## Ship gate
 
-`shipping-work` Step 1 resolves `scripts/<name>.sh` from the repo
-root **before** the skill directory; this repo has no `scripts/pre-ship.sh`, so
-the vendored gate runs. It detects the stack (`uv`, `npm`, `fastapi`) and runs
+`shipping-work` Step 1 resolves `scripts/<name>.sh` from the repo root **before**
+the skill directory, so `scripts/pre-ship.sh` runs: a wrapper (#740) that runs both
+a11y tiers when the diff touches the admin surface, then hands off to the vendored
+gate.
+
+**The a11y step.** It runs when a path in `scripts/pre-ship-a11y-paths` changed
+since `merge-base(origin/main, HEAD)`, the working tree included, and also when it
+can't tell what changed (no merge base, no list). Before the tiers, a preflight
+fails exit 2 on an unset `TEST_DATABASE_URL` (both tiers would skip to a green
+exit), an unreachable test DB (infrastructure, not an a11y finding: #744) or a
+missing Chromium. A tier that passes nothing is exit 2 too. The tiers hold a
+`flock` in the git common dir, so two worktrees never seed the shared test DB at
+once. Only the tier calls get the env files, and the step isn't stamped: it
+reruns on every admin ship (~75 s). A failed tier is exit 1, and the vendored gate
+still runs. `PRE_SHIP_A11Y=on` forces the tiers; `off` is honoured under `CI=true`
+only (#727) and says it verified nothing. It replaces the weekly sweep (#369).
+
+**The vendored gate.** It detects the stack (`uv`, `npm`, `fastapi`) and runs
 ruff check, ruff format --check, an import check, the Python suite, then ESLint /
 Prettier / vitest. Every check runs even after one fails; it then exits 1 naming
 each. A pass is stamped against the exact clean tree, shared by every worktree,
@@ -377,8 +346,10 @@ integration-marked tests with a collection plugin, so `addopts`'
 local copy until upstream fixed both points (skills#304). #549 deleted the copy
 (#463: a divergence retires itself).
 
-Guards: `tests/scripts/test_pre_ship_gate.py` fails if a local gate reappears,
-if the vendored gate stops reading either file or passes `-m` again, if the args
-file and the hook disagree, or if the import targets drop the service's module.
-`tests/sh/pre_ship.bats` runs the vendored gate against both real files with a
-stubbed `uv`.
+Guards: `tests/scripts/test_pre_ship_gate.py` fails if the wrapper stops
+delegating or copies a check, if Step 1 stops resolving to it, if the scope list
+misses a module the tiers import, if the vendored gate stops reading either file
+or passes `-m` again, if the args file and the hook disagree, or if the import
+targets drop the service's module. `tests/sh/pre_ship.bats` runs the vendored gate
+against both real files with a stubbed `uv`; `tests/sh/pre_ship_wrapper.bats` runs
+the wrapper.

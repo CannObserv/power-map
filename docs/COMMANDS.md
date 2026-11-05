@@ -399,9 +399,8 @@ uv run pre-commit run pytest --all-files
 
 Hook ids: `ruff`, `pytest`, `eslint`, `prettier`, `vitest`, `bats`, `shellcheck`
 
-Ship gate: `bash skills/shipping-work/scripts/pre-ship.sh` — the
-vendored gate, given `--group seed` by `.skills/pre-ship-uv-args` (#549) →
-[TESTING.md](TESTING.md) § Ship gate.
+Ship gate: `bash scripts/pre-ship.sh` — both a11y tiers on an admin diff (#740),
+then the vendored gate → [TESTING.md](TESTING.md) § Ship gate.
 
 ---
 
@@ -475,7 +474,6 @@ row names**; this is a roster, not a reference.
 | `power-map-assignment-rel-windows` | daily | `audit_assignment_relationship_windows.py` — drifted RA→RA edge windows | [AUDITS.md](AUDITS.md) |
 | `power-map-infra-drift` | daily | `check_infra_drift.py` — `infra/` vs the installed copies | [AUDITS.md](AUDITS.md) |
 | `power-map-openapi-parity` | daily | `check_openapi_parity.py` — served vs committed `openapi.json`, and its `v<version>` tag | [AUDITS.md](AUDITS.md) |
-| `power-map-a11y` | Sun 04:00 UTC | `run-a11y-sweep.sh` — both a11y tiers against the test DB | [TESTING.md](TESTING.md) |
 
 An audit timer exits **3** on a finding, which is what puts it in
 `systemctl --failed` (exit 4 fails openapi-parity, a tag finding, but is a

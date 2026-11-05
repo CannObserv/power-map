@@ -87,8 +87,8 @@ def browser_guard_reason(
     """Abort reason when the browser tier is requested but uninstallable, else None.
 
     Without this, `-m browser` against a pruned environment collects nothing,
-    skips the browser modules and exits 0 — a vacuous pass. `run-a11y-sweep.sh`
-    already holds this line for Chromium; this holds it for the wheel.
+    skips the browser modules and exits 0 — a vacuous pass. The preflight in
+    `scripts/pre-ship.sh` holds this line for Chromium; this holds it for the wheel.
     """
     has_module = has_module or _has_module
     if not browser_tier_requested(markexpr):
