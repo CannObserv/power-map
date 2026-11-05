@@ -255,6 +255,23 @@ delegate_ran() {
     [ "$status" -eq 2 ]
 }
 
+@test "a tier that errors in setup without failing a test is infrastructure: exit 2" {
+    commit_change src/templates/admin/page.html '<p>more</p>'
+    export STUB_UV_BROWSER_RC=1 STUB_UV_BROWSER_OUTPUT="164 skipped, 215 errors in 40.1s"
+    run_wrapper
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"not an a11y finding"* ]]
+    [ ! -s "$DELEGATE_LOG" ]
+}
+
+@test "a tier with a failure and errors is still an a11y failure: exit 1" {
+    commit_change src/templates/admin/page.html '<p>more</p>'
+    export STUB_UV_LXML_RC=1 STUB_UV_LXML_OUTPUT="1 failed, 196 passed, 1 error in 14.0s"
+    run_wrapper
+    [ "$status" -eq 1 ]
+    delegate_ran
+}
+
 @test "a tier that exits 0 without one pass is a vacuous pass: exit 2" {
     commit_change src/templates/admin/page.html '<p>more</p>'
     export STUB_UV_BROWSER_OUTPUT="215 skipped in 3.10s"

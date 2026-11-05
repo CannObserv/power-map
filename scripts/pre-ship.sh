@@ -31,8 +31,9 @@
 # Exit codes, the vendored gate's table:
 #   0  the a11y step passed or didn't apply, and the vendored gate passed
 #   1  a tier found a failure (the vendored gate still runs), or the gate failed
-#   2  infrastructure: no browser, no TEST_DATABASE_URL, DB unreachable, a
-#      vacuous tier, the lock not acquired, the vendored gate missing, a bad knob
+#   2  infrastructure: no browser, no TEST_DATABASE_URL, DB unreachable, a tier
+#      that errored without failing a test, a vacuous tier, the lock not
+#      acquired, the vendored gate missing, a bad knob
 #
 # Knobs:
 #   PRE_SHIP_A11Y=on            run the tiers whatever the diff
@@ -263,7 +264,14 @@ run_tier() {
                 die "the $name tier passed nothing: a vacuous pass, not a green one"
             return 0
             ;;
-        1) return 1 ;;
+        1)
+            # Errors with no failed test never reached an assertion: a DB that
+            # dropped after the preflight looks like this (#744's 215 errors).
+            if grep -Eq '[0-9]+ errors?\b' "$log" && ! grep -Eq '[0-9]+ failed' "$log"; then
+                die "the $name tier errored in setup without failing a test. That is infrastructure or a fixture, not an a11y finding: see docs/RUNBOOK_DB_TRIAGE.md if the errors are connection timeouts."
+            fi
+            return 1
+            ;;
         *) die "the $name tier did not run to a verdict (pytest exit $rc)" ;;
     esac
 }
