@@ -59,7 +59,8 @@ repos:
         entry: >-
           bash scripts/precommit-vendor-gate.sh bats
           npx --no-install bats tests/sh/claude_hooks.bats tests/sh/pre_ship.bats
-          tests/sh/precommit_vendor_gate.bats tests/sh/worktree_setup.bats
+          tests/sh/pre_ship_wrapper.bats tests/sh/precommit_vendor_gate.bats
+          tests/sh/worktree_setup.bats
           ::: npm run test:sh
         pass_filenames: false
         always_run: true
