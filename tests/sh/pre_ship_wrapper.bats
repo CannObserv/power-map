@@ -147,6 +147,21 @@ delegate_ran() {
     tiers_ran
 }
 
+@test "a non-ASCII admin path, which git would quote, still runs the tiers" {
+    echo '<p>café</p>' > "$FIX/src/templates/admin/café.html"
+    git -C "$FIX" add -A
+    git -C "$FIX" commit --quiet --no-verify -m "non-ascii page"
+    run_wrapper
+    [ "$status" -eq 0 ]
+    tiers_ran
+}
+
+@test "an untracked non-ASCII admin file runs the tiers" {
+    echo '<p>new</p>' > "$FIX/src/templates/admin/naïve.html"
+    run_wrapper
+    tiers_ran
+}
+
 @test "no base ref fails closed: the tiers run" {
     git -C "$FIX" update-ref -d refs/remotes/origin/main
     commit_change src/core/thing.py 'y = 2'

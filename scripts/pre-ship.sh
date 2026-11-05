@@ -112,29 +112,36 @@ in_scope() {
 }
 
 # Both sides of a rename or a deletion count (--no-renames), and so does the
-# working tree, which a ship can still carry.
+# working tree, which a ship can still carry. NUL-delimited (-z): without it
+# git C-quotes a non-ASCII path, which then matches no prefix (CR 1).
 changed_paths() {
     local base
     base=$(git merge-base "$BASE_REF" HEAD 2>/dev/null) || return 1
-    git diff --name-only --no-renames "$base" HEAD -- || return 1
-    git diff --name-only --no-renames HEAD -- || return 1
-    git ls-files --others --exclude-standard || return 1
+    git diff -z --name-only --no-renames "$base" HEAD -- || return 1
+    git diff -z --name-only --no-renames HEAD -- || return 1
+    git ls-files -z --others --exclude-standard || return 1
 }
 
 # Sets REASON. Exit 0: run the tiers.
 decide() {
-    local paths path hits=()
+    local paths_file path hits=()
     if ! read_scope; then
         REASON="cannot tell what changed ($SCOPE_FILE missing or empty), so both tiers run"
         return 0
     fi
-    if ! paths=$(changed_paths); then
+    paths_file=$(mktemp) || {
+        REASON="cannot tell what changed (mktemp failed), so both tiers run"
+        return 0
+    }
+    if ! changed_paths >"$paths_file"; then
+        rm -f "$paths_file"
         REASON="cannot tell what changed (no merge base with $BASE_REF), so both tiers run"
         return 0
     fi
-    while IFS= read -r path; do
+    while IFS= read -r -d '' path; do
         [[ -n "$path" ]] && in_scope "$path" && hits+=("$path")
-    done < <(printf '%s\n' "$paths" | sort -u)
+    done < <(sort -zu "$paths_file")
+    rm -f "$paths_file"
     if [[ ${#hits[@]} -eq 0 ]]; then
         REASON="not run: nothing in $SCOPE_FILE changed since $BASE_REF"
         return 1
