@@ -10,7 +10,7 @@ roster in [COMMANDS.md § Scheduled timers](COMMANDS.md#scheduled-timers);
 
 ## The timers' check-ins
 
-Each of the 15 `power-map-*.timer` services runs
+Each of the 14 `power-map-*.timer` services runs
 `scripts/status_checkin.py` as `ExecStopPost=` against its own co-status monitor
 (tenant `co-power-map`, CannObserv/status#36, and #48 for the two disk timers;
 the unit's comment names it). The
