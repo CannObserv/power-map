@@ -5,7 +5,9 @@ follow, and the four test tiers that enforce them: static template lint
 (`test_aria_labels.py`), the rendered-DOM lxml sweep (`test_a11y_render.py`), the
 full-page axe sweep (`test_a11y_browser.py`, #300) and axe-after-interaction
 (`test_a11y_browser_interactions.py`, #367 — modals, inline edit rows, merge mode
-and other states no server-rendered page reaches). Commands for the browser tiers
+and other states no server-rendered page reaches). Pre-commit runs the lint; the
+ship gate runs the lxml and browser tiers on any admin diff (`scripts/pre-ship.sh`,
+#740). Commands for the browser tiers
 live in `docs/TESTING.md` § Browser Testing.
 
 ---

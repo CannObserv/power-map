@@ -74,9 +74,12 @@ def environment(path: Path) -> dict[str, str]:
     return env
 
 
-def test_there_are_fifteen_timers_each_with_a_service():
-    """status#36 holds one monitor per timer; a new timer needs a new monitor."""
-    assert len(TIMERS) == 15
+def test_there_are_fourteen_timers_each_with_a_service():
+    """status#36 holds one monitor per timer; a new timer needs a new monitor.
+
+    #740 retired the a11y timer, so its monitor (co-power-map-a11y) is offboarded too.
+    """
+    assert len(TIMERS) == 14
     assert all(s.exists() for s in SERVICES)
 
 
@@ -146,10 +149,8 @@ def test_no_unit_still_promises_onfailure_later(service):
 
 
 @pytest.mark.parametrize("service", SERVICES, ids=lambda p: p.stem)
-def test_timer_services_do_not_open_github_issues_for_alerts_except_a11y(service):
-    """#566 retired the GitHub-issue alert path; a11y's issue is a work item, kept."""
-    if service.stem == "power-map-a11y":
-        return
+def test_timer_services_do_not_open_github_issues_for_alerts(service):
+    """#566 retired the GitHub-issue alert path; #740 retired its last holder, the a11y sweep."""
     text = service.read_text()
     assert "GitHub issue" not in text
     assert "gh (/bin/gh)" not in text

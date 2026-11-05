@@ -6,7 +6,6 @@
 # docs/COMMANDS.md. Paths are absolute.
 
 [installed]
-"power-map-a11y.service" = "/etc/systemd/system/power-map-a11y.service"
 "power-map-ancillary-orphans.service" = "/etc/systemd/system/power-map-ancillary-orphans.service"
 "power-map-anomaly.service" = "/etc/systemd/system/power-map-anomaly.service"
 "power-map-assignment-rel-windows.service" = "/etc/systemd/system/power-map-assignment-rel-windows.service"
@@ -22,7 +21,6 @@
 "power-map-seat-occupancy.service" = "/etc/systemd/system/power-map-seat-occupancy.service"
 "power-map.service" = "/etc/systemd/system/power-map.service"
 "power-map-notify-failure@.service" = "/etc/systemd/system/power-map-notify-failure@.service"
-"power-map-a11y.timer" = "/etc/systemd/system/power-map-a11y.timer"
 "power-map-ancillary-orphans.timer" = "/etc/systemd/system/power-map-ancillary-orphans.timer"
 "power-map-anomaly.timer" = "/etc/systemd/system/power-map-anomaly.timer"
 "power-map-assignment-rel-windows.timer" = "/etc/systemd/system/power-map-assignment-rel-windows.timer"

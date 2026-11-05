@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # PATH-shim stub for `uv` (bats suite, #373). Hermetic: nothing real runs.
 #
-# run-a11y-sweep.sh invokes uv in exactly three shapes; each maps to an env knob:
+# The shapes worktree-setup.sh and scripts/pre-ship.sh (#740) use; each maps to an env knob:
 #   `uv sync --group browser --group seed`  (worktree-setup.sh, #450)
 #     → create .venv/bin/activate and exit ${STUB_UV_SYNC_RC:-0}
-#   `uv run --group browser … python -`  (Chromium guard, heredoc on stdin)
+#   `uv run --group browser … python -`  (the wrapper's preflight, heredoc on stdin)
 #     → exit ${STUB_UV_GUARD_RC:-0}
 #   `uv run … pytest … -m integration …`  (lxml tier)
 #     → print ${STUB_UV_LXML_OUTPUT:-} and exit ${STUB_UV_LXML_RC:-0}
@@ -33,11 +33,11 @@ case "$args" in
         exit "$rc"
         ;;
     *" python"*)
-        # Consume the heredoc piped in (the Chromium-guard snippet). Draining
+        # Consume the heredoc piped in (the preflight snippet). Draining
         # unconditionally would block every other shape on an open stdin.
         [ -t 0 ] || cat > /dev/null
         rc="${STUB_UV_GUARD_RC:-0}"
-        [ "$rc" -eq 0 ] && echo "chromium OK"
+        [ "$rc" -eq 0 ] && echo "preflight OK"
         exit "$rc"
         ;;
     *-m\ integration*)

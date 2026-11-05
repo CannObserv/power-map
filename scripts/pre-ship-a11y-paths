@@ -1,0 +1,27 @@
+# The admin surface (#740): a ship whose diff touches any path below runs both
+# a11y tiers in scripts/pre-ship.sh. An entry ending in / is a directory prefix;
+# any other is an exact path. `#` lines and blank lines are ignored.
+#
+# tests/scripts/test_pre_ship_gate.py holds this list to the tree: every entry
+# matches a tracked file, and the entries cover every module the tiers import.
+# Dependency bumps (uv.lock) are left out on purpose; run them with
+# PRE_SHIP_A11Y=on when one touches Jinja2, Starlette or Playwright.
+
+# What the tiers render and serve; main.py mounts src/static/ and the admin
+# router, and injects the admin templates' globals
+src/api/main.py
+src/api/admin/
+src/templates/admin/
+src/static/
+
+# The tiers themselves, their helpers and fixtures, and the axe-core pin
+tests/api/admin/
+tests/vendor/
+tests/conftest.py
+tests/optional_groups.py
+tests/db_utils.py
+tests/vendor_skills.py
+
+# The gate: a change to it runs it
+scripts/pre-ship.sh
+scripts/pre-ship-a11y-paths

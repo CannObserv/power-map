@@ -259,7 +259,6 @@ docs/COMMANDS.md :: tighten :: | role / role_assignment / citation ancillary orp
 docs/COMMANDS.md :: tighten :: | assignment-relationship window audit | daily `power-map-assignment-rel-windows.timer` runs `scripts/audit_as
 docs/COMMANDS.md :: tighten :: | Readiness uptime guard | every 2 min `power-map-ready.timer` runs `scripts/check_ready.py` — probes `GET loc
 docs/COMMANDS.md :: tighten :: | Egress-IP drift guard | every 5 min `power-map-egress-ip.timer` runs `scripts/check_egress_ip.py` — compares
-docs/COMMANDS.md :: tighten :: | Weekly a11y sweep | weekly `power-map-a11y.timer` (Sun 04:00 UTC) runs `scripts/run-a11y-sweep.sh` — both a1
 docs/COMMANDS.md :: tighten :: **Operational scripts — dry run by default (#402):** `DATABASE_URL` resolves to **production** from any direct
 docs/COMMANDS.md :: tighten :: **apply-schema guards (#398):** `apply-schema.sh` writes to **production** on the bare invocation and is `Exec
 docs/COMMANDS.md :: tighten :: | Outbox/tombstone TTL prune | daily `power-map-prune.timer` runs `scripts/prune_outbox.py --execute` (90-day

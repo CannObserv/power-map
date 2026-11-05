@@ -10,7 +10,7 @@ roster in [COMMANDS.md § Scheduled timers](COMMANDS.md#scheduled-timers);
 
 ## The timers' check-ins
 
-Each of the 15 `power-map-*.timer` services runs
+Each of the 14 `power-map-*.timer` services runs
 `scripts/status_checkin.py` as `ExecStopPost=` against its own co-status monitor
 (tenant `co-power-map`, CannObserv/status#36, and #48 for the two disk timers;
 the unit's comment names it). The
@@ -45,10 +45,8 @@ one-point dip under the line.
   fallback a missing file fails the unit (243). An empty key or an empty
   `STATUS_MONITOR_ID` skips the check-in, logged.
 
-The weekly a11y sweep's `a11y-regression` issue was a work item, not a page.
-Since #724 its unit has no `GH_TOKEN`, so the issue step logs a skip and the
-check-in alone alerts; #740 retires the sweep. `ready` and `egress-ip` no longer
-open issues.
+No timer opens a GitHub issue: `ready` and `egress-ip` stopped, and #740 retired
+the weekly a11y sweep, whose tiers now gate the ship.
 
 ## The API's OnFailure= dispatch
 
