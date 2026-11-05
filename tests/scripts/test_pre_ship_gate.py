@@ -183,6 +183,11 @@ def _in_scope(path: str, entries: list[str]) -> bool:
     return any(path.startswith(e) if e.endswith("/") else path == e for e in entries)
 
 
+def _in_scope_any(entry: str, tracked: list[str]) -> bool:
+    """True if ``entry`` matches at least one tracked path."""
+    return any(_in_scope(path, [entry]) for path in tracked)
+
+
 def _tracked() -> list[str]:
     out = subprocess.run(
         ["git", "ls-files"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
@@ -238,10 +243,6 @@ def test_every_a11y_path_hits_a_tracked_file() -> None:
     tracked = _tracked()
     dead = [e for e in _a11y_paths() if not _in_scope_any(e, tracked)]
     assert dead == [], f"scripts/pre-ship-a11y-paths entries match no tracked file: {dead}"
-
-
-def _in_scope_any(entry: str, tracked: list[str]) -> bool:
-    return any(_in_scope(path, [entry]) for path in tracked)
 
 
 def test_the_a11y_paths_cover_every_module_the_tiers_load() -> None:
