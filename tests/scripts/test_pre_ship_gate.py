@@ -81,8 +81,9 @@ A11Y_TIER_ROOTS = [
 ]
 # Read at run time, not imported: the axe-core pin.
 A11Y_DATA_FILES = ["tests/vendor/"]
-# What the tiers render or serve: every tracked file below these.
-A11Y_SURFACE = ["src/api/admin/", "src/templates/admin/", "src/static/"]
+# What the tiers render or serve: every tracked file below these. main.py mounts
+# the static dir and the admin router and injects the admin templates' globals.
+A11Y_SURFACE = ["src/api/main.py", "src/api/admin/", "src/templates/admin/", "src/static/"]
 
 # The ASGI module on the unit's `uvicorn <module>:<app>` command line.
 UVICORN_MODULE = re.compile(r"^ExecStart=.*\buvicorn\s+([\w.]+):\w+", re.MULTILINE)

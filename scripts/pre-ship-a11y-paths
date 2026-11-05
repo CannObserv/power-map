@@ -7,7 +7,9 @@
 # Dependency bumps (uv.lock) are left out on purpose; run them with
 # PRE_SHIP_A11Y=on when one touches Jinja2, Starlette or Playwright.
 
-# What the tiers render and serve
+# What the tiers render and serve; main.py mounts src/static/ and the admin
+# router, and injects the admin templates' globals
+src/api/main.py
 src/api/admin/
 src/templates/admin/
 src/static/
