@@ -28,6 +28,40 @@ repos:
         pass_filenames: false
         always_run: true
 
+      # The vendored subsets (#755): the refresh hook's commit skips pytest,
+      # vitest and bats (.skills/refresh-skip-hooks), so what a skills-vendor/
+      # bump can break runs here. tests/test_vendored_subset.py keeps both
+      # lists complete. Files, not -m vendored: the marker collects the suite.
+      - id: pytest-vendored
+        name: pytest (reads skills-vendor/)
+        language: system
+        entry: >-
+          uv run --group seed pytest --no-cov -x -q
+          tests/scripts/test_pre_ship_gate.py
+          tests/scripts/test_write_db_secrets.py
+          tests/test_doc_sensitive_paths.py
+          tests/test_no_channel_urls.py
+          tests/test_outbox_retired_refs.py
+          tests/test_retired_skill_refs.py
+          tests/test_skills_listing.py
+          tests/test_socraticode_doc_parity.py
+          tests/test_socraticode_health_parity.py
+          tests/test_socraticode_session_pin.py
+          tests/test_vendor_skills.py
+          tests/test_vendored_subset.py
+        pass_filenames: false
+        always_run: true
+
+      - id: bats-vendored
+        name: bats (reads skills-vendor/)
+        language: system
+        entry: >-
+          npx --no-install bats tests/sh/claude_hooks.bats tests/sh/pre_ship.bats
+          tests/sh/pre_ship_wrapper.bats tests/sh/precommit_vendor_gate.bats
+          tests/sh/worktree_setup.bats
+        pass_filenames: false
+        always_run: true
+
       - id: eslint
         name: eslint
         language: system
