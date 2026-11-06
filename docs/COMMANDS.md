@@ -373,7 +373,7 @@ npm run format:js
 npm run format:js:check
 ```
 
-ESLint config: `eslint.config.js` (flat config). Targets: `src/static/admin/` (browser globals, `no-eval` warn) and `tests/js/` (`no-eval` off — intentional in IIFE test harness). Test rules come from `@vitest/eslint-plugin` (successor to `eslint-plugin-vitest`, #737).
+ESLint config: `eslint.config.js` (flat config). Targets: `src/static/admin/` (browser globals, `no-eval` warn) and `tests/js/` (`no-eval` off — intentional in IIFE test harness).
 
 ---
 
