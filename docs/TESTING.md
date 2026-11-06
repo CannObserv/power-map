@@ -224,8 +224,8 @@ npm run test:js
 npm run test:js:watch
 ```
 
-Note: Node ≥22 required. `npm install` first if `node_modules/` is absent.
-Uses vitest v2 + happy-dom. happy-dom was chosen over jsdom historically
+Note: Node ≥22.12 required (Vitest 5's floor). `npm install` first if `node_modules/` is absent.
+Uses Vitest 5 (Vite 8, a declared peer) + happy-dom. happy-dom was chosen over jsdom historically
 due to a CJS/ESM incompatibility in jsdom v29 on Node 18; kept on happy-dom
 for speed.
 
