@@ -29,9 +29,10 @@ uv run pytest tests/path/to/test_file.py --no-cov
 # Run integration tests (hits live external services)
 uv run pytest -m integration
 
-# The vendored subset, all a skills-vendor/ bump's commit runs (#755, docs/SKILLS.md);
-# the pytest-vendored hook lists the same modules, which is faster
-uv run --group seed pytest -m "vendored and not integration and not browser"
+# What the refresh hook's skills-vendor/ bump commit runs in place of pytest
+# and bats (#755, docs/SKILLS.md)
+uv run pre-commit run pytest-vendored --all-files
+uv run pre-commit run bats-vendored --all-files
 ```
 
 ---
