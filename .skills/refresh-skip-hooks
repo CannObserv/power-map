@@ -1,0 +1,6 @@
+# The refresh hook's own commit skips these (#755, gregoryfoster/skills#572):
+# the full suites outlast its 120 s timeout. Their vendored subsets run as
+# pytest-vendored and bats-vendored; a commit made by hand runs everything.
+pytest
+vitest
+bats

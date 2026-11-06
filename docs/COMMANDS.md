@@ -397,7 +397,7 @@ uv run pre-commit run --all-files
 uv run pre-commit run pytest --all-files
 ```
 
-Hook ids: `ruff`, `pytest`, `eslint`, `prettier`, `vitest`, `bats`, `shellcheck`
+Hook ids: `ruff`, `pytest`, `pytest-vendored`, `bats-vendored`, `eslint`, `prettier`, `vitest`, `bats`, `shellcheck`
 
 Ship gate: `bash scripts/pre-ship.sh` — both a11y tiers on an admin diff (#740),
 then the vendored gate → [TESTING.md](TESTING.md) § Ship gate.
