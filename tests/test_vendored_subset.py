@@ -139,6 +139,15 @@ def test_the_knob_skips_exactly_the_three_always_run_test_stages():
         assert _hook(hook_id).get("always_run") is True
 
 
+def test_each_skipped_stage_runs_its_full_command_plainly():
+    """The knob, not a wrapper, decides what the refresh's commit runs: the
+    path-sniffing gate (#752) copied the hook's COMMIT_PATHS and is retired."""
+    for hook_id, full in FULL.items():
+        assert _argv(hook_id) == shlex.split(full), f"{hook_id}'s entry drifted"
+    assert not any(":::" in h["entry"] for h in _hooks())
+    assert not (ROOT / "scripts" / "precommit-vendor-gate.sh").exists()
+
+
 def test_every_knob_id_is_a_defined_hook_and_holds_no_comma():
     """pre-commit ignores an unknown SKIP id and splits on commas: either one silently
     puts a nine-minute stage back into the refresh's commit."""

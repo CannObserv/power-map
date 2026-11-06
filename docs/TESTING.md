@@ -29,7 +29,8 @@ uv run pytest tests/path/to/test_file.py --no-cov
 # Run integration tests (hits live external services)
 uv run pytest -m integration
 
-# The vendored subset, all a skills-vendor/ bump's commit runs (#751, docs/SKILLS.md)
+# The vendored subset, all a skills-vendor/ bump's commit runs (#755, docs/SKILLS.md);
+# the pytest-vendored hook lists the same modules, which is faster
 uv run --group seed pytest -m "vendored and not integration and not browser"
 ```
 
@@ -197,7 +198,7 @@ Notes:
 
 The repo's shell entrypoints are covered by bats-core suites in `tests/sh/`:
 `scripts/worktree-setup.sh`, the ship gate and its a11y wrapper, the
-`.claude/settings.json` hook registrations, the #751 pre-commit vendor gate,
+`.claude/settings.json` hook registrations,
 and `scripts/claude-system.sh` with its SessionStart hook (#542). Fully hermetic:
 `uv` and `npm` are PATH shims from `tests/sh/stubs/`, driven by `STUB_*` env
 knobs, and the #542 suite builds its system prefix, home and installer stub
