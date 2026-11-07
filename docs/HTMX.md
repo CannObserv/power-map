@@ -15,9 +15,7 @@ Canonical implementation in `src/api/admin/deps.py`:
 
 ```python
 def is_htmx(request: Request) -> bool:
-    return bool(
-        request.headers.get("HX-Request") and not request.headers.get("HX-Boosted")
-    )
+    return bool(request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"))
 ```
 
 **Why the `HX-Boosted` guard:** `hx-boost="true"` on `admin-layout` means boosted navigation sends both `HX-Request` and `HX-Boosted` headers. Without the guard, boosted sidebar clicks receive bare fragments instead of full-page layouts.
@@ -30,7 +28,9 @@ Use `flash_trigger(level, body)` from `src.api.admin.deps`. Pass it as the `head
 from src.api.admin.deps import flash_trigger
 
 return templates.TemplateResponse(
-    request, "admin/orgs/_region.html", ctx,
+    request,
+    "admin/orgs/_region.html",
+    ctx,
     headers=flash_trigger("success", f"Merged <strong>{escape(name)}</strong>."),
 )
 ```
@@ -88,7 +88,9 @@ A `<tr>` and a `<div>` **cannot be siblings** in the same HTMX response body. Wh
 
 ```python
 return templates.TemplateResponse(
-    request, "admin/orgs/partials/_my_modal.html", ctx,
+    request,
+    "admin/orgs/partials/_my_modal.html",
+    ctx,
     headers={
         "HX-Retarget": "#modal-portal",
         "HX-Reswap": "innerHTML",
@@ -153,6 +155,7 @@ Always `markupsafe.escape()` any DB-derived value before composing a flash body 
 
 ```python
 from markupsafe import escape
+
 body = f"Merged org <strong>{escape(org_name)}</strong>."
 ```
 
@@ -357,9 +360,9 @@ Check **before** the transaction whether the edit would leave zero canonical nam
 ```python
 if is_canonical != "true" and existing["is_canonical"]:
     other_canonical = await db.fetchval(
-        "SELECT id FROM person_names"
-        " WHERE person_id=$1 AND is_canonical=TRUE AND id != $2",
-        person_id, name_id,
+        "SELECT id FROM person_names WHERE person_id=$1 AND is_canonical=TRUE AND id != $2",
+        person_id,
+        name_id,
     )
     if not other_canonical:
         if not is_htmx(request):

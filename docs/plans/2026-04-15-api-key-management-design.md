@@ -64,7 +64,8 @@ await db.execute(
     INSERT INTO app_users (id, email) VALUES ($1, $2)
     ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email
     """,
-    user_id, email,
+    user_id,
+    email,
 )
 ```
 
@@ -104,6 +105,7 @@ import hashlib
 
 api_key_header = APIKeyHeader(name="X-API-Key")
 
+
 async def require_api_key(
     raw_key: str = Security(api_key_header),
     db=Depends(get_db),
@@ -114,9 +116,7 @@ async def require_api_key(
     )
     if not row:
         raise HTTPException(status_code=401, detail="Invalid API key")
-    await db.execute(
-        "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", row["id"]
-    )
+    await db.execute("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", row["id"])
     return row["user_id"]
 ```
 

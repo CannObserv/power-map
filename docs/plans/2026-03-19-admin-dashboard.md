@@ -79,35 +79,23 @@ async def test_organizations_has_archived_at(db):
     """organizations.archived_at column must exist and be nullable."""
     org_id = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
-    await db.execute(
-        "UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id
-    )
-    row = await db.fetchrow(
-        "SELECT archived_at FROM organizations WHERE id = $1", org_id
-    )
+    await db.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id)
+    row = await db.fetchrow("SELECT archived_at FROM organizations WHERE id = $1", org_id)
     assert row["archived_at"] is not None
 
 
 async def test_people_has_archived_at(db):
     person_id = await _person(db)
-    await db.execute(
-        "UPDATE people SET archived_at = NOW() WHERE id = $1", person_id
-    )
-    row = await db.fetchrow(
-        "SELECT archived_at FROM people WHERE id = $1", person_id
-    )
+    await db.execute("UPDATE people SET archived_at = NOW() WHERE id = $1", person_id)
+    row = await db.fetchrow("SELECT archived_at FROM people WHERE id = $1", person_id)
     assert row["archived_at"] is not None
 
 
 async def test_roles_has_archived_at(db):
     org_id = await _org(db)
     role_id = await _role(db, org_id)
-    await db.execute(
-        "UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id
-    )
-    row = await db.fetchrow(
-        "SELECT archived_at FROM roles WHERE id = $1", role_id
-    )
+    await db.execute("UPDATE roles SET archived_at = NOW() WHERE id = $1", role_id)
+    row = await db.fetchrow("SELECT archived_at FROM roles WHERE id = $1", role_id)
     assert row["archived_at"] is not None
 
 
@@ -118,14 +106,12 @@ async def test_role_assignments_has_archived_at(db):
     ra_id = generate_id()
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
-        ra_id, person_id, role_id,
+        ra_id,
+        person_id,
+        role_id,
     )
-    await db.execute(
-        "UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id
-    )
-    row = await db.fetchrow(
-        "SELECT archived_at FROM role_assignments WHERE id = $1", ra_id
-    )
+    await db.execute("UPDATE role_assignments SET archived_at = NOW() WHERE id = $1", ra_id)
+    row = await db.fetchrow("SELECT archived_at FROM role_assignments WHERE id = $1", ra_id)
     assert row["archived_at"] is not None
 ```
 
@@ -298,17 +284,13 @@ def test_admin_root_redirects_when_unauthenticated():
 
 
 def test_admin_root_redirects_when_only_user_id_present():
-    response = _client.get(
-        "/admin/", headers={"X-ExeDev-UserID": "usr123"}, allow_redirects=False
-    )
+    response = _client.get("/admin/", headers={"X-ExeDev-UserID": "usr123"}, allow_redirects=False)
     assert response.status_code in (302, 307)
     assert "/__exe.dev/login" in response.headers["location"]
 
 
 def test_admin_root_redirects_when_only_email_present():
-    response = _client.get(
-        "/admin/", headers={"X-ExeDev-Email": "a@b.com"}, allow_redirects=False
-    )
+    response = _client.get("/admin/", headers={"X-ExeDev-Email": "a@b.com"}, allow_redirects=False)
     assert response.status_code in (302, 307)
     assert "/__exe.dev/login" in response.headers["location"]
 ```
@@ -343,9 +325,7 @@ async def dashboard(request: Request):
     user_id = request.headers.get("X-ExeDev-UserID")
     email = request.headers.get("X-ExeDev-Email")
     if not user_id or not email:
-        return RedirectResponse(
-            f"/__exe.dev/login?redirect=/admin/", status_code=307
-        )
+        return RedirectResponse(f"/__exe.dev/login?redirect=/admin/", status_code=307)
     return {"user": email}  # placeholder — replaced in Task 6
 ```
 
@@ -491,9 +471,7 @@ async def get_admin_user(request: Request) -> AdminUser | RedirectResponse:
     email = request.headers.get("X-ExeDev-Email")
     if not user_id or not email:
         path = request.url.path
-        return RedirectResponse(
-            f"/__exe.dev/login?redirect={path}", status_code=307
-        )
+        return RedirectResponse(f"/__exe.dev/login?redirect={path}", status_code=307)
     return AdminUser(id=user_id, email=email)
 
 
@@ -1488,7 +1466,8 @@ async def org_id(db):
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
         " VALUES ($1, $2, 'Test Org', TRUE)",
-        generate_id(), oid,
+        generate_id(),
+        oid,
     )
     return oid
 
@@ -1630,9 +1609,7 @@ async def org_detail(
     if redirect:
         return redirect
 
-    org = await db.fetchrow(
-        "SELECT * FROM organizations WHERE id = $1", org_id
-    )
+    org = await db.fetchrow("SELECT * FROM organizations WHERE id = $1", org_id)
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
@@ -2031,6 +2008,7 @@ In `src/api/admin/router.py`, add:
 
 ```python
 from src.api.admin import orgs as orgs_module
+
 admin_router.include_router(orgs_module.router)
 ```
 
@@ -2108,6 +2086,7 @@ def test_hard_delete_requires_archive_first(client, org_id):
 def test_hard_delete_archived_org(client, db, org_id):
     """DELETE on an archived org must succeed and remove the row."""
     import asyncio
+
     asyncio.get_event_loop().run_until_complete(
         db.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id)
     )
@@ -2169,12 +2148,17 @@ async def org_create(
     org_id = generate_id()
     await db.execute(
         "INSERT INTO organizations (id, active, parent_id, notes) VALUES ($1, $2, $3, $4)",
-        org_id, active, parent_id or None, notes or None,
+        org_id,
+        active,
+        parent_id or None,
+        notes or None,
     )
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
         " VALUES ($1, $2, $3, TRUE)",
-        generate_id(), org_id, name,
+        generate_id(),
+        org_id,
+        name,
     )
     return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
 
@@ -2241,7 +2225,10 @@ async def org_update(
 
     await db.execute(
         "UPDATE organizations SET active = $1, parent_id = $2, notes = $3 WHERE id = $4",
-        active, parent_id or None, notes or None, org_id,
+        active,
+        parent_id or None,
+        notes or None,
+        org_id,
     )
     # Update canonical name
     existing = await db.fetchrow(
@@ -2251,13 +2238,16 @@ async def org_update(
     if existing:
         await db.execute(
             "UPDATE organization_names SET name = $1 WHERE id = $2",
-            name, existing["id"],
+            name,
+            existing["id"],
         )
     else:
         await db.execute(
             "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
             " VALUES ($1, $2, $3, TRUE)",
-            generate_id(), org_id, name,
+            generate_id(),
+            org_id,
+            name,
         )
     return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
 
@@ -2277,10 +2267,9 @@ async def org_archive(
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    await db.execute(
-        "UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id
-    )
+    await db.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", org_id)
     from fastapi.responses import RedirectResponse as RR
+
     return RR(f"/admin/orgs/{org_id}/", status_code=303)
 
 
@@ -2295,9 +2284,7 @@ async def org_delete(
     if redirect:
         return redirect
 
-    org = await db.fetchrow(
-        "SELECT id, archived_at FROM organizations WHERE id = $1", org_id
-    )
+    org = await db.fetchrow("SELECT id, archived_at FROM organizations WHERE id = $1", org_id)
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     if not org["archived_at"]:
@@ -2475,7 +2462,8 @@ async def person_id(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, is_canonical)"
         " VALUES ($1, $2, 'Jane Doe', TRUE)",
-        generate_id(), pid,
+        generate_id(),
+        pid,
     )
     return pid
 
@@ -2528,6 +2516,7 @@ def test_hard_delete_requires_archive(client, person_id):
 
 def test_hard_delete_archived_person(client, db, person_id):
     import asyncio
+
     asyncio.get_event_loop().run_until_complete(
         db.execute("UPDATE people SET archived_at = NOW() WHERE id = $1", person_id)
     )
@@ -2603,6 +2592,7 @@ In `detail.html`, replace child orgs / roles sections with role assignments time
 In `src/api/admin/router.py`:
 ```python
 from src.api.admin import people as people_module
+
 admin_router.include_router(people_module.router)
 ```
 

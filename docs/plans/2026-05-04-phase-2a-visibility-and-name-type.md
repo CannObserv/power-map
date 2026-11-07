@@ -175,7 +175,7 @@ def make_names_router(
         visibility: str | None = Form(None),
     ):
         if supports_metadata and visibility is not None:
-            if visibility not in ('public', 'legal_only', 'hidden'):
+            if visibility not in ("public", "legal_only", "hidden"):
                 raise HTTPException(400, "invalid visibility")
             cols = "(id, {entity_fk}, name, name_type, is_canonical, visibility)"
             placeholders = "($1, $2, $3, $4, $5, $6)"
@@ -234,14 +234,15 @@ async def test_form_row_renders_visibility_select(db, client):
     nid = generate_id()
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, visibility) VALUES ($1, $2, 'Foo', 'public')",
-        nid, pid,
+        nid,
+        pid,
     )
     response = client.get(
         f"/admin/people/{pid}/names/{nid}/edit-row/",
         headers=AUTH,
     )
     assert 'name="visibility"' in response.text
-    for v in ('public', 'legal_only', 'hidden'):
+    for v in ("public", "legal_only", "hidden"):
         assert f'value="{v}"' in response.text
 
 
@@ -250,15 +251,27 @@ async def test_form_row_renders_expanded_name_type_options(db, client):
     nid = generate_id()
     await db.execute(
         "INSERT INTO person_names (id, person_id, name) VALUES ($1, $2, 'Foo')",
-        nid, pid,
+        nid,
+        pid,
     )
     response = client.get(
         f"/admin/people/{pid}/names/{nid}/edit-row/",
         headers=AUTH,
     )
-    for t in ('legal', 'preferred', 'alias', 'former', 'initials',
-              'maiden', 'religious', 'stage', 'deadname',
-              'reading', 'romanization', 'mrz'):
+    for t in (
+        "legal",
+        "preferred",
+        "alias",
+        "former",
+        "initials",
+        "maiden",
+        "religious",
+        "stage",
+        "deadname",
+        "reading",
+        "romanization",
+        "mrz",
+    ):
         assert f'value="{t}"' in response.text
 
 
@@ -267,7 +280,8 @@ async def test_read_row_shows_visibility_badge_when_legal_only(db, client):
     nid = generate_id()
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, visibility) VALUES ($1, $2, 'Foo', 'legal_only')",
-        nid, pid,
+        nid,
+        pid,
     )
     response = client.get(
         f"/admin/people/{pid}/names/{nid}/read-row/",
@@ -336,12 +350,14 @@ async def test_person_detail_excludes_legal_only_by_default(db, client):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, visibility)"
         " VALUES ($1, $2, 'Public', 'legal', TRUE, 'public')",
-        generate_id(), pid,
+        generate_id(),
+        pid,
     )
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
         " VALUES ($1, $2, 'Hidden Old', 'former', 'legal_only')",
-        generate_id(), pid,
+        generate_id(),
+        pid,
     )
     response = client.get(f"/admin/people/{pid}/", headers=AUTH)
     assert "Public" in response.text
@@ -353,12 +369,14 @@ async def test_person_detail_shows_legal_only_with_toggle(db, client):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, visibility)"
         " VALUES ($1, $2, 'Public', 'legal', TRUE, 'public')",
-        generate_id(), pid,
+        generate_id(),
+        pid,
     )
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
         " VALUES ($1, $2, 'Hidden Old', 'former', 'legal_only')",
-        generate_id(), pid,
+        generate_id(),
+        pid,
     )
     response = client.get(f"/admin/people/{pid}/?show_historical=1", headers=AUTH)
     assert "Public" in response.text

@@ -132,9 +132,7 @@ class JurisdictionResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.jurisdiction_identifier import (
-            JurisdictionIdentifier,  # noqa: PLC0415
-        )
+        from ..models.jurisdiction_identifier import JurisdictionIdentifier  # noqa: PLC0415
         from ..models.jurisdiction_type import JurisdictionType  # noqa: PLC0415
 
         d = dict(src_dict)

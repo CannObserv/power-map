@@ -89,7 +89,9 @@ Iteration pattern:
 ```python
 offset, limit = 0, 50
 while True:
-    resp = client.get("/api/v1/orgs/search", params={"q": "<term>", "limit": limit, "offset": offset})
+    resp = client.get(
+        "/api/v1/orgs/search", params={"q": "<term>", "limit": limit, "offset": offset}
+    )
     page = resp.json()
     process(page["data"])
     if not page["meta"]["has_more"]:

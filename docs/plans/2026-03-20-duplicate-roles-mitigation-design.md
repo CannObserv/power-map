@@ -73,8 +73,7 @@ pattern for orgs and people:
 
 ```python
 for row in await conn.fetch(
-    "SELECT id, organization_id, lower(title) AS title_lower "
-    "FROM roles WHERE archived_at IS NULL"
+    "SELECT id, organization_id, lower(title) AS title_lower FROM roles WHERE archived_at IS NULL"
 ):
     role_index[(row["organization_id"], row["title_lower"])] = row["id"]
 ```

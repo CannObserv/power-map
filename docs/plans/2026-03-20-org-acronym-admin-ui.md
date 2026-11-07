@@ -31,11 +31,11 @@ This test currently posts without an `acronym` key. After the handler adds `acro
 
 Change the `client.post` call in `test_edit_org_does_not_overwrite_acronym` (around line 205) from:
 ```python
-        data={"name": "New Name", "active": "true", "parent_id": "", "notes": ""},
+data = ({"name": "New Name", "active": "true", "parent_id": "", "notes": ""},)
 ```
 to:
 ```python
-        data={"name": "New Name", "acronym": "ON", "active": "true", "parent_id": "", "notes": ""},
+data = ({"name": "New Name", "acronym": "ON", "active": "true", "parent_id": "", "notes": ""},)
 ```
 
 - [ ] **Step 2: Add new tests**
@@ -122,12 +122,14 @@ def test_edit_org_form_shows_existing_acronym(client):
             await conn.execute(
                 "INSERT INTO organization_names"
                 " (id, organization_id, name, is_canonical) VALUES ($1, $2, 'Acme Corp', TRUE)",
-                generate_id(), oid,
+                generate_id(),
+                oid,
             )
             await conn.execute(
                 "INSERT INTO organization_acronyms"
                 " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, 'ACME', TRUE)",
-                generate_id(), oid,
+                generate_id(),
+                oid,
             )
         finally:
             await conn.close()
@@ -162,7 +164,8 @@ def test_edit_org_insert_new_acronym(client):
             await conn.execute(
                 "INSERT INTO organization_names"
                 " (id, organization_id, name, is_canonical) VALUES ($1, $2, 'Beta Inc', TRUE)",
-                generate_id(), oid,
+                generate_id(),
+                oid,
             )
         finally:
             await conn.close()
@@ -192,7 +195,13 @@ def test_edit_org_insert_new_acronym(client):
         response = client.post(
             f"/admin/orgs/{oid}/edit/",
             headers=AUTH_HEADERS,
-            data={"name": "Beta Inc", "acronym": "BI", "active": "true", "parent_id": "", "notes": ""},
+            data={
+                "name": "Beta Inc",
+                "acronym": "BI",
+                "active": "true",
+                "parent_id": "",
+                "notes": "",
+            },
             follow_redirects=False,
         )
         assert response.status_code in (302, 303)
@@ -214,12 +223,14 @@ def test_edit_org_update_existing_acronym(client):
             await conn.execute(
                 "INSERT INTO organization_names"
                 " (id, organization_id, name, is_canonical) VALUES ($1, $2, 'Gamma Corp', TRUE)",
-                generate_id(), oid,
+                generate_id(),
+                oid,
             )
             await conn.execute(
                 "INSERT INTO organization_acronyms"
                 " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, 'GC', TRUE)",
-                generate_id(), oid,
+                generate_id(),
+                oid,
             )
         finally:
             await conn.close()
@@ -249,7 +260,13 @@ def test_edit_org_update_existing_acronym(client):
         response = client.post(
             f"/admin/orgs/{oid}/edit/",
             headers=AUTH_HEADERS,
-            data={"name": "Gamma Corp", "acronym": "GCORP", "active": "true", "parent_id": "", "notes": ""},
+            data={
+                "name": "Gamma Corp",
+                "acronym": "GCORP",
+                "active": "true",
+                "parent_id": "",
+                "notes": "",
+            },
             follow_redirects=False,
         )
         assert response.status_code in (302, 303)
@@ -271,12 +288,14 @@ def test_edit_org_clear_acronym(client):
             await conn.execute(
                 "INSERT INTO organization_names"
                 " (id, organization_id, name, is_canonical) VALUES ($1, $2, 'Delta LLC', TRUE)",
-                generate_id(), oid,
+                generate_id(),
+                oid,
             )
             await conn.execute(
                 "INSERT INTO organization_acronyms"
                 " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, 'DL', TRUE)",
-                generate_id(), oid,
+                generate_id(),
+                oid,
             )
         finally:
             await conn.close()
@@ -306,7 +325,13 @@ def test_edit_org_clear_acronym(client):
         response = client.post(
             f"/admin/orgs/{oid}/edit/",
             headers=AUTH_HEADERS,
-            data={"name": "Delta LLC", "acronym": "", "active": "true", "parent_id": "", "notes": ""},
+            data={
+                "name": "Delta LLC",
+                "acronym": "",
+                "active": "true",
+                "parent_id": "",
+                "notes": "",
+            },
             follow_redirects=False,
         )
         assert response.status_code in (302, 303)
@@ -395,18 +420,25 @@ async def org_create(
     org_id = generate_id()
     await db.execute(
         "INSERT INTO organizations (id, active, parent_id, notes) VALUES ($1, $2, $3, $4)",
-        org_id, active == "true", parent_id or None, notes or None,
+        org_id,
+        active == "true",
+        parent_id or None,
+        notes or None,
     )
     await db.execute(
         "INSERT INTO organization_names"
         " (id, organization_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
-        generate_id(), org_id, name,
+        generate_id(),
+        org_id,
+        name,
     )
     if acronym.strip():
         await db.execute(
             "INSERT INTO organization_acronyms"
             " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, $3, TRUE)",
-            generate_id(), org_id, acronym.strip(),
+            generate_id(),
+            org_id,
+            acronym.strip(),
         )
     return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
 ```
@@ -416,11 +448,10 @@ async def org_create(
 After the existing `canonical` fetch in `org_edit_form`, add:
 
 ```python
-    canonical_acronym_row = await db.fetchrow(
-        "SELECT acronym FROM organization_acronyms"
-        " WHERE organization_id = $1 AND is_canonical = TRUE",
-        org_id,
-    )
+canonical_acronym_row = await db.fetchrow(
+    "SELECT acronym FROM organization_acronyms WHERE organization_id = $1 AND is_canonical = TRUE",
+    org_id,
+)
 ```
 
 Then update the template context dict to include:
@@ -455,11 +486,13 @@ async def org_update(
         raise HTTPException(status_code=404, detail="Organization not found")
     await db.execute(
         "UPDATE organizations SET active = $1, parent_id = $2, notes = $3 WHERE id = $4",
-        active == "true", parent_id or None, notes or None, org_id,
+        active == "true",
+        parent_id or None,
+        notes or None,
+        org_id,
     )
     existing = await db.fetchrow(
-        "SELECT id FROM organization_names"
-        " WHERE organization_id = $1 AND is_canonical = TRUE",
+        "SELECT id FROM organization_names WHERE organization_id = $1 AND is_canonical = TRUE",
         org_id,
     )
     if existing:
@@ -470,25 +503,29 @@ async def org_update(
         await db.execute(
             "INSERT INTO organization_names"
             " (id, organization_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
-            generate_id(), org_id, name,
+            generate_id(),
+            org_id,
+            name,
         )
     acronym_stripped = acronym.strip()
     existing_acronym = await db.fetchrow(
-        "SELECT id FROM organization_acronyms"
-        " WHERE organization_id = $1 AND is_canonical = TRUE",
+        "SELECT id FROM organization_acronyms WHERE organization_id = $1 AND is_canonical = TRUE",
         org_id,
     )
     if acronym_stripped:
         if existing_acronym:
             await db.execute(
                 "UPDATE organization_acronyms SET acronym = $1 WHERE id = $2",
-                acronym_stripped, existing_acronym["id"],
+                acronym_stripped,
+                existing_acronym["id"],
             )
         else:
             await db.execute(
                 "INSERT INTO organization_acronyms"
                 " (id, organization_id, acronym, is_canonical) VALUES ($1, $2, $3, TRUE)",
-                generate_id(), org_id, acronym_stripped,
+                generate_id(),
+                org_id,
+                acronym_stripped,
             )
     else:
         if existing_acronym:

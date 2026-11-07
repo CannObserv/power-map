@@ -44,9 +44,7 @@ class EventObservationsResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.event_observation_result import (
-            EventObservationResult,  # noqa: PLC0415
-        )
+        from ..models.event_observation_result import EventObservationResult  # noqa: PLC0415
 
         d = dict(src_dict)
         _results = d.pop("results", UNSET)

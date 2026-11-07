@@ -37,9 +37,11 @@ Add to `tests/api/admin/test_orgs_addresses.py`:
 ```python
 import asyncpg
 
+
 @pytest.mark.integration
 def test_addresses_table_has_normalizer_columns():
     dsn = _dsn()
+
     async def check():
         conn = await asyncpg.connect(dsn)
         try:
@@ -51,6 +53,7 @@ def test_addresses_table_has_normalizer_columns():
             return {r["column_name"] for r in cols}
         finally:
             await conn.close()
+
     col_names = asyncio.run(check())
     assert "latitude" in col_names
     assert "longitude" in col_names
@@ -225,11 +228,13 @@ def _parse_response(self, raw: str, data: dict) -> NormalizationResult:
     confidence_hint = "unconfirmed"
     if self.config.run_validation and "validation" in data:
         v = data["validation"]
-        detail.update({
-            "status": v.get("status"),
-            "dpv_match_code": v.get("dpv_match_code"),
-            "provider": v.get("provider", "address-validator"),
-        })
+        detail.update(
+            {
+                "status": v.get("status"),
+                "dpv_match_code": v.get("dpv_match_code"),
+                "provider": v.get("provider", "address-validator"),
+            }
+        )
         confidence_hint = _STATUS_MAP.get(v.get("status", ""), "not_attempted")
     detail["warnings"] = data.get("warnings", [])
     warnings = [f"address-validator warning: {w}" for w in data.get("warnings", [])]
@@ -275,8 +280,13 @@ def test_address_create_blank_returns_form_with_error(client, org_and_address):
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
-        data={"address_line_1": "", "city": "", "region": "", "postal_code": "",
-              "address_type": "mailing"},
+        data={
+            "address_line_1": "",
+            "city": "",
+            "region": "",
+            "postal_code": "",
+            "address_type": "mailing",
+        },
     )
     assert r.status_code == 200
     assert "<form" in r.text
@@ -288,8 +298,13 @@ def test_address_edit_blank_returns_form_with_error(client, org_and_address):
     r = client.post(
         f"/admin/orgs/{oid}/addresses/{eaid}/edit-row/",
         headers=HTMX_HEADERS,
-        data={"address_line_1": "", "city": "", "region": "", "postal_code": "",
-              "address_type": "mailing"},
+        data={
+            "address_line_1": "",
+            "city": "",
+            "region": "",
+            "postal_code": "",
+            "address_type": "mailing",
+        },
     )
     assert r.status_code == 200
     assert "<form" in r.text
@@ -490,11 +505,11 @@ import os
 Add these parameters to `address_create` and `address_edit_row_post` signatures:
 
 ```python
-mode: str = Form("confirm"),
-standardized: str = Form(""),
-latitude: str = Form(""),
-longitude: str = Form(""),
-components: str = Form(""),
+mode: str = (Form("confirm"),)
+standardized: str = (Form(""),)
+latitude: str = (Form(""),)
+longitude: str = (Form(""),)
+components: str = (Form(""),)
 ```
 
 - [ ] **Step 5: Extract save logic into a helper**
@@ -781,15 +796,25 @@ def test_address_create_confirm_shows_confirm_partial(mock_cls, client, org_and_
 
 
 @patch("src.api.admin.orgs_addresses.FallbackAddressNormalizer")
-def test_address_create_confirm_saves_directly_when_no_standardized(mock_cls, client, org_and_address):
+def test_address_create_confirm_saves_directly_when_no_standardized(
+    mock_cls, client, org_and_address
+):
     oid, _ = org_and_address
     inst = AsyncMock()
     inst.normalize.return_value = MagicMock(
         skipped=False,
-        value={"standardized": None, "address_line_1": "123 Main St",
-               "city": "Seattle", "region": "WA", "postal_code": "98101",
-               "country": "US", "address_line_2": None,
-               "latitude": None, "longitude": None, "components": None},
+        value={
+            "standardized": None,
+            "address_line_1": "123 Main St",
+            "city": "Seattle",
+            "region": "WA",
+            "postal_code": "98101",
+            "country": "US",
+            "address_line_2": None,
+            "latitude": None,
+            "longitude": None,
+            "components": None,
+        },
         validation_detail=None,
     )
     mock_cls.return_value = inst
@@ -865,7 +890,9 @@ from src.core.normalizers.address import AddressNormalizerConfig, FallbackAddres
 def _build_normalizer() -> FallbackAddressNormalizer:
     api_key = os.environ.get("ADDRESS_VALIDATOR_API_KEY")
     run_validation = os.environ.get("ADDRESS_VALIDATOR_RUN_VALIDATION", "").lower() == "true"
-    config = AddressNormalizerConfig(api_key=api_key, run_validation=run_validation) if api_key else None
+    config = (
+        AddressNormalizerConfig(api_key=api_key, run_validation=run_validation) if api_key else None
+    )
     return FallbackAddressNormalizer(config=config)
 ```
 
@@ -875,10 +902,18 @@ In `address_create`, after the mode=edit block and before the save logic, add:
 
 ```python
 if mode == "confirm":
-    raw = " ".join(filter(None, [
-        address_line_1.strip(), address_line_2.strip(),
-        city.strip(), region.strip(), postal_code.strip(),
-    ]))
+    raw = " ".join(
+        filter(
+            None,
+            [
+                address_line_1.strip(),
+                address_line_2.strip(),
+                city.strip(),
+                region.strip(),
+                postal_code.strip(),
+            ],
+        )
+    )
     result = await _build_normalizer().normalize(raw)
     if result.value and result.value.get("standardized"):
         validation_status = None
@@ -894,7 +929,9 @@ if mode == "confirm":
             "standardized": result.value.get("standardized"),
             "latitude": result.value.get("latitude"),
             "longitude": result.value.get("longitude"),
-            "components_json": json.dumps(result.value["components"]) if result.value.get("components") else "",
+            "components_json": json.dumps(result.value["components"])
+            if result.value.get("components")
+            else "",
         }
         original_ctx = {
             "address_line_1": address_line_1,

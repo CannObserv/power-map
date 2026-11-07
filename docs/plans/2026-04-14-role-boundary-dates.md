@@ -62,12 +62,16 @@ async def test_chk_role_date_order_rejects_inverted_dates(db):
     rid = generate_id()
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-        rid, oid, "Test Role",
+        rid,
+        oid,
+        "Test Role",
     )
     with pytest.raises(asyncpg.exceptions.CheckViolationError):
         await db.execute(
             "UPDATE roles SET established_on=$1, abolished_on=$2 WHERE id=$3",
-            datetime.date(2020, 1, 1), datetime.date(2010, 1, 1), rid,
+            datetime.date(2020, 1, 1),
+            datetime.date(2010, 1, 1),
+            rid,
         )
 
 
@@ -77,11 +81,15 @@ async def test_chk_role_date_order_allows_same_date(db):
     rid = generate_id()
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-        rid, oid, "One Day Role",
+        rid,
+        oid,
+        "One Day Role",
     )
     await db.execute(
         "UPDATE roles SET established_on=$1, abolished_on=$2 WHERE id=$3",
-        datetime.date(2020, 6, 15), datetime.date(2020, 6, 15), rid,
+        datetime.date(2020, 6, 15),
+        datetime.date(2020, 6, 15),
+        rid,
     )
     row = await db.fetchrow("SELECT established_on, abolished_on FROM roles WHERE id=$1", rid)
     assert row["established_on"] == datetime.date(2020, 6, 15)
@@ -187,59 +195,59 @@ def test_bounds_no_constraints_returns_none():
 
 
 def test_bounds_start_before_established_returns_error():
-    err = _check_assignment_within_bounds(
-        dt.date(2009, 12, 31), None, dt.date(2010, 1, 1), None
-    )
+    err = _check_assignment_within_bounds(dt.date(2009, 12, 31), None, dt.date(2010, 1, 1), None)
     assert err is not None
     assert "established" in err.lower()
 
 
 def test_bounds_start_on_established_ok():
-    assert _check_assignment_within_bounds(
-        dt.date(2010, 1, 1), None, dt.date(2010, 1, 1), None
-    ) is None
+    assert (
+        _check_assignment_within_bounds(dt.date(2010, 1, 1), None, dt.date(2010, 1, 1), None)
+        is None
+    )
 
 
 def test_bounds_end_after_abolished_returns_error():
-    err = _check_assignment_within_bounds(
-        None, dt.date(2021, 1, 1), None, dt.date(2020, 12, 31)
-    )
+    err = _check_assignment_within_bounds(None, dt.date(2021, 1, 1), None, dt.date(2020, 12, 31))
     assert err is not None
     assert "abolished" in err.lower()
 
 
 def test_bounds_end_on_abolished_ok():
-    assert _check_assignment_within_bounds(
-        None, dt.date(2020, 12, 31), None, dt.date(2020, 12, 31)
-    ) is None
+    assert (
+        _check_assignment_within_bounds(None, dt.date(2020, 12, 31), None, dt.date(2020, 12, 31))
+        is None
+    )
 
 
 def test_bounds_start_after_abolished_returns_error():
-    err = _check_assignment_within_bounds(
-        dt.date(2021, 6, 1), None, None, dt.date(2020, 12, 31)
-    )
+    err = _check_assignment_within_bounds(dt.date(2021, 6, 1), None, None, dt.date(2020, 12, 31))
     assert err is not None
 
 
 def test_bounds_end_before_established_returns_error():
-    err = _check_assignment_within_bounds(
-        None, dt.date(2009, 1, 1), dt.date(2010, 1, 1), None
-    )
+    err = _check_assignment_within_bounds(None, dt.date(2009, 1, 1), dt.date(2010, 1, 1), None)
     assert err is not None
 
 
 def test_bounds_null_dates_with_constraints_ok():
     """Null assignment dates are valid regardless of role bounds."""
-    assert _check_assignment_within_bounds(
-        None, None, dt.date(2010, 1, 1), dt.date(2020, 12, 31)
-    ) is None
+    assert (
+        _check_assignment_within_bounds(None, None, dt.date(2010, 1, 1), dt.date(2020, 12, 31))
+        is None
+    )
 
 
 def test_bounds_within_range_ok():
-    assert _check_assignment_within_bounds(
-        dt.date(2015, 1, 1), dt.date(2019, 12, 31),
-        dt.date(2010, 1, 1), dt.date(2020, 12, 31),
-    ) is None
+    assert (
+        _check_assignment_within_bounds(
+            dt.date(2015, 1, 1),
+            dt.date(2019, 12, 31),
+            dt.date(2010, 1, 1),
+            dt.date(2020, 12, 31),
+        )
+        is None
+    )
 ```
 
 - [ ] **Step 2: Run tests to confirm they fail**
@@ -320,8 +328,11 @@ async def bounded_role_id(db):
     await db.execute(
         "INSERT INTO roles (id, organization_id, title, established_on, abolished_on)"
         " VALUES ($1, $2, $3, $4, $5)",
-        rid, oid, "Bounded Director",
-        datetime.date(2010, 1, 1), datetime.date(2020, 12, 31),
+        rid,
+        oid,
+        "Bounded Director",
+        datetime.date(2010, 1, 1),
+        datetime.date(2020, 12, 31),
     )
     return rid
 
@@ -331,9 +342,7 @@ async def bounded_role_id(db):
 # ---------------------------------------------------------------------------
 
 
-async def test_create_start_before_established_returns_error(
-    client, bounded_role_id, person_id
-):
+async def test_create_start_before_established_returns_error(client, bounded_role_id, person_id):
     r = await client.post(
         f"/admin/roles/{bounded_role_id}/assignments/",
         headers=HTMX_HEADERS,
@@ -345,9 +354,7 @@ async def test_create_start_before_established_returns_error(
     assert b"<form" in r.content
 
 
-async def test_create_end_after_abolished_returns_error(
-    client, bounded_role_id, person_id
-):
+async def test_create_end_after_abolished_returns_error(client, bounded_role_id, person_id):
     r = await client.post(
         f"/admin/roles/{bounded_role_id}/assignments/",
         headers=HTMX_HEADERS,
@@ -376,7 +383,8 @@ async def test_create_within_bounds_succeeds(client, bounded_role_id, person_id,
     assert r.status_code == 200
     row = await db.fetchrow(
         "SELECT id FROM role_assignments WHERE role_id=$1 AND person_id=$2",
-        bounded_role_id, person_id,
+        bounded_role_id,
+        person_id,
     )
     assert row is not None
 
@@ -391,14 +399,14 @@ async def _make_assignment(db, role_id, person_id) -> str:
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
         " VALUES ($1, $2, $3, FALSE)",
-        aid, person_id, role_id,
+        aid,
+        person_id,
+        role_id,
     )
     return aid
 
 
-async def test_edit_start_before_established_returns_error(
-    client, bounded_role_id, person_id, db
-):
+async def test_edit_start_before_established_returns_error(client, bounded_role_id, person_id, db):
     aid = await _make_assignment(db, bounded_role_id, person_id)
     r = await client.post(
         f"/admin/roles/{bounded_role_id}/assignments/{aid}/edit-row/",
@@ -410,9 +418,7 @@ async def test_edit_start_before_established_returns_error(
     assert trigger["showFlash"]["level"] == "error"
 
 
-async def test_edit_end_after_abolished_returns_error(
-    client, bounded_role_id, person_id, db
-):
+async def test_edit_end_after_abolished_returns_error(client, bounded_role_id, person_id, db):
     aid = await _make_assignment(db, bounded_role_id, person_id)
     r = await client.post(
         f"/admin/roles/{bounded_role_id}/assignments/{aid}/edit-row/",
@@ -460,29 +466,31 @@ In `src/api/admin/roles_assignments_inline.py`:
 2. After the date-parse try/except block (after `end_date_val` is set), add:
 
 ```python
-    bound_err = _check_assignment_within_bounds(
-        start_date_val, end_date_val,
-        role["established_on"], role["abolished_on"],
+bound_err = _check_assignment_within_bounds(
+    start_date_val,
+    end_date_val,
+    role["established_on"],
+    role["abolished_on"],
+)
+if bound_err:
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "admin/roles/partials/_assignment_form_row.html",
+        {
+            "role_id": role_id,
+            "role": role,
+            "start_date_input": start_date,
+            "end_date_input": end_date,
+            "is_current_input": is_current_val,
+        },
+        headers={
+            **flash_trigger("error", bound_err),
+            "HX-Retarget": "#assignment-row-new",
+            "HX-Reswap": "outerHTML",
+        },
     )
-    if bound_err:
-        if not is_htmx(request):
-            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "admin/roles/partials/_assignment_form_row.html",
-            {
-                "role_id": role_id,
-                "role": role,
-                "start_date_input": start_date,
-                "end_date_input": end_date,
-                "is_current_input": is_current_val,
-            },
-            headers={
-                **flash_trigger("error", bound_err),
-                "HX-Retarget": "#assignment-row-new",
-                "HX-Reswap": "outerHTML",
-            },
-        )
 ```
 
 3. Also add `"role": role` to the context dict in all other error-path `TemplateResponse` calls inside `assignment_create` (person validation error, date parse error, check violation error, unique violation error) and to the `assignment_new_row` success response.
@@ -526,23 +534,25 @@ In `assignment_edit_row_post`:
 3. After the date-parse try/except, add boundary check before the DB UPDATE:
 
 ```python
-    bound_err = _check_assignment_within_bounds(
-        start_date_val, end_date_val,
-        role["established_on"], role["abolished_on"],
+bound_err = _check_assignment_within_bounds(
+    start_date_val,
+    end_date_val,
+    role["established_on"],
+    role["abolished_on"],
+)
+if bound_err:
+    if not is_htmx(request):
+        return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "admin/roles/partials/_assignment_edit_row.html",
+        _error_ctx(),
+        headers={
+            **flash_trigger("error", bound_err),
+            "HX-Retarget": f"#assignment-row-{assignment_id}",
+            "HX-Reswap": "outerHTML",
+        },
     )
-    if bound_err:
-        if not is_htmx(request):
-            return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
-        return templates.TemplateResponse(
-            request,
-            "admin/roles/partials/_assignment_edit_row.html",
-            _error_ctx(),
-            headers={
-                **flash_trigger("error", bound_err),
-                "HX-Retarget": f"#assignment-row-{assignment_id}",
-                "HX-Reswap": "outerHTML",
-            },
-        )
 ```
 
 In `assignment_edit_row_get`, add `role = await _get_role(role_id, db)` and pass `"role": role` to the template context.
@@ -639,17 +649,13 @@ Add to `tests/api/admin/test_roles_detail_inline.py`:
 
 
 async def test_dates_read_returns_partial(client, role_id):
-    r = await client.get(
-        f"/admin/roles/{role_id}/inline/dates/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/roles/{role_id}/inline/dates/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"dates-field" in r.content
 
 
 async def test_dates_edit_returns_form(client, role_id):
-    r = await client.get(
-        f"/admin/roles/{role_id}/inline/dates/edit/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/roles/{role_id}/inline/dates/edit/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"established_on" in r.content
     assert b"abolished_on" in r.content
@@ -662,9 +668,7 @@ async def test_dates_post_saves_both_dates(client, role_id, db):
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    row = await db.fetchrow(
-        "SELECT established_on, abolished_on FROM roles WHERE id=$1", role_id
-    )
+    row = await db.fetchrow("SELECT established_on, abolished_on FROM roles WHERE id=$1", role_id)
     assert str(row["established_on"]) == "2010-01-01"
     assert str(row["abolished_on"]) == "2020-12-31"
 
@@ -672,7 +676,9 @@ async def test_dates_post_saves_both_dates(client, role_id, db):
 async def test_dates_post_clears_dates(client, role_id, db):
     await db.execute(
         "UPDATE roles SET established_on=$1, abolished_on=$2 WHERE id=$3",
-        datetime.date(2010, 1, 1), datetime.date(2020, 12, 31), role_id,
+        datetime.date(2010, 1, 1),
+        datetime.date(2020, 12, 31),
+        role_id,
     )
     r = await client.post(
         f"/admin/roles/{role_id}/inline/dates/",
@@ -680,9 +686,7 @@ async def test_dates_post_clears_dates(client, role_id, db):
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    row = await db.fetchrow(
-        "SELECT established_on, abolished_on FROM roles WHERE id=$1", role_id
-    )
+    row = await db.fetchrow("SELECT established_on, abolished_on FROM roles WHERE id=$1", role_id)
     assert row["established_on"] is None
     assert row["abolished_on"] is None
 
@@ -699,16 +703,17 @@ async def test_dates_post_rejects_inverted_order(client, role_id):
     assert b"established_on" in r.content  # form re-rendered
 
 
-async def test_dates_post_rejects_when_assignments_outside_bounds(
-    client, role_id, db
-):
+async def test_dates_post_rejects_when_assignments_outside_bounds(client, role_id, db):
     """Saving bounds that would exclude an existing assignment must fail."""
     # Create a person and assignment with start_date in 2005
     pid = await _make_person(db, "Early Bird")
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)"
         " VALUES ($1, $2, $3, FALSE, $4)",
-        generate_id(), pid, role_id, datetime.date(2005, 3, 1),
+        generate_id(),
+        pid,
+        role_id,
+        datetime.date(2005, 3, 1),
     )
     r = await client.post(
         f"/admin/roles/{role_id}/inline/dates/",
@@ -847,7 +852,9 @@ async def role_inline_dates_edit_get(
         "admin/roles/partials/_dates_form.html",
         {
             "role": role,
-            "established_on_input": role["established_on"].isoformat() if role["established_on"] else "",
+            "established_on_input": role["established_on"].isoformat()
+            if role["established_on"]
+            else "",
             "abolished_on_input": role["abolished_on"].isoformat() if role["abolished_on"] else "",
         },
     )
@@ -904,7 +911,8 @@ async def role_inline_dates_post(
         role_id,
     )
     violations = [
-        ra for ra in assignments
+        ra
+        for ra in assignments
         if _check_assignment_within_bounds(
             ra["start_date"], ra["end_date"], established_on_val, abolished_on_val
         )
@@ -926,7 +934,9 @@ async def role_inline_dates_post(
 
     await db.execute(
         "UPDATE roles SET established_on=$1, abolished_on=$2 WHERE id=$3",
-        established_on_val, abolished_on_val, role_id,
+        established_on_val,
+        abolished_on_val,
+        role_id,
     )
     role = await _get_role(role_id, db)
     if not is_htmx(request):

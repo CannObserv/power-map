@@ -53,6 +53,7 @@ Create `tests/api/admin/test_list_ui.py`:
 
 ```python
 """Integration tests for list view UI: pagination placement and per-page size."""
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -73,6 +74,7 @@ def client():
 
 
 # --- Pagination placement ---
+
 
 def test_orgs_list_has_sticky_pagination(client):
     """pagination--sticky class must appear in orgs list HTML."""
@@ -101,6 +103,7 @@ def test_ra_list_has_sticky_pagination(client):
 
 # --- Per-page size selector ---
 
+
 def test_orgs_list_has_page_size_select(client):
     """orgs list filter bar must include a page_size select."""
     response = client.get("/admin/orgs/", headers=AUTH_HEADERS)
@@ -127,6 +130,7 @@ def test_ra_list_has_page_size_select(client):
 
 
 # --- page_size URL param respected ---
+
 
 def test_orgs_list_accepts_page_size_param(client):
     """page_size=25 in URL must be reflected in the selected option."""
@@ -348,6 +352,7 @@ def test_context_custom_page_size_25():
     assert ctx["total_pages"] == 8
     assert ctx["showing_to"] == 25
 
+
 def test_context_page_size_100():
     ctx = pagination_context(1, 200, 100)
     assert ctx["total_pages"] == 2
@@ -367,7 +372,7 @@ Expected: all pass. `pagination_context` already takes `page_size` as a paramete
 In `orgs_list`, add `page_size` to the function signature after `page`:
 
 ```python
-page_size: int = Query(50, ge=10, le=500),
+page_size: int = (Query(50, ge=10, le=500),)
 ```
 
 In the function body, replace both uses of `PAGE_SIZE` with `page_size`:
@@ -546,13 +551,15 @@ async with db.transaction():
     # organizations.parent_id (FK — must reassign before deleting loser)
     await db.execute(
         "UPDATE organizations SET parent_id=$1 WHERE parent_id=$2",
-        winner_id, loser_id,
+        winner_id,
+        loser_id,
     )
     # organization_names — keep winner's canonical, fold loser's non-canonical as alt names
     await db.execute(
         "UPDATE organization_names SET organization_id=$1"
         " WHERE organization_id=$2 AND is_canonical=FALSE",
-        winner_id, loser_id,
+        winner_id,
+        loser_id,
     )
     await db.execute(
         "DELETE FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
@@ -562,7 +569,8 @@ async with db.transaction():
     await db.execute(
         "UPDATE organization_acronyms SET organization_id=$1"
         " WHERE organization_id=$2 AND is_canonical=FALSE",
-        winner_id, loser_id,
+        winner_id,
+        loser_id,
     )
     await db.execute(
         "DELETE FROM organization_acronyms WHERE organization_id=$1 AND is_canonical=TRUE",
@@ -571,20 +579,28 @@ async with db.transaction():
     # roles (FK column organization_id)
     await db.execute(
         "UPDATE roles SET organization_id=$1 WHERE organization_id=$2",
-        winner_id, loser_id,
+        winner_id,
+        loser_id,
     )
     # Polymorphic entity tables (entity_type TEXT + entity_id TEXT, no FK constraint)
-    for table in ("entity_addresses", "contact_methods", "urls",
-                  "social_links", "import_provenance", "field_confidence"):
+    for table in (
+        "entity_addresses",
+        "contact_methods",
+        "urls",
+        "social_links",
+        "import_provenance",
+        "field_confidence",
+    ):
         await db.execute(
-            f"UPDATE {table} SET entity_id=$1"
-            f" WHERE entity_type='organization' AND entity_id=$2",
-            winner_id, loser_id,
+            f"UPDATE {table} SET entity_id=$1 WHERE entity_type='organization' AND entity_id=$2",
+            winner_id,
+            loser_id,
         )
     # identifiers — entity_type encoded in entity_identifier_type, not a column here
     await db.execute(
         "UPDATE identifiers SET entity_id=$1 WHERE entity_id=$2",
-        winner_id, loser_id,
+        winner_id,
+        loser_id,
     )
     # Hard-delete the loser
     await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
@@ -596,6 +612,7 @@ Create `tests/api/admin/test_orgs_duplicates.py`:
 
 ```python
 """Integration tests for org duplicate detection and merge routes."""
+
 import asyncio
 import os
 
@@ -653,7 +670,9 @@ def org_pair():
                     "INSERT INTO organization_names"
                     " (id, organization_id, name, is_canonical)"
                     " VALUES ($1, $2, $3, TRUE)",
-                    generate_id(), oid, name,
+                    generate_id(),
+                    oid,
+                    name,
                 )
         finally:
             await conn.close()
@@ -665,15 +684,12 @@ def org_pair():
                 "DELETE FROM duplicate_dismissals"
                 " WHERE entity_a_id=$1 OR entity_b_id=$1"
                 " OR entity_a_id=$2 OR entity_b_id=$2",
-                id_a, id_b,
+                id_a,
+                id_b,
             )
             for oid in [id_a, id_b]:
-                await conn.execute(
-                    "DELETE FROM organization_names WHERE organization_id=$1", oid
-                )
-                await conn.execute(
-                    "DELETE FROM organizations WHERE id=$1", oid
-                )
+                await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", oid)
+                await conn.execute("DELETE FROM organizations WHERE id=$1", oid)
         finally:
             await conn.close()
 
@@ -713,9 +729,7 @@ def test_merge_hard_deletes_loser(client, org_pair):
     async def check_deleted():
         conn = await asyncpg.connect(dsn)
         try:
-            return await conn.fetchrow(
-                "SELECT id FROM organizations WHERE id=$1", id_b
-            )
+            return await conn.fetchrow("SELECT id FROM organizations WHERE id=$1", id_b)
         finally:
             await conn.close()
 
@@ -733,8 +747,10 @@ def test_dismiss_pair_removes_from_list(client, org_pair):
     response2 = client.get("/admin/orgs/duplicates/", headers=AUTH_HEADERS)
     assert response2.status_code == 200
     # The dismissed pair should no longer appear as a candidate
-    assert "Alberta Gaming, Liquor and Cannabis Commission" not in response2.text \
+    assert (
+        "Alberta Gaming, Liquor and Cannabis Commission" not in response2.text
         or "Alberta Gaming, Liquor, and Cannabis Commission" not in response2.text
+    )
 ```
 
 - [ ] **Step 2: Run to confirm they fail**
@@ -850,47 +866,57 @@ async def org_merge(
         # organizations.parent_id (FK — reassign before deleting loser)
         await db.execute(
             "UPDATE organizations SET parent_id=$1 WHERE parent_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         # organization_names
         await db.execute(
             "UPDATE organization_names SET organization_id=$1"
             " WHERE organization_id=$2 AND is_canonical=FALSE",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         await db.execute(
-            "DELETE FROM organization_names"
-            " WHERE organization_id=$1 AND is_canonical=TRUE",
+            "DELETE FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
             loser_id,
         )
         # organization_acronyms
         await db.execute(
             "UPDATE organization_acronyms SET organization_id=$1"
             " WHERE organization_id=$2 AND is_canonical=FALSE",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         await db.execute(
-            "DELETE FROM organization_acronyms"
-            " WHERE organization_id=$1 AND is_canonical=TRUE",
+            "DELETE FROM organization_acronyms WHERE organization_id=$1 AND is_canonical=TRUE",
             loser_id,
         )
         # roles
         await db.execute(
             "UPDATE roles SET organization_id=$1 WHERE organization_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         # Polymorphic entity tables (entity_type TEXT + entity_id TEXT, no FK)
-        for table in ("entity_addresses", "contact_methods", "urls",
-                      "social_links", "import_provenance", "field_confidence"):
+        for table in (
+            "entity_addresses",
+            "contact_methods",
+            "urls",
+            "social_links",
+            "import_provenance",
+            "field_confidence",
+        ):
             await db.execute(
                 f"UPDATE {table} SET entity_id=$1"
                 f" WHERE entity_type='organization' AND entity_id=$2",
-                winner_id, loser_id,
+                winner_id,
+                loser_id,
             )
         # identifiers (entity_type encoded in entity_identifier_type_id, not a column)
         await db.execute(
             "UPDATE identifiers SET entity_id=$1 WHERE entity_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
     return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
@@ -920,7 +946,10 @@ async def org_dismiss_duplicate(
         " (id, entity_type, entity_a_id, entity_b_id, dismissed_by)"
         " VALUES ($1, 'organization', $2, $3, $4)"
         " ON CONFLICT (entity_type, entity_a_id, entity_b_id) DO NOTHING",
-        generate_id(), a, b, user.email,
+        generate_id(),
+        a,
+        b,
+        user.email,
     )
     return RedirectResponse("/admin/orgs/duplicates/", status_code=303)
 ```

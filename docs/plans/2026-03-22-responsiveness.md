@@ -35,6 +35,7 @@ Create `tests/api/admin/test_responsiveness.py`:
 
 ```python
 """CSS content assertions for responsiveness fixes (issue #22)."""
+
 import re
 from pathlib import Path
 
@@ -42,6 +43,7 @@ CSS = Path("src/static/admin/admin.css").read_text()
 
 
 # ── Task 1: Touch targets ────────────────────────────────────────────────────
+
 
 def test_btn_has_min_height_44():
     """All .btn elements must meet 44 px touch target height."""
@@ -143,6 +145,7 @@ Add to `tests/api/admin/test_responsiveness.py`:
 ```python
 # ── Task 2: Sticky thead ─────────────────────────────────────────────────────
 
+
 def test_data_table_thead_th_is_sticky():
     """thead th must be position:sticky so headers stay visible on scroll."""
     match = re.search(r"\.data-table\s+thead\s+th\s*\{[^}]*position:\s*sticky", CSS)
@@ -217,6 +220,7 @@ Add to `tests/api/admin/test_responsiveness.py`:
 
 ```python
 # ── Task 3: detail-grid ──────────────────────────────────────────────────────
+
 
 def test_detail_grid_uses_css_grid():
     """detail-grid must use CSS grid — currently has no CSS at all."""
@@ -315,6 +319,7 @@ Add to `tests/api/admin/test_responsiveness.py`:
 
 ```python
 # ── Task 4: Mobile audit ─────────────────────────────────────────────────────
+
 
 def test_admin_main_has_reduced_padding_on_mobile():
     """admin-main padding should be reduced inside the 768px media block."""

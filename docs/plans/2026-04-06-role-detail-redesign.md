@@ -99,9 +99,7 @@ async def client(db):
         yield db
 
     app.dependency_overrides[get_db] = _get_db_override
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as c:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.pop(get_db, None)
 
@@ -112,16 +110,17 @@ async def _make_person(db, first: str, last: str) -> str:
     await db.execute(
         "INSERT INTO person_names (id, person_id, first_name, last_name, is_canonical)"
         " VALUES ($1, $2, $3, $4, TRUE)",
-        generate_id(), pid, first, last,
+        generate_id(),
+        pid,
+        first,
+        last,
     )
     return pid
 
 
 async def test_search_returns_matching_person(client, db):
     await _make_person(db, "Jane", "Doe")
-    r = await client.get(
-        "/admin/people/search/", params={"q": "Jane"}, headers=HTMX_HEADERS
-    )
+    r = await client.get("/admin/people/search/", params={"q": "Jane"}, headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"Jane" in r.content
     assert b"data-id" in r.content
@@ -129,9 +128,7 @@ async def test_search_returns_matching_person(client, db):
 
 async def test_search_empty_query_returns_empty(client, db):
     await _make_person(db, "Alice", "Smith")
-    r = await client.get(
-        "/admin/people/search/", params={"q": ""}, headers=HTMX_HEADERS
-    )
+    r = await client.get("/admin/people/search/", params={"q": ""}, headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"data-id" not in r.content
 
@@ -503,9 +500,7 @@ async def client(db):
         yield db
 
     app.dependency_overrides[get_db] = _get_db_override
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as c:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.pop(get_db, None)
 
@@ -516,7 +511,9 @@ async def _make_org(db, name: str) -> str:
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
         " VALUES ($1, $2, $3, TRUE)",
-        generate_id(), oid, name,
+        generate_id(),
+        oid,
+        name,
     )
     return oid
 
@@ -526,9 +523,11 @@ async def role_id(db):
     oid = await _make_org(db, "Test Org")
     rid = generate_id()
     await db.execute(
-        "INSERT INTO roles (id, organization_id, title, notes)"
-        " VALUES ($1, $2, $3, $4)",
-        rid, oid, "Executive Director", "Some notes",
+        "INSERT INTO roles (id, organization_id, title, notes) VALUES ($1, $2, $3, $4)",
+        rid,
+        oid,
+        "Executive Director",
+        "Some notes",
     )
     return rid
 
@@ -539,17 +538,13 @@ async def role_id(db):
 
 
 async def test_org_read_returns_partial(client, role_id):
-    r = await client.get(
-        f"/admin/roles/{role_id}/inline/org/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/roles/{role_id}/inline/org/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"org-field" in r.content
 
 
 async def test_org_edit_returns_form(client, role_id):
-    r = await client.get(
-        f"/admin/roles/{role_id}/inline/org/edit/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/roles/{role_id}/inline/org/edit/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"org-search" in r.content
 
@@ -594,17 +589,13 @@ async def test_org_post_empty_returns_error(client, role_id):
 
 
 async def test_title_read_returns_partial(client, role_id):
-    r = await client.get(
-        f"/admin/roles/{role_id}/inline/title/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/roles/{role_id}/inline/title/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"title-field" in r.content
 
 
 async def test_title_edit_returns_form(client, role_id):
-    r = await client.get(
-        f"/admin/roles/{role_id}/inline/title/edit/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/roles/{role_id}/inline/title/edit/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b'name="title"' in r.content
 
@@ -647,17 +638,13 @@ async def test_title_post_empty_returns_error(client, role_id):
 
 
 async def test_notes_read_returns_partial(client, role_id):
-    r = await client.get(
-        f"/admin/roles/{role_id}/inline/notes/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/roles/{role_id}/inline/notes/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"notes-field" in r.content
 
 
 async def test_notes_edit_returns_form(client, role_id):
-    r = await client.get(
-        f"/admin/roles/{role_id}/inline/notes/edit/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/roles/{role_id}/inline/notes/edit/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"notes-textarea" in r.content
 
@@ -1000,9 +987,7 @@ async def role_inline_org_post(
             {"role": role},
             headers=flash_trigger("error", "Organization not found."),
         )
-    await db.execute(
-        "UPDATE roles SET organization_id=$1 WHERE id=$2", resolved, role_id
-    )
+    await db.execute("UPDATE roles SET organization_id=$1 WHERE id=$2", resolved, role_id)
     role = await _get_role(role_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
@@ -1143,9 +1128,7 @@ async def role_inline_notes_post(
     if redirect:
         return redirect
     await _get_role(role_id, db)  # 404 check
-    await db.execute(
-        "UPDATE roles SET notes=$1 WHERE id=$2", notes.strip() or None, role_id
-    )
+    await db.execute("UPDATE roles SET notes=$1 WHERE id=$2", notes.strip() or None, role_id)
     role = await _get_role(role_id, db)
     if not is_htmx(request):
         return RedirectResponse(f"/admin/roles/{role_id}/", status_code=303)
@@ -1247,9 +1230,7 @@ async def client(db):
         yield db
 
     app.dependency_overrides[get_db] = _get_db_override
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as c:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
     app.dependency_overrides.pop(get_db, None)
 
@@ -1260,7 +1241,9 @@ async def _make_org(db, name: str) -> str:
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
         " VALUES ($1, $2, $3, TRUE)",
-        generate_id(), oid, name,
+        generate_id(),
+        oid,
+        name,
     )
     return oid
 
@@ -1271,7 +1254,10 @@ async def _make_person(db, first: str, last: str) -> str:
     await db.execute(
         "INSERT INTO person_names (id, person_id, first_name, last_name, is_canonical)"
         " VALUES ($1, $2, $3, $4, TRUE)",
-        generate_id(), pid, first, last,
+        generate_id(),
+        pid,
+        first,
+        last,
     )
     return pid
 
@@ -1282,7 +1268,9 @@ async def role_id(db):
     rid = generate_id()
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-        rid, oid, "Executive Director",
+        rid,
+        oid,
+        "Executive Director",
     )
     return rid
 
@@ -1298,18 +1286,14 @@ async def person_id(db):
 
 
 async def test_new_row_returns_form(client, role_id):
-    r = await client.get(
-        f"/admin/roles/{role_id}/assignments/new-row/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/roles/{role_id}/assignments/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"<form" in r.content
     assert b"person-search" in r.content
 
 
 async def test_new_row_unknown_role_returns_404(client):
-    r = await client.get(
-        f"/admin/roles/{generate_id()}/assignments/new-row/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/roles/{generate_id()}/assignments/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 404
 
 
@@ -1332,7 +1316,8 @@ async def test_create_persists_assignment(client, role_id, person_id, db):
     assert r.status_code == 200
     row = await db.fetchrow(
         "SELECT * FROM role_assignments WHERE role_id=$1 AND person_id=$2",
-        role_id, person_id,
+        role_id,
+        person_id,
     )
     assert row is not None
     assert row["is_current"] is True
@@ -1353,7 +1338,8 @@ async def test_create_with_end_date(client, role_id, person_id, db):
     assert r.status_code == 200
     row = await db.fetchrow(
         "SELECT * FROM role_assignments WHERE role_id=$1 AND person_id=$2",
-        role_id, person_id,
+        role_id,
+        person_id,
     )
     assert row is not None
     assert row["is_current"] is False
@@ -1684,7 +1670,12 @@ async def assignment_create(
         await db.execute(
             """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, end_date)
                VALUES ($1, $2, $3, $4, $5, $6)""",
-            ra_id, person_id_val, role_id, is_current_val, start_date_val, end_date_val,
+            ra_id,
+            person_id_val,
+            role_id,
+            is_current_val,
+            start_date_val,
+            end_date_val,
         )
     except asyncpg.CheckViolationError:
         if not is_htmx(request):

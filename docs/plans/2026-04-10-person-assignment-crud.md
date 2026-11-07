@@ -44,6 +44,7 @@ The new-assignment form row needs a role typeahead. Add `GET /admin/roles/search
 ```python
 # tests/api/admin/test_roles_search.py
 """Tests for role search typeahead endpoint."""
+
 import os
 import asyncpg
 import pytest
@@ -78,6 +79,7 @@ async def db():
 async def client(db):
     async def _get_db_override():
         yield db
+
     app.dependency_overrides[get_db] = _get_db_override
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
@@ -91,12 +93,16 @@ async def role_id(db):
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
         " VALUES ($1, $2, $3, TRUE)",
-        generate_id(), oid, "Acme Corp",
+        generate_id(),
+        oid,
+        "Acme Corp",
     )
     rid = generate_id()
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-        rid, oid, "Executive Director",
+        rid,
+        oid,
+        "Executive Director",
     )
     return rid
 
@@ -137,13 +143,16 @@ async def test_search_excludes_archived_roles(client, db):
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
         " VALUES ($1, $2, $3, TRUE)",
-        generate_id(), oid, "Old Org",
+        generate_id(),
+        oid,
+        "Old Org",
     )
     rid = generate_id()
     await db.execute(
-        "INSERT INTO roles (id, organization_id, title, archived_at)"
-        " VALUES ($1, $2, $3, NOW())",
-        rid, oid, "Archived Role",
+        "INSERT INTO roles (id, organization_id, title, archived_at) VALUES ($1, $2, $3, NOW())",
+        rid,
+        oid,
+        "Archived Role",
     )
     r = await client.get("/admin/roles/search/?q=Archived", headers=HTMX_HEADERS)
     assert r.status_code == 200
@@ -245,6 +254,7 @@ Create `tests/api/admin/test_people_assignments_inline.py`:
 
 ```python
 """Integration tests for inline assignment CRUD on person detail."""
+
 import json
 import os
 
@@ -282,6 +292,7 @@ async def db():
 async def client(db):
     async def _get_db_override():
         yield db
+
     app.dependency_overrides[get_db] = _get_db_override
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
@@ -294,7 +305,9 @@ async def person_id(db):
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
-        generate_id(), pid, "Jane Doe",
+        generate_id(),
+        pid,
+        "Jane Doe",
     )
     return pid
 
@@ -306,12 +319,16 @@ async def role_id(db):
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
         " VALUES ($1, $2, $3, TRUE)",
-        generate_id(), oid, "Test Org",
+        generate_id(),
+        oid,
+        "Test Org",
     )
     rid = generate_id()
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
-        rid, oid, "Executive Director",
+        rid,
+        oid,
+        "Executive Director",
     )
     return rid
 
@@ -322,9 +339,7 @@ async def role_id(db):
 
 
 async def test_new_row_returns_form(client, person_id):
-    r = await client.get(
-        f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"<form" in r.content
     assert b"role-search" in r.content
@@ -338,18 +353,14 @@ async def test_new_row_unknown_person_returns_404(client):
 
 
 async def test_new_row_is_current_uses_pill_toggle(client, person_id):
-    r = await client.get(
-        f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b'class="toggle"' in r.content
     assert b"toggle__track" in r.content
 
 
 async def test_new_row_js_disables_end_date_when_is_current_checked(client, person_id):
-    r = await client.get(
-        f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS
-    )
+    r = await client.get(f"/admin/people/{person_id}/assignments/new-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert b"endDt.disabled = true" in r.content
     assert b"endDt.disabled = false" in r.content
@@ -374,7 +385,8 @@ async def test_create_persists_assignment(client, person_id, role_id, db):
     assert r.status_code == 200
     row = await db.fetchrow(
         "SELECT * FROM role_assignments WHERE person_id=$1 AND role_id=$2",
-        person_id, role_id,
+        person_id,
+        role_id,
     )
     assert row is not None
     assert row["is_current"] is True
@@ -390,7 +402,8 @@ async def test_create_with_end_date(client, person_id, role_id, db):
     assert r.status_code == 200
     row = await db.fetchrow(
         "SELECT * FROM role_assignments WHERE person_id=$1 AND role_id=$2",
-        person_id, role_id,
+        person_id,
+        role_id,
     )
     assert row is not None
     assert str(row["end_date"]) == "2023-12-31"
@@ -461,7 +474,9 @@ async def test_create_duplicate_start_date_returns_error(client, person_id, role
     await db.execute(
         """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)
            VALUES ($1, $2, $3, FALSE, '2024-01-01')""",
-        generate_id(), person_id, role_id,
+        generate_id(),
+        person_id,
+        role_id,
     )
     r = await client.post(
         f"/admin/people/{person_id}/assignments/",
@@ -556,7 +571,8 @@ async def _get_assignment(assignment_id: str, person_id: str, db):
            JOIN organizations o ON o.id = r.organization_id
            LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
            WHERE ra.id = $1 AND ra.person_id = $2""",
-        assignment_id, person_id,
+        assignment_id,
+        person_id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Assignment not found")
@@ -643,7 +659,12 @@ async def assignment_create(
             """INSERT INTO role_assignments
                (id, person_id, role_id, is_current, start_date, end_date)
                VALUES ($1, $2, $3, $4, $5, $6)""",
-            ra_id, person_id, role_id_val, is_current_val, start_date_val, end_date_val,
+            ra_id,
+            person_id,
+            role_id_val,
+            is_current_val,
+            start_date_val,
+            end_date_val,
         )
     except asyncpg.CheckViolationError:
         if not is_htmx(request):
@@ -769,7 +790,10 @@ async def assignment_edit_row_post(
             """UPDATE role_assignments
                SET is_current=$1, start_date=$2, end_date=$3
                WHERE id=$4""",
-            is_current_val, start_date_val, end_date_val, assignment_id,
+            is_current_val,
+            start_date_val,
+            end_date_val,
+            assignment_id,
         )
     except asyncpg.CheckViolationError:
         if not is_htmx(request):
@@ -1025,7 +1049,9 @@ async def assignment_id(db, person_id, role_id):
     await db.execute(
         """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date, end_date)
            VALUES ($1, $2, $3, FALSE, '2020-01-01', '2022-12-31')""",
-        ra_id, person_id, role_id,
+        ra_id,
+        person_id,
+        role_id,
     )
     return ra_id
 
@@ -1037,7 +1063,9 @@ async def archived_assignment_id(db, person_id, role_id):
         """INSERT INTO role_assignments
                (id, person_id, role_id, is_current, start_date, end_date, archived_at)
            VALUES ($1, $2, $3, FALSE, '2018-01-01', '2019-12-31', NOW())""",
-        ra_id, person_id, role_id,
+        ra_id,
+        person_id,
+        role_id,
     )
     return ra_id
 
@@ -1048,7 +1076,9 @@ async def current_assignment_id(db, person_id, role_id):
     await db.execute(
         """INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)
            VALUES ($1, $2, $3, TRUE, '2024-01-01')""",
-        ra_id, person_id, role_id,
+        ra_id,
+        person_id,
+        role_id,
     )
     return ra_id
 
@@ -1174,7 +1204,7 @@ async def test_edit_row_get_current_end_date_is_disabled(client, person_id, curr
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    assert b' disabled>' in r.content
+    assert b" disabled>" in r.content
 
 
 async def test_edit_row_get_non_current_end_date_not_disabled(client, person_id, assignment_id):
@@ -1183,7 +1213,7 @@ async def test_edit_row_get_non_current_end_date_not_disabled(client, person_id,
         headers=HTMX_HEADERS,
     )
     assert r.status_code == 200
-    assert b' disabled>' not in r.content
+    assert b" disabled>" not in r.content
 
 
 async def test_edit_row_get_is_current_uses_pill_toggle(client, person_id, assignment_id):
@@ -1252,9 +1282,7 @@ async def test_edit_row_post_returns_success_flash(client, person_id, assignment
 # ---------------------------------------------------------------------------
 
 
-async def test_edit_row_post_current_with_end_date_returns_error(
-    client, person_id, assignment_id
-):
+async def test_edit_row_post_current_with_end_date_returns_error(client, person_id, assignment_id):
     r = await client.post(
         f"/admin/people/{person_id}/assignments/{assignment_id}/edit-row/",
         headers=HTMX_HEADERS,
@@ -1435,7 +1463,9 @@ async def test_person_detail_shows_add_assignment_button(client, person_id):
     assert b"Add assignment" in r.content
 
 
-async def test_person_detail_role_title_links_to_role_detail(client, person_id, assignment_id, role_id):
+async def test_person_detail_role_title_links_to_role_detail(
+    client, person_id, assignment_id, role_id
+):
     r = await client.get(f"/admin/people/{person_id}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
     assert f"/admin/roles/{role_id}/".encode() in r.content
@@ -1443,12 +1473,12 @@ async def test_person_detail_role_title_links_to_role_detail(client, person_id, 
 
 async def test_person_detail_hides_add_button_when_archived(client, db):
     pid = generate_id()
-    await db.execute(
-        "INSERT INTO people (id, archived_at) VALUES ($1, NOW())", pid
-    )
+    await db.execute("INSERT INTO people (id, archived_at) VALUES ($1, NOW())", pid)
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, is_canonical) VALUES ($1, $2, $3, TRUE)",
-        generate_id(), pid, "Archived Person",
+        generate_id(),
+        pid,
+        "Archived Person",
     )
     r = await client.get(f"/admin/people/{pid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200

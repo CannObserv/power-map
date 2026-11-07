@@ -46,24 +46,20 @@ async def person_merge(
     )
 
     async with db.transaction():
-        winner = await db.fetchrow(
-            "SELECT id FROM people WHERE id=$1 FOR UPDATE", winner_id
-        )
-        loser = await db.fetchrow(
-            "SELECT id FROM people WHERE id=$1 FOR UPDATE", loser_id
-        )
+        winner = await db.fetchrow("SELECT id FROM people WHERE id=$1 FOR UPDATE", winner_id)
+        loser = await db.fetchrow("SELECT id FROM people WHERE id=$1 FOR UPDATE", loser_id)
         if not winner or not loser:
             raise HTTPException(status_code=404, detail="Person not found")
 
         # person_names: demote loser's canonical name to alias, reassign all to winner
         await db.execute(
-            "UPDATE person_names SET is_canonical=FALSE"
-            " WHERE person_id=$1 AND is_canonical=TRUE",
+            "UPDATE person_names SET is_canonical=FALSE WHERE person_id=$1 AND is_canonical=TRUE",
             loser_id,
         )
         await db.execute(
             "UPDATE person_names SET person_id=$1 WHERE person_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
         # role_assignments: delete conflicts, then reassign the rest
@@ -75,26 +71,34 @@ async def person_merge(
                      FROM role_assignments
                      WHERE person_id=$2 AND archived_at IS NULL
                  )""",
-            loser_id, winner_id,
+            loser_id,
+            winner_id,
         )
         await db.execute(
             "UPDATE role_assignments SET person_id=$1 WHERE person_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
         # Polymorphic entity tables
-        for table in ("contact_methods", "links", "entity_addresses",
-                      "import_provenance", "field_confidence"):
+        for table in (
+            "contact_methods",
+            "links",
+            "entity_addresses",
+            "import_provenance",
+            "field_confidence",
+        ):
             await db.execute(
-                f"UPDATE {table} SET entity_id=$1"
-                f" WHERE entity_type='person' AND entity_id=$2",
-                winner_id, loser_id,
+                f"UPDATE {table} SET entity_id=$1 WHERE entity_type='person' AND entity_id=$2",
+                winner_id,
+                loser_id,
             )
 
         # identifiers (no entity_type column)
         await db.execute(
             "UPDATE identifiers SET entity_id=$1 WHERE entity_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
         # duplicate_dismissals: reassign other dismissals, delete the merged pair
@@ -103,19 +107,22 @@ async def person_merge(
             " WHERE entity_type='person'"
             "   AND ((entity_a_id=$1 AND entity_b_id=$2)"
             "    OR  (entity_a_id=$2 AND entity_b_id=$1))",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         for old_id, new_id in [(loser_id, winner_id)]:
             a, b = (new_id, old_id) if new_id < old_id else (old_id, new_id)
             await db.execute(
                 "UPDATE duplicate_dismissals SET entity_a_id=$1"
                 " WHERE entity_type='person' AND entity_a_id=$2",
-                winner_id, loser_id,
+                winner_id,
+                loser_id,
             )
             await db.execute(
                 "UPDATE duplicate_dismissals SET entity_b_id=$1"
                 " WHERE entity_type='person' AND entity_b_id=$2",
-                winner_id, loser_id,
+                winner_id,
+                loser_id,
             )
 
         await db.execute("DELETE FROM people WHERE id=$1", loser_id)
@@ -125,9 +132,9 @@ async def person_merge(
     if is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         body = (
-            f'Merged <strong>{escape(loser_name)}</strong> into '
+            f"Merged <strong>{escape(loser_name)}</strong> into "
             f'<a href="/admin/people/{winner_id}/"><strong>{escape(winner_name)}</strong></a>. '
-            f'Review role assignments and contact info for duplicates.'
+            f"Review role assignments and contact info for duplicates."
         )
         ctx = {
             "user": user,
@@ -146,17 +153,17 @@ async def person_merge(
 Note: the `duplicate_dismissals` reassignment block above has a subtle bug — the loop with `(old_id, new_id)` tuple unpacking is misleading and the SQL already uses `$1/$2` correctly without the loop. Simplify to just the two UPDATE statements directly:
 
 ```python
-        # Reassign any other dismissals that reference the loser
-        await db.execute(
-            "UPDATE duplicate_dismissals SET entity_a_id=$1"
-            " WHERE entity_type='person' AND entity_a_id=$2",
-            winner_id, loser_id,
-        )
-        await db.execute(
-            "UPDATE duplicate_dismissals SET entity_b_id=$1"
-            " WHERE entity_type='person' AND entity_b_id=$2",
-            winner_id, loser_id,
-        )
+# Reassign any other dismissals that reference the loser
+await db.execute(
+    "UPDATE duplicate_dismissals SET entity_a_id=$1 WHERE entity_type='person' AND entity_a_id=$2",
+    winner_id,
+    loser_id,
+)
+await db.execute(
+    "UPDATE duplicate_dismissals SET entity_b_id=$1 WHERE entity_type='person' AND entity_b_id=$2",
+    winner_id,
+    loser_id,
+)
 ```
 
 Use this corrected version. The full route with the fix applied:
@@ -183,24 +190,20 @@ async def person_merge(
     )
 
     async with db.transaction():
-        winner = await db.fetchrow(
-            "SELECT id FROM people WHERE id=$1 FOR UPDATE", winner_id
-        )
-        loser = await db.fetchrow(
-            "SELECT id FROM people WHERE id=$1 FOR UPDATE", loser_id
-        )
+        winner = await db.fetchrow("SELECT id FROM people WHERE id=$1 FOR UPDATE", winner_id)
+        loser = await db.fetchrow("SELECT id FROM people WHERE id=$1 FOR UPDATE", loser_id)
         if not winner or not loser:
             raise HTTPException(status_code=404, detail="Person not found")
 
         # person_names: demote loser's canonical to alias, then reassign all to winner
         await db.execute(
-            "UPDATE person_names SET is_canonical=FALSE"
-            " WHERE person_id=$1 AND is_canonical=TRUE",
+            "UPDATE person_names SET is_canonical=FALSE WHERE person_id=$1 AND is_canonical=TRUE",
             loser_id,
         )
         await db.execute(
             "UPDATE person_names SET person_id=$1 WHERE person_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
         # role_assignments: delete conflicts (same role+start_date on both), then reassign
@@ -212,26 +215,34 @@ async def person_merge(
                      FROM role_assignments
                      WHERE person_id=$2 AND archived_at IS NULL
                  )""",
-            loser_id, winner_id,
+            loser_id,
+            winner_id,
         )
         await db.execute(
             "UPDATE role_assignments SET person_id=$1 WHERE person_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
         # Polymorphic entity tables
-        for table in ("contact_methods", "links", "entity_addresses",
-                      "import_provenance", "field_confidence"):
+        for table in (
+            "contact_methods",
+            "links",
+            "entity_addresses",
+            "import_provenance",
+            "field_confidence",
+        ):
             await db.execute(
-                f"UPDATE {table} SET entity_id=$1"
-                f" WHERE entity_type='person' AND entity_id=$2",
-                winner_id, loser_id,
+                f"UPDATE {table} SET entity_id=$1 WHERE entity_type='person' AND entity_id=$2",
+                winner_id,
+                loser_id,
             )
 
         # identifiers (no entity_type column)
         await db.execute(
             "UPDATE identifiers SET entity_id=$1 WHERE entity_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
         # duplicate_dismissals: delete the merged pair, reassign any others referencing loser
@@ -240,17 +251,20 @@ async def person_merge(
             " WHERE entity_type='person'"
             "   AND ((entity_a_id=$1 AND entity_b_id=$2)"
             "    OR  (entity_a_id=$2 AND entity_b_id=$1))",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         await db.execute(
             "UPDATE duplicate_dismissals SET entity_a_id=$1"
             " WHERE entity_type='person' AND entity_a_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
         await db.execute(
             "UPDATE duplicate_dismissals SET entity_b_id=$1"
             " WHERE entity_type='person' AND entity_b_id=$2",
-            winner_id, loser_id,
+            winner_id,
+            loser_id,
         )
 
         await db.execute("DELETE FROM people WHERE id=$1", loser_id)
@@ -260,9 +274,9 @@ async def person_merge(
     if is_htmx(request):
         pairs = await _fetch_duplicate_pairs(db)
         body = (
-            f'Merged <strong>{escape(loser_name)}</strong> into '
+            f"Merged <strong>{escape(loser_name)}</strong> into "
             f'<a href="/admin/people/{winner_id}/"><strong>{escape(winner_name)}</strong></a>. '
-            f'Review role assignments and contact info for duplicates.'
+            f"Review role assignments and contact info for duplicates."
         )
         ctx = {
             "user": user,
@@ -316,28 +330,28 @@ def person_pair_with_roles():
     async def setup():
         conn = await _aconnect(dsn)
         try:
-            await conn.execute(
-                "INSERT INTO organizations (id) VALUES ($1)", id_org
-            )
+            await conn.execute("INSERT INTO organizations (id) VALUES ($1)", id_org)
             await conn.execute(
                 "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
                 " VALUES ($1, $2, 'Test Org', TRUE)",
-                generate_id(), id_org,
+                generate_id(),
+                id_org,
             )
-            for pid, name in [(id_a, "Jonathan Smithfield"),
-                              (id_b, "Jonathan Smithfield Jr")]:
+            for pid, name in [(id_a, "Jonathan Smithfield"), (id_b, "Jonathan Smithfield Jr")]:
                 await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
                 await conn.execute(
                     "INSERT INTO person_names (id, person_id, name, is_canonical)"
                     " VALUES ($1, $2, $3, TRUE)",
-                    generate_id(), pid, name,
+                    generate_id(),
+                    pid,
+                    name,
                 )
-            for rid, title in [(shared_role_id, "Director"),
-                               (unique_role_id, "Advisor")]:
+            for rid, title in [(shared_role_id, "Director"), (unique_role_id, "Advisor")]:
                 await conn.execute(
-                    "INSERT INTO roles (id, organization_id, title)"
-                    " VALUES ($1, $2, $3)",
-                    rid, id_org, title,
+                    "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+                    rid,
+                    id_org,
+                    title,
                 )
             # Both people hold shared_role starting 2024-01-01
             for ra_id, pid in [(ra_a_shared, id_a), (ra_b_shared, id_b)]:
@@ -345,14 +359,18 @@ def person_pair_with_roles():
                     "INSERT INTO role_assignments"
                     " (id, person_id, role_id, is_current, start_date)"
                     " VALUES ($1, $2, $3, FALSE, '2024-01-01')",
-                    ra_id, pid, shared_role_id,
+                    ra_id,
+                    pid,
+                    shared_role_id,
                 )
             # Only loser holds unique_role
             await conn.execute(
                 "INSERT INTO role_assignments"
                 " (id, person_id, role_id, is_current)"
                 " VALUES ($1, $2, $3, TRUE)",
-                ra_b_unique, id_b, unique_role_id,
+                ra_b_unique,
+                id_b,
+                unique_role_id,
             )
         finally:
             await conn.close()
@@ -364,22 +382,23 @@ def person_pair_with_roles():
                 "DELETE FROM duplicate_dismissals"
                 " WHERE entity_a_id=$1 OR entity_b_id=$1"
                 " OR entity_a_id=$2 OR entity_b_id=$2",
-                id_a, id_b,
+                id_a,
+                id_b,
             )
             await conn.execute(
                 "DELETE FROM role_assignments WHERE person_id=$1 OR person_id=$2",
-                id_a, id_b,
+                id_a,
+                id_b,
             )
             await conn.execute(
                 "DELETE FROM roles WHERE id=$1 OR id=$2",
-                shared_role_id, unique_role_id,
+                shared_role_id,
+                unique_role_id,
             )
             for pid in [id_a, id_b]:
                 await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
                 await conn.execute("DELETE FROM people WHERE id=$1", pid)
-            await conn.execute(
-                "DELETE FROM organization_names WHERE organization_id=$1", id_org
-            )
+            await conn.execute("DELETE FROM organization_names WHERE organization_id=$1", id_org)
             await conn.execute("DELETE FROM organizations WHERE id=$1", id_org)
         finally:
             await conn.close()
@@ -395,6 +414,7 @@ Add these tests after the existing dismiss tests:
 
 ```python
 # ── Merge ────────────────────────────────────────────────────────────────────
+
 
 def test_merge_hard_deletes_loser(client, person_pair):
     id_a, id_b = person_pair
@@ -465,9 +485,9 @@ def test_merge_deletes_conflicting_role_assignment(client, person_pair_with_role
         conn = await asyncpg.connect(_get_dsn())
         try:
             return await conn.fetch(
-                "SELECT id FROM role_assignments"
-                " WHERE person_id=$1 AND role_id=$2",
-                id_winner, shared_role_id,
+                "SELECT id FROM role_assignments WHERE person_id=$1 AND role_id=$2",
+                id_winner,
+                shared_role_id,
             )
         finally:
             await conn.close()
@@ -488,9 +508,9 @@ def test_merge_reassigns_unique_role_assignment(client, person_pair_with_roles):
         conn = await asyncpg.connect(_get_dsn())
         try:
             return await conn.fetchrow(
-                "SELECT id FROM role_assignments"
-                " WHERE person_id=$1 AND role_id=$2",
-                id_winner, unique_role_id,
+                "SELECT id FROM role_assignments WHERE person_id=$1 AND role_id=$2",
+                id_winner,
+                unique_role_id,
             )
         finally:
             await conn.close()

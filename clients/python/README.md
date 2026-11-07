@@ -47,7 +47,7 @@ if r.status_code == 200:
     org: OrgDetail = r.parsed
     etag = r.headers["etag"]
 elif r.status_code == 410:
-    gone: EntityGone = r.parsed      # merged_into names where the id went
+    gone: EntityGone = r.parsed  # merged_into names where the id went
 elif r.status_code in (401, 403, 404, 429):
     err: ErrorDetail = r.parsed
 
@@ -60,8 +60,14 @@ Many orgs in one call (up to 100 ids), each result its own class:
 ```python
 from power_map_client.generated.api.public_api import batch_get_orgs
 from power_map_client.generated.models import (
-    OrgBatchGetRequest, OrgBatchGetRequestEtags, OrgBatchGetResponse,
-    OrgBatchGone, OrgBatchMerged, OrgBatchNotFound, OrgBatchNotModified, OrgBatchOk,
+    OrgBatchGetRequest,
+    OrgBatchGetRequestEtags,
+    OrgBatchGetResponse,
+    OrgBatchGone,
+    OrgBatchMerged,
+    OrgBatchNotFound,
+    OrgBatchNotModified,
+    OrgBatchOk,
 )
 
 body = OrgBatchGetRequest(ids=ids, etags=OrgBatchGetRequestEtags.from_dict(known_etags))

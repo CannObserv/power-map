@@ -144,13 +144,11 @@ async def test_iso15924_scripts_has_column(db, column, data_type):
 
 async def test_iso15924_scripts_numeric_code_unique(db):
     await db.execute(
-        "INSERT INTO iso15924_scripts (code, numeric_code, name) "
-        "VALUES ('Aaaa', 999, 'Test')"
+        "INSERT INTO iso15924_scripts (code, numeric_code, name) VALUES ('Aaaa', 999, 'Test')"
     )
     with pytest.raises(asyncpg.UniqueViolationError):
         await db.execute(
-            "INSERT INTO iso15924_scripts (code, numeric_code, name) "
-            "VALUES ('Bbbb', 999, 'Other')"
+            "INSERT INTO iso15924_scripts (code, numeric_code, name) VALUES ('Bbbb', 999, 'Other')"
         )
 
 
@@ -174,7 +172,8 @@ async def test_trgm_gin_index_exists(db, table, column):
           AND indexdef ILIKE '%gin_trgm_ops%'
           AND indexdef ILIKE '%' || $2 || '%'
         """,
-        table, column,
+        table,
+        column,
     )
     assert row is not None, f"missing pg_trgm GIN index on {table}({column})"
 ```
@@ -388,7 +387,11 @@ async def upsert_locales(conn: asyncpg.Connection, rows: Iterable[dict]) -> int:
                 region       = EXCLUDED.region,
                 display_name = EXCLUDED.display_name
             """,
-            r["code"], r["language"], r["script"], r["region"], r["display_name"],
+            r["code"],
+            r["language"],
+            r["script"],
+            r["region"],
+            r["display_name"],
         )
         count += 1
     return count
@@ -405,7 +408,9 @@ async def upsert_scripts(conn: asyncpg.Connection, rows: Iterable[dict]) -> int:
                 numeric_code = EXCLUDED.numeric_code,
                 name         = EXCLUDED.name
             """,
-            r["code"], r["numeric_code"], r["name"],
+            r["code"],
+            r["numeric_code"],
+            r["name"],
         )
         count += 1
     return count
@@ -511,9 +516,10 @@ async def test_person_names_locale_fk_rejects_unregistered(db):
     )
     with pytest.raises(asyncpg.ForeignKeyViolationError):
         await db.execute(
-            "INSERT INTO person_names (id, person_id, name, locale) "
-            "VALUES ($1, $2, $3, 'xx-XX')",
-            generate_id(), pid, "Test",
+            "INSERT INTO person_names (id, person_id, name, locale) VALUES ($1, $2, $3, 'xx-XX')",
+            generate_id(),
+            pid,
+            "Test",
         )
 
 
@@ -524,9 +530,10 @@ async def test_person_names_locale_fk_accepts_registered(db):
         "VALUES ('en-US', 'en', 'English (US)') ON CONFLICT DO NOTHING"
     )
     await db.execute(
-        "INSERT INTO person_names (id, person_id, name, locale) "
-        "VALUES ($1, $2, $3, 'en-US')",
-        generate_id(), pid, "Test",
+        "INSERT INTO person_names (id, person_id, name, locale) VALUES ($1, $2, $3, 'en-US')",
+        generate_id(),
+        pid,
+        "Test",
     )
 
 
@@ -538,9 +545,10 @@ async def test_person_names_script_fk_rejects_unregistered(db):
     )
     with pytest.raises(asyncpg.ForeignKeyViolationError):
         await db.execute(
-            "INSERT INTO person_names (id, person_id, name, script) "
-            "VALUES ($1, $2, $3, 'Xxxx')",
-            generate_id(), pid, "Test",
+            "INSERT INTO person_names (id, person_id, name, script) VALUES ($1, $2, $3, 'Xxxx')",
+            generate_id(),
+            pid,
+            "Test",
         )
 
 
@@ -551,9 +559,10 @@ async def test_person_names_script_fk_accepts_registered(db):
         "VALUES ('Latn', 215, 'Latin') ON CONFLICT DO NOTHING"
     )
     await db.execute(
-        "INSERT INTO person_names (id, person_id, name, script) "
-        "VALUES ($1, $2, $3, 'Latn')",
-        generate_id(), pid, "Test",
+        "INSERT INTO person_names (id, person_id, name, script) VALUES ($1, $2, $3, 'Latn')",
+        generate_id(),
+        pid,
+        "Test",
     )
 
 
@@ -561,7 +570,9 @@ async def test_person_names_locale_null_still_allowed(db):
     pid = await _person(db)
     await db.execute(
         "INSERT INTO person_names (id, person_id, name) VALUES ($1, $2, $3)",
-        generate_id(), pid, "Test",
+        generate_id(),
+        pid,
+        "Test",
     )
 ```
 

@@ -151,26 +151,16 @@ class PeopleObservationRequest:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.citation_observation_item import (
-            CitationObservationItem,  # noqa: PLC0415
-        )
+        from ..models.citation_observation_item import CitationObservationItem  # noqa: PLC0415
         from ..models.observation_additional_identifier import (
             ObservationAdditionalIdentifier,  # noqa: PLC0415
         )
         from ..models.observation_address import ObservationAddress  # noqa: PLC0415
-        from ..models.observation_contact_method import (
-            ObservationContactMethod,  # noqa: PLC0415
-        )
-        from ..models.observation_event_item import (
-            ObservationEventItem,  # noqa: PLC0415
-        )
+        from ..models.observation_contact_method import ObservationContactMethod  # noqa: PLC0415
+        from ..models.observation_event_item import ObservationEventItem  # noqa: PLC0415
         from ..models.observation_link import ObservationLink  # noqa: PLC0415
-        from ..models.observation_person_name import (
-            ObservationPersonName,  # noqa: PLC0415
-        )
-        from ..models.observation_role_assignment import (
-            ObservationRoleAssignment,  # noqa: PLC0415
-        )
+        from ..models.observation_person_name import ObservationPersonName  # noqa: PLC0415
+        from ..models.observation_role_assignment import ObservationRoleAssignment  # noqa: PLC0415
 
         d = dict(src_dict)
         identifier_type = d.pop("identifier_type")

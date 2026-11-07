@@ -31,6 +31,7 @@ class FieldError:
     message: str
     raw_value: str | None = None
 
+
 @dataclass
 class RowResult:
     source_row: int
@@ -165,8 +166,8 @@ src/core/
 ```python
 @dataclass
 class NormalizationResult:
-    value: Any | None           # normalized output value
-    skipped: bool = False       # True for empty/null-like inputs
+    value: Any | None  # normalized output value
+    skipped: bool = False  # True for empty/null-like inputs
     warnings: list[str] = field(default_factory=list)
     confidence_hint: str = "unconfirmed"  # feeds validation_status in field_confidence
     validation_detail: dict | None = None
@@ -192,7 +193,7 @@ All normalizers implement this interface; composable via `FallbackNormalizer(pri
 class ExternalAddressNormalizerConfig:
     api_key: str
     base_url: str = "https://address-validator.exe.xyz:8000"
-    run_validation: bool = False    # default off; /validate is rate-limited
+    run_validation: bool = False  # default off; /validate is rate-limited
     max_retries: int = 3
 ```
 
