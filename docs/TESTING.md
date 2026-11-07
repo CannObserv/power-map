@@ -377,7 +377,8 @@ filter.
 | a11y: lxml render + browser | ship gate, on an admin diff | no: needs the test DB |
 
 `.github/dependabot.yml` runs weekly. Minor and patch bumps are grouped, majors open
-alone, and security updates come as one PR per ecosystem. pip (the SDK), terraform
+alone except a lockstep set (eslint + `@eslint/*`, one PR even for a major), and
+security updates come as one PR per ecosystem. pip (the SDK), terraform
 and pre-commit are held back. `tests/ci/test_dependabot.py` is the
 `adopting-dependabot` asset, edited only in its ADAPT block;
 `tests/ci/test_dependabot_volume.py` holds the volume rules. Lock changes have
