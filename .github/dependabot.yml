@@ -1,0 +1,72 @@
+# Proposes the bumps nothing else does (#727). Every PR runs the `gate`
+# workflow, the same pre-commit definition a developer's commit runs.
+#
+# Guarded by tests/ci/test_dependabot.py (the adopting-dependabot skill's
+# asset; edit only its ADAPT block) and tests/ci/test_dependabot_volume.py.
+# A mistyped config produces no PRs and no error anywhere a person looks.
+#
+# Held back, with reasons in the asset's HELD_BACK: pip (clients/python, the
+# SDK), terraform (needs DO credentials to validate) and pre-commit (all hooks
+# are `repo: local`).
+#
+# Merge path: lock changes have landed by hand in a patch release (#715, #729,
+# #736), which a Dependabot PR doesn't carry. The PR's gate run is the
+# evidence for that change. docs/TESTING.md § CI.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/" # scans .github/workflows/; "/.github/workflows" opens nothing
+    schedule:
+      interval: "weekly" # missing, and Dependabot rejects the block silently
+    # One PR per action, for a changelog read per major. The default limit is
+    # 5, and past it no version update opens and nothing says so.
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore" # the default "Bump x" subject matches no commit type
+
+  - package-ecosystem: "uv"
+    directory: "/" # the one uv.lock
+    schedule:
+      interval: "weekly"
+    # `auto` resolves to `widen` for a library, which uv doesn't support.
+    versioning-strategy: increase-if-necessary
+    # Above 19 runtime dependencies + 3 groups, so a full backlog can't fill it.
+    open-pull-requests-limit: 25
+    commit-message:
+      prefix: "chore"
+    groups:
+      # Minor and patch only: a major opens alone, for its changelog read.
+      dev-tools:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+      runtime:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      # One PR per advisory round instead of one per advisory (#715, #729, #736).
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    ignore:
+      # Pinned by release tag; moves when notifier releases.
+      - dependency-name: "notifier-client"
+      # Exact pins (#497): the mapping toolchain moves as a set, by hand.
+      - dependency-name: "dbt-core"
+      - dependency-name: "dbt-duckdb"
+      - dependency-name: "duckdb"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    versioning-strategy: increase-if-necessary
+    open-pull-requests-limit: 15 # above 10 devDependencies + 1 group
+    commit-message:
+      prefix: "chore"
+    groups:
+      # Every npm package is a devDependency, so one group carries the churn.
+      dev-tools:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]

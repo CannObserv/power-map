@@ -1,0 +1,79 @@
+name: gate
+
+# The DB-free local gate, re-run on every PR, Dependabot's included (#727).
+# It runs the definition every commit runs, `pre-commit run --all-files`, and
+# never a copied job list, so a PR that skipped the hook (Dependabot, a
+# --no-verify commit, a stale hook) meets the same checks. tests/ci/
+# test_gate_workflow.py fails when the two drift. Tier placement:
+# docs/TESTING.md § CI.
+#
+# ADVISORY: not a required status on main (operator decision, 2026-11-06).
+# The skills-refresh hook and the operator push straight to main. Revisit
+# after a few weeks of stable runs.
+#
+# Measured on the 2-core dev host (2026-11-06): pre-commit --all-files 569 s,
+# the vendored ship gate 491 s. The unit pytest was 474-520 s of either.
+# pre-commit was chosen for coverage: the ship gate runs no bats, shellcheck,
+# version sync or terraform fmt. Public repo, so standard runners don't bill.
+
+on:
+  # No path filter. A Markdown-only PR still changes the unit suite's inputs:
+  # replayed over 151 merged PRs, 3 skips, all 3 false.
+  pull_request:
+  workflow_dispatch:
+  # No `push: main`, since a PR already checked that tree. This weekly run
+  # covers the pushes no PR carries.
+  schedule:
+    - cron: "23 6 * * 0"
+
+permissions:
+  contents: read
+
+# Cancel a superseded PR push. A scheduled or dispatched run on main finishes.
+concurrency:
+  group: gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Every uv call asserts uv.lock matches pyproject.toml instead of quietly
+  # re-resolving a stale lock.
+  UV_LOCKED: "1"
+
+jobs:
+  pre-commit:
+    # Distinct from GitHub's own `Dependabot` update jobs.
+    name: gate (pre-commit, DB-free)
+    runs-on: ubuntu-24.04 # the dev host's release
+    timeout-minutes: 25
+    steps:
+      # The pytest-vendored and bats-vendored hooks read skills-vendor/. Full
+      # history (~23 MiB): shallow submodules skip 8 pin-ancestry tests.
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      # setup-uv stopped floating major tags after v7, so pin the release.
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22" # the dev host's major; engines floor >=22.12
+          cache: npm
+
+      # For the terraform-fmt hook. Matches the dev host; the wrapper would
+      # change how fmt reports its exit status.
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - run: npm ci
+
+      # Every optional group, as worktree-setup.sh syncs them. A group left
+      # out turns its tests into skips, and the run still reads green.
+      - run: uv sync --group browser --group seed --group mapping
+
+      - run: uv run pre-commit run --all-files --show-diff-on-failure
