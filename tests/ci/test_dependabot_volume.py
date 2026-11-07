@@ -9,9 +9,11 @@ Each round was landed by hand as a single lock change, and every PR was then
 closed. So security updates are grouped into one PR per ecosystem. Version
 updates run weekly, minor and patch bumps grouped, and majors stay individual
 PRs, because a major is the bump that needs its changelog read (starlette
-0.52 → 1.3, #722).
+0.52 → 1.3, #722). The exception is LOCKSTEP: packages released as a set, whose
+majors fail apart (#727's first batch: @eslint/js 10 alone, `npm ci` ERESOLVE).
 """
 
+import fnmatch
 import json
 import tomllib
 from pathlib import Path
@@ -22,6 +24,9 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG = REPO_ROOT / ".github" / "dependabot.yml"
 PACKAGE_BLOCKS = ("uv", "npm")
+# Groups that carry majors too, because their members peer-depend on one
+# version: (ecosystem, group) -> patterns. @eslint/js N needs eslint N.
+LOCKSTEP = {("npm", "eslint"): ["eslint", "@eslint/*"]}
 
 
 def _updates() -> list[dict]:
@@ -67,10 +72,49 @@ def test_version_groups_leave_majors_individual(ecosystem: str) -> None:
     groups = _version_groups(_block(ecosystem))
     assert groups, f"{ecosystem}: no version-updates group; every bump is its own PR"
     for name, group in groups.items():
+        if (ecosystem, name) in LOCKSTEP:
+            continue
         assert sorted(group.get("update-types", [])) == ["minor", "patch"], (
             f"{ecosystem}.{name}: a major grouped with minors holds them all "
             "behind one changelog read"
         )
+
+
+def _npm_packages() -> set[str]:
+    package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
+    return set(package.get("dependencies", {})) | set(package.get("devDependencies", {}))
+
+
+@pytest.mark.parametrize("key", LOCKSTEP, ids=lambda k: f"{k[0]}.{k[1]}")
+def test_lockstep_packages_move_in_one_pr(key: tuple[str, str]) -> None:
+    """A set released together gets one group with no `update-types`, so its major
+    is one PR. Apart, each member's major fails `npm ci` on the other's peer range."""
+    ecosystem, name = key
+    groups = _version_groups(_block(ecosystem))
+    assert name in groups, f"{ecosystem}: no `{name}` group; its majors open apart and fail"
+    group = groups[name]
+    assert group.get("patterns") == LOCKSTEP[key]
+    assert "update-types" not in group, f"{ecosystem}.{name}: majors must move as one PR too"
+
+
+@pytest.mark.parametrize("key", LOCKSTEP, ids=lambda k: f"{k[0]}.{k[1]}")
+def test_lockstep_group_precedes_the_catch_all(key: tuple[str, str]) -> None:
+    """Dependabot assigns a dependency to the first group it matches: after `*`,
+    the lockstep group is empty and its minors ride the catch-all."""
+    ecosystem, name = key
+    order = list(_version_groups(_block(ecosystem)))
+    catch_alls = [
+        n for n, g in _version_groups(_block(ecosystem)).items() if g.get("patterns") == ["*"]
+    ]
+    assert name in order and all(order.index(name) < order.index(c) for c in catch_alls)
+
+
+def test_lockstep_patterns_match_real_packages() -> None:
+    """A set renamed or dropped leaves a group matching nothing; each needs 2+ members."""
+    for (ecosystem, name), patterns in LOCKSTEP.items():
+        assert ecosystem == "npm", "only npm's members are derived here"
+        members = {p for p in _npm_packages() if any(fnmatch.fnmatch(p, x) for x in patterns)}
+        assert len(members) >= 2, f"{name}: matches {sorted(members)}"
 
 
 def test_minor_and_patch_bumps_have_a_catch_all() -> None:
@@ -82,8 +126,7 @@ def test_minor_and_patch_bumps_have_a_catch_all() -> None:
 
 def test_npm_open_pr_limit_outlasts_a_full_backlog() -> None:
     """The asset derives uv's bound; npm's is derived the same way from package.json."""
-    package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
-    deps = len(package.get("dependencies", {})) + len(package.get("devDependencies", {}))
+    deps = len(_npm_packages())
     block = _block("npm")
     groups = len(_version_groups(block))
     limit = block.get("open-pull-requests-limit", 5)

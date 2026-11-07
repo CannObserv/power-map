@@ -59,10 +59,15 @@ updates:
     schedule:
       interval: "weekly"
     versioning-strategy: increase-if-necessary
-    open-pull-requests-limit: 15 # above 10 devDependencies + 1 group
+    open-pull-requests-limit: 15 # above 10 devDependencies + 2 groups
     commit-message:
       prefix: "chore"
     groups:
+      # Released in lockstep: @eslint/js N peer-depends on eslint N, so either
+      # major alone fails `npm ci` (ERESOLVE, #765). Majors too, as one PR.
+      # Before dev-tools, since a package joins the first group it matches.
+      eslint:
+        patterns: ["eslint", "@eslint/*"]
       # Every npm package is a devDependency, so one group carries the churn.
       dev-tools:
         patterns: ["*"]
