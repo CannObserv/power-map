@@ -330,7 +330,7 @@ exit 2 too. The tiers hold a `flock` in the git common dir, so two worktrees nev
 seed the shared test DB at once. Only the tier calls get the env files, and the step isn't stamped: it
 reruns on every admin ship (~90 s). A failed tier is exit 1, and the vendored gate
 still runs. `PRE_SHIP_A11Y=on` forces the tiers; `off` is honoured under `CI=true`
-only (#727) and says it verified nothing. It replaces the weekly sweep (#369).
+only and says it verified nothing; CI runs pre-commit instead (§ CI). It replaces the weekly sweep (#369).
 
 **The vendored gate.** It detects the stack (`uv`, `npm`, `fastapi`) and runs
 ruff check, ruff format --check, an import check, the Python suite, then ESLint /
@@ -355,3 +355,31 @@ or passes `-m` again, if the args file and the hook disagree, or if the import
 targets drop the service's module. `tests/sh/pre_ship.bats` runs the vendored gate
 against both real files with a stubbed `uv`; `tests/sh/pre_ship_wrapper.bats` runs
 the wrapper.
+
+---
+
+## CI (#727)
+
+`.github/workflows/gate.yml` runs `pre-commit run --all-files`, the definition every
+commit runs, on every PR (Dependabot's included), on dispatch, and weekly on `main`.
+The weekly run covers pushes no PR carries: the skills-refresh hook's and the
+operator's. It is **advisory**, not a required status (operator, 2026-11-06).
+`tests/ci/test_gate_workflow.py` fails when the two drift: a hook whose tool no step
+installs, an optional group CI doesn't sync, a `SKIP=`, a second command, a path
+filter.
+
+| Tier | Local | CI |
+|---|---|---|
+| Unit pytest, every optional group installed | pre-commit; ship gate | yes |
+| ruff, ESLint, Prettier, vitest | pre-commit; ship gate | yes |
+| bats, shellcheck, version sync, `terraform fmt` | pre-commit | yes |
+| Integration (`-m integration`) | by hand | no: the DB is DO-only (#579) |
+| a11y: lxml render + browser | ship gate, on an admin diff | no: needs the test DB |
+
+`.github/dependabot.yml` runs weekly. Minor and patch bumps are grouped, majors open
+alone, and security updates come as one PR per ecosystem. pip (the SDK), terraform
+and pre-commit are held back. `tests/ci/test_dependabot.py` is the
+`adopting-dependabot` asset, edited only in its ADAPT block;
+`tests/ci/test_dependabot_volume.py` holds the volume rules. Lock changes have
+landed by hand in a patch release (#715, #729, #736), with a PR's gate run as the
+evidence.

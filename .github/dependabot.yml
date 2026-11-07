@@ -9,10 +9,9 @@
 # SDK), terraform (needs DO credentials to validate) and pre-commit (all hooks
 # are `repo: local`).
 #
-# Merge path: a lock change ships in a patch release (version bump + client
-# regen, AGENTS.md § Conventions), which a Dependabot PR can't carry. So a
-# Dependabot PR is the signal and its gate run the evidence: land the change
-# by hand on a release branch, then close the PR. docs/TESTING.md § CI.
+# Merge path: lock changes have landed by hand in a patch release (#715, #729,
+# #736), which a Dependabot PR doesn't carry. The PR's gate run is the
+# evidence for that change. docs/TESTING.md § CI.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
