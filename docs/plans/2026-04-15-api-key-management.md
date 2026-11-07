@@ -102,37 +102,39 @@ def client():
 
 # --- Schema ---
 
+
 async def test_app_users_table_exists(db):
-    row = await db.fetchrow(
-        "SELECT 1 FROM information_schema.tables WHERE table_name='app_users'"
-    )
+    row = await db.fetchrow("SELECT 1 FROM information_schema.tables WHERE table_name='app_users'")
     assert row is not None
 
 
 async def test_api_keys_table_exists(db):
-    row = await db.fetchrow(
-        "SELECT 1 FROM information_schema.tables WHERE table_name='api_keys'"
-    )
+    row = await db.fetchrow("SELECT 1 FROM information_schema.tables WHERE table_name='api_keys'")
     assert row is not None
 
 
 async def test_api_keys_key_hash_unique(db):
     uid = generate_id()
-    await db.execute(
-        "INSERT INTO app_users (id, email) VALUES ($1, $2)", uid, "a@test.com"
-    )
+    await db.execute("INSERT INTO app_users (id, email) VALUES ($1, $2)", uid, "a@test.com")
     kid1 = generate_id()
     kid2 = generate_id()
     await db.execute(
-        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
-        " VALUES ($1,$2,$3,$4,$5)",
-        kid1, uid, "key1", "pm_abc123", "deadbeef" * 8,
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid1,
+        uid,
+        "key1",
+        "pm_abc123",
+        "deadbeef" * 8,
     )
     with pytest.raises(asyncpg.UniqueViolationError):
         await db.execute(
             "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
             " VALUES ($1,$2,$3,$4,$5)",
-            kid2, uid, "key2", "pm_abc124", "deadbeef" * 8,
+            kid2,
+            uid,
+            "key2",
+            "pm_abc124",
+            "deadbeef" * 8,
         )
     await db.execute("DELETE FROM api_keys WHERE user_id=$1", uid)
     await db.execute("DELETE FROM app_users WHERE id=$1", uid)
@@ -220,6 +222,7 @@ Append to `tests/api/admin/test_settings_api_keys.py`:
 
 ```python
 # --- provision_app_user ---
+
 
 async def test_provision_app_user_creates_row(db):
     """provision_app_user upserts an app_users row for the current user."""
@@ -317,17 +320,20 @@ Append to `tests/api/admin/test_settings_api_keys.py`:
 ```python
 # --- generate_api_key (unit) ---
 
+
 def test_generate_api_key_format():
     from src.api.admin.settings_api_keys import generate_api_key
+
     raw_key, key_hash, key_prefix = generate_api_key()
     assert raw_key.startswith("pm_")
-    assert len(raw_key) == 35          # "pm_" + 32 hex chars
-    assert len(key_hash) == 64         # SHA-256 hex
+    assert len(raw_key) == 35  # "pm_" + 32 hex chars
+    assert len(key_hash) == 64  # SHA-256 hex
     assert key_prefix == raw_key[:8]
 
 
 def test_generate_api_key_is_random():
     from src.api.admin.settings_api_keys import generate_api_key
+
     raw1, _, _ = generate_api_key()
     raw2, _, _ = generate_api_key()
     assert raw1 != raw2
@@ -336,6 +342,7 @@ def test_generate_api_key_is_random():
 def test_generate_api_key_hash_matches():
     import hashlib
     from src.api.admin.settings_api_keys import generate_api_key
+
     raw_key, key_hash, _ = generate_api_key()
     expected = hashlib.sha256(raw_key.encode()).hexdigest()
     assert key_hash == expected
@@ -468,13 +475,14 @@ async def api_key_pair(db):
     kid = generate_id()
     raw_key = "pm_" + os.urandom(16).hex()
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    await db.execute("INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, "apitest@test.com")
     await db.execute(
-        "INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, "apitest@test.com"
-    )
-    await db.execute(
-        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
-        " VALUES ($1,$2,$3,$4,$5)",
-        kid, uid, "Test Key", raw_key[:8], key_hash,
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        uid,
+        "Test Key",
+        raw_key[:8],
+        key_hash,
     )
     yield raw_key
     await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
@@ -500,9 +508,7 @@ def test_api_root_missing_key_returns_403(client):
 async def test_api_valid_key_updates_last_used_at(client, api_key_pair, db):
     client.get("/api/v1/", headers={"X-API-Key": api_key_pair})
     key_hash = hashlib.sha256(api_key_pair.encode()).hexdigest()
-    row = await db.fetchrow(
-        "SELECT last_used_at FROM api_keys WHERE key_hash=$1", key_hash
-    )
+    row = await db.fetchrow("SELECT last_used_at FROM api_keys WHERE key_hash=$1", key_hash)
     assert row["last_used_at"] is not None
 ```
 
@@ -544,14 +550,10 @@ async def require_api_key(
     Also updates last_used_at on the matching api_keys row.
     """
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-    row = await db.fetchrow(
-        "SELECT id, user_id FROM api_keys WHERE key_hash = $1", key_hash
-    )
+    row = await db.fetchrow("SELECT id, user_id FROM api_keys WHERE key_hash = $1", key_hash)
     if not row:
         raise HTTPException(status_code=401, detail="Invalid API key")
-    await db.execute(
-        "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", row["id"]
-    )
+    await db.execute("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1", row["id"])
     return row["user_id"]
 ```
 
@@ -618,19 +620,21 @@ Append to `tests/api/admin/test_settings_api_keys.py`:
 ```python
 # --- API keys routes ---
 
+
 async def _make_user_and_key(db, label="My Key"):
     """Helper: insert app_user + api_key, return (uid, kid, raw_key)."""
     uid = generate_id()
     kid = generate_id()
     raw_key = "pm_" + os.urandom(16).hex()
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    await db.execute("INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, f"{uid}@test.com")
     await db.execute(
-        "INSERT INTO app_users (id, email) VALUES ($1,$2)", uid, f"{uid}@test.com"
-    )
-    await db.execute(
-        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
-        " VALUES ($1,$2,$3,$4,$5)",
-        kid, uid, label, raw_key[:8], key_hash,
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        uid,
+        label,
+        raw_key[:8],
+        key_hash,
     )
     return uid, kid, raw_key
 
@@ -658,7 +662,7 @@ async def test_api_keys_create_returns_modal(client, db):
         data={"label": "Test Key"},
     )
     assert r.status_code == 200
-    assert "pm_" in r.text          # raw key in modal
+    assert "pm_" in r.text  # raw key in modal
     assert "not be shown again" in r.text
     # Clean up: find the inserted key
     await db.execute("DELETE FROM api_keys WHERE user_id='usr_test'")
@@ -681,9 +685,7 @@ async def test_api_keys_create_non_htmx_redirects(client, db):
 async def test_api_keys_edit_row_get(client, db):
     uid, kid, _ = await _make_user_and_key(db)
     try:
-        r = client.get(
-            f"/admin/settings/api-keys/{kid}/edit-row/", headers=AUTH_HEADERS
-        )
+        r = client.get(f"/admin/settings/api-keys/{kid}/edit-row/", headers=AUTH_HEADERS)
         assert r.status_code == 200
         assert "My Key" in r.text
     finally:
@@ -709,9 +711,7 @@ async def test_api_keys_edit_row_post(client, db):
 async def test_api_keys_read_row(client, db):
     uid, kid, _ = await _make_user_and_key(db)
     try:
-        r = client.get(
-            f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS
-        )
+        r = client.get(f"/admin/settings/api-keys/{kid}/read-row/", headers=AUTH_HEADERS)
         assert r.status_code == 200
         assert "My Key" in r.text
     finally:
@@ -811,9 +811,12 @@ async def api_key_create(
     raw_key, key_hash, key_prefix = generate_api_key()
     kid = generate_id()
     await db.execute(
-        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash)"
-        " VALUES ($1,$2,$3,$4,$5)",
-        kid, user.id, label_val, key_prefix, key_hash,
+        "INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash) VALUES ($1,$2,$3,$4,$5)",
+        kid,
+        user.id,
+        label_val,
+        key_prefix,
+        key_hash,
     )
     if not is_htmx(request):
         return RedirectResponse("/admin/settings/api-keys/", status_code=303)
@@ -834,7 +837,8 @@ async def api_key_edit_row_get(
     key = await db.fetchrow(
         "SELECT id, label, key_prefix, created_at, last_used_at"
         " FROM api_keys WHERE id=$1 AND user_id=$2",
-        key_id, user.id,
+        key_id,
+        user.id,
     )
     if not key:
         raise HTTPException(status_code=404)
@@ -856,9 +860,7 @@ async def api_key_edit_row_post(
     label_val = label.strip()
     if not label_val:
         raise HTTPException(status_code=422, detail="label is required")
-    key = await db.fetchrow(
-        "SELECT id FROM api_keys WHERE id=$1 AND user_id=$2", key_id, user.id
-    )
+    key = await db.fetchrow("SELECT id FROM api_keys WHERE id=$1 AND user_id=$2", key_id, user.id)
     if not key:
         raise HTTPException(status_code=404)
     await db.execute("UPDATE api_keys SET label=$1 WHERE id=$2", label_val, key_id)
@@ -872,9 +874,7 @@ async def api_key_edit_row_post(
         request,
         "admin/settings/partials/_api_key_row.html",
         {"key": row},
-        headers=flash_trigger(
-            "success", f"Key <strong>{escape(label_val)}</strong> renamed."
-        ),
+        headers=flash_trigger("success", f"Key <strong>{escape(label_val)}</strong> renamed."),
     )
 
 
@@ -888,7 +888,8 @@ async def api_key_read_row(
     row = await db.fetchrow(
         "SELECT id, label, key_prefix, created_at, last_used_at"
         " FROM api_keys WHERE id=$1 AND user_id=$2",
-        key_id, user.id,
+        key_id,
+        user.id,
     )
     if not row:
         raise HTTPException(status_code=404)

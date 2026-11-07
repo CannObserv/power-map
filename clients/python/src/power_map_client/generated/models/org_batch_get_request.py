@@ -56,9 +56,7 @@ class OrgBatchGetRequest:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.org_batch_get_request_etags import (
-            OrgBatchGetRequestEtags,  # noqa: PLC0415
-        )
+        from ..models.org_batch_get_request_etags import OrgBatchGetRequestEtags  # noqa: PLC0415
 
         d = dict(src_dict)
         ids = cast(list[str], d.pop("ids"))

@@ -67,10 +67,11 @@ Add to `tests/api/admin/test_people_name_templates.py`:
 def test_parts_editor_summary_label_says_details():
     """Issue #127: rename 'Structured parts' to 'Details' (UI label only)."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     assert "Details" in out
     assert "Structured parts" not in out
 ```
@@ -154,6 +155,7 @@ def test_parts_editor_renders_cardstack_for_each_array_field():
     render zero cards (Add button only).
     """
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
     parts = {
         "given_names": ["María", "José"],
@@ -163,9 +165,9 @@ def test_parts_editor_renders_cardstack_for_each_array_field():
         "honorific_suffix": None,
         "primary_identifier": None,
     }
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=parts, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=parts, person_id="pid_x"
+    )
     # Each card carries a data-cardstack="<field>" hook for the JS.
     assert out.count('data-cardstack-card="given_names"') == 2
     assert out.count('data-cardstack-card="family_names"') == 1
@@ -183,10 +185,11 @@ def test_parts_editor_renders_cardstack_for_each_array_field():
 def test_parts_editor_drops_max_5_hint():
     """Issue #127: '(max 5)' hint removed; cap surfaced via disabled Add button."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     assert "max 5" not in out
 ```
 
@@ -459,6 +462,7 @@ Add template tests in `tests/api/admin/test_people_name_templates.py`:
 def test_detail_loads_parts_cardstack_script():
     """Issue #127: detail page loads the CardStack JS."""
     from pathlib import Path
+
     DETAIL = Path("src/templates/admin/people/detail.html").read_text()
     assert "person-name-parts-cardstack.js" in DETAIL
 
@@ -466,11 +470,9 @@ def test_detail_loads_parts_cardstack_script():
 def test_detail_parts_cardstack_script_is_deferred():
     """Cache-bust suffix `?v=1` matches the deadname-confirm convention."""
     from pathlib import Path
+
     DETAIL = Path("src/templates/admin/people/detail.html").read_text()
-    assert (
-        'src="/static/admin/person-name-parts-cardstack.js?v=1" defer'
-        in DETAIL
-    )
+    assert 'src="/static/admin/person-name-parts-cardstack.js?v=1" defer' in DETAIL
 ```
 
 - [ ] **B.10: Run the wiring tests + manual smoke**
@@ -522,13 +524,18 @@ Add to `tests/api/admin/test_people_name_templates.py`:
 def test_parts_editor_renders_labels_and_help_text():
     """Issue #127: every Details field has a clear label and one-line help."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     expected_labels = [
-        "Primary identifier", "Given names", "Family names",
-        "Additional names", "Honorific prefix", "Honorific suffix",
+        "Primary identifier",
+        "Given names",
+        "Family names",
+        "Additional names",
+        "Honorific prefix",
+        "Honorific suffix",
     ]
     for label in expected_labels:
         assert label in out, f"missing label: {label!r}"
@@ -661,19 +668,21 @@ def test_parts_editor_has_no_inner_form():
     """Issue #127: the Details body is markup nested in the parent name form;
     no inner <form> element."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     assert "<form" not in out
 
 
 def test_parts_editor_has_no_save_parts_button():
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(n={"id": "nid_x"}, parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
+        n={"id": "nid_x"}, parts=None, person_id="pid_x"
+    )
     assert "Save parts" not in out
 
 
@@ -681,15 +690,17 @@ def test_parts_editor_has_no_remove_button_even_when_parts_exist():
     """Issue #127: clearing all fields + Save deletes the row; explicit
     Remove button is removed."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_parts_editor.html"
-    ).render(
+    out = env.get_template("admin/people/partials/_name_parts_editor.html").render(
         n={"id": "nid_x"},
         parts={
-            "given_names": ["Ada"], "family_names": None,
-            "additional_names": None, "honorific_prefix": None,
-            "honorific_suffix": None, "primary_identifier": "given",
+            "given_names": ["Ada"],
+            "family_names": None,
+            "additional_names": None,
+            "honorific_prefix": None,
+            "honorific_suffix": None,
+            "primary_identifier": "given",
         },
         person_id="pid_x",
     )
@@ -748,7 +759,8 @@ async def _setup_test_db():
 
 @pytest.mark.integration
 def test_edit_row_post_creates_parts_row_alongside_name_update(
-    client, person_with_legal_name,
+    client,
+    person_with_legal_name,
 ):
     """Issue #127: a single POST to /edit-row/ updates the name AND upserts
     the parts row in one transaction."""
@@ -776,7 +788,8 @@ def test_edit_row_post_creates_parts_row_alongside_name_update(
 
 @pytest.mark.integration
 def test_edit_row_post_with_all_empty_parts_deletes_existing_parts_row(
-    client, person_with_parts,  # new fixture: name + pre-existing parts row
+    client,
+    person_with_parts,  # new fixture: name + pre-existing parts row
 ):
     """Issue #127: clearing every parts field on Save deletes the parts row."""
     pid = person_with_parts["pid"]
@@ -799,7 +812,8 @@ def test_edit_row_post_with_all_empty_parts_deletes_existing_parts_row(
 
 @pytest.mark.integration
 def test_edit_row_post_no_parts_fields_when_no_existing_row_is_no_op(
-    client, person_with_legal_name,
+    client,
+    person_with_legal_name,
 ):
     """Issue #127: when the row never had parts and none submitted, no row written."""
     pid = person_with_legal_name["pid"]
@@ -815,7 +829,8 @@ def test_edit_row_post_no_parts_fields_when_no_existing_row_is_no_op(
 
 @pytest.mark.integration
 def test_edit_row_post_parts_cap_violation_flashes_and_skips_name_update(
-    client, person_with_legal_name,
+    client,
+    person_with_legal_name,
 ):
     """Issue #127: parts validation rolls back the whole transaction.
     A 6-element given_names submission must NOT change the name."""
@@ -931,7 +946,8 @@ async def upsert_or_delete_parts(
         # Idempotent delete — issue #127 semantic flip. If the row never
         # existed this is a no-op; if it existed, it's now gone.
         await db.execute(
-            "DELETE FROM person_name_parts WHERE person_name_id=$1", name_id,
+            "DELETE FROM person_name_parts WHERE person_name_id=$1",
+            name_id,
         )
         return (False, None)
 
@@ -947,7 +963,13 @@ async def upsert_or_delete_parts(
         "   honorific_prefix = EXCLUDED.honorific_prefix,"
         "   honorific_suffix = EXCLUDED.honorific_suffix,"
         "   primary_identifier = EXCLUDED.primary_identifier",
-        name_id, given or None, family or None, additional or None, pre, suf, pi,
+        name_id,
+        given or None,
+        family or None,
+        additional or None,
+        pre,
+        suf,
+        pi,
     )
     return (True, None)
 ```
@@ -1002,8 +1024,7 @@ async def name_edit_row_post(
     primary_identifier: str | None = Form(None),
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
-):
-    ...
+): ...
 ```
 
 Inside the existing `async with db.transaction():` block, after the `_update_name(...)` call, add (still inside the transaction, still inside the `try`):
@@ -1120,55 +1141,95 @@ The disclosure body is rendered both for existing rows (`n` is a row dict) and f
 def test_inline_row_excludes_metadata_fields():
     """Issue #127 bullet 1: name/type/canonical/Save/Cancel inline only."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    out = env.get_template(
-        "admin/people/partials/_name_form_row.html"
-    ).render(n={"id": "nid_x", "name": "X", "name_type": "legal",
-                "is_canonical": True, "visibility": "public",
-                "locale": None, "script": None, "sort_as": None,
-                "reading_of_id": None, "reading_of_name": None},
-             parts=None, person_id="pid_x")
+    out = env.get_template("admin/people/partials/_name_form_row.html").render(
+        n={
+            "id": "nid_x",
+            "name": "X",
+            "name_type": "legal",
+            "is_canonical": True,
+            "visibility": "public",
+            "locale": None,
+            "script": None,
+            "sort_as": None,
+            "reading_of_id": None,
+            "reading_of_name": None,
+        },
+        parts=None,
+        person_id="pid_x",
+    )
     # Inline row (everything before <details>) should NOT contain visibility/
     # locale/script/sort_as/reading_of inputs.
     inline_section = out.split("<details", 1)[0]
-    for needle in ('name="visibility"', 'name="locale"', 'name="script"',
-                   'name="sort_as"', 'name="reading_of_id"'):
+    for needle in (
+        'name="visibility"',
+        'name="locale"',
+        'name="script"',
+        'name="sort_as"',
+        'name="reading_of_id"',
+    ):
         assert needle not in inline_section, f"inline row leaks {needle!r}"
     # The Details disclosure body should contain them.
-    details_section = out[out.index("<details"):]
-    for needle in ('name="visibility"', 'name="locale"', 'name="script"',
-                   'name="sort_as"', 'name="reading_of_id"'):
+    details_section = out[out.index("<details") :]
+    for needle in (
+        'name="visibility"',
+        'name="locale"',
+        'name="script"',
+        'name="sort_as"',
+        'name="reading_of_id"',
+    ):
         assert needle in details_section, f"Details missing {needle!r}"
 
 
 def test_disclosure_auto_opens_when_metadata_set():
     """Issue #127: auto-open Details when any non-default metadata present."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    n_with_locale = {"id": "nid_x", "name": "X", "name_type": "legal",
-                     "is_canonical": True, "visibility": "public",
-                     "locale": "ja-JP", "script": None, "sort_as": None,
-                     "reading_of_id": None, "reading_of_name": None}
-    out = env.get_template(
-        "admin/people/partials/_name_form_row.html"
-    ).render(n=n_with_locale, parts=None, person_id="pid_x")
+    n_with_locale = {
+        "id": "nid_x",
+        "name": "X",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": "ja-JP",
+        "script": None,
+        "sort_as": None,
+        "reading_of_id": None,
+        "reading_of_name": None,
+    }
+    out = env.get_template("admin/people/partials/_name_form_row.html").render(
+        n=n_with_locale, parts=None, person_id="pid_x"
+    )
     # Markup substring "<details … open" — match attribute presence.
     import re
+
     assert re.search(r"<details[^>]*\bopen\b", out)
 
 
 def test_disclosure_closed_for_pristine_row():
     """No metadata set, no parts → Details closed by default."""
     from jinja2 import Environment, FileSystemLoader
+
     env = Environment(loader=FileSystemLoader("src/templates"))
-    n = {"id": "nid_x", "name": "X", "name_type": "legal",
-         "is_canonical": True, "visibility": "public",
-         "locale": None, "script": None, "sort_as": None,
-         "reading_of_id": None, "reading_of_name": None}
-    out = env.get_template(
-        "admin/people/partials/_name_form_row.html"
-    ).render(n=n, parts=None, person_id="pid_x")
+    n = {
+        "id": "nid_x",
+        "name": "X",
+        "name_type": "legal",
+        "is_canonical": True,
+        "visibility": "public",
+        "locale": None,
+        "script": None,
+        "sort_as": None,
+        "reading_of_id": None,
+        "reading_of_name": None,
+    }
+    out = env.get_template("admin/people/partials/_name_form_row.html").render(
+        n=n, parts=None, person_id="pid_x"
+    )
     import re
+
     assert not re.search(r"<details[^>]*\bopen\b", out)
 ```
 

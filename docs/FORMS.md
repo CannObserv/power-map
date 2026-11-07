@@ -175,9 +175,9 @@ return templates.TemplateResponse(
     "admin/{entity}/partials/_address_confirm_modal.html",
     {
         "entity_id": entity_id,
-        "addr_id": addr_id,          # None for create, str for edit
-        "original": original_ctx,    # dict of submitted field values
-        "normalized": normalized_ctx, # dict from normalizer result
+        "addr_id": addr_id,  # None for create, str for edit
+        "original": original_ctx,  # dict of submitted field values
+        "normalized": normalized_ctx,  # dict from normalizer result
         "validation_status": ...,
         "validation_provider": ...,
     },

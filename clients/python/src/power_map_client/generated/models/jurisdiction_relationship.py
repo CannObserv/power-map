@@ -108,9 +108,7 @@ class JurisdictionRelationship:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.jurisdiction_relationship_type import (
-            JurisdictionRelationshipType,  # noqa: PLC0415
-        )
+        from ..models.jurisdiction_relationship_type import JurisdictionRelationshipType  # noqa: PLC0415
 
         d = dict(src_dict)
         id = d.pop("id")

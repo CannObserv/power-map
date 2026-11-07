@@ -218,8 +218,10 @@ Also add to `tests/api/admin/test_css.py`:
 def test_dark_class_covers_badge_colors():
     assert "html.dark .badge--active" in CSS
 
+
 def test_dark_class_covers_flash_colors():
     assert "html.dark .flash--success" in CSS
+
 
 def test_light_class_covers_badge_colors():
     assert "html.light .badge--active" in CSS
@@ -408,7 +410,7 @@ def test_dark_mode_js_loaded_with_defer(client):
     # Check defer appears on the same script tag line
     text = response.text
     idx = text.find("dark-mode.js")
-    assert "defer" in text[max(0, idx-100):idx+100]
+    assert "defer" in text[max(0, idx - 100) : idx + 100]
 ```
 
 - [ ] **Step 4.2: Run tests — confirm they fail**
@@ -569,9 +571,9 @@ import re
 _TEMPLATE_DIR = Path("src/templates")
 # Unicode ranges covering common emoji blocks
 _EMOJI_RE = re.compile(
-    "[\U0001F300-\U0001FAFF"   # Misc symbols and pictographs
-    "\U00002600-\U000027BF"    # Misc symbols
-    "\U0001F900-\U0001F9FF]"   # Supplemental symbols
+    "[\U0001f300-\U0001faff"  # Misc symbols and pictographs
+    "\U00002600-\U000027bf"  # Misc symbols
+    "\U0001f900-\U0001f9ff]"  # Supplemental symbols
 )
 
 
@@ -586,7 +588,9 @@ def test_no_bare_emojis_in_templates():
                 continue
             if _EMOJI_RE.search(line):
                 violations.append(f"{tmpl}:{lineno}: {line.strip()[:80]}")
-    assert not violations, "Bare emojis found (wrap in <span aria-hidden=\"true\">):\n" + "\n".join(violations)
+    assert not violations, 'Bare emojis found (wrap in <span aria-hidden="true">):\n' + "\n".join(
+        violations
+    )
 ```
 
 - [ ] **Step 6.2: Run test — confirm it fails (base.html footer emoji not yet wrapped)**

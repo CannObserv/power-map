@@ -48,9 +48,7 @@ class JurisdictionRelationshipsResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.jurisdiction_relationship import (
-            JurisdictionRelationship,  # noqa: PLC0415
-        )
+        from ..models.jurisdiction_relationship import JurisdictionRelationship  # noqa: PLC0415
         from ..models.search_meta import SearchMeta  # noqa: PLC0415
 
         d = dict(src_dict)

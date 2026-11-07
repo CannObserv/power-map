@@ -111,24 +111,23 @@ def test_link_types_table_exists():
             assert exists, "link_types table must exist"
         finally:
             await conn.close()
+
     asyncio.run(run())
 
 
 def test_link_types_social_flags_correct():
     """Twitter/Bluesky/LinkedIn must be social=TRUE; website/profile must be FALSE."""
+
     async def run():
         conn = await _conn()
         try:
-            social = await conn.fetchval(
-                "SELECT is_social FROM link_types WHERE slug = 'twitter'"
-            )
+            social = await conn.fetchval("SELECT is_social FROM link_types WHERE slug = 'twitter'")
             assert social is True, "twitter must be social"
-            generic = await conn.fetchval(
-                "SELECT is_social FROM link_types WHERE slug = 'website'"
-            )
+            generic = await conn.fetchval("SELECT is_social FROM link_types WHERE slug = 'website'")
             assert generic is False, "website must not be social"
         finally:
             await conn.close()
+
     asyncio.run(run())
 
 
@@ -137,40 +136,43 @@ def test_links_table_exists():
         conn = await _conn()
         try:
             exists = await conn.fetchval(
-                "SELECT EXISTS (SELECT 1 FROM information_schema.tables"
-                " WHERE table_name = 'links')"
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'links')"
             )
             assert exists, "links table must exist"
         finally:
             await conn.close()
+
     asyncio.run(run())
 
 
 def test_old_tables_absent():
     """urls, social_links, url_types, platforms must not exist after migration."""
+
     async def run():
         conn = await _conn()
         try:
             for table in ("urls", "social_links", "url_types", "platforms"):
                 exists = await conn.fetchval(
-                    "SELECT EXISTS (SELECT 1 FROM information_schema.tables"
-                    " WHERE table_name = $1)",
+                    "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)",
                     table,
                 )
                 assert not exists, f"{table} must be dropped after migration"
         finally:
             await conn.close()
+
     asyncio.run(run())
 
 
 def test_apply_schema_idempotent():
     """Running apply_schema twice must not raise."""
+
     async def run():
         conn = await _conn()
         try:
             await apply_schema(conn)  # second run
         finally:
             await conn.close()
+
     asyncio.run(run())
 ```
 
@@ -383,7 +385,12 @@ for u in t["urls"]:
             "INSERT INTO urls"
             " (id, entity_type, entity_id, url, url_type_id, is_canonical)"
             " VALUES ($1, $2, $3, $4, $5, $6)",
-            generate_id(), entity_type, entity_id, u["url"], url_type_id, u["is_canonical"],
+            generate_id(),
+            entity_type,
+            entity_id,
+            u["url"],
+            url_type_id,
+            u["is_canonical"],
         )
 for sl in t["social_links"]:
     platform_id = ref.platform_ids.get(sl["platform_slug"])
@@ -392,7 +399,11 @@ for sl in t["social_links"]:
             "INSERT INTO social_links"
             " (id, entity_type, entity_id, platform_id, url)"
             " VALUES ($1, $2, $3, $4, $5)",
-            generate_id(), entity_type, entity_id, platform_id, sl["url"],
+            generate_id(),
+            entity_type,
+            entity_id,
+            platform_id,
+            sl["url"],
         )
 
 # With:
@@ -403,8 +414,12 @@ for lnk in t["links"]:
             "INSERT INTO links"
             " (id, entity_type, entity_id, url, link_type_id, is_canonical)"
             " VALUES ($1, $2, $3, $4, $5, $6)",
-            generate_id(), entity_type, entity_id,
-            lnk["url"], link_type_id, lnk.get("is_canonical", False),
+            generate_id(),
+            entity_type,
+            entity_id,
+            lnk["url"],
+            link_type_id,
+            lnk.get("is_canonical", False),
         )
 ```
 
@@ -486,12 +501,17 @@ In the merge transaction, replace the `urls` and `social_links` update/reassign 
 # The entity table loop that includes "urls", "social_links"
 
 # With — add links to the polymorphic table loop:
-for table in ("entity_addresses", "contact_methods", "links",
-              "import_provenance", "field_confidence"):
+for table in (
+    "entity_addresses",
+    "contact_methods",
+    "links",
+    "import_provenance",
+    "field_confidence",
+):
     await db.execute(
-        f"UPDATE {table} SET entity_id=$1"
-        f" WHERE entity_type='organization' AND entity_id=$2",
-        winner_id, loser_id,
+        f"UPDATE {table} SET entity_id=$1 WHERE entity_type='organization' AND entity_id=$2",
+        winner_id,
+        loser_id,
     )
 ```
 
@@ -506,7 +526,8 @@ await db.execute(
     "   SELECT 1 FROM links"
     "   WHERE entity_type='organization' AND entity_id=$2 AND is_canonical=TRUE"
     " )",
-    loser_id, winner_id,
+    loser_id,
+    winner_id,
 )
 ```
 
@@ -761,7 +782,8 @@ def search_org_id():
             await conn.execute(
                 "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
                 " VALUES ($1, $2, 'Searchable Org', TRUE)",
-                generate_id(), oid,
+                generate_id(),
+                oid,
             )
         finally:
             await conn.close()
@@ -799,7 +821,8 @@ def test_search_excludes_archived_org(client):
             await conn.execute(
                 "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
                 " VALUES ($1, $2, 'Archived Searchable', TRUE)",
-                generate_id(), oid,
+                generate_id(),
+                oid,
             )
         finally:
             await conn.close()
@@ -814,9 +837,7 @@ def test_search_excludes_archived_org(client):
 
     asyncio.run(setup())
     try:
-        response = client.get(
-            "/admin/orgs/search/?q=Archived+Searchable", headers=AUTH_HEADERS
-        )
+        response = client.get("/admin/orgs/search/?q=Archived+Searchable", headers=AUTH_HEADERS)
         assert response.status_code == 200
         assert "Archived Searchable" not in response.text
     finally:
@@ -952,7 +973,8 @@ def org_id():
             await conn.execute(
                 "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
                 " VALUES ($1, $2, 'Inline Test Org', TRUE)",
-                generate_id(), oid,
+                generate_id(),
+                oid,
             )
         finally:
             await conn.close()
@@ -1059,7 +1081,9 @@ async def org_inline_core_post(
     async with db.transaction():
         await db.execute(
             "UPDATE organizations SET active=$1, notes=$2 WHERE id=$3",
-            active == "true", notes.strip() or None, org_id,
+            active == "true",
+            notes.strip() or None,
+            org_id,
         )
         existing = await db.fetchrow(
             "SELECT id FROM organization_names WHERE organization_id=$1 AND is_canonical=TRUE",
@@ -1073,7 +1097,9 @@ async def org_inline_core_post(
             await db.execute(
                 "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
                 " VALUES ($1, $2, $3, TRUE)",
-                generate_id(), org_id, name.strip(),
+                generate_id(),
+                org_id,
+                name.strip(),
             )
         acronym_stripped = acronym.strip()
         existing_acronym = await db.fetchrow(
@@ -1084,13 +1110,16 @@ async def org_inline_core_post(
             if existing_acronym:
                 await db.execute(
                     "UPDATE organization_acronyms SET acronym=$1 WHERE id=$2",
-                    acronym_stripped, existing_acronym["id"],
+                    acronym_stripped,
+                    existing_acronym["id"],
                 )
             else:
                 await db.execute(
                     "INSERT INTO organization_acronyms (id, organization_id, acronym, is_canonical)"
                     " VALUES ($1, $2, $3, TRUE)",
-                    generate_id(), org_id, acronym_stripped,
+                    generate_id(),
+                    org_id,
+                    acronym_stripped,
                 )
         elif existing_acronym:
             await db.execute(
@@ -1178,7 +1207,8 @@ Add a `GET /inline/core/edit/` route that returns `_core_fields_form.html`, and 
 ```python
 @router.get("/{org_id}/inline/core/edit/")
 async def org_inline_core_edit_get(
-    org_id: str, request: Request,
+    org_id: str,
+    request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -1263,10 +1293,12 @@ def test_parent_get_returns_partial(client, org_id):
     r = client.get(f"/admin/orgs/{org_id}/inline/parent/", headers=HTMX_HEADERS)
     assert r.status_code == 200
 
+
 def test_parent_post_sets_parent(client, org_id):
     # Create a second org to be the parent
     dsn = _dsn()
     parent_id = generate_id()
+
     async def make_parent():
         conn = await asyncpg.connect(dsn)
         await apply_schema(conn)
@@ -1274,12 +1306,14 @@ def test_parent_post_sets_parent(client, org_id):
             await conn.execute("INSERT INTO organizations (id) VALUES ($1)", parent_id)
         finally:
             await conn.close()
+
     async def drop_parent():
         conn = await asyncpg.connect(dsn)
         try:
             await conn.execute("DELETE FROM organizations WHERE id=$1", parent_id)
         finally:
             await conn.close()
+
     asyncio.run(make_parent())
     try:
         r = client.post(
@@ -1297,6 +1331,7 @@ def test_parent_post_sets_parent(client, org_id):
             data={"parent_id": ""},
         )
         asyncio.run(drop_parent())
+
 
 def test_parent_post_circular_returns_422(client, org_id):
     r = client.post(
@@ -1319,7 +1354,8 @@ uv run pytest tests/api/admin/test_orgs_inline.py::test_parent_get_returns_parti
 ```python
 @router.get("/{org_id}/inline/parent/")
 async def org_inline_parent_get(
-    org_id: str, request: Request,
+    org_id: str,
+    request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -1334,7 +1370,8 @@ async def org_inline_parent_get(
         parent = await db.fetchrow(
             "SELECT o.id, dn.display_name FROM organizations o"
             " LEFT JOIN v_org_display_names dn ON dn.organization_id=o.id"
-            " WHERE o.id=$1", org["parent_id"]
+            " WHERE o.id=$1",
+            org["parent_id"],
         )
     return templates.TemplateResponse(
         request, "admin/orgs/partials/_parent_read.html", {"org": org, "parent": parent}
@@ -1343,7 +1380,8 @@ async def org_inline_parent_get(
 
 @router.post("/{org_id}/inline/parent/")
 async def org_inline_parent_post(
-    org_id: str, request: Request,
+    org_id: str,
+    request: Request,
     parent_id: str = Form(""),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
@@ -1361,16 +1399,15 @@ async def org_inline_parent_post(
         exists = await db.fetchval("SELECT id FROM organizations WHERE id=$1", resolved)
         if not exists:
             raise HTTPException(status_code=422, detail="Parent organization not found")
-    await db.execute(
-        "UPDATE organizations SET parent_id=$1 WHERE id=$2", resolved, org_id
-    )
+    await db.execute("UPDATE organizations SET parent_id=$1 WHERE id=$2", resolved, org_id)
     org = await db.fetchrow("SELECT * FROM organizations WHERE id=$1", org_id)
     parent = None
     if org["parent_id"]:
         parent = await db.fetchrow(
             "SELECT o.id, dn.display_name FROM organizations o"
             " LEFT JOIN v_org_display_names dn ON dn.organization_id=o.id"
-            " WHERE o.id=$1", org["parent_id"]
+            " WHERE o.id=$1",
+            org["parent_id"],
         )
     if not _is_htmx(request):
         return RedirectResponse(f"/admin/orgs/{org_id}/", status_code=303)
@@ -1520,7 +1557,8 @@ def org_and_name():
             await conn.execute(
                 "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
                 " VALUES ($1, $2, 'Original Name', TRUE)",
-                nid, oid,
+                nid,
+                oid,
             )
         finally:
             await conn.close()
@@ -1579,6 +1617,7 @@ def test_names_delete(client, org_and_name):
     oid, _ = org_and_name
     # Create a non-canonical name to delete
     nid2 = generate_id()
+
     async def add():
         conn = await asyncpg.connect(dsn)
         await apply_schema(conn)
@@ -1586,10 +1625,12 @@ def test_names_delete(client, org_and_name):
             await conn.execute(
                 "INSERT INTO organization_names (id, organization_id, name, is_canonical)"
                 " VALUES ($1, $2, 'Former Name', FALSE)",
-                nid2, oid,
+                nid2,
+                oid,
             )
         finally:
             await conn.close()
+
     asyncio.run(add())
     r = client.delete(f"/admin/orgs/{oid}/names/{nid2}/", headers=HTMX_HEADERS)
     assert r.status_code == 200
@@ -1632,7 +1673,8 @@ async def _get_org_or_404(org_id: str, db):
 
 @router.get("/new-row/")
 async def name_new_row(
-    org_id: str, request: Request,
+    org_id: str,
+    request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -1641,14 +1683,16 @@ async def name_new_row(
         return redirect
     await _get_org_or_404(org_id, db)
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_name_form_row.html",
+        request,
+        "admin/orgs/partials/_name_form_row.html",
         {"org_id": org_id, "name": None},
     )
 
 
 @router.post("/")
 async def name_create(
-    org_id: str, request: Request,
+    org_id: str,
+    request: Request,
     name: str = Form(...),
     name_type: str = Form("legal"),
     is_canonical: str = Form(""),
@@ -1663,7 +1707,11 @@ async def name_create(
     await db.execute(
         "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical)"
         " VALUES ($1, $2, $3, $4, $5)",
-        nid, org_id, name.strip(), name_type, is_canonical == "true",
+        nid,
+        org_id,
+        name.strip(),
+        name_type,
+        is_canonical == "true",
     )
     row = await db.fetchrow("SELECT * FROM organization_names WHERE id=$1", nid)
     if not _is_htmx(request):
@@ -1675,7 +1723,9 @@ async def name_create(
 
 @router.get("/{name_id}/edit-row/")
 async def name_edit_row_get(
-    org_id: str, name_id: str, request: Request,
+    org_id: str,
+    name_id: str,
+    request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -1684,19 +1734,23 @@ async def name_edit_row_get(
         return redirect
     name = await db.fetchrow(
         "SELECT * FROM organization_names WHERE id=$1 AND organization_id=$2",
-        name_id, org_id,
+        name_id,
+        org_id,
     )
     if not name:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
-        request, "admin/orgs/partials/_name_form_row.html",
+        request,
+        "admin/orgs/partials/_name_form_row.html",
         {"org_id": org_id, "n": name},
     )
 
 
 @router.post("/{name_id}/edit-row/")
 async def name_edit_row_post(
-    org_id: str, name_id: str, request: Request,
+    org_id: str,
+    name_id: str,
+    request: Request,
     name: str = Form(...),
     name_type: str = Form("legal"),
     is_canonical: str = Form(""),
@@ -1708,13 +1762,17 @@ async def name_edit_row_post(
         return redirect
     existing = await db.fetchrow(
         "SELECT * FROM organization_names WHERE id=$1 AND organization_id=$2",
-        name_id, org_id,
+        name_id,
+        org_id,
     )
     if not existing:
         raise HTTPException(status_code=404)
     await db.execute(
         "UPDATE organization_names SET name=$1, name_type=$2, is_canonical=$3 WHERE id=$4",
-        name.strip(), name_type, is_canonical == "true", name_id,
+        name.strip(),
+        name_type,
+        is_canonical == "true",
+        name_id,
     )
     row = await db.fetchrow("SELECT * FROM organization_names WHERE id=$1", name_id)
     if not _is_htmx(request):
@@ -1726,7 +1784,9 @@ async def name_edit_row_post(
 
 @router.delete("/{name_id}/")
 async def name_delete(
-    org_id: str, name_id: str, request: Request,
+    org_id: str,
+    name_id: str,
+    request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -1735,7 +1795,8 @@ async def name_delete(
         return redirect
     existing = await db.fetchrow(
         "SELECT id FROM organization_names WHERE id=$1 AND organization_id=$2",
-        name_id, org_id,
+        name_id,
+        org_id,
     )
     if not existing:
         raise HTTPException(status_code=404)
@@ -1969,21 +2030,25 @@ pytestmark = pytest.mark.integration
 AUTH_HEADERS = {"X-ExeDev-UserID": "usr_test", "X-ExeDev-Email": "admin@test.com"}
 HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
 
+
 def _dsn():
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
         pytest.skip("DATABASE_URL not set")
     return dsn
 
+
 @pytest.fixture
 def client():
     with TestClient(app) as c:
         yield c
 
+
 @pytest.fixture
 def parent_and_child():
     dsn = _dsn()
     pid, cid = generate_id(), generate_id()
+
     async def setup():
         conn = await asyncpg.connect(dsn)
         await apply_schema(conn)
@@ -1992,6 +2057,7 @@ def parent_and_child():
             await conn.execute("INSERT INTO organizations (id) VALUES ($1)", cid)
         finally:
             await conn.close()
+
     async def teardown():
         conn = await asyncpg.connect(dsn)
         try:
@@ -2002,6 +2068,7 @@ def parent_and_child():
             await conn.execute("DELETE FROM organizations WHERE id=$1", pid)
         finally:
             await conn.close()
+
     asyncio.run(setup())
     yield pid, cid
     asyncio.run(teardown())
@@ -2024,6 +2091,7 @@ def test_add_child_sets_parent_id(client, parent_and_child):
             assert row["parent_id"] == pid
         finally:
             await conn.close()
+
     asyncio.run(check())
 
 
@@ -2043,6 +2111,7 @@ def test_remove_child_clears_parent_id(client, parent_and_child):
             assert row["parent_id"] is None
         finally:
             await conn.close()
+
     asyncio.run(check())
 
 
@@ -2068,7 +2137,8 @@ uv run pytest tests/api/admin/test_orgs_children.py -v -m integration
 ```python
 @router.get("/{org_id}/children/new-row/")
 async def children_new_row(
-    org_id: str, request: Request,
+    org_id: str,
+    request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -2082,7 +2152,8 @@ async def children_new_row(
 
 @router.post("/{org_id}/children/")
 async def children_add(
-    org_id: str, request: Request,
+    org_id: str,
+    request: Request,
     child_id: str = Form(...),
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
@@ -2112,7 +2183,9 @@ async def children_add(
 
 @router.delete("/{org_id}/children/{child_id}/")
 async def children_remove(
-    org_id: str, child_id: str, request: Request,
+    org_id: str,
+    child_id: str,
+    request: Request,
     user: AdminUser | RedirectResponse = Depends(get_admin_user),
     db=Depends(get_db),
 ):
@@ -2126,6 +2199,7 @@ async def children_remove(
         raise HTTPException(status_code=404)
     await db.execute("UPDATE organizations SET parent_id=NULL WHERE id=$1", child_id)
     from fastapi.responses import HTMLResponse
+
     return HTMLResponse(content="", status_code=200)
 ```
 

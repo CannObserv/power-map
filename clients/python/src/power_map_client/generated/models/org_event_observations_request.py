@@ -44,9 +44,7 @@ class OrgEventObservationsRequest:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.observation_event_item import (
-            ObservationEventItem,  # noqa: PLC0415
-        )
+        from ..models.observation_event_item import ObservationEventItem  # noqa: PLC0415
 
         d = dict(src_dict)
         _events = d.pop("events", UNSET)

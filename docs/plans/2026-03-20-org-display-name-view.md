@@ -77,13 +77,17 @@ async def _insert_org(conn, name, acronym=None):
     await conn.execute(
         "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical)"
         " VALUES ($1, $2, $3, 'legal', TRUE)",
-        generate_id(), oid, name,
+        generate_id(),
+        oid,
+        name,
     )
     if acronym:
         await conn.execute(
             "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical)"
             " VALUES ($1, $2, $3, 'acronym', TRUE)",
-            generate_id(), oid, acronym,
+            generate_id(),
+            oid,
+            acronym,
         )
     return oid
 
@@ -203,13 +207,15 @@ def test_org_with_acronym_appears_once_in_list_with_formatted_name(client):
                 "INSERT INTO organization_names"
                 " (id, organization_id, name, name_type, is_canonical)"
                 " VALUES ($1, $2, 'Cannabis Alliance', 'legal', TRUE)",
-                generate_id(), oid,
+                generate_id(),
+                oid,
             )
             await conn.execute(
                 "INSERT INTO organization_names"
                 " (id, organization_id, name, name_type, is_canonical)"
                 " VALUES ($1, $2, 'CA', 'acronym', TRUE)",
-                generate_id(), oid,
+                generate_id(),
+                oid,
             )
         finally:
             await conn.close()
@@ -520,20 +526,25 @@ Four locations:
 The `db`, `client`, `org_id`, `person_id`, and `role_id` fixtures are already defined in this file. The test validates that both `_LIST_SELECT` (SELECT clause) and the `ra_list` search condition (WHERE clause) use the correct `dn.display_name` alias after the refactor. Append:
 
 ```python
-async def test_ra_list_shows_formatted_org_name_for_org_with_acronym(client, db, org_id, person_id, role_id):
+async def test_ra_list_shows_formatted_org_name_for_org_with_acronym(
+    client, db, org_id, person_id, role_id
+):
     """Role assignment list should show 'Name (Acronym)' and no duplicate rows."""
     # Add acronym to the test org
     await db.execute(
         "INSERT INTO organization_names"
         " (id, organization_id, name, name_type, is_canonical)"
         " VALUES ($1, $2, 'TO', 'acronym', TRUE)",
-        generate_id(), org_id,
+        generate_id(),
+        org_id,
     )
     ra_id = generate_id()
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id, is_current)"
         " VALUES ($1, $2, $3, FALSE)",
-        ra_id, person_id, role_id,
+        ra_id,
+        person_id,
+        role_id,
     )
     try:
         response = client.get("/admin/role-assignments/", headers=AUTH_HEADERS)
@@ -626,15 +637,11 @@ _LIST_SELECT = """
 
 In `ra_list`, the search condition references `n.name`:
 ```python
-        conditions.append(
-            f"(pn.name ILIKE ${idx} OR r.title ILIKE ${idx} OR n.name ILIKE ${idx})"
-        )
+conditions.append(f"(pn.name ILIKE ${idx} OR r.title ILIKE ${idx} OR n.name ILIKE ${idx})")
 ```
 Change `n.name ILIKE ${idx}` → `dn.display_name ILIKE ${idx}`:
 ```python
-        conditions.append(
-            f"(pn.name ILIKE ${idx} OR r.title ILIKE ${idx} OR dn.display_name ILIKE ${idx})"
-        )
+conditions.append(f"(pn.name ILIKE ${idx} OR r.title ILIKE ${idx} OR dn.display_name ILIKE ${idx})")
 ```
 
 Also update the count query's FROM section:

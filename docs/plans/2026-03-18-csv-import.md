@@ -88,13 +88,19 @@ Add to `tests/core/test_schema.py` (at the bottom, inside the existing file whic
 # import_batches
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.integration
 async def test_import_batches_insert(db):
     batch_id = generate_id()
     await db.execute(
         """INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count, error_count)
            VALUES ($1, $2, $3, $4, $5, $6)""",
-        batch_id, "orgs.csv", "abc123", 10, 9, 1,
+        batch_id,
+        "orgs.csv",
+        "abc123",
+        10,
+        9,
+        1,
     )
     row = await db.fetchrow("SELECT * FROM import_batches WHERE id = $1", batch_id)
     assert row["row_count"] == 10
@@ -105,14 +111,21 @@ async def test_import_batches_insert(db):
 # import_provenance
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.integration
 async def test_import_provenance_insert(db):
     import json
+
     batch_id = generate_id()
     await db.execute(
         """INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count, error_count)
            VALUES ($1, $2, $3, $4, $5, $6)""",
-        batch_id, "orgs.csv", "abc123", 1, 1, 0,
+        batch_id,
+        "orgs.csv",
+        "abc123",
+        1,
+        1,
+        0,
     )
     prov_id = generate_id()
     org_id = generate_id()
@@ -120,7 +133,12 @@ async def test_import_provenance_insert(db):
         """INSERT INTO import_provenance
                (id, batch_id, source_row, entity_type, entity_id, action, raw_data)
            VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-        prov_id, batch_id, 2, "organization", org_id, "created",
+        prov_id,
+        batch_id,
+        2,
+        "organization",
+        org_id,
+        "created",
         json.dumps({"Name": "Acme Corp"}),
     )
     row = await db.fetchrow("SELECT * FROM import_provenance WHERE id = $1", prov_id)
@@ -134,14 +152,24 @@ async def test_import_provenance_invalid_action(db):
     await db.execute(
         """INSERT INTO import_batches (id, source_file, file_hash, row_count, loaded_count, error_count)
            VALUES ($1, $2, $3, $4, $5, $6)""",
-        batch_id, "orgs.csv", "abc123", 1, 0, 1,
+        batch_id,
+        "orgs.csv",
+        "abc123",
+        1,
+        0,
+        1,
     )
     with pytest.raises(asyncpg.CheckViolationError):
         await db.execute(
             """INSERT INTO import_provenance
                    (id, batch_id, source_row, entity_type, entity_id, action, raw_data)
                VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            generate_id(), batch_id, 1, "organization", generate_id(), "bogus",
+            generate_id(),
+            batch_id,
+            1,
+            "organization",
+            generate_id(),
+            "bogus",
             "{}",
         )
 
@@ -150,20 +178,24 @@ async def test_import_provenance_invalid_action(db):
 # field_confidence
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.integration
 async def test_field_confidence_insert(db):
     org_id = generate_id()
-    await db.execute(
-        "INSERT INTO organizations (id) VALUES ($1)", org_id
-    )
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org_id)
     conf_id = generate_id()
     await db.execute(
         """INSERT INTO field_confidence
                (id, entity_type, entity_id, field_name, value_hash,
                 source_reliability, validation_status)
            VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-        conf_id, "organization", org_id, "phone",
-        "abc123hash", 0.8, "unconfirmed",
+        conf_id,
+        "organization",
+        org_id,
+        "phone",
+        "abc123hash",
+        0.8,
+        "unconfirmed",
     )
     row = await db.fetchrow("SELECT * FROM field_confidence WHERE id = $1", conf_id)
     assert row["source_reliability"] == pytest.approx(0.8)
@@ -180,8 +212,13 @@ async def test_field_confidence_source_reliability_bounds(db):
                    (id, entity_type, entity_id, field_name, value_hash,
                     source_reliability, validation_status)
                VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            generate_id(), "organization", org_id, "phone",
-            "abc123", 1.5, "unconfirmed",  # out of range
+            generate_id(),
+            "organization",
+            org_id,
+            "phone",
+            "abc123",
+            1.5,
+            "unconfirmed",  # out of range
         )
 
 
@@ -196,12 +233,15 @@ async def test_field_confidence_append_only_by_convention(db):
                    (id, entity_type, entity_id, field_name, value_hash,
                     source_reliability, validation_status)
                VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            generate_id(), "organization", org_id, "phone",
-            "samehash", 0.8, "unconfirmed",
+            generate_id(),
+            "organization",
+            org_id,
+            "phone",
+            "samehash",
+            0.8,
+            "unconfirmed",
         )
-    count = await db.fetchval(
-        "SELECT count(*) FROM field_confidence WHERE entity_id = $1", org_id
-    )
+    count = await db.fetchval("SELECT count(*) FROM field_confidence WHERE entity_id = $1", org_id)
     assert count == 2
 
 
@@ -444,9 +484,21 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 # Strings treated as absent / unknown regardless of case
-NULL_LIKE: frozenset[str] = frozenset({
-    "", "n/a", "na", "none", "null", "unknown", "tbd", "-", "--", "n.a.", "not available",
-})
+NULL_LIKE: frozenset[str] = frozenset(
+    {
+        "",
+        "n/a",
+        "na",
+        "none",
+        "null",
+        "unknown",
+        "tbd",
+        "-",
+        "--",
+        "n.a.",
+        "not available",
+    }
+)
 
 
 def is_null_like(raw: str | None) -> bool:
@@ -458,8 +510,8 @@ def is_null_like(raw: str | None) -> bool:
 class NormalizationResult:
     """Output of a single normalizer call."""
 
-    value: Any | None                    # normalized output; None when skipped
-    skipped: bool = False                # True when input was absent/null-like
+    value: Any | None  # normalized output; None when skipped
+    skipped: bool = False  # True when input was absent/null-like
     warnings: list[str] = field(default_factory=list)
     confidence_hint: str = "unconfirmed"  # feeds field_confidence.validation_status
     validation_detail: dict | None = None
@@ -821,14 +873,16 @@ class UrlNormalizer:
         if not validators.url(raw):
             raise ValueError(f"invalid url: {raw!r}")
         parsed = urlparse(raw)
-        canonical = urlunparse((
-            parsed.scheme.lower(),
-            parsed.netloc.lower(),
-            parsed.path.rstrip("/") if parsed.path != "/" else "",
-            parsed.params,
-            parsed.query,
-            parsed.fragment,
-        ))
+        canonical = urlunparse(
+            (
+                parsed.scheme.lower(),
+                parsed.netloc.lower(),
+                parsed.path.rstrip("/") if parsed.path != "/" else "",
+                parsed.params,
+                parsed.query,
+                parsed.fragment,
+            )
+        )
         return NormalizationResult(value=canonical)
 ```
 
@@ -968,6 +1022,7 @@ from src.core.normalizers.base import NormalizationResult
 # LocalAddressNormalizer
 # ---------------------------------------------------------------------------
 
+
 def test_local_null_like_skipped():
     n = LocalAddressNormalizer()
     r = n.normalize(None)
@@ -995,6 +1050,7 @@ def test_local_ambiguous_stores_raw_only():
 # ---------------------------------------------------------------------------
 # ExternalAddressNormalizer
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def config():
@@ -1079,6 +1135,7 @@ async def test_external_429_retries_then_raises(external):
 # ---------------------------------------------------------------------------
 # FallbackAddressNormalizer
 # ---------------------------------------------------------------------------
+
 
 async def test_fallback_uses_external_on_success(config):
     n = FallbackAddressNormalizer(config)
@@ -1172,15 +1229,17 @@ class LocalAddressNormalizer:
         result: dict = {"raw_input": raw}
         try:
             tagged, _ = usaddress.tag(raw)
-            result.update({
-                "address_line_1": _build_line1(tagged),
-                "address_line_2": tagged.get("OccupancyType") and _build_line2(tagged),
-                "city": tagged.get("PlaceName"),
-                "region": tagged.get("StateName"),
-                "postal_code": tagged.get("ZipCode"),
-                "country": "US",
-                "standardized": None,
-            })
+            result.update(
+                {
+                    "address_line_1": _build_line1(tagged),
+                    "address_line_2": tagged.get("OccupancyType") and _build_line2(tagged),
+                    "city": tagged.get("PlaceName"),
+                    "region": tagged.get("StateName"),
+                    "postal_code": tagged.get("ZipCode"),
+                    "country": "US",
+                    "standardized": None,
+                }
+            )
         except usaddress.RepeatedLabelError:
             return NormalizationResult(
                 value=result,
@@ -1267,11 +1326,13 @@ class ExternalAddressNormalizer:
         confidence_hint = "unconfirmed"
         if self.config.run_validation and "validation" in data:
             v = data["validation"]
-            detail.update({
-                "status": v.get("status"),
-                "dpv_match_code": v.get("dpv_match_code"),
-                "provider": v.get("provider", "address-validator"),
-            })
+            detail.update(
+                {
+                    "status": v.get("status"),
+                    "dpv_match_code": v.get("dpv_match_code"),
+                    "provider": v.get("provider", "address-validator"),
+                }
+            )
             confidence_hint = _STATUS_MAP.get(v.get("status", ""), "not_attempted")
         detail["warnings"] = data.get("warnings", [])
         warnings = [f"address-validator warning: {w}" for w in data.get("warnings", [])]
@@ -1465,9 +1526,9 @@ class ConfidenceRecord:
     entity_type: str
     entity_id: str
     field_name: str
-    normalized_value: str          # the actual stored value; hashed at insert time
+    normalized_value: str  # the actual stored value; hashed at insert time
     source_reliability: float
-    validation_status: str         # 'confirmed'|'unconfirmed'|'failed'|'not_attempted'
+    validation_status: str  # 'confirmed'|'unconfirmed'|'failed'|'not_attempted'
     assessed_by: str
     validation_detail: dict | None = None
 
@@ -1758,11 +1819,13 @@ def validate_org(raw: dict[str, str], source_row: int) -> RowResult:
         result.transformed = {"_validated": validated}
     except ValidationError as exc:
         for e in exc.errors():
-            result.errors.append(FieldError(
-                field=str(e["loc"][0]) if e["loc"] else "unknown",
-                message=e["msg"],
-                raw_value=raw.get(str(e["loc"][0])),
-            ))
+            result.errors.append(
+                FieldError(
+                    field=str(e["loc"][0]) if e["loc"] else "unknown",
+                    message=e["msg"],
+                    raw_value=raw.get(str(e["loc"][0])),
+                )
+            )
     return result
 
 
@@ -1781,17 +1844,21 @@ async def transform_org(
     warnings: list[str] = []
     confidence_records: list[ConfidenceRecord] = []
 
-    def _add_confidence(field_name: str, normalized_value: str, hint: str, detail: dict | None = None) -> None:
-        confidence_records.append(ConfidenceRecord(
-            entity_type="organization",
-            entity_id=org_id,
-            field_name=field_name,
-            normalized_value=normalized_value,
-            source_reliability=source_reliability,
-            validation_status=hint,
-            assessed_by="import:pending",  # batch_id filled in by pipeline
-            validation_detail=detail,
-        ))
+    def _add_confidence(
+        field_name: str, normalized_value: str, hint: str, detail: dict | None = None
+    ) -> None:
+        confidence_records.append(
+            ConfidenceRecord(
+                entity_type="organization",
+                entity_id=org_id,
+                field_name=field_name,
+                normalized_value=normalized_value,
+                source_reliability=source_reliability,
+                validation_status=hint,
+                assessed_by="import:pending",  # batch_id filled in by pipeline
+                validation_detail=detail,
+            )
+        )
 
     # Active flag
     active = _parse_active(validated.active)
@@ -1806,7 +1873,9 @@ async def transform_org(
     # Names
     names = [{"name": validated.name, "name_type": "legal", "is_canonical": True}]
     if validated.acronym and validated.acronym.strip():
-        names.append({"name": validated.acronym.strip(), "name_type": "acronym", "is_canonical": True})
+        names.append(
+            {"name": validated.acronym.strip(), "name_type": "acronym", "is_canonical": True}
+        )
 
     # Contact methods
     contact_methods: list[dict] = []
@@ -1841,7 +1910,13 @@ async def transform_org(
             try:
                 r = _url.normalize(raw_url)
                 if not r.skipped:
-                    urls.append({"url": r.value, "url_type_slug": url_type_slug, "is_canonical": is_canonical})
+                    urls.append(
+                        {
+                            "url": r.value,
+                            "url_type_slug": url_type_slug,
+                            "is_canonical": is_canonical,
+                        }
+                    )
                     _add_confidence(f"url:{url_type_slug}", r.value, r.confidence_hint)
             except ValueError as exc:
                 warnings.append(f"url skipped ({url_type_slug}): {exc}")
@@ -1889,8 +1964,12 @@ async def transform_org(
         addr_result = await addr_normalizer.normalize(validated.mailing_address)
         if not addr_result.skipped:
             address = addr_result.value
-            _add_confidence("address", str(address.get("standardized") or address.get("raw_input")),
-                            addr_result.confidence_hint, addr_result.validation_detail)
+            _add_confidence(
+                "address",
+                str(address.get("standardized") or address.get("raw_input")),
+                addr_result.confidence_hint,
+                addr_result.validation_detail,
+            )
             warnings.extend(addr_result.warnings)
 
     result.transformed = {
@@ -2132,7 +2211,9 @@ def test_validate_role_valid():
 
 
 def test_validate_role_missing_title():
-    r = validate_role({"Name": "Jane", "Organization": "Acme Cannabis LLC", "Title": ""}, source_row=99)
+    r = validate_role(
+        {"Name": "Jane", "Organization": "Acme Cannabis LLC", "Title": ""}, source_row=99
+    )
     assert not r.ok
     assert any(e.field == "title" for e in r.errors)
 
@@ -2140,8 +2221,9 @@ def test_validate_role_missing_title():
 def test_transform_role_creates_role_and_assignment():
     rows = read_fixture(FIXTURE)
     r = validate_role(rows[0], source_row=2)
-    result = transform_role(r, org_index=ORG_INDEX, person_index=PERSON_INDEX,
-                            role_index={}, source_reliability=0.8)
+    result = transform_role(
+        r, org_index=ORG_INDEX, person_index=PERSON_INDEX, role_index={}, source_reliability=0.8
+    )
     assert result.ok
     t = result.transformed
     assert "role_id" in t
@@ -2155,8 +2237,13 @@ def test_transform_role_reuses_existing_role():
     r = validate_role(rows[0], source_row=2)
     existing_role_id = "01EXISTINGROLE000000000001"
     role_index = {(ORG_INDEX["acme cannabis llc"], "ceo"): existing_role_id}
-    result = transform_role(r, org_index=ORG_INDEX, person_index=PERSON_INDEX,
-                            role_index=role_index, source_reliability=0.8)
+    result = transform_role(
+        r,
+        org_index=ORG_INDEX,
+        person_index=PERSON_INDEX,
+        role_index=role_index,
+        source_reliability=0.8,
+    )
     assert result.transformed["role_id"] == existing_role_id
     assert result.transformed["role_action"] == "matched"
 
@@ -2164,8 +2251,9 @@ def test_transform_role_reuses_existing_role():
 def test_transform_role_unresolved_org_error():
     rows = read_fixture(FIXTURE)
     r = validate_role(rows[0], source_row=2)
-    result = transform_role(r, org_index={}, person_index=PERSON_INDEX,
-                            role_index={}, source_reliability=0.8)
+    result = transform_role(
+        r, org_index={}, person_index=PERSON_INDEX, role_index={}, source_reliability=0.8
+    )
     assert not result.ok
     assert any("org" in e.message.lower() for e in result.errors)
 
@@ -2173,13 +2261,15 @@ def test_transform_role_unresolved_org_error():
 def test_transform_role_is_current():
     rows = read_fixture(FIXTURE)
     r = validate_role(rows[0], source_row=2)  # "Yes"
-    result = transform_role(r, org_index=ORG_INDEX, person_index=PERSON_INDEX,
-                            role_index={}, source_reliability=0.8)
+    result = transform_role(
+        r, org_index=ORG_INDEX, person_index=PERSON_INDEX, role_index={}, source_reliability=0.8
+    )
     assert result.transformed["is_current"] is True
 
     r2 = validate_role(rows[1], source_row=3)  # "No"
-    result2 = transform_role(r2, org_index=ORG_INDEX, person_index=PERSON_INDEX,
-                             role_index={}, source_reliability=0.8)
+    result2 = transform_role(
+        r2, org_index=ORG_INDEX, person_index=PERSON_INDEX, role_index={}, source_reliability=0.8
+    )
     assert result2.transformed["is_current"] is False
 ```
 
@@ -2252,6 +2342,7 @@ ROLES_FIXTURE = Path("tests/fixtures/ingestion/roles_sample.csv")
 async def db(tmp_path):
     """Integration DB fixture with rollback — requires DATABASE_URL env var."""
     import os
+
     conn = await asyncpg.connect(os.environ["DATABASE_URL"])
     await apply_schema(conn)
     tr = conn.transaction()
@@ -2324,9 +2415,7 @@ async def test_run_import_idempotent(db):
     await run_import(db, config)
     count_after = await db.fetchval("SELECT count(*) FROM organizations")
     assert count_before == count_after
-    matched = await db.fetchval(
-        "SELECT count(*) FROM import_provenance WHERE action = 'matched'"
-    )
+    matched = await db.fetchval("SELECT count(*) FROM import_provenance WHERE action = 'matched'")
     assert matched >= 1
 ```
 
@@ -2377,8 +2466,9 @@ class ImportConfig:
 @dataclass
 class ReferenceData:
     """Lookup dicts loaded from DB at pipeline start."""
-    url_type_ids: dict[str, str] = field(default_factory=dict)    # slug → id
-    platform_ids: dict[str, str] = field(default_factory=dict)    # slug → id
+
+    url_type_ids: dict[str, str] = field(default_factory=dict)  # slug → id
+    platform_ids: dict[str, str] = field(default_factory=dict)  # slug → id
     identifier_type_ids: dict[str, str] = field(default_factory=dict)  # slug → id
 
 
@@ -2418,7 +2508,11 @@ async def _write_provenance(
         """INSERT INTO import_provenance
                (id, batch_id, source_row, entity_type, entity_id, action, error_detail, raw_data)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
-        generate_id(), batch_id, source_row, entity_type, entity_id,
+        generate_id(),
+        batch_id,
+        source_row,
+        entity_type,
+        entity_id,
         action,
         json.dumps([{"field": e.field, "message": e.message} for e in errors]) if errors else None,
         json.dumps(raw),
@@ -2432,9 +2526,13 @@ async def _write_confidence(conn: asyncpg.Connection, records: list[ConfidenceRe
                    (id, entity_type, entity_id, field_name, value_hash,
                     source_reliability, validation_status, validation_detail, assessed_by)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
-            generate_id(), rec.entity_type, rec.entity_id, rec.field_name,
+            generate_id(),
+            rec.entity_type,
+            rec.entity_id,
+            rec.field_name,
             value_hash(rec.normalized_value),
-            rec.source_reliability, rec.validation_status,
+            rec.source_reliability,
+            rec.validation_status,
             json.dumps(rec.validation_detail) if rec.validation_detail else None,
             rec.assessed_by,
         )
@@ -2446,7 +2544,11 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
     ref = await _load_reference_data(conn)
 
     combined_hash = hashlib.sha256(
-        (_file_hash(config.orgs_csv) + _file_hash(config.people_csv) + _file_hash(config.roles_csv)).encode()
+        (
+            _file_hash(config.orgs_csv)
+            + _file_hash(config.people_csv)
+            + _file_hash(config.roles_csv)
+        ).encode()
     ).hexdigest()
 
     # Check for existing batch with same file hashes (idempotency)
@@ -2462,9 +2564,15 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
 
     summary: dict[str, Any] = {
         "batch_id": batch_id,
-        "orgs_loaded": 0, "orgs_matched": 0, "orgs_error": 0,
-        "people_loaded": 0, "people_matched": 0, "people_error": 0,
-        "roles_loaded": 0, "roles_matched": 0, "roles_error": 0,
+        "orgs_loaded": 0,
+        "orgs_matched": 0,
+        "orgs_error": 0,
+        "people_loaded": 0,
+        "people_matched": 0,
+        "people_error": 0,
+        "roles_loaded": 0,
+        "roles_matched": 0,
+        "roles_error": 0,
     }
 
     org_index: dict[str, str] = {}
@@ -2481,8 +2589,9 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
             for e in result.errors:
                 logger.warning("org row %d field error: %s = %s", i, e.field, e.message)
             continue
-        result = await transform_org(result, org_index=org_index,
-                                     source_reliability=config.source_reliability)
+        result = await transform_org(
+            result, org_index=org_index, source_reliability=config.source_reliability
+        )
         for w in result.warnings:
             logger.warning("org row %d warning: %s", i, w)
 
@@ -2498,7 +2607,9 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         )
         if existing_org:
             org_index[name_lower] = existing_org["id"]
-            await _write_provenance(conn, batch_id, i, "organization", existing_org["id"], "matched", raw)
+            await _write_provenance(
+                conn, batch_id, i, "organization", existing_org["id"], "matched", raw
+            )
             summary["orgs_matched"] += 1
             logger.debug("org row %d matched: %s", i, name_lower)
             continue
@@ -2506,38 +2617,61 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         async with conn.transaction():
             await conn.execute(
                 "INSERT INTO organizations (id, active, parent_id, notes) VALUES ($1, $2, $3, $4)",
-                t["org_id"], t["active"], t["parent_id"], t["notes"],
+                t["org_id"],
+                t["active"],
+                t["parent_id"],
+                t["notes"],
             )
             for n in t["names"]:
                 await conn.execute(
                     "INSERT INTO organization_names (id, organization_id, name, name_type, is_canonical) VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), t["org_id"], n["name"], n["name_type"], n["is_canonical"],
+                    generate_id(),
+                    t["org_id"],
+                    n["name"],
+                    n["name_type"],
+                    n["is_canonical"],
                 )
             for cm in t["contact_methods"]:
                 await conn.execute(
                     "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value) VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), "organization", t["org_id"], cm["contact_type"], cm["value"],
+                    generate_id(),
+                    "organization",
+                    t["org_id"],
+                    cm["contact_type"],
+                    cm["value"],
                 )
             for u in t["urls"]:
                 url_type_id = ref.url_type_ids.get(u["url_type_slug"])
                 if url_type_id:
                     await conn.execute(
                         "INSERT INTO urls (id, entity_type, entity_id, url, url_type_id, is_canonical) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
-                        generate_id(), "organization", t["org_id"], u["url"], url_type_id, u["is_canonical"],
+                        generate_id(),
+                        "organization",
+                        t["org_id"],
+                        u["url"],
+                        url_type_id,
+                        u["is_canonical"],
                     )
             for sl in t["social_links"]:
                 platform_id = ref.platform_ids.get(sl["platform_slug"])
                 if platform_id:
                     await conn.execute(
                         "INSERT INTO social_links (id, entity_type, entity_id, platform_id, url) VALUES ($1, $2, $3, $4, $5)",
-                        generate_id(), "organization", t["org_id"], platform_id, sl["url"],
+                        generate_id(),
+                        "organization",
+                        t["org_id"],
+                        platform_id,
+                        sl["url"],
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
                 if type_id:
                     await conn.execute(
                         "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value) VALUES ($1, $2, $3, $4)",
-                        generate_id(), t["org_id"], type_id, ident["value"],
+                        generate_id(),
+                        t["org_id"],
+                        type_id,
+                        ident["value"],
                     )
             if t["address"]:
                 addr_id = generate_id()
@@ -2546,14 +2680,23 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     """INSERT INTO addresses (id, raw_input, standardized, address_line_1,
                            address_line_2, city, region, postal_code, country)
                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
-                    addr_id, a.get("raw_input"), a.get("standardized"),
-                    a.get("address_line_1"), a.get("address_line_2"),
-                    a.get("city"), a.get("region"), a.get("postal_code"),
+                    addr_id,
+                    a.get("raw_input"),
+                    a.get("standardized"),
+                    a.get("address_line_1"),
+                    a.get("address_line_2"),
+                    a.get("city"),
+                    a.get("region"),
+                    a.get("postal_code"),
                     a.get("country", "US"),
                 )
                 await conn.execute(
                     "INSERT INTO entity_addresses (id, entity_type, entity_id, address_id, address_type) VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), "organization", t["org_id"], addr_id, "mailing",
+                    generate_id(),
+                    "organization",
+                    t["org_id"],
+                    addr_id,
+                    "mailing",
                 )
             # Update assessed_by with real batch_id
             for rec in t["confidence_records"]:
@@ -2590,45 +2733,69 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         )
         if existing_person:
             person_index[name_lower] = existing_person["id"]
-            await _write_provenance(conn, batch_id, i, "person", existing_person["id"], "matched", raw)
+            await _write_provenance(
+                conn, batch_id, i, "person", existing_person["id"], "matched", raw
+            )
             summary["people_matched"] += 1
             continue
 
         async with conn.transaction():
             await conn.execute(
                 "INSERT INTO people (id, personal_pronouns, notes) VALUES ($1, $2, $3)",
-                t["person_id"], t.get("personal_pronouns"), t["notes"],
+                t["person_id"],
+                t.get("personal_pronouns"),
+                t["notes"],
             )
             for n in t["names"]:
                 await conn.execute(
                     "INSERT INTO person_names (id, person_id, name, name_type, is_canonical) VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), t["person_id"], n["name"], n["name_type"], n["is_canonical"],
+                    generate_id(),
+                    t["person_id"],
+                    n["name"],
+                    n["name_type"],
+                    n["is_canonical"],
                 )
             for cm in t["contact_methods"]:
                 await conn.execute(
                     "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value) VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), "person", t["person_id"], cm["contact_type"], cm["value"],
+                    generate_id(),
+                    "person",
+                    t["person_id"],
+                    cm["contact_type"],
+                    cm["value"],
                 )
             for u in t["urls"]:
                 url_type_id = ref.url_type_ids.get(u["url_type_slug"])
                 if url_type_id:
                     await conn.execute(
                         "INSERT INTO urls (id, entity_type, entity_id, url, url_type_id, is_canonical) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
-                        generate_id(), "person", t["person_id"], u["url"], url_type_id, u["is_canonical"],
+                        generate_id(),
+                        "person",
+                        t["person_id"],
+                        u["url"],
+                        url_type_id,
+                        u["is_canonical"],
                     )
             for sl in t["social_links"]:
                 platform_id = ref.platform_ids.get(sl["platform_slug"])
                 if platform_id:
                     await conn.execute(
                         "INSERT INTO social_links (id, entity_type, entity_id, platform_id, url) VALUES ($1, $2, $3, $4, $5)",
-                        generate_id(), "person", t["person_id"], platform_id, sl["url"],
+                        generate_id(),
+                        "person",
+                        t["person_id"],
+                        platform_id,
+                        sl["url"],
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
                 if type_id:
                     await conn.execute(
                         "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value) VALUES ($1, $2, $3, $4)",
-                        generate_id(), t["person_id"], type_id, ident["value"],
+                        generate_id(),
+                        t["person_id"],
+                        type_id,
+                        ident["value"],
                     )
             if t.get("address"):
                 addr_id = generate_id()
@@ -2637,14 +2804,23 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                     """INSERT INTO addresses (id, raw_input, standardized, address_line_1,
                            address_line_2, city, region, postal_code, country)
                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
-                    addr_id, a.get("raw_input"), a.get("standardized"),
-                    a.get("address_line_1"), a.get("address_line_2"),
-                    a.get("city"), a.get("region"), a.get("postal_code"),
+                    addr_id,
+                    a.get("raw_input"),
+                    a.get("standardized"),
+                    a.get("address_line_1"),
+                    a.get("address_line_2"),
+                    a.get("city"),
+                    a.get("region"),
+                    a.get("postal_code"),
                     a.get("country", "US"),
                 )
                 await conn.execute(
                     "INSERT INTO entity_addresses (id, entity_type, entity_id, address_id, address_type) VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), "person", t["person_id"], addr_id, "mailing",
+                    generate_id(),
+                    "person",
+                    t["person_id"],
+                    addr_id,
+                    "mailing",
                 )
             for rec in t["confidence_records"]:
                 rec.assessed_by = f"import:{batch_id}"
@@ -2662,14 +2838,20 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         if not result.ok:
             summary["roles_error"] += 1
             continue
-        result = transform_role(result, org_index=org_index, person_index=person_index,
-                                role_index=role_index, source_reliability=config.source_reliability)
+        result = transform_role(
+            result,
+            org_index=org_index,
+            person_index=person_index,
+            role_index=role_index,
+            source_reliability=config.source_reliability,
+        )
         if not result.ok:
             summary["roles_error"] += 1
             for e in result.errors:
                 logger.warning("role row %d error: %s", i, e.message)
-            await _write_provenance(conn, batch_id, i, "role_assignment",
-                                    generate_id(), "error", raw, result.errors)
+            await _write_provenance(
+                conn, batch_id, i, "role_assignment", generate_id(), "error", raw, result.errors
+            )
             continue
         for w in result.warnings:
             logger.warning("role row %d warning: %s", i, w)
@@ -2679,11 +2861,13 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
         # Dedup role_assignment
         existing_ra = await conn.fetchrow(
             "SELECT id FROM role_assignments WHERE person_id = $1 AND role_id = $2",
-            t["person_id"], t["role_id"],
+            t["person_id"],
+            t["role_id"],
         )
         if existing_ra:
-            await _write_provenance(conn, batch_id, i, "role_assignment",
-                                    existing_ra["id"], "matched", raw)
+            await _write_provenance(
+                conn, batch_id, i, "role_assignment", existing_ra["id"], "matched", raw
+            )
             summary["roles_matched"] += 1
             continue
 
@@ -2691,43 +2875,66 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
             if t["role_action"] == "created":
                 await conn.execute(
                     "INSERT INTO roles (id, organization_id, title, notes) VALUES ($1, $2, $3, $4)",
-                    t["role_id"], t["org_id"], t["title"], t["notes"],
+                    t["role_id"],
+                    t["org_id"],
+                    t["title"],
+                    t["notes"],
                 )
             await conn.execute(
                 "INSERT INTO role_assignments (id, person_id, role_id, is_current) VALUES ($1, $2, $3, $4)",
-                t["assignment_id"], t["person_id"], t["role_id"], t["is_current"],
+                t["assignment_id"],
+                t["person_id"],
+                t["role_id"],
+                t["is_current"],
             )
             for cm in t["contact_methods"]:
                 await conn.execute(
                     "INSERT INTO contact_methods (id, entity_type, entity_id, contact_type, value) VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(), "role_assignment", t["assignment_id"], cm["contact_type"], cm["value"],
+                    generate_id(),
+                    "role_assignment",
+                    t["assignment_id"],
+                    cm["contact_type"],
+                    cm["value"],
                 )
             for u in t["urls"]:
                 url_type_id = ref.url_type_ids.get(u["url_type_slug"])
                 if url_type_id:
                     await conn.execute(
                         "INSERT INTO urls (id, entity_type, entity_id, url, url_type_id, is_canonical) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
-                        generate_id(), "role_assignment", t["assignment_id"], u["url"], url_type_id, u["is_canonical"],
+                        generate_id(),
+                        "role_assignment",
+                        t["assignment_id"],
+                        u["url"],
+                        url_type_id,
+                        u["is_canonical"],
                     )
             for sl in t["social_links"]:
                 platform_id = ref.platform_ids.get(sl["platform_slug"])
                 if platform_id:
                     await conn.execute(
                         "INSERT INTO social_links (id, entity_type, entity_id, platform_id, url) VALUES ($1, $2, $3, $4, $5)",
-                        generate_id(), "role_assignment", t["assignment_id"], platform_id, sl["url"],
+                        generate_id(),
+                        "role_assignment",
+                        t["assignment_id"],
+                        platform_id,
+                        sl["url"],
                     )
             for ident in t["identifiers"]:
                 type_id = ref.identifier_type_ids.get(ident["identifier_type_slug"])
                 if type_id:
                     await conn.execute(
                         "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value) VALUES ($1, $2, $3, $4)",
-                        generate_id(), t["assignment_id"], type_id, ident["value"],
+                        generate_id(),
+                        t["assignment_id"],
+                        type_id,
+                        ident["value"],
                     )
             for rec in t["confidence_records"]:
                 rec.assessed_by = f"import:{batch_id}"
             await _write_confidence(conn, t["confidence_records"])
-            await _write_provenance(conn, batch_id, i, "role_assignment",
-                                    t["assignment_id"], "created", raw)
+            await _write_provenance(
+                conn, batch_id, i, "role_assignment", t["assignment_id"], "created", raw
+            )
 
         role_key = (t["org_id"], t["title"].lower())
         role_index[role_key] = t["role_id"]
@@ -2759,7 +2966,11 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
     elapsed = time.monotonic() - start
     logger.info(
         "import complete: batch=%s loaded=%d matched=%d errors=%d elapsed=%.1fs",
-        batch_id, loaded, matched, errors, elapsed,
+        batch_id,
+        loaded,
+        matched,
+        errors,
+        elapsed,
     )
     summary["elapsed_s"] = elapsed
     return summary
@@ -2820,14 +3031,23 @@ logger = get_logger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Import Cannabis Observer CSV data into PostgreSQL.")
-    parser.add_argument("--orgs",   type=Path, required=True, help="Path to Organizations.csv")
+    parser = argparse.ArgumentParser(
+        description="Import Cannabis Observer CSV data into PostgreSQL."
+    )
+    parser.add_argument("--orgs", type=Path, required=True, help="Path to Organizations.csv")
     parser.add_argument("--people", type=Path, required=True, help="Path to People.csv")
-    parser.add_argument("--roles",  type=Path, required=True, help="Path to Roles.csv")
-    parser.add_argument("--source-reliability", type=float, default=0.8,
-                        help="Source reliability score (0.0–1.0). Default: 0.8")
-    parser.add_argument("--validate-addresses", action="store_true",
-                        help="Call /validate endpoint (rate-limited). Requires ADDRESS_VALIDATOR_API_KEY.")
+    parser.add_argument("--roles", type=Path, required=True, help="Path to Roles.csv")
+    parser.add_argument(
+        "--source-reliability",
+        type=float,
+        default=0.8,
+        help="Source reliability score (0.0–1.0). Default: 0.8",
+    )
+    parser.add_argument(
+        "--validate-addresses",
+        action="store_true",
+        help="Call /validate endpoint (rate-limited). Requires ADDRESS_VALIDATOR_API_KEY.",
+    )
     parser.add_argument("--imported-by", default="cannabis-observer-csv-import")
     return parser.parse_args()
 

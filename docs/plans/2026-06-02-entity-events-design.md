@@ -173,7 +173,7 @@ GET  /api/v1/entity-event-types
 ```python
 class ObservationEventItem(BaseModel):
     event_type_id: str | None = None
-    event_type_slug: str | None = None   # slug xor id (same pattern as link_type)
+    event_type_slug: str | None = None  # slug xor id (same pattern as link_type)
     event_year: int | None = None
     event_month: int | None = None
     event_day: int | None = None

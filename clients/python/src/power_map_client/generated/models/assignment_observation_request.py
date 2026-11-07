@@ -171,9 +171,7 @@ class AssignmentObservationRequest:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.observation_address import ObservationAddress  # noqa: PLC0415
-        from ..models.observation_contact_method import (
-            ObservationContactMethod,  # noqa: PLC0415
-        )
+        from ..models.observation_contact_method import ObservationContactMethod  # noqa: PLC0415
         from ..models.observation_link import ObservationLink  # noqa: PLC0415
 
         d = dict(src_dict)

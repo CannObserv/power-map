@@ -145,8 +145,7 @@ async def contact_edit_row_post(
     if redirect:
         return redirect
     existing = await db.fetchrow(
-        "SELECT * FROM contact_methods"
-        " WHERE id=$1 AND entity_type='organization' AND entity_id=$2",
+        "SELECT * FROM contact_methods WHERE id=$1 AND entity_type='organization' AND entity_id=$2",
         contact_id,
         org_id,
     )
@@ -182,8 +181,7 @@ async def contact_edit_row_get(
     if redirect:
         return redirect
     contact = await db.fetchrow(
-        "SELECT * FROM contact_methods"
-        " WHERE id=$1 AND entity_type='organization' AND entity_id=$2",
+        "SELECT * FROM contact_methods WHERE id=$1 AND entity_type='organization' AND entity_id=$2",
         contact_id,
         org_id,
     )
@@ -240,7 +238,7 @@ def test_contacts_edit_row_no_type_select(client, org_and_contact):
     oid, cid = org_and_contact
     r = client.get(f"/admin/orgs/{oid}/contacts/{cid}/edit-row/", headers=HTMX_HEADERS)
     assert r.status_code == 200
-    assert 'name="contact_type"' not in r.text or '<select' not in r.text
+    assert 'name="contact_type"' not in r.text or "<select" not in r.text
 
 
 def test_contacts_read_row_no_type_cell(client, org_and_contact):

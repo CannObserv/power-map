@@ -241,6 +241,7 @@ git commit -m "#62 feat: add address_meta country format cache (24h TTL)"
 # country param
 # ---------------------------------------------------------------------------
 
+
 def test_local_non_us_stores_raw_only():
     """Non-US country: no usaddress parsing, raw_input stored, country preserved."""
     n = LocalAddressNormalizer()
@@ -346,14 +347,16 @@ def normalize(self, raw: str | None, country: str = "US") -> NormalizationResult
         )
     try:
         tagged, _ = usaddress.tag(raw)
-        result.update({
-            "address_line_1": _build_line1(tagged),
-            "address_line_2": _build_line2(tagged) if tagged.get("OccupancyType") else None,
-            "city": tagged.get("PlaceName"),
-            "region": tagged.get("StateName"),
-            "postal_code": tagged.get("ZipCode"),
-            "standardized": None,
-        })
+        result.update(
+            {
+                "address_line_1": _build_line1(tagged),
+                "address_line_2": _build_line2(tagged) if tagged.get("OccupancyType") else None,
+                "city": tagged.get("PlaceName"),
+                "region": tagged.get("StateName"),
+                "postal_code": tagged.get("ZipCode"),
+                "standardized": None,
+            }
+        )
     except usaddress.RepeatedLabelError:
         return NormalizationResult(
             value=result,
@@ -423,6 +426,7 @@ git commit -m "#62 feat: add country param to address normalizers; non-US local 
 ```python
 # Append to tests/api/admin/test_orgs_addresses.py
 
+
 def test_address_create_persists_country(client, org_and_address):
     oid, _ = org_and_address
     r = client.post(
@@ -480,7 +484,9 @@ def test_address_read_row_returns_country(client, org_and_address):
                 "INSERT INTO entity_addresses"
                 " (id, entity_type, entity_id, address_id, address_type)"
                 " VALUES ($1, 'organization', $2, $3, 'physical')",
-                eaid, oid, aid,
+                eaid,
+                oid,
+                aid,
             )
             return eaid, aid
         finally:
@@ -556,10 +562,18 @@ async def _maybe_confirm(
     display_name: str,
     country: str = "US",
 ):
-    raw = " ".join(filter(None, [
-        address_line_1.strip(), address_line_2.strip(),
-        city.strip(), region.strip(), postal_code.strip(),
-    ]))
+    raw = " ".join(
+        filter(
+            None,
+            [
+                address_line_1.strip(),
+                address_line_2.strip(),
+                city.strip(),
+                region.strip(),
+                postal_code.strip(),
+            ],
+        )
+    )
     result = await _NORMALIZER.normalize(raw, country=country)
     # ... unchanged until normalized_ctx ...
     normalized_ctx = {
@@ -577,15 +591,23 @@ async def _maybe_confirm(
 
 Add to route params:
 ```python
-country: str = Form("US"),
+country: str = (Form("US"),)
 ```
 
 Update the `_maybe_confirm` call:
 ```python
 confirm = await _maybe_confirm(
-    request, org_id, None,
-    address_line_1, address_line_2, city, region, postal_code,
-    address_type, display_name, country,
+    request,
+    org_id,
+    None,
+    address_line_1,
+    address_line_2,
+    city,
+    region,
+    postal_code,
+    address_type,
+    display_name,
+    country,
 )
 ```
 
@@ -732,26 +754,29 @@ git commit -m "#62 chore: drop DEFAULT 'US' from addresses.country"
 ```python
 # Append to tests/api/admin/test_orgs_addresses.py
 
+
 @patch("src.api.admin.orgs_addresses._NORMALIZER")
 def test_confirm_modal_keep_my_input_has_country(mock_normalizer, client, org_and_address):
     """Keep my input form must include country hidden field."""
     oid, _ = org_and_address
-    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
-        skipped=False,
-        value={
-            "address_line_1": "10 DOWNING ST",
-            "address_line_2": None,
-            "city": "LONDON",
-            "region": None,
-            "postal_code": "SW1A 2AA",
-            "country": "GB",
-            "standardized": "10 DOWNING ST LONDON SW1A 2AA",
-            "latitude": None,
-            "longitude": None,
-            "components": None,
-        },
-        validation_detail=None,
-    ))
+    mock_normalizer.normalize = AsyncMock(
+        return_value=MagicMock(
+            skipped=False,
+            value={
+                "address_line_1": "10 DOWNING ST",
+                "address_line_2": None,
+                "city": "LONDON",
+                "region": None,
+                "postal_code": "SW1A 2AA",
+                "country": "GB",
+                "standardized": "10 DOWNING ST LONDON SW1A 2AA",
+                "latitude": None,
+                "longitude": None,
+                "components": None,
+            },
+            validation_detail=None,
+        )
+    )
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
@@ -774,22 +799,24 @@ def test_confirm_modal_shows_country_in_you_entered_when_non_us(
     mock_normalizer, client, org_and_address
 ):
     oid, _ = org_and_address
-    mock_normalizer.normalize = AsyncMock(return_value=MagicMock(
-        skipped=False,
-        value={
-            "address_line_1": "10 DOWNING ST",
-            "address_line_2": None,
-            "city": "LONDON",
-            "region": None,
-            "postal_code": "SW1A 2AA",
-            "country": "GB",
-            "standardized": "10 DOWNING ST LONDON SW1A 2AA",
-            "latitude": None,
-            "longitude": None,
-            "components": None,
-        },
-        validation_detail=None,
-    ))
+    mock_normalizer.normalize = AsyncMock(
+        return_value=MagicMock(
+            skipped=False,
+            value={
+                "address_line_1": "10 DOWNING ST",
+                "address_line_2": None,
+                "city": "LONDON",
+                "region": None,
+                "postal_code": "SW1A 2AA",
+                "country": "GB",
+                "standardized": "10 DOWNING ST LONDON SW1A 2AA",
+                "latitude": None,
+                "longitude": None,
+                "components": None,
+            },
+            validation_detail=None,
+        )
+    )
     r = client.post(
         f"/admin/orgs/{oid}/addresses/",
         headers=HTMX_HEADERS,
@@ -872,6 +899,7 @@ git commit -m "#62 feat: show country in confirm modal and read row"
 ```python
 # Append to tests/api/admin/test_orgs_addresses.py
 
+
 def test_address_form_row_has_country_field(client, org_and_address):
     oid, _ = org_and_address
     r = client.get(f"/admin/orgs/{oid}/addresses/new-row/", headers=HTMX_HEADERS)
@@ -883,16 +911,18 @@ def test_country_format_endpoint_returns_fields_partial(client, org_and_address)
     oid, _ = org_and_address
     with patch(
         "src.api.admin.orgs_addresses.get_country_format",
-        new=AsyncMock(return_value={
-            "country": "CA",
-            "fields": [
-                {"key": "address_line_1", "label": "Address line 1", "required": True},
-                {"key": "address_line_2", "label": "Apt/suite", "required": False},
-                {"key": "city", "label": "City", "required": True},
-                {"key": "region", "label": "Province", "required": True},
-                {"key": "postal_code", "label": "Postal code", "required": False},
-            ],
-        })
+        new=AsyncMock(
+            return_value={
+                "country": "CA",
+                "fields": [
+                    {"key": "address_line_1", "label": "Address line 1", "required": True},
+                    {"key": "address_line_2", "label": "Apt/suite", "required": False},
+                    {"key": "city", "label": "City", "required": True},
+                    {"key": "region", "label": "Province", "required": True},
+                    {"key": "postal_code", "label": "Postal code", "required": False},
+                ],
+            }
+        ),
     ):
         r = client.get(
             f"/admin/orgs/{oid}/addresses/country-format/?country=CA",
@@ -907,16 +937,18 @@ def test_country_format_endpoint_us_returns_default_labels(client, org_and_addre
     oid, _ = org_and_address
     with patch(
         "src.api.admin.orgs_addresses.get_country_format",
-        new=AsyncMock(return_value={
-            "country": "US",
-            "fields": [
-                {"key": "address_line_1", "label": "Address line 1", "required": True},
-                {"key": "address_line_2", "label": "Address line 2", "required": False},
-                {"key": "city", "label": "City", "required": True},
-                {"key": "region", "label": "State", "required": True},
-                {"key": "postal_code", "label": "ZIP code", "required": False},
-            ],
-        })
+        new=AsyncMock(
+            return_value={
+                "country": "US",
+                "fields": [
+                    {"key": "address_line_1", "label": "Address line 1", "required": True},
+                    {"key": "address_line_2", "label": "Address line 2", "required": False},
+                    {"key": "city", "label": "City", "required": True},
+                    {"key": "region", "label": "State", "required": True},
+                    {"key": "postal_code", "label": "ZIP code", "required": False},
+                ],
+            }
+        ),
     ):
         r = client.get(
             f"/admin/orgs/{oid}/addresses/country-format/?country=US",

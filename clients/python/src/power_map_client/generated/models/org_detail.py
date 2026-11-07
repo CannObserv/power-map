@@ -187,9 +187,7 @@ class OrgDetail:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.org_acronym import OrgAcronym  # noqa: PLC0415
         from ..models.org_identifier import OrgIdentifier  # noqa: PLC0415
-        from ..models.org_jurisdiction_affiliation import (
-            OrgJurisdictionAffiliation,  # noqa: PLC0415
-        )
+        from ..models.org_jurisdiction_affiliation import OrgJurisdictionAffiliation  # noqa: PLC0415
         from ..models.org_lifespan import OrgLifespan  # noqa: PLC0415
         from ..models.org_name import OrgName  # noqa: PLC0415
 

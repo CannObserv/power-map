@@ -185,7 +185,7 @@
 
       async def test_cache_hit_skips_db(self):
           db = _make_db(3)
-          await count_person_duplicates(db)       # prime cache
+          await count_person_duplicates(db)  # prime cache
           db2 = _make_db(99)
           result = await count_person_duplicates(db2)  # should hit cache
           assert result == 3
@@ -193,7 +193,7 @@
 
       async def test_invalidate_forces_refresh(self):
           db = _make_db(2)
-          await count_person_duplicates(db)       # prime cache with 2
+          await count_person_duplicates(db)  # prime cache with 2
           invalidate_dup_count_cache()
           db2 = _make_db(7)
           result = await count_person_duplicates(db2)  # cache cleared → re-query
@@ -219,7 +219,7 @@
 
       async def test_uses_cached_value(self):
           db = _make_db(6)
-          await get_person_dup_count(db=db)        # prime cache
+          await get_person_dup_count(db=db)  # prime cache
           db2 = _make_db(99)
           result = await get_person_dup_count(db=db2)
           assert result == 6
@@ -229,7 +229,7 @@
           """A failed query should not cache 0; next call re-queries."""
           db_bad = MagicMock()
           db_bad.fetchval = AsyncMock(side_effect=Exception("oops"))
-          await get_person_dup_count(db=db_bad)   # fails → returns 0, cache not updated
+          await get_person_dup_count(db=db_bad)  # fails → returns 0, cache not updated
           db_good = _make_db(3)
           result = await get_person_dup_count(db=db_good)
           assert result == 3
@@ -267,6 +267,7 @@ This task has two parts: (A) inject `person_dup_count` into existing routes, and
 
   ```python
   """Integration tests for people duplicate detection and dismiss routes."""
+
   import asyncio
   import json
   import os
@@ -319,14 +320,16 @@ This task has two parts: (A) inject `person_dup_count` into existing routes, and
           try:
               for pid, name in [
                   (id_a, "Jonathan Smithfield"),
-                  (id_b, "Jonathan Smithfeld"),   # deliberate near-match
+                  (id_b, "Jonathan Smithfeld"),  # deliberate near-match
               ]:
                   await conn.execute("INSERT INTO people (id) VALUES ($1)", pid)
                   await conn.execute(
                       "INSERT INTO person_names"
                       " (id, person_id, name, is_canonical)"
                       " VALUES ($1, $2, $3, TRUE)",
-                      generate_id(), pid, name,
+                      generate_id(),
+                      pid,
+                      name,
                   )
           finally:
               await conn.close()
@@ -338,12 +341,11 @@ This task has two parts: (A) inject `person_dup_count` into existing routes, and
                   "DELETE FROM duplicate_dismissals"
                   " WHERE entity_a_id=$1 OR entity_b_id=$1"
                   " OR entity_a_id=$2 OR entity_b_id=$2",
-                  id_a, id_b,
+                  id_a,
+                  id_b,
               )
               for pid in [id_a, id_b]:
-                  await conn.execute(
-                      "DELETE FROM person_names WHERE person_id=$1", pid
-                  )
+                  await conn.execute("DELETE FROM person_names WHERE person_id=$1", pid)
                   await conn.execute("DELETE FROM people WHERE id=$1", pid)
           finally:
               await conn.close()
@@ -354,6 +356,7 @@ This task has two parts: (A) inject `person_dup_count` into existing routes, and
 
 
   # ── List screen ─────────────────────────────────────────────────────────────
+
 
   def test_people_list_shows_duplicate_banner(client, person_pair):
       response = client.get("/admin/people/", headers=AUTH_HEADERS)
@@ -437,6 +440,7 @@ This task has two parts: (A) inject `person_dup_count` into existing routes, and
   ```python
   # ── Duplicates review screen ─────────────────────────────────────────────────
 
+
   def test_duplicates_list_returns_200(client, person_pair):
       response = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
       assert response.status_code == 200
@@ -450,6 +454,7 @@ This task has two parts: (A) inject `person_dup_count` into existing routes, and
 
   # ── Dismiss ──────────────────────────────────────────────────────────────────
 
+
   def test_dismiss_pair_removes_from_list(client, person_pair):
       id_a, id_b = person_pair
       response = client.post(
@@ -460,8 +465,9 @@ This task has two parts: (A) inject `person_dup_count` into existing routes, and
       assert response.status_code in (302, 303)
       response2 = client.get("/admin/people/duplicates/", headers=AUTH_HEADERS)
       assert response2.status_code == 200
-      assert "Jonathan Smithfield" not in response2.text \
-          and "Jonathan Smithfeld" not in response2.text
+      assert (
+          "Jonathan Smithfield" not in response2.text and "Jonathan Smithfeld" not in response2.text
+      )
 
 
   def test_dismiss_htmx_returns_200_with_region(client, person_pair):
@@ -567,7 +573,10 @@ This task has two parts: (A) inject `person_dup_count` into existing routes, and
           " (id, entity_type, entity_a_id, entity_b_id, dismissed_by)"
           " VALUES ($1, 'person', $2, $3, $4)"
           " ON CONFLICT (entity_type, entity_a_id, entity_b_id) DO NOTHING",
-          generate_id(), a, b, user.email,
+          generate_id(),
+          a,
+          b,
+          user.email,
       )
       invalidate_person_dup_count_cache()
       if is_htmx(request):

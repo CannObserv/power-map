@@ -91,8 +91,13 @@ Append to `tests/core/test_schema_person_names_i18n.py`:
 
 ```python
 NEW_NAME_TYPES = [
-    "deadname", "mrz", "reading", "romanization",
-    "maiden", "religious", "stage",
+    "deadname",
+    "mrz",
+    "reading",
+    "romanization",
+    "maiden",
+    "religious",
+    "stage",
 ]
 
 
@@ -100,9 +105,11 @@ NEW_NAME_TYPES = [
 async def test_person_names_accepts_new_name_type(db, name_type):
     pid = await _person(db)
     await db.execute(
-        "INSERT INTO person_names (id, person_id, name, name_type)"
-        " VALUES ($1, $2, $3, $4)",
-        generate_id(), pid, "Test", name_type,
+        "INSERT INTO person_names (id, person_id, name, name_type) VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        pid,
+        "Test",
+        name_type,
     )
 
 
@@ -110,9 +117,11 @@ async def test_person_names_rejects_unknown_name_type(db):
     pid = await _person(db)
     with pytest.raises(asyncpg.CheckViolationError):
         await db.execute(
-            "INSERT INTO person_names (id, person_id, name, name_type)"
-            " VALUES ($1, $2, $3, $4)",
-            generate_id(), pid, "Test", "totally_invalid",
+            "INSERT INTO person_names (id, person_id, name, name_type) VALUES ($1, $2, $3, $4)",
+            generate_id(),
+            pid,
+            "Test",
+            "totally_invalid",
         )
 ```
 
@@ -195,13 +204,17 @@ async def test_canonical_unique_per_locale_script(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, script)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'Hant')",
-        generate_id(), pid, "毛澤東",
+        generate_id(),
+        pid,
+        "毛澤東",
     )
     # Same name_type, different script — must succeed
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, script)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'Latn')",
-        generate_id(), pid, "Mao Zedong",
+        generate_id(),
+        pid,
+        "Mao Zedong",
     )
 
 
@@ -211,13 +224,17 @@ async def test_canonical_unique_collision(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, locale, script)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'en-US', 'Latn')",
-        generate_id(), pid, "John Smith",
+        generate_id(),
+        pid,
+        "John Smith",
     )
     with pytest.raises(asyncpg.UniqueViolationError):
         await db.execute(
             "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, locale, script)"
             " VALUES ($1, $2, $3, 'legal', TRUE, 'en-US', 'Latn')",
-            generate_id(), pid, "Johnny Smith",
+            generate_id(),
+            pid,
+            "Johnny Smith",
         )
 
 
@@ -227,13 +244,17 @@ async def test_canonical_unique_null_locale_collision(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
         " VALUES ($1, $2, $3, 'legal', TRUE)",
-        generate_id(), pid, "Cher",
+        generate_id(),
+        pid,
+        "Cher",
     )
     with pytest.raises(asyncpg.UniqueViolationError):
         await db.execute(
             "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
             " VALUES ($1, $2, $3, 'legal', TRUE)",
-            generate_id(), pid, "Cher Bono",
+            generate_id(),
+            pid,
+            "Cher Bono",
         )
 ```
 
@@ -320,7 +341,9 @@ async def test_deadname_coerced_to_legal_only_on_insert(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
         " VALUES ($1, $2, $3, 'deadname', 'public')",
-        nid, pid, "Old Name",
+        nid,
+        pid,
+        "Old Name",
     )
     row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
     assert row["visibility"] == "legal_only"
@@ -332,11 +355,11 @@ async def test_deadname_coerced_to_legal_only_on_update(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
         " VALUES ($1, $2, $3, 'former', 'public')",
-        nid, pid, "Old Name",
+        nid,
+        pid,
+        "Old Name",
     )
-    await db.execute(
-        "UPDATE person_names SET name_type='deadname' WHERE id=$1", nid
-    )
+    await db.execute("UPDATE person_names SET name_type='deadname' WHERE id=$1", nid)
     row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
     assert row["visibility"] == "legal_only"
 
@@ -348,7 +371,9 @@ async def test_deadname_hidden_visibility_preserved(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
         " VALUES ($1, $2, $3, 'deadname', 'hidden')",
-        nid, pid, "Old Name",
+        nid,
+        pid,
+        "Old Name",
     )
     row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
     assert row["visibility"] == "hidden"
@@ -360,7 +385,9 @@ async def test_non_deadname_public_unchanged(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, visibility)"
         " VALUES ($1, $2, $3, 'former', 'public')",
-        nid, pid, "Old Name",
+        nid,
+        pid,
+        "Old Name",
     )
     row = await db.fetchrow("SELECT visibility FROM person_names WHERE id=$1", nid)
     assert row["visibility"] == "public"
@@ -436,7 +463,9 @@ async def test_view_excludes_legal_only(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, visibility)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'legal_only')",
-        generate_id(), pid, "Legal-Only Name",
+        generate_id(),
+        pid,
+        "Legal-Only Name",
     )
     row = await db.fetchrow(
         "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
@@ -449,7 +478,9 @@ async def test_view_excludes_hidden(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, visibility)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'hidden')",
-        generate_id(), pid, "Hidden",
+        generate_id(),
+        pid,
+        "Hidden",
     )
     row = await db.fetchrow(
         "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
@@ -462,7 +493,9 @@ async def test_view_returns_public_canonical(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, visibility)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'public')",
-        generate_id(), pid, "Public Name",
+        generate_id(),
+        pid,
+        "Public Name",
     )
     row = await db.fetchrow(
         "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
@@ -476,12 +509,16 @@ async def test_view_prefers_public_over_legal_only(db):
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, visibility, script)"
         " VALUES ($1, $2, $3, 'legal', TRUE, 'public', 'Latn')",
-        generate_id(), pid, "Public",
+        generate_id(),
+        pid,
+        "Public",
     )
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, visibility, script)"
         " VALUES ($1, $2, $3, 'former', TRUE, 'legal_only', 'Latn')",
-        generate_id(), pid, "OldName",
+        generate_id(),
+        pid,
+        "OldName",
     )
     row = await db.fetchrow(
         "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
@@ -579,9 +616,9 @@ def test_visible_names_filter_uses_alias():
 ALLOWED_DIRECT_ACCESS = {
     # Files explicitly permitted to query person_names without the helper.
     # Each entry is justified in a comment in the file itself.
-    "src/core/db.py",                                      # defines the helper
-    "src/api/admin/people_dups.py",                        # dup-detection — uses helper
-    "src/api/admin/people.py",                             # admin detail — disclosure-gated
+    "src/core/db.py",  # defines the helper
+    "src/api/admin/people_dups.py",  # dup-detection — uses helper
+    "src/api/admin/people.py",  # admin detail — disclosure-gated
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

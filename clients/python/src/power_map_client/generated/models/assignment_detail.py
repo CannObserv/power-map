@@ -157,9 +157,7 @@ class AssignmentDetail:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.assignment_address import AssignmentAddress  # noqa: PLC0415
-        from ..models.assignment_contact_method import (
-            AssignmentContactMethod,  # noqa: PLC0415
-        )
+        from ..models.assignment_contact_method import AssignmentContactMethod  # noqa: PLC0415
         from ..models.assignment_link import AssignmentLink  # noqa: PLC0415
 
         d = dict(src_dict)

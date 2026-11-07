@@ -47,8 +47,8 @@ except ValueError:
             "contact_type": contact_type,
             "value_input": raw_value,
             "error": "Enter a valid email address."
-                     if contact_type == "email"
-                     else "Enter a valid phone number (e.g. (206) 555-1234 or +12065551234).",
+            if contact_type == "email"
+            else "Enter a valid phone number (e.g. (206) 555-1234 or +12065551234).",
         },
     )
 ```
