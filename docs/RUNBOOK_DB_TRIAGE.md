@@ -66,7 +66,8 @@ one, and any pending schema then applies unwatched when the DB returns. Every
 documented restart therefore runs `bash scripts/pre-restart-check.sh` first. It
 probes the migrations DSN directly, with a 10 s timeout, and refuses with exit 3
 while that probe fails. `/ready` is only context, so the check works with :8000
-down. `--force` overrides it.
+down. `--force` overrides it. `shipping-work` runs it too: `.skills/pre_restart`
+names it, so Step 8 offers no restart row while it refuses (#760).
 
 **A unit stuck in `start-pre` is the signature of an outage, not of a bad
 deploy.** The journal shows a connect `TimeoutError` from `apply-schema.sh`
