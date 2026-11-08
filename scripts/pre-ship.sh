@@ -37,7 +37,6 @@
 #
 # Knobs:
 #   PRE_SHIP_A11Y=on            run the tiers whatever the diff
-#   PRE_SHIP_A11Y=off           CI only (CI=true, #727): skip, and say so
 #   PRE_SHIP_A11Y_BASE=REF      the base the diff is taken against (origin/main)
 #   PRE_SHIP_A11Y_LOCK_WAIT=N   seconds to wait for another run's lock (900)
 #
@@ -65,7 +64,7 @@ die() {
 
 usage() {
     echo "scripts/pre-ship.sh: both a11y tiers on an admin diff, then the vendored gate (#740)."
-    echo "  PRE_SHIP_A11Y=on|off   force the tiers, or skip them (off: CI=true only)"
+    echo "  PRE_SHIP_A11Y=on       force the tiers"
     echo "  PRE_SHIP_A11Y_BASE     diff base (default origin/main)"
     echo "  PRE_SHIP_A11Y_LOCK_WAIT seconds to wait for the shared test-DB lock (default 900)"
     echo "  The admin surface: $SCOPE_FILE"
@@ -159,14 +158,8 @@ case "${PRE_SHIP_A11Y:-}" in
         RUN=1
         REASON="PRE_SHIP_A11Y=on, so both tiers run"
         ;;
-    off)
-        [[ "${CI:-}" == true ]] ||
-            die "PRE_SHIP_A11Y=off is for CI (CI=true, #727), which has no test DB. A developer's ship runs the tiers."
-        say "NOT RUN: PRE_SHIP_A11Y=off under CI. This run verified no accessibility; it is not an a11y pass."
-        exec bash "$DELEGATE"
-        ;;
     *)
-        die "PRE_SHIP_A11Y='${PRE_SHIP_A11Y}' is not on, off or unset"
+        die "PRE_SHIP_A11Y='${PRE_SHIP_A11Y}' is not on or unset"
         ;;
 esac
 

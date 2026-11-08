@@ -12,8 +12,7 @@
 #   - never run two at once on the shared test DB (a flock under the git
 #     common dir), and hold the lock only for the tiers;
 #   - hand off to the vendored gate, whose exit code is the wrapper's on a
-#     green a11y step; still run it after an a11y failure, and exit 1;
-#   - honour PRE_SHIP_A11Y=off under CI only (#727), saying it verified nothing.
+#     green a11y step; still run it after an a11y failure, and exit 1.
 #
 # Hermetic: `uv` is the tests/sh/stubs/uv shim, the vendored gate is a stub
 # written into a throwaway repo under $BATS_TEST_TMPDIR, and git is real but
@@ -348,23 +347,18 @@ delegate_ran() {
     [[ "$output" == *"git submodule update --init"* ]]
 }
 
-# --- the #727 hatch ---------------------------------------------------------------
+# --- refused knob values ---------------------------------------------------------
 
-@test "PRE_SHIP_A11Y=off under CI=true runs no tier and says it verified nothing" {
+@test "PRE_SHIP_A11Y=off is refused with exit 2, CI=true or not (#762)" {
     commit_change src/templates/admin/page.html '<p>more</p>'
-    CI=true PRE_SHIP_A11Y=off run_wrapper
-    [ "$status" -eq 0 ]
-    no_tiers_ran
-    delegate_ran
-    [[ "$output" == *"a11y: NOT RUN"* ]]
-}
-
-@test "PRE_SHIP_A11Y=off outside CI is refused with exit 2" {
-    commit_change src/templates/admin/page.html '<p>more</p>'
-    PRE_SHIP_A11Y=off run_wrapper
-    [ "$status" -eq 2 ]
-    no_tiers_ran
-    [ ! -s "$DELEGATE_LOG" ]
+    for ci in true ''; do
+        : >"$DELEGATE_LOG"
+        CI="$ci" PRE_SHIP_A11Y=off run_wrapper
+        [ "$status" -eq 2 ]
+        no_tiers_ran
+        [ ! -s "$DELEGATE_LOG" ]
+        [[ "$output" == *"is not on or unset"* ]]
+    done
 }
 
 @test "an unknown PRE_SHIP_A11Y value is refused with exit 2" {
