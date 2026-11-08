@@ -38,6 +38,7 @@ repos:
           tests/test_doc_sensitive_paths.py
           tests/test_no_channel_urls.py
           tests/test_outbox_retired_refs.py
+          tests/test_pre_restart_knob.py
           tests/test_retired_skill_refs.py
           tests/test_skills_listing.py
           tests/test_socraticode_doc_parity.py
