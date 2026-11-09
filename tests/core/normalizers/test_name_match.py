@@ -87,6 +87,29 @@ def test_a_name_without_a_surname_matches_only_exactly():
     assert person_match("Cher", "Cher Bono") is None
 
 
+# --- nameparser 2.x readings the person tiers rest on (#777) -----------------
+
+
+@pytest.mark.parametrize(
+    ("producer", "pm"),
+    [
+        ("Prince Fielder", "P. Fielder"),  # 2.8: a lone Prince is a given name
+        ("King Lear", "K. Lear"),  # 2.7: so is King, outside a title phrase
+        ("JR Smith", "J. Smith"),  # a run-together JR is a given name, not Jr.
+    ],
+)
+def test_a_given_name_nameparser_once_read_otherwise_meets_its_initial(producer, pm):
+    assert person_match(producer, pm) == "initial"
+
+
+@pytest.mark.parametrize(
+    ("producer", "pm"), [("Rev. Smith", "R. Smith"), ("Judge Smith", "J. Smith")]
+)
+def test_a_title_before_a_bare_surname_is_no_initial_twin(producer, pm):
+    """A title still reads as a title: no given name, so no initial to meet."""
+    assert person_match(producer, pm) is None
+
+
 # --- organization tiers ------------------------------------------------------
 
 
