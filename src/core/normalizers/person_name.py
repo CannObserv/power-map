@@ -74,7 +74,7 @@ class PartsSuggestion:
         return cls(confidence="skip", reasons=[reason])
 
 
-# Surname particles that nameparser recognizes via its PREFIXES list. Used
+# Surname particles that nameparser recognizes as particles. Used
 # only for emitting human-readable `reasons` tags during decomposition; the
 # actual particle handling (gluing them to the surname compound) happens
 # inside HumanName.

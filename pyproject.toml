@@ -11,7 +11,8 @@ dependencies = [
     "fastapi>=0.137.2",
     "httpx>=0.28.1",
     "jinja2>=3.1.6",
-    "nameparser>=1.1.3",
+    # 2.x readings the person tiers rest on; 3.0 removes HumanName (#777).
+    "nameparser>=2.8.2,<3",
     "nicknames>=1.0.1",
     # power-map.service's OnFailure= dispatch (#566). A main dependency, not a
     # group: the API's own `uv sync` prunes groups from the checkout the handler runs in.
