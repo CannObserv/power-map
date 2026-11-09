@@ -4,7 +4,6 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
-from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 
 import src.core.db as db
@@ -20,6 +19,7 @@ from src.api.openapi import install_public_openapi
 from src.api.public import ratelimit
 from src.api.public.middleware import RequestLogMiddleware, drain_pending_writes
 from src.api.public.router import router as public_router
+from src.api.routing import iter_api_routes
 from src.api.validation import install_validation_handlers, reject_unstorable_text
 from src.core.embedding_registry import EmbeddingRegistry
 from src.core.logging import configure_logging
@@ -79,9 +79,8 @@ app.include_router(public_router)
 # from route declarations, so classification can never drift from the routes.
 ratelimit.set_post_read_paths(
     route.path
-    for route in app.routes
-    if isinstance(route, APIRoute)
-    and "POST" in route.methods
+    for route in iter_api_routes(app)
+    if "POST" in route.methods
     and (route.openapi_extra or {}).get(ratelimit.BUCKET_EXTRA_KEY) == "read"
 )
 

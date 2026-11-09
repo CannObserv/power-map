@@ -5,7 +5,7 @@ fetches each admin GET route through the lifespan-less rollback client (#288),
 so the checks in ``tests.api.admin.a11y`` run against **resolved output** —
 includes expanded, ids materialized — closing the three #244 blind spots.
 
-Coverage is programmatic: routes are enumerated from ``app.routes`` (no
+Coverage is programmatic: routes are enumerated by ``iter_api_routes(app)`` (no
 hand-picked "representative views"), path params filled from one seeded entity
 per type. A new admin GET route is swept automatically; if its params can't be
 filled the test fails loudly rather than silently skipping. The enumeration +

@@ -7,10 +7,10 @@ it installs the derived read-semantic POST path set.
 """
 
 import pytest
-from fastapi.routing import APIRoute
 
 from src.api.main import app
 from src.api.public import ratelimit as rl
+from src.api.routing import iter_api_routes
 
 
 @pytest.fixture
@@ -73,9 +73,8 @@ def test_app_derives_read_paths_from_route_metadata():
     silently desynchronize a hardcoded list."""
     marked = {
         route.path
-        for route in app.routes
-        if isinstance(route, APIRoute)
-        and "POST" in route.methods
+        for route in iter_api_routes(app)
+        if "POST" in route.methods
         and (route.openapi_extra or {}).get(rl.BUCKET_EXTRA_KEY) == "read"
     }
     assert marked == {

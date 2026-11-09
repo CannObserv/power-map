@@ -13,9 +13,8 @@ module fixture; the browser tier calls it once against a disposable database
 
 import hashlib
 
-from fastapi.routing import APIRoute
-
 from src.api.main import app
+from src.api.routing import iter_api_routes
 from src.core.db import generate_id
 
 # exe.dev admin-auth headers (same dict as tests/api/admin/conftest.py). The
@@ -35,8 +34,8 @@ _EMBED_DIM = 256
 # fails loudly rather than silently skipping.
 _APP_GET_PATHS = {
     route.path
-    for route in app.routes
-    if isinstance(route, APIRoute) and route.path.startswith("/admin") and "GET" in route.methods
+    for route in iter_api_routes(app)
+    if route.path.startswith("/admin") and "GET" in route.methods
 }
 
 # Archived-branch sweep cases (#426). Every entity detail template branches on

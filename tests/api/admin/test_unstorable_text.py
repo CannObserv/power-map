@@ -1,6 +1,6 @@
 """Admin input Postgres cannot store never 500s (#663).
 
-Every admin route, path and query and form alike, derived from ``app.routes``.
+Every admin route, path and query and form alike, derived from ``iter_api_routes(app)``.
 A non-HTMX request gets the standard JSON 422; an HTMX request gets the admin's
 form-error shape (``_names_shared._form_error_response``): 200, a warning
 flash, and ``HX-Reswap: none`` so the page stays put.
@@ -14,14 +14,15 @@ import logging
 
 import pytest
 import pytest_asyncio
-from fastapi.dependencies.utils import get_flat_dependant
-from fastapi.routing import APIRoute
+from fastapi.routing import RouteContext
 from httpx import ASGITransport, AsyncClient
 from starlette.convertors import StringConvertor
 
 from src.api.admin.deps import get_db
 from src.api.main import app
+from src.api.routing import iter_api_routes
 from src.api.validation import reject_unstorable_text
+from tests.api.flat_params import flat_body_params, flat_query_params
 
 pytestmark = pytest.mark.integration
 
@@ -30,15 +31,15 @@ HTMX_HEADERS = {**AUTH_HEADERS, "HX-Request": "true"}
 
 _NUL = "x\x00y"
 _DUMMY_ID = "01J00000000000000000000000"
-_ADMIN = [r for r in app.routes if isinstance(r, APIRoute) and r.path.startswith("/admin")]
+_ADMIN = [r for r in iter_api_routes(app) if r.path.startswith("/admin")]
 
 
-def _text_params(route: APIRoute) -> list[str]:
+def _text_params(route: RouteContext) -> list[str]:
     """Path params that can carry text (an ``:int`` param 404s on it instead)."""
     return [n for n, c in route.param_convertors.items() if isinstance(c, StringConvertor)]
 
 
-def _fill(route: APIRoute, bad: str | None = None) -> str:
+def _fill(route: RouteContext, bad: str | None = None) -> str:
     path = route.path
     for name, convertor in route.param_convertors.items():
         value = "1" if not isinstance(convertor, StringConvertor) else _DUMMY_ID
@@ -58,7 +59,7 @@ def _path_cases():
 
 def _query_cases():
     for route in _ADMIN:
-        names = [f.alias for f in get_flat_dependant(route.dependant).query_params] or ["probe"]
+        names = [f.alias for f in flat_query_params(route.dependant)] or ["probe"]
         for method in sorted(route.methods):
             for name in names:
                 yield pytest.param(route, method, name, id=f"{method} {route.path} ?{name}")
@@ -66,7 +67,7 @@ def _query_cases():
 
 def _form_cases():
     for route in _ADMIN:
-        fields = [f.alias for f in get_flat_dependant(route.dependant).body_params]
+        fields = [f.alias for f in flat_body_params(route.dependant)]
         if not fields:
             continue
         for method in sorted(route.methods):

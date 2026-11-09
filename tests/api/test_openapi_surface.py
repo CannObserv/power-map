@@ -7,9 +7,8 @@ dashboard and ``/ready`` (the operator's readiness probe, #343/#347) are still
 served but are left out of the schema. Pure unit: no DB, no network.
 """
 
-from fastapi.routing import APIRoute
-
 from src.api.main import app
+from src.api.routing import iter_api_routes
 
 
 def _schema_paths() -> set[str]:
@@ -35,7 +34,7 @@ def test_schema_omits_admin():
 
 def test_admin_and_ready_are_still_routed():
     """Out of the schema is not out of the app: both stay served."""
-    routed = {r.path for r in app.routes if isinstance(r, APIRoute)}
+    routed = {r.path for r in iter_api_routes(app)}
     assert "/ready" in routed
     assert any(p.startswith("/admin") for p in routed)
 
@@ -44,7 +43,7 @@ def test_every_public_route_is_in_the_schema():
     """No ``/api/v1`` route is hidden by accident."""
     routed = {
         r.path
-        for r in app.routes
-        if isinstance(r, APIRoute) and r.path.startswith("/api/v1/") and "/_test/" not in r.path
+        for r in iter_api_routes(app)
+        if r.path.startswith("/api/v1/") and "/_test/" not in r.path
     }
     assert routed <= _schema_paths()
