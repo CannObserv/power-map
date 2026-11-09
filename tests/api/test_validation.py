@@ -14,13 +14,13 @@ from urllib.parse import unquote
 import asyncpg
 import pytest
 from fastapi.exceptions import RequestValidationError
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from src.api.deps import get_db
 from src.api.main import app
 from src.api.public.deps import require_api_key
+from src.api.routing import iter_api_routes
 from src.api.validation import (
     TOO_DEEP_INPUT,
     TOO_DEEP_TYPE,
@@ -63,16 +63,15 @@ def _request(path: str = "/api/v1/orgs/x", headers: dict | None = None) -> Reque
 def test_every_route_carries_the_rule():
     missing = [
         f"{sorted(r.methods)} {r.path}"
-        for r in app.routes
-        if isinstance(r, APIRoute)
-        and reject_unstorable_text not in {d.call for d in r.dependant.dependencies}
+        for r in iter_api_routes(app)
+        if reject_unstorable_text not in {d.call for d in r.dependant.dependencies}
     ]
     assert not missing, missing
 
 
 def test_the_rule_runs_before_the_routes_own_dependencies():
-    for r in app.routes:
-        if isinstance(r, APIRoute) and r.dependant.dependencies:
+    for r in iter_api_routes(app):
+        if r.dependant.dependencies:
             assert r.dependant.dependencies[0].call is reject_unstorable_text, r.path
 
 

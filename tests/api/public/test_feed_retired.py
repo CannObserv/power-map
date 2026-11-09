@@ -7,9 +7,8 @@ now. Pure unit: walks the app's routes and its published OpenAPI schema.
 
 import json
 
-from fastapi.routing import APIRoute
-
 from src.api.main import app
+from src.api.routing import iter_api_routes
 
 _RETIRED_PREFIXES = ("/api/v1/changes", "/api/v1/subscriptions")
 _RETIRED_MODELS = {
@@ -23,11 +22,7 @@ _RETIRED_MODELS = {
 
 
 def test_no_feed_route_is_served():
-    served = sorted(
-        r.path
-        for r in app.routes
-        if isinstance(r, APIRoute) and r.path.startswith(_RETIRED_PREFIXES)
-    )
+    served = sorted(r.path for r in iter_api_routes(app) if r.path.startswith(_RETIRED_PREFIXES))
     assert not served, f"retired feed routes still served: {served}"
 
 

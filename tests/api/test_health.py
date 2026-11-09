@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 import src.core.db as db
 from src.api.main import app
+from src.api.routing import iter_api_routes
 
 
 @pytest.fixture
@@ -58,7 +59,7 @@ def test_probe_operation_ids_are_verb_first():
     schema = app.openapi()
     assert schema["paths"]["/health"]["get"]["operationId"] == "getHealth"
     # /ready is unpublished (#618) but keeps its id for when it is listed again.
-    ready = next(r for r in app.routes if getattr(r, "path", None) == "/ready")
+    ready = next(r for r in iter_api_routes(app) if r.path == "/ready")
     assert ready.operation_id == "getReadiness"
 
 

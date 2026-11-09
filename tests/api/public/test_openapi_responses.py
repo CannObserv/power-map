@@ -10,9 +10,8 @@ import ast
 import inspect
 import textwrap
 
-from fastapi.routing import APIRoute
-
 from src.api.main import app
+from src.api.routing import iter_api_routes
 
 _CONDITIONAL_GETS = [
     "/api/v1/assignments/{assignment_id}",
@@ -98,8 +97,8 @@ def _declared_statuses_by_endpoint() -> dict:
     """endpoint function → (operation name, declared response statuses)."""
     schema = app.openapi()
     out = {}
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or not route.include_in_schema:
+    for route in iter_api_routes(app):
+        if not route.include_in_schema:
             continue
         if not route.path.startswith("/api/v1"):
             continue

@@ -4,7 +4,7 @@ NUL (U+0000) and a lone surrogate (U+D800–U+DFFF) once reached asyncpg and
 failed the request with a 500. The rule: the API rejects such text at the
 boundary with the standard validation body, wherever it arrives.
 
-The sweep derives its cases from ``app.routes``, so a new route is covered
+The sweep derives its cases from ``iter_api_routes(app)``, so a new route is covered
 without editing this file. Over real HTTP a lone surrogate can only arrive in a
 JSON body (uvicorn and Starlette decode the path, query and forms with
 ``errors="replace"``), so the path and query cases carry NUL only.
@@ -19,21 +19,22 @@ import os
 
 import pytest
 import pytest_asyncio
-from fastapi.dependencies.utils import get_flat_dependant
-from fastapi.routing import APIRoute
+from fastapi.routing import RouteContext
 
 from src.api.main import app
 from src.api.public.embeddings import _get_registry as _emb_get_registry
 from src.api.public.people import _get_registry as _people_get_registry
+from src.api.routing import iter_api_routes
 from src.core.db import generate_id
 from src.core.embedding_registry import EmbeddingRegistry, ModelMeta
+from tests.api.flat_params import flat_query_params
 
 pytestmark = pytest.mark.integration
 
 _NUL = "x\x00y"
 _SURROGATE = "\ud800"
 _DUMMY_ID = "01J00000000000000000000000"
-_PUBLIC = [r for r in app.routes if isinstance(r, APIRoute) and not r.path.startswith("/admin")]
+_PUBLIC = [r for r in iter_api_routes(app) if not r.path.startswith("/admin")]
 
 
 def _path_cases():
@@ -45,7 +46,7 @@ def _path_cases():
 
 def _query_cases():
     for route in _PUBLIC:
-        names = [f.alias for f in get_flat_dependant(route.dependant).query_params] or ["probe"]
+        names = [f.alias for f in flat_query_params(route.dependant)] or ["probe"]
         for method in sorted(route.methods):
             for name in names:
                 yield pytest.param(route, method, name, id=f"{method} {route.path} ?{name}")
@@ -60,7 +61,7 @@ def _body_cases():
                 yield pytest.param(route, method, text, id=f"{method} {route.path} {label}")
 
 
-def _fill(route: APIRoute, bad: str | None = None) -> str:
+def _fill(route: RouteContext, bad: str | None = None) -> str:
     """The route's path with every param filled; ``bad`` gets a NUL (``%00``)."""
     path = route.path
     for name in route.param_convertors:

@@ -4,9 +4,9 @@ import inspect
 import re
 
 import pytest
-from fastapi.routing import APIRoute
 
 from src.api.main import app
+from src.api.routing import iter_api_routes
 
 pytestmark = [
     pytest.mark.integration,
@@ -64,8 +64,8 @@ def _routes_gated_on(scope_id: str) -> set[str]:
 
     return {
         f"{method} {re.sub(r'{[a-z_]*id}', '{id}', route.path)}"
-        for route in app.routes
-        if isinstance(route, APIRoute) and scope_id in _scopes(route.dependant)
+        for route in iter_api_routes(app)
+        if scope_id in _scopes(route.dependant)
         for method in route.methods
     }
 
