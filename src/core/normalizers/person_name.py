@@ -11,10 +11,11 @@ that want to write to the DB must go through
 confirms.
 
 Strategy:
-    script == 'Latn' → wraps `nameparser.HumanName`, which already ships
-        battle-tested lists for honorifics (`TITLES`),
-        suffixes (`SUFFIX_ACRONYMS` / `SUFFIX_NOT_ACRONYMS`), surname
-        particles (`PREFIXES`), and joiners (`CONJUNCTIONS`).
+    script == 'Latn' → wraps `nameparser.parse` (3.x, #782), whose default
+        lexicon already ships battle-tested vocabularies for titles,
+        suffixes (generations and credentials), surname particles, and
+        joiners. `honorific_suffix` takes the whole `suffix` — 3.x's
+        `generation` / `credentials` split is not used.
     other scripts  → returns `confidence='skip'`. Today's dataset is 100%
         Latn (issue #135 audit). Hant/Hans/Cyrl support plugs in here when
         we have data — see e.g. the `chinese-names` package for Hant/Hans.
@@ -28,7 +29,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Literal
 
-from nameparser import HumanName
+from nameparser import parse
 
 # A bare initial: optionally periodized single uppercase letter ('A', 'A.').
 _INITIAL_RE = re.compile(r"^[A-Z]\.?$")
@@ -77,7 +78,7 @@ class PartsSuggestion:
 # Surname particles that nameparser recognizes as particles. Used
 # only for emitting human-readable `reasons` tags during decomposition; the
 # actual particle handling (gluing them to the surname compound) happens
-# inside HumanName.
+# inside nameparser.
 _PARTICLE_TOKENS: frozenset[str] = frozenset(
     {
         "van",
@@ -144,12 +145,12 @@ def _is_latin_script(s: str) -> bool:
 
 def _suggest_latn(name: str) -> PartsSuggestion:
     """Decompose a Latn-script name via nameparser, mapping to PartsSuggestion."""
-    hn = HumanName(name)
+    hn = parse(name)
 
     title = hn.title.strip() or None
     suffix = hn.suffix.strip() or None
-    first = hn.first.strip()
-    last = hn.last.strip()
+    first = hn.given.strip()
+    last = hn.family.strip()
     middle = hn.middle.strip()
 
     given = [first] if first else []

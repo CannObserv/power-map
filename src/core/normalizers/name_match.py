@@ -52,7 +52,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from cleanco import basename
-from nameparser import HumanName
+from nameparser import parse
 from nicknames import NickNamer
 
 Tier = Literal["exact", "given", "nickname", "initial", "legal_form"]
@@ -98,10 +98,10 @@ def _bare(token: str) -> str:
 def _person(folded: str) -> _Person:
     """The parts of a person name, a trailing note dropped — ``(2)``, a service note —
     while an inner parenthetical stays for nameparser to read as the nickname."""
-    name = HumanName(_TRAILING_NOTE.sub("", folded))
+    name = parse(_TRAILING_NOTE.sub("", folded))
     return _Person(
-        surname=name.last,
-        given=frozenset(t for t in (_bare(name.first), _bare(name.nickname)) if t),
+        surname=name.family,
+        given=frozenset(t for t in (_bare(name.given), _bare(name.nickname)) if t),
         middle=tuple(_bare(m) for m in name.middle.split()),
         suffix=_bare(name.suffix),
     )
