@@ -40,8 +40,8 @@ Known gaps:
 - a title before a bare surname — ``Judge Smith``, ``Rev. Smith`` — parses with
   no given name, so it matches only at ``exact``; reading the title as a given
   name would make ``Rev. Smith`` an ``initial`` twin of ``R. Smith``. Since
-  nameparser 2.7/2.8 (#777), ``Prince Fielder`` and ``King Lear`` read as given
-  names, so they no longer fall in this gap.
+  nameparser 2.7/2.8 (#777), and still on 3.x (#782), ``Prince Fielder`` and
+  ``King Lear`` read as given names, so they no longer fall in this gap.
 - run-together initials — ``JB Pritzker`` and ``JR Smith`` parse a two-letter
   given name, so ``JB Pritzker`` meets ``J. R. Pritzker`` at ``initial``. Once
   folded, ``jb`` cannot be told from a two-letter name like ``Jo`` or ``Ed``.
