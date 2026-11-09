@@ -5,9 +5,11 @@ tier here is named for what it compared, so a triage record can say whether a
 hint rests on the same text or on a looser reading of it.
 """
 
+import warnings
+
 import pytest
 
-from src.core.normalizers.name_match import NameIndex, fold, org_match, person_match
+from src.core.normalizers.name_match import NameIndex, _person, fold, org_match, person_match
 
 # --- fold ---------------------------------------------------------------------
 
@@ -87,7 +89,7 @@ def test_a_name_without_a_surname_matches_only_exactly():
     assert person_match("Cher", "Cher Bono") is None
 
 
-# --- nameparser 2.x readings the person tiers rest on (#777) -----------------
+# --- nameparser readings the person tiers rest on (#777; held on 3.x, #782) ---
 
 
 @pytest.mark.parametrize(
@@ -108,6 +110,33 @@ def test_a_given_name_nameparser_once_read_otherwise_meets_its_initial(producer,
 def test_a_title_before_a_bare_surname_is_no_initial_twin(producer, pm):
     """A title still reads as a title: no given name, so no initial to meet."""
     assert person_match(producer, pm) is None
+
+
+# --- nameparser 3.x: parse(), and the suffix guard (#782) ----------------------
+
+
+def test_reading_a_person_name_emits_no_deprecation_warning():
+    """2.8's HumanName warns on every construction, and 3.0 removes it; parse() is silent."""
+    _person.cache_clear()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        assert person_match("Michael Kreidler", "Mike Kreidler") == "nickname"
+
+
+@pytest.mark.parametrize(
+    ("producer", "pm", "tier"),
+    [
+        ("John Smith Jr.", "John Smith", "given"),  # absent on one side
+        ("John Smith, Ph.D.", "John Smith", "given"),
+        ("John Smith Jr.", "John Smith, Ph.D.", None),  # a generation against a credential
+        ("Jane Doe III, Ph.D.", "Jane Doe III", None),  # the whole suffix is compared
+    ],
+)
+def test_a_generation_and_a_credential_both_count_toward_the_suffix_guard(producer, pm, tier):
+    """3.0 splits the suffix into `generation` and `credentials` but `suffix` still joins
+    both, and the guard reads `suffix`: a ``Jr.`` and a ``Ph.D.`` are different suffixes,
+    as they were under 2.x. Narrowing the guard to `generation` loosens a tier (#782)."""
+    assert person_match(producer, pm) == tier
 
 
 # --- organization tiers ------------------------------------------------------

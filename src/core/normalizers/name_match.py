@@ -11,7 +11,10 @@ instead, and names the tier each match rests on:
   name or quoted nickname equal) → ``nickname`` (related through the
   ``nicknames`` dictionary) → ``initial`` (an initial against a given name).
   Middle initials and suffixes may be *absent* on one side, never *different*:
-  that is what keeps N. B. and N. P. Atkinson, two people, apart. A trailing
+  that is what keeps N. B. and N. P. Atkinson, two people, apart. A suffix is
+  compared whole, generation and credentials together, so ``Jr.`` and ``Ph.D.``
+  differ; reading only nameparser 3.x's ``generation`` would loosen the guard,
+  so it waits on a measurement (#782). A trailing
   parenthetical note is dropped before parsing, so it lands a match on
   ``given`` at best, never ``exact``. ``initial`` ranks last because it is the
   noisiest tier on PM's corpus: an old roster's ``A. A. Smith`` meets every
@@ -37,8 +40,8 @@ Known gaps:
 - a title before a bare surname — ``Judge Smith``, ``Rev. Smith`` — parses with
   no given name, so it matches only at ``exact``; reading the title as a given
   name would make ``Rev. Smith`` an ``initial`` twin of ``R. Smith``. Since
-  nameparser 2.7/2.8 (#777), ``Prince Fielder`` and ``King Lear`` read as given
-  names, so they no longer fall in this gap.
+  nameparser 2.7/2.8 (#777), and still on 3.x (#782), ``Prince Fielder`` and
+  ``King Lear`` read as given names, so they no longer fall in this gap.
 - run-together initials — ``JB Pritzker`` and ``JR Smith`` parse a two-letter
   given name, so ``JB Pritzker`` meets ``J. R. Pritzker`` at ``initial``. Once
   folded, ``jb`` cannot be told from a two-letter name like ``Jo`` or ``Ed``.
@@ -52,7 +55,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from cleanco import basename
-from nameparser import HumanName
+from nameparser import parse
 from nicknames import NickNamer
 
 Tier = Literal["exact", "given", "nickname", "initial", "legal_form"]
@@ -98,10 +101,10 @@ def _bare(token: str) -> str:
 def _person(folded: str) -> _Person:
     """The parts of a person name, a trailing note dropped — ``(2)``, a service note —
     while an inner parenthetical stays for nameparser to read as the nickname."""
-    name = HumanName(_TRAILING_NOTE.sub("", folded))
+    name = parse(_TRAILING_NOTE.sub("", folded))
     return _Person(
-        surname=name.last,
-        given=frozenset(t for t in (_bare(name.first), _bare(name.nickname)) if t),
+        surname=name.family,
+        given=frozenset(t for t in (_bare(name.given), _bare(name.nickname)) if t),
         middle=tuple(_bare(m) for m in name.middle.split()),
         suffix=_bare(name.suffix),
     )

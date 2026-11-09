@@ -1,9 +1,11 @@
 """Tests for the person-name decomposer (suggest_parts / suggest_locale_script).
 
-Decomposer is *suggest-only* — never persists. Backed by `nameparser.HumanName`
+Decomposer is *suggest-only* — never persists. Backed by `nameparser.parse`
 for `script == 'Latn'`; emits ``confidence='skip'`` for any other script (today
 the dataset is 100% Latn, see issue #135).
 """
+
+import warnings
 
 import pytest
 
@@ -90,6 +92,21 @@ def test_honorific_suffix_extracted():
     assert s.honorific_suffix == "Jr."
     assert s.given_names == ["Jane"]
     assert s.family_names == ["Doe"]
+
+
+def test_honorific_suffix_keeps_generation_and_credentials():
+    """3.0 splits `generation` from `credentials`; the suggestion keeps the whole suffix (#782)."""
+    s = _suggest("Jane Doe III, Ph.D.")
+    assert s.honorific_suffix == "III, Ph.D."
+    assert s.given_names == ["Jane"]
+    assert s.family_names == ["Doe"]
+
+
+def test_decomposing_emits_no_deprecation_warning():
+    """2.8's HumanName warns on every construction, and 3.0 removes it (#782)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        assert _suggest("Dr. Jane A. Doe Jr.").family_names == ["Doe"]
 
 
 def test_combined_prefix_and_suffix():
