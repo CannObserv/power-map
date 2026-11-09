@@ -36,6 +36,7 @@ repos:
           tests/scripts/test_pre_ship_gate.py
           tests/scripts/test_write_db_secrets.py
           tests/test_doc_sensitive_paths.py
+          tests/test_merge_mode_knob.py
           tests/test_no_channel_urls.py
           tests/test_outbox_retired_refs.py
           tests/test_pre_restart_knob.py

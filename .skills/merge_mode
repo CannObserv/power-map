@@ -1,0 +1,4 @@
+# Work reaches main only through a merged PR (2026-11-09): the main checkout is
+# production's WorkingDirectory=, so a local merge there is a deploy. The skills
+# refresh hook proposes its bump as a PR too. Guard: tests/test_merge_mode_knob.py.
+pr
