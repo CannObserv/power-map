@@ -69,6 +69,10 @@ testpaths = ["tests"]
 addopts = "-v --tb=short -m 'not integration and not browser'"
 asyncio_mode = "auto"
 asyncio_default_test_loop_scope = "session"
+# Unset, pytest-asyncio raises a PytestDeprecationWarning in pytest_configure, so
+# `-W error::DeprecationWarning` aborts before collection (#786). Every async
+# fixture names loop_scope= anyway; tests/test_async_fixture_loop_scope.py.
+asyncio_default_fixture_loop_scope = "session"
 # One run's basetemp, and none after a green run: the default three runs
 # (~480M each) filled the shared 19G root volume (#665).
 tmp_path_retention_count = 1
