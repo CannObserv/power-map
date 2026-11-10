@@ -10,10 +10,9 @@ roster in [COMMANDS.md § Scheduled timers](COMMANDS.md#scheduled-timers);
 
 ## The timers' check-ins
 
-Each of the 14 `power-map-*.timer` services runs
+Each of the 12 `power-map-*.timer` services runs
 `scripts/status_checkin.py` as `ExecStopPost=` against its own co-status monitor
-(tenant `co-power-map`, CannObserv/status#36, and #48 for the two disk timers;
-the unit's comment names it). The
+(tenant `co-power-map`, CannObserv/status#36; the unit's comment names it). The
 hook reads systemd's verdict: `SERVICE_RESULT=success` is `ok`, a declared
 `SuccessExitStatus=4` warning included (schema-parity's reference-ahead,
 infra-drift's comment-only); anything else is `alert`, its `kind` systemd's
@@ -21,9 +20,10 @@ result (`exit-code`, `timeout`, `signal`, …) or the script's own name for the
 exit from the unit's `STATUS_EXIT_KINDS` (`3:drift`), and `metadata.fault = kind`
 so a change of failure reports at once. A run that never happens (timer
 disabled, unit not reinstalled, VM down, tailnet gone) goes `missing` there.
-The disk-headroom guard holds an alert (#690): it alerts at 85% and keeps
-exiting 3 until `/` is at or below 80%, so its `ok` means recovered, not a
-one-point dip under the line.
+Root disk is the one exception (#705): the cohort's canonical sensor,
+`cannobserv-disk-headroom`, checks in itself to `co-power-map-disk-headroom`
+(`low-headroom`, `gc-failed`, `gc-stale`), alerting at 85% and held until ≤ 80%
+→ [AUDITS.md § Root disk](AUDITS.md#root-disk-the-cohort-disk-gc-issue-705).
 `tests/test_infra_alerting.py` fails on a timer without the hook.
 
 - **Best-effort.** The command carries `-` and always exits 0: a check-in that
@@ -32,8 +32,7 @@ one-point dip under the line.
   `<N>` on the journal, so `journalctl -p warning` finds it (#692).
 - **Standard library, `/usr/bin/python3`.** It must work when the venv or `uv`
   is what broke, so it imports nothing from the repo but its stdlib sibling
-  `scripts/_journal.py`, the journal-priority helper it shares with the disk
-  scripts. That helper loads the one rule, the stdlib-only
+  `scripts/_journal.py`, the journal-priority helper. That helper loads the one rule, the stdlib-only
   `src/core/journal.py` that `configure_logging()` also uses, by file path
   (#704). Without either (missing, broken, or dropped from `sys.path` by
   `python3 -I`/`-P` or `PYTHONSAFEPATH`) the check-in still goes out; only the

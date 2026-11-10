@@ -462,9 +462,7 @@ row names**; this is a roster, not a reference.
 |---|---|---|---|
 | `power-map-ready` | 2 min | `check_ready.py` — probes `/ready`; exit 3 only when two attempts fail | [AUDITS.md](AUDITS.md) |
 | `power-map-egress-ip` | 5 min | `check_egress_ip.py` — egress IP vs the cluster's live Trusted Sources | [AUDITS.md](AUDITS.md) |
-| `power-map-disk-headroom` | 10 min | `check_disk_headroom.py` — exit 3 at ≥ 85% of `/`, held until ≤ 80% | [AUDITS.md](AUDITS.md) |
 | `power-map-anomaly` | hourly | `check_api_anomalies.py` — per-key request-rate threshold | [AUDITS.md](AUDITS.md) |
-| `power-map-disk-prune` | 05:30 UTC | `prune_disk.py --execute` — stale VS Code builds, npx installs, caches | [AUDITS.md](AUDITS.md) |
 | `power-map-datasets-pull` | 09:00 UTC | `pull_datasets.py` — lands usa-wa snapshots; writes no DB rows | [RUNBOOKS.md](RUNBOOKS.md) |
 | `power-map-desired-state` | 09:30 UTC | export → build → apply, the applier **dry run**; a failed step stops the chain; exit 4 = entries unapplied > 3 days (#656) | [RUNBOOK_DESIRED_STATE.md](RUNBOOK_DESIRED_STATE.md) |
 | `power-map-prune` | daily | `prune.py --execute` — per-table TTL: bare tombstones, request log | [RUNBOOKS.md](RUNBOOKS.md) |
@@ -473,6 +471,8 @@ row names**; this is a roster, not a reference.
 | `power-map-seat-occupancy` | daily | `audit_seat_occupancy.py` — two holders of one single seat; ratchet over a baseline | [AUDITS.md](AUDITS.md) |
 | `power-map-assignment-rel-windows` | daily | `audit_assignment_relationship_windows.py` — drifted RA→RA edge windows | [AUDITS.md](AUDITS.md) |
 | `power-map-infra-drift` | daily | `check_infra_drift.py` — `infra/` vs the installed copies | [AUDITS.md](AUDITS.md) |
+
+Not in `infra/`: `cannobserv-disk-gc` (05:15 UTC) and `cannobserv-disk-headroom` (10 min), the cohort's disk GC (#705) → [AUDITS.md § Root disk](AUDITS.md#root-disk-the-cohort-disk-gc-issue-705).
 | `power-map-openapi-parity` | daily | `check_openapi_parity.py` — served vs committed `openapi.json`, and its `v<version>` tag | [AUDITS.md](AUDITS.md) |
 
 An audit timer exits **3** on a finding, which is what puts it in

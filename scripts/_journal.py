@@ -19,8 +19,9 @@ fallback::
         from scripts import _journal
 
 ``python3 -I`` / ``-P`` or ``PYTHONSAFEPATH`` drop ``sys.path[0]``, and with
-them this import; no unit or env file sets them. The disk scripts would fail
-on it; ``status_checkin.py`` catches it and checks in with plain lines.
+them this import; no unit or env file sets them. ``status_checkin.py``, its
+one user since #705 retired the disk pair, catches it and checks in with plain
+lines.
 
 **The rule itself lives in** ``src/core/journal.py`` (#704), shared with
 ``configure_logging()`` and uvicorn's ``log_config.json``. These scripts have

@@ -106,7 +106,7 @@ def test_set_stream_rechecks_the_journal(tmp_path: Path):
 
 def test_the_module_is_standard_library_only():
     """``scripts/_journal.py`` loads this file under ``/usr/bin/python3`` with no
-    venv; a third-party import here would break the disk units and the hook."""
+    venv; a third-party import here would break the check-in hook."""
     tree = ast.parse(JOURNAL_PY.read_text())
     imported = set()
     for node in ast.walk(tree):

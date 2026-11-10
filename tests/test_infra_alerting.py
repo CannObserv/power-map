@@ -39,8 +39,8 @@ ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 MONITOR_IDS_PENDING = False
 # Units whose monitor is requested but not yet provisioned: each carries an
 # empty id, so the hook skips, logged, and names its request. Empty since #665's
-# two disk monitors landed (CannObserv/status#48, 2026-10-16); a new timer adds
-# its name here until its id arrives.
+# two disk monitors landed (CannObserv/status#48, 2026-10-16; both units retired
+# by #705); a new timer adds its name here until its id arrives.
 PENDING_MONITORS: frozenset[str] = frozenset()
 PENDING_REQUEST = "CannObserv/status#48"
 
@@ -74,12 +74,15 @@ def environment(path: Path) -> dict[str, str]:
     return env
 
 
-def test_there_are_fourteen_timers_each_with_a_service():
+def test_there_are_twelve_timers_each_with_a_service():
     """status#36 holds one monitor per timer; a new timer needs a new monitor.
 
     #740 retired the a11y timer, so its monitor (co-power-map-a11y) is offboarded too.
+    #705 retired the two disk timers for the canonical disk GC: its sensor took
+    over co-power-map-disk-headroom, and co-power-map-disk-prune is retired
+    (CannObserv/status#107).
     """
-    assert len(TIMERS) == 14
+    assert len(TIMERS) == 12
     assert all(s.exists() for s in SERVICES)
 
 
