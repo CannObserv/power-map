@@ -94,6 +94,7 @@ To add a new external skill repo: follow the `managing-skills` skill.
 | `init-socraticode` | `gregoryfoster-skills` | init socraticode, set up code search, index this project, socraticode setup ³ |
 | `init-project-fastapi` | `gregoryfoster-skills` | init project, bootstrap project, new fastapi project, set up foundation ³ |
 | `using-mayfly-chat` | `gregoryfoster-skills` | mayfly, open a channel, join the channel, `chat with <repo>`, agent chat ⁴ |
+| `maintaining-host-disk` | `gregoryfoster-skills` | disk GC, root disk is full, disk headroom, install the disk GC, update the disk GC, retire disk hygiene, VS Code server builds |
 
 ² **Project override — `using-git-worktrees` (#450):** its `worktree-create.sh` links a new
 worktree's `.venv` at the main checkout's. Here the main checkout is production's working
@@ -118,7 +119,6 @@ SocratiCode provides semantic search and dependency graph tools via MCP. The rul
 - **Index status:** `codebase_status` — check before relying on search results
 - **Initial setup / reindex:** use the `socraticode:codebase-management` skill
 - **Exploration tasks:** use the `socraticode:codebase-explorer` subagent for multi-file tracing
-- **Index lives at:** `~/.socraticode/` (process-local, not committed)
 - **After large refactors:** run `codebase_update` or trigger a full reindex via `socraticode:codebase-management` to keep the graph accurate
 - **Duplicate MCP config warning:** if both `mcp__plugin_socraticode_socraticode__*` and `mcp__socraticode__*` tool prefixes appear, the standalone MCP is duplicated — remove it: `claude mcp remove socraticode`
 
@@ -172,9 +172,7 @@ Name directories, not files. The manifest previously listed four individual docs
 
 #### Declared ≠ indexed
 
-`test_context_artifacts.py` asserts *declaration*, not *indexing* — it cannot see an entry the server accepted and never indexed. That is a second, harder cause of the same silence: to a `codebase_context_search` caller, an artifact that resolved but was never indexed looks exactly like a path that did not resolve. No results, no error.
-
-#454 is the field case: one entry hit `fetch failed` while an incremental update ran concurrently, the operation then read *completed*, `codebase_status` settled at `2/3 indexed`, and every health light stayed green — with the whole 2.5 MB `docs/` tree unreachable.
+`test_context_artifacts.py` asserts *declaration*, not *indexing* — it cannot see an entry the server accepted and never indexed. That is a second, harder cause of the same silence: to a `codebase_context_search` caller, an artifact that resolved but was never indexed looks exactly like a path that did not resolve. No results, no error. #454 is the field case (§ Health hook).
 
 - **Where to look.** `codebase_context` reports per-artifact `✓ indexed` status and is the only place that status exists; `codebase_status` gives a count and never a name.
 - **Recovery** is `codebase_update`, which re-embeds only the artifacts that are missing or whose content moved (skills#317). Avoid a bare retry of `codebase_context_index`: it re-embeds every artifact with no progress, and on this CPU backend it can outlast the 1800 s tool idle timeout. When it does, it reports failure while the server finishes. Keep it for a first index or a manifest whose artifacts all changed, and **never run it concurrently with an incremental update.** The CPU-only embedding backend serializes badly: a 5-file incremental took 31 min beside a context embed, and 0.7s solo. The clean retry in #454 indexed everything.
