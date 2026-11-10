@@ -244,7 +244,8 @@ class TestTheMirrorStillDescribesTheGate:
     )
 
     @pytest.fixture(scope="class")
-    def source(self) -> str:
+    @classmethod
+    def source(cls) -> str:
         """The vendored gate's source."""
         return DOC_CHECK_PATH.read_text()
 
