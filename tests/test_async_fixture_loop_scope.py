@@ -23,6 +23,7 @@ Three guards:
 """
 
 import ast
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -37,8 +38,14 @@ def test_async_fixtures_default_to_the_session_loop(pytestconfig: pytest.Config)
     assert pytestconfig.getini("asyncio_default_fixture_loop_scope") == "session"
 
 
-def test_collection_survives_deprecations_as_errors() -> None:
-    result = subprocess.run(
+def _strict_collect() -> subprocess.CompletedProcess[str]:
+    """``pytest -W error::DeprecationWarning --collect-only`` over this file, in a child.
+
+    The child gets the caller's environment minus ``PYTEST_ADDOPTS``, so it runs
+    this repo's config and nothing a caller's rerun idiom adds.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "PYTEST_ADDOPTS"}
+    return subprocess.run(
         [
             sys.executable,
             "-m",
@@ -52,14 +59,31 @@ def test_collection_survives_deprecations_as_errors() -> None:
             str(Path(__file__).relative_to(REPO_ROOT)),
         ],
         cwd=REPO_ROOT,
+        env=env,
         capture_output=True,
         text=True,
         timeout=120,
     )
+
+
+def test_collection_survives_deprecations_as_errors() -> None:
+    result = _strict_collect()
     output = result.stdout + result.stderr
     assert result.returncode == 0 and "INTERNALERROR" not in output, (
         f"pytest -W error::DeprecationWarning exited {result.returncode}:\n{output[-3000:]}"
     )
+
+
+def test_the_strict_run_ignores_the_callers_pytest_addopts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A rerun idiom like ``PYTEST_ADDOPTS=--lf`` must not reach the child.
+
+    pytest puts ``PYTEST_ADDOPTS`` ahead of argv, and with the cache plugin off
+    ``--lf`` is an unknown option: the guard went red, exit 4, on nothing to do
+    with deprecations.
+    """
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--lf")
+    result = _strict_collect()
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def _fixtures_without_loop_scope(source: str) -> list[int]:
