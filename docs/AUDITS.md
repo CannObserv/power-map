@@ -12,8 +12,8 @@ its baseline), so a run surfaces in `systemctl --failed` (#363), and each carrie
 its own install block below. The org-lifecycle (#307) and
 duplicate-assignment (#311) audits are on-demand: no timer, no exit-3. Five
 guards at the end carry timers too: readiness (#347), egress IP (#410), OpenAPI
-parity (#618), infra drift (#560) and root-disk headroom (#665), the last with
-its daily prune. Every timer, these and the rest in
+parity (#618), infra drift (#560) and the root disk, which is the cohort's
+disk GC and sensor (#705). Every timer, these and the rest in
 `docs/COMMANDS.md` § Scheduled timers, checks in with co-status after each run,
 so a failure or a missed run reaches a person: [ALERTING.md](ALERTING.md).
 
@@ -507,26 +507,21 @@ uv run python -m scripts.check_infra_drift   # compare once, now
 sudo journalctl -u power-map-infra-drift -f
 ```
 
-## Root-disk headroom guard and daily prune (issues #665, #690)
+## Root disk: the cohort disk GC (issue #705)
 
-Host guards. `/`, `/home` and `/tmp` share one 19G volume, which reached 98–100%
-three times in three weeks. Both scripts are stdlib-only and run by
-`/usr/bin/python3`; each module docstring holds the reasoning.
+`/`, `/home` and `/tmp` share one 19G volume (#665). Since #705 Provisioner's
+disk GC and headroom sensor own it, through the vendored `maintaining-host-disk`
+skill, which holds the procedure; `tests/test_infra_disk_units.py` keeps the
+retired `prune_disk.py` / `check_disk_headroom.py` out. Installed under
+`/usr/local/lib`, not `infra/` (no drift guard; never edit it), configured in
+`/etc/cannobserv/disk-gc/disk-gc.conf`: lines 85/80, `gc_stale_hours = 72`.
 
-- **`check_disk_headroom.py`**, every 10 min: `/`'s Use% as `df` reads it. Exit 3
-  (`low-headroom`) at or above `--alert-at` (85), held until at or below
-  `--clear-at` (80, #690), with the largest growth paths in the journal.
-- **`prune_disk.py --execute`**, daily 05:30 UTC: stale VS Code server builds,
-  CLIs and `.obsolete` extensions, unpinned `~/.npm/_npx` installs, then the npm
-  and uv caches. Anything a live process uses, or touched in the last hour
-  (#669), stays. A window still running a removed extension needs *Reload Window*.
-
-Journal lines carry their level's priority since #690; older ones are all
-`info`, hence the grep.
+- **`cannobserv-disk-gc`**, daily 05:15 UTC: idle editor builds, stale extension
+  and tool caches, unpinned npx trees, `uv cache prune`.
+- **`cannobserv-disk-headroom`**, 10 min, to `co-power-map-disk-headroom`:
+  `low-headroom` at ≥ 85% (held to ≤ 80%), `gc-failed`, `gc-stale`.
 
 ```bash
-/usr/bin/python3 scripts/check_disk_headroom.py --alert-at 1   # prove it fires
-/usr/bin/python3 scripts/prune_disk.py                         # the plan, no change
-sudo journalctl -u power-map-disk-headroom --since -7d --no-pager | grep 'low headroom'
-sudo journalctl -u power-map-disk-prune -p warning --since -7d  # unchecked or failed
+sudo /usr/bin/python3 -I /usr/local/lib/cannobserv/disk-gc/disk-gc gc   # the plan, no change
+sudo journalctl -u cannobserv-disk-headroom --since -1h --no-pager       # checked in ok (ok): HTTP 202
 ```

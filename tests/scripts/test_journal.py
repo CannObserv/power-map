@@ -29,7 +29,7 @@ from scripts._journal import log_handler
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 CORE_JOURNAL = Path(__file__).resolve().parents[2] / "src" / "core" / "journal.py"
-USERS = ("check_disk_headroom.py", "prune_disk.py", "status_checkin.py")
+USERS = ("status_checkin.py",)
 
 
 def _journal_env(stream) -> dict[str, str]:
@@ -107,6 +107,17 @@ def _names(tree: ast.Module) -> set[str]:
     return found
 
 
+def test_users_is_every_script_that_imports_it():
+    """``USERS`` is the whole list, so the per-script tests below cover them all.
+    The disk pair left with #705 (the canonical disk GC took their work)."""
+    importers = sorted(
+        p.name
+        for p in SCRIPTS_DIR.glob("*.py")
+        if p.name != "_journal.py" and "_journal" in _names(ast.parse(p.read_text()))
+    )
+    assert importers == sorted(USERS)
+
+
 @pytest.mark.parametrize("name", USERS)
 def test_each_script_logs_through_the_one_helper(name):
     """No script keeps its own copy (the #690 pair did, held by a parity test)."""
@@ -129,8 +140,6 @@ def test_each_script_logs_through_the_one_helper(name):
 # Each script's cheapest clean run, and a line only that run prints. The hook
 # has no --help: with no unit it logs its usage line and exits 0.
 FILE_RUNS = {
-    "check_disk_headroom.py": (["--help"], "Usage:"),
-    "prune_disk.py": (["--help"], "Usage:"),
     "status_checkin.py": ([], "usage: status_checkin.py <unit>"),
 }
 
