@@ -35,6 +35,19 @@ uv run pre-commit run pytest-vendored --all-files
 uv run pre-commit run bats-vendored --all-files
 ```
 
+### Deprecations are errors (#789)
+
+`filterwarnings = ["error::DeprecationWarning"]` (pyproject) fails every run, pre-commit
+and CI included, on any `DeprecationWarning` or subclass, third-party ones too. Under
+pytest 9.2 it applies in `pytest_configure`, collection, setup and test time.
+
+A bump that adds one goes red. Migrate the code; if that must wait, add an exemption
+**after** the `error::` line (later entries win), scoped to a message or module, with a
+comment naming the upstream issue or version that removes it:
+`"ignore:<message regex>:DeprecationWarning:<module>"`. One test only:
+`@pytest.mark.filterwarnings("ignore:…")`. A bare `ignore::DeprecationWarning`, or the
+`error::` line moved or gone, fails `tests/test_pytest_filterwarnings.py`.
+
 ---
 
 ## Mapping-project tier (#497)
