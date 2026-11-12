@@ -1,7 +1,7 @@
 ---
 title: "#595 Address standardization provenance and the re-standardization sweep"
 date: 2026-11-12
-status: proposed — awaiting the operator's decisions on Q1–Q7
+status: approved (operator, 2026-11-12)
 ---
 
 # #595 Address standardization provenance and the re-standardization sweep
