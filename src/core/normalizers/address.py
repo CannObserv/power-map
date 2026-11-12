@@ -54,7 +54,22 @@ _STATUS_MAP = {
     "invalid": "failed",
     "error": "failed",
     "unavailable": "not_attempted",
+    # A provider answered but made no determination: tried, so not not_attempted (#595).
+    "undetermined": "unconfirmed",
 }
+
+# addresses.standardization_status (#595): why a row has, or lacks, a standardized
+# form. The schema's CHECK lists the same values; a sweep retries only the transient
+# ones, and never ``declined`` (a curator's "Keep my input").
+STANDARDIZATION_STATUSES = (
+    "standardized",
+    "declined",
+    "unavailable",
+    "rejected",
+    "unsupported",
+    "no_result",
+    "local",
+)
 
 
 class RateLimitedError(RuntimeError):
@@ -350,6 +365,28 @@ class FallbackAddressNormalizer:
             result.validation_detail["fallback"] = reason
             result.warnings.insert(0, f"fallback to local address parser: {exc}")
             return result
+
+
+def standardization_status(result: NormalizationResult) -> str:
+    """The ``addresses.standardization_status`` a normalizer result earns (#595).
+
+    ``standardized`` when a form came back; else the fallback's reason
+    (``unavailable`` / ``rejected`` / ``unsupported``); else ``local`` for a
+    config-less run that never asked the validator; else ``no_result`` — the
+    validator answered without a form. ``declined`` is never derived here: only
+    a curator's "Keep my input" sets it. Raises ValueError on a skipped result,
+    which writes no row.
+    """
+    if result.value is None:
+        raise ValueError("a skipped normalizer result has no standardization status")
+    if result.value.get("standardized"):
+        return "standardized"
+    detail = result.validation_detail or {}
+    if detail.get("fallback"):
+        return detail["fallback"]
+    if detail.get("provider") == "usaddress":
+        return "local"
+    return "no_result"
 
 
 # ---------------------------------------------------------------------------

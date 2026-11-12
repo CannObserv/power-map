@@ -296,6 +296,39 @@ sudo systemctl start power-map-prune.service   # run once, now
 sudo journalctl -u power-map-prune -f          # logs (rows pruned per run)
 ```
 
+## Address re-standardization sweep (#595)
+
+
+`scripts/restandardize_addresses.py` retries addresses saved while address-validator
+was down (`standardization_status='unavailable'`; the values and the merge rule are in
+`docs/SCHEMA_VALIDITY.md` § Address standardization provenance). It never selects
+`declined` (a curator's "Keep my input"), `rejected` or `no_result`. Needs
+`ADDRESS_VALIDATOR_API_KEY` (exit 2 without it).
+
+**It is also the on-demand audit.** Every run prints counts per status and the oldest
+`unavailable` row's age, and **exits 3** when that age passes 3 days. No timer: no
+address has been written since the 2026-06-15 import. Revisit once a producer or the
+admin writes addresses again (a timer needs a co-status monitor, #566).
+
+```bash
+# Build --env-file flags (see § Environment)
+env_args=()
+[ -f /etc/power-map/.env ] && env_args+=(--env-file /etc/power-map/.env)
+[ -f .env ] && env_args+=(--env-file .env)
+
+# Dry run — calls the validator (read-only), reports each outcome + merges, writes nothing
+uv run "${env_args[@]}" python -m scripts.restandardize_addresses
+
+# Execute — one transaction per address
+uv run "${env_args[@]}" python -m scripts.restandardize_addresses --execute
+
+# Opt-in statuses: after a local_only import, or once the validator covers a country
+uv run "${env_args[@]}" python -m scripts.restandardize_addresses --status local --limit 20
+```
+
+A run inside address-validator's 00–06 UTC maintenance window is harmless: those rows
+stay `unavailable`, and only their `standardization_checked_at` moves.
+
 ## Operational scripts — dry run by default & target echo (#402)
 
 

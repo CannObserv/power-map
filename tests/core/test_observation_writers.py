@@ -5,8 +5,10 @@ import contextlib
 import hashlib
 import os
 from datetime import date
+from unittest.mock import patch
 
 import asyncpg
+import httpx
 import pytest
 import pytest_asyncio
 
@@ -22,6 +24,7 @@ from src.api.public.schemas import (
     ObservationRoleAssignment,
 )
 from src.core.db import generate_id
+from src.core.normalizers.address import AddressNormalizerConfig, FallbackAddressNormalizer
 from src.core.observation import (
     Disposition,
     IdentifierConflict,
@@ -40,6 +43,7 @@ from src.core.observation import (
     write_pronouns,
     write_role_assignments,
 )
+from tests.core.normalizers.http_mock import mock_http_client
 from tests.db_utils import row_version
 
 pytestmark = [
@@ -1086,6 +1090,40 @@ async def test_write_addresses_basic(db, org_id, local_address_normalizer):
     )
     assert len(rows) == 1
     assert rows[0]["address_type"] == "mailing"
+
+
+async def test_write_addresses_records_local_status(db, org_id, local_address_normalizer):
+    """#595: a config-less normalizer never asked the validator."""
+    addr = ObservationAddress(raw_input="123 Main St, Seattle, WA 98101", address_type="mailing")
+    await write_addresses(db, org_id, "organization", [addr])
+    row = await db.fetchrow(
+        "SELECT a.standardization_status, a.standardization_checked_at"
+        " FROM entity_addresses ea JOIN addresses a ON a.id = ea.address_id"
+        " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+        org_id,
+    )
+    assert row["standardization_status"] == "local"
+    assert row["standardization_checked_at"] is not None
+
+
+async def test_write_addresses_records_the_fallback_reason(db, org_id):
+    """#595: an outage at write time leaves a row the sweep can find."""
+    normalizer = FallbackAddressNormalizer(
+        AddressNormalizerConfig(api_key="test-key", transient_retries=0)
+    )
+    addr = ObservationAddress(raw_input="123 Main St, Seattle, WA 98101", address_type="mailing")
+    with (
+        patch("src.core.observation.get_address_normalizer", return_value=normalizer),
+        mock_http_client(side_effect=httpx.ConnectError("x")),
+    ):
+        await write_addresses(db, org_id, "organization", [addr])
+    status = await db.fetchval(
+        "SELECT a.standardization_status FROM entity_addresses ea"
+        " JOIN addresses a ON a.id = ea.address_id"
+        " WHERE ea.entity_type='organization' AND ea.entity_id=$1",
+        org_id,
+    )
+    assert status == "unavailable"
 
 
 async def test_write_addresses_duplicate_noop(db, org_id, local_address_normalizer):

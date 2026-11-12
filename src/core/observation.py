@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 from src.core.dataset_ownership import dataset_owned_identifier, dataset_owned_link
 from src.core.db import generate_id, linked_entity_vanished
 from src.core.logging import get_logger
-from src.core.normalizers.address import get_address_normalizer
+from src.core.normalizers.address import get_address_normalizer, standardization_status
 from src.core.normalizers.email import EmailNormalizer
 from src.core.normalizers.phone import PhoneNormalizer
 from src.core.organizations import ActiveOnArchivedOrg, OrgNotFound, set_org_active
@@ -952,11 +952,14 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
                 aid = reuse["address_id"]
             else:
                 aid = generate_id()
+                # #595: record how the row was normalized, so a sweep can find
+                # the ones saved during an outage.
                 await conn.execute(
                     "INSERT INTO addresses"
                     " (id, raw_input, address_line_1, address_line_2, city, region,"
-                    "  postal_code, country, standardized, latitude, longitude, components)"
-                    " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+                    "  postal_code, country, standardized, latitude, longitude, components,"
+                    "  standardization_status, standardization_checked_at)"
+                    " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())",
                     aid,
                     v.get("raw_input") or addr.raw_input,
                     v.get("address_line_1"),
@@ -969,6 +972,7 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
                     v.get("latitude"),
                     v.get("longitude"),
                     components_str,
+                    standardization_status(result),
                 )
             await conn.execute(
                 "INSERT INTO entity_addresses"

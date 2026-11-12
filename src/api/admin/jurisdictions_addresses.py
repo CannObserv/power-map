@@ -10,12 +10,13 @@ from src.api.admin._addresses_shared import (
     AddressEchoParams,
     ConfirmPersist,
     NothingToConfirm,
-    fallback_notice,
     field_context,
+    nothing_to_confirm,
     parse_validity,
     same_address,
     saved_flash_body,
     saved_flash_key,
+    saved_status,
 )
 from src.api.admin.deps import (
     AdminUser,
@@ -113,7 +114,7 @@ async def _maybe_confirm(
     )
     result = await _NORMALIZER.normalize(raw, country=country)
     if not (result.value and result.value.get("standardized")):
-        return NothingToConfirm(fallback_notice(result))
+        return nothing_to_confirm(result)
     validation_status = None
     validation_provider = None
     if result.validation_detail:
@@ -314,6 +315,7 @@ async def address_create(
         )
     persist: ConfirmPersist | None = None
     notice: str | None = None
+    status: str | None = None  # addresses.standardization_status (#595)
     if mode == "confirm":
         confirm = await _maybe_confirm(
             request,
@@ -333,7 +335,7 @@ async def address_create(
         if isinstance(confirm, ConfirmPersist):
             persist = confirm  # non-HTMX: persist normalized values directly (#280)
         elif isinstance(confirm, NothingToConfirm):
-            notice = confirm.notice
+            notice, status = confirm.notice, confirm.status
         else:
             return confirm
     aid = generate_id()
@@ -379,11 +381,14 @@ async def address_create(
         _region = region.strip() or None
         _postal = postal_code.strip() or None
         _country = country.strip() or "US"
+    if status is None:  # ConfirmPersist (standardized) or a modal mode=save
+        status = saved_status(_standardized)
     await db.execute(
         "INSERT INTO addresses"
         " (id, address_line_1, address_line_2, city, region, postal_code,"
-        "  country, standardized, latitude, longitude, components)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        "  country, standardized, latitude, longitude, components,"
+        "  standardization_status, standardization_checked_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())",
         aid,
         _line_1,
         _line_2,
@@ -395,6 +400,7 @@ async def address_create(
         _latitude,
         _longitude,
         _components,
+        status,
     )
     await db.execute(
         "INSERT INTO entity_addresses"
@@ -531,6 +537,7 @@ async def address_edit_row_post(
         )
     persist: ConfirmPersist | None = None
     notice: str | None = None
+    status: str | None = None  # addresses.standardization_status (#595)
     if mode == "confirm":
         confirm = await _maybe_confirm(
             request,
@@ -550,7 +557,7 @@ async def address_edit_row_post(
         if isinstance(confirm, ConfirmPersist):
             persist = confirm  # non-HTMX: persist normalized values directly (#280)
         elif isinstance(confirm, NothingToConfirm):
-            notice = confirm.notice
+            notice, status = confirm.notice, confirm.status
         else:
             return confirm
     if persist is not None:
@@ -594,6 +601,8 @@ async def address_edit_row_post(
         _region = region.strip() or None
         _postal = postal_code.strip() or None
         _country = country.strip() or "US"
+    if status is None:  # ConfirmPersist (standardized) or a modal mode=save
+        status = saved_status(_standardized)
     # #589 CR 1: a fallback must not wipe the stored standardized form of an address
     # the edit didn't change (a label- or date-only edit during an outage). The
     # UPDATE would rewrite identical lines and NULL the normalizer columns.
@@ -606,8 +615,9 @@ async def address_edit_row_post(
         await db.execute(
             "UPDATE addresses"
             " SET address_line_1=$1, address_line_2=$2, city=$3, region=$4, postal_code=$5,"
-            "     country=$6, standardized=$7, latitude=$8, longitude=$9, components=$10"
-            " WHERE id=$11",
+            "     country=$6, standardized=$7, latitude=$8, longitude=$9, components=$10,"
+            "     standardization_status=$11, standardization_checked_at=NOW()"
+            " WHERE id=$12",
             _line_1,
             _line_2,
             _city,
@@ -618,6 +628,7 @@ async def address_edit_row_post(
             _latitude,
             _longitude,
             _components,
+            status,
             existing["address_id"],
         )
     await db.execute(

@@ -165,3 +165,30 @@ async def test_run_import_roles_idempotent_new_batch(db, tmp_path):
     )
     assert summary2["roles_loaded"] == 0
     assert summary2["roles_matched"] > 0
+
+
+async def test_run_import_records_address_standardization_status(db):
+    """#595: the CSV import records how each address was normalized.
+
+    The suite runs without ADDRESS_VALIDATOR_API_KEY, so the import parses locally.
+    """
+    config = ImportConfig(
+        orgs_csv=ORGS_FIXTURE,
+        people_csv=PEOPLE_FIXTURE,
+        roles_csv=ROLES_FIXTURE,
+        imported_by="test",
+        source_reliability=0.8,
+        local_addresses_only=True,
+    )
+    summary = await run_import(db, config)
+    rows = await db.fetch(
+        "SELECT a.standardization_status, a.standardization_checked_at"
+        " FROM import_provenance p"
+        " JOIN entity_addresses ea ON ea.entity_type = p.entity_type AND ea.entity_id = p.entity_id"
+        " JOIN addresses a ON a.id = ea.address_id"
+        " WHERE p.batch_id = $1",
+        summary["batch_id"],
+    )
+    assert rows
+    assert {r["standardization_status"] for r in rows} == {"local"}
+    assert all(r["standardization_checked_at"] is not None for r in rows)

@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from src.core.db import generate_id
 from src.core.ingestion.base import ConfidenceRecord, FieldError, RowResult
-from src.core.normalizers.address import FallbackAddressNormalizer
+from src.core.normalizers.address import FallbackAddressNormalizer, standardization_status
 from src.core.normalizers.base import is_truthy_like
 from src.core.normalizers.email import EmailNormalizer
 from src.core.normalizers.identifier import IdentifierNormalizer
@@ -254,7 +254,11 @@ async def transform_org(
     if validated.mailing_address:
         addr_result = await addr_normalizer.normalize(validated.mailing_address)
         if not addr_result.skipped:
-            address = addr_result.value
+            # #595: the pipeline stores how the row was normalized beside it.
+            address = {
+                **addr_result.value,
+                "standardization_status": standardization_status(addr_result),
+            }
             _add_confidence(
                 "address",
                 str(address.get("standardized") or address.get("raw_input")),
