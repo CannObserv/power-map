@@ -39,6 +39,7 @@ repos:
           tests/test_merge_mode_knob.py
           tests/test_no_channel_urls.py
           tests/test_outbox_retired_refs.py
+          tests/test_patching_hosts_knob.py
           tests/test_pre_restart_knob.py
           tests/test_retired_skill_refs.py
           tests/test_skills_listing.py

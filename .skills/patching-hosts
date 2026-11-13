@@ -1,0 +1,57 @@
+# patching-hosts host knob (#658). Grammar: the vendored skill's
+# references/knob.md (skills/patching-hosts). The skill reads this file and
+# never writes it. Times are UTC. A malformed line makes the host report-only
+# until fixed. Check: bash skills/patching-hosts/scripts/read-knob.sh --host "$(hostname)"
+# Guard: tests/test_patching_hosts_knob.py.
+
+class production
+posture scheduled
+# Weekly (owner, 2026-11-13). Absent also reads weekly; stated so the knob says it.
+cadence weekly
+
+# --- when -----------------------------------------------------------------
+# The owner's weekly window: Wednesday 01:00-07:00 (Tue 17:00-23:00 PST),
+# set 2026-11-13. Every step's whole span must fit inside it, clear of the
+# quiet ranges below, or apply.sh refuses it.
+window Wed 01:00-07:00
+# One-off catch-up run (owner, 2026-11-13): 66+ security updates pending since
+# about 2026-10-25, last boot 2026-09-29, unattended-upgrades masked. Ends
+# before the 00:00 jobs. Once past it's a past-window finding: remove the line.
+window 2026-11-13 21:00-23:55 first run under the skill, catch-up
+
+# The daily audits and the prune (infra/power-map-*.timer, OnCalendar=daily,
+# RandomizedDelaySec=300; each run takes 4 s or less).
+quiet 00:00-00:10
+# The dataset chain (docs/RUNBOOK_DESIRED_STATE.md): the pull at 09:00, the
+# build and dry-run apply at 09:30, each with a 300 s delay (build ~6 s).
+quiet 09:00-09:10
+quiet 09:30-09:40
+# The /ready (2 min), egress-IP (5 min) and anomaly (hourly) probes are
+# read-only and can't be avoided. A reboot shows in co-status as
+# co-power-map-ready "stopped reporting" past its 480 s grace, then "recovered".
+
+# --- what the reboot chain stops ------------------------------------------
+# Stopped before the reboot; after boot its first start is checked. That start
+# runs ExecStartPre (uv sync + apply-schema.sh), which needs the managed DB.
+service power-map.service
+
+# --- the data store -------------------------------------------------------
+# None local, so no datastore line and no recovery-point.sh: the database is
+# DigitalOcean managed Postgres (#501), backed up by DO. The run's rollback
+# path is the before-versions apply.sh records.
+
+# --- checks (never root: they run as the invoking user, here exedev) -------
+# /ready, not /health: only /ready reaches the DB, which is gated on the
+# egress IP, and that can rotate across a reboot (#410,
+# docs/RUNBOOK_DB_TRIAGE.md). Never restart power-map while it fails (#748).
+health curl -sf -o /dev/null --max-time 10 http://127.0.0.1:8000/ready
+
+# No inflight line: the API has no job queue, and the fixed-time jobs are
+# kept clear by the quiet ranges above.
+
+# --- not declared here ----------------------------------------------------
+# image-owner: left out. This repo is public and the image repo isn't, so the
+# line would publish its name (gregoryfoster/skills#350).
+# Docker (docker.io, containerd): unused since #568, units disabled. The owner
+# decided on 2026-11-13 to prune it. prune-plan.sh stages it, and each stage
+# that runs adds its `exception disabled:|removed:|purged:docker` line here.
