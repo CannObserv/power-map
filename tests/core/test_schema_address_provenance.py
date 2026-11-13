@@ -182,9 +182,9 @@ async def test_apply_schema_backfills_legacy_rows_from_field_confidence(db_pool)
     A pre-#589 local fallback (usaddress, no marker) is ambiguous, so it is marked
     ``unavailable`` for one classifying retry. An already-set status is untouched,
     and so is a row with no matching assessment. (That the backfill touches no
-    parent is ``test_status_only_update_touches_no_parent``'s claim: an org's
-    ``updated_at`` can't show it here, since #201's search_tsv backfill re-touches
-    every org on every apply.)
+    parent is ``test_status_only_update_touches_no_parent``'s claim. This org's
+    ``updated_at`` can't show it: a name-less org has NULL ``search_tsv``, which
+    #201's ``IS NULL`` backfill fills, once, on the next apply.)
     """
     oid = generate_id()
     usps, local = {"provider": "usps"}, {"provider": "usaddress", "status": "not_attempted"}
