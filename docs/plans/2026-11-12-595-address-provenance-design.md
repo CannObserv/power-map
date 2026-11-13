@@ -126,7 +126,7 @@ Prod has one candidate. A column with one consumer that doesn't exist yet isn't 
 - `--status`, repeatable. Default `unavailable`; it also accepts `local` and `unsupported`.
 - The parser has no choice for `declined`, `rejected`, `no_result` or `standardized`, and a test guards that `declined` can never be selected.
 - `--limit` defaults to 100.
-- Order: oldest `standardization_checked_at` first.
+- Order: oldest `standardization_checked_at` first. *Amended 2026-11-13 (#797): since a retry with an unchanged status writes nothing, a stuck row keeps its place, and under `--limit N` the same N rows head every run. The order stands; `docs/RUNBOOKS.md` says to raise `--limit`.*
 
 **Each candidate:**
 - **Input:** `raw_input`, or else the columns joined the way `_maybe_confirm` joins them, sent with the row's `country`.
