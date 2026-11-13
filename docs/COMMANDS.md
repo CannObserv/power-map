@@ -177,6 +177,7 @@ cat /proc/$(pgrep -xo tailscaled)/oom_score_adj   # expect -950
 sudo install -m644 -t /etc/needrestart/conf.d infra/needrestart.conf.d/power-map.conf
 sudo needrestart -m u -r l -b   # expect "Disabling Ubuntu mode, ..." (only the conf prints it)
 sudo apt-get purge -y earlyoom   # retired (#588); a no-op where it was never installed
+sudo install -m644 -t /etc/apt/preferences.d infra/apt-preferences.d/90-power-map-origins.pref
 ```
 
 `power-map.service`'s `MemoryLow=` is only as good as `system.slice`'s: cgroup2 here is
@@ -248,7 +249,7 @@ exits 4, after a 2 h grace from the restart.
 If `infra/power-map.service` changed in the pull, reinstall the unit first (see § Service Management —
 "Install (first time or after updating infra/power-map.service)") before restarting. Likewise the
 host files (`infra/system.slice.d/`, `infra/sysctl.d/`, `infra/tailscaled.service.d/`,
-`infra/needrestart.conf.d/`): the host runs copies, so a pull changes nothing until the matching
+`infra/needrestart.conf.d/`, `infra/apt-preferences.d/`): the host runs copies, so a pull changes nothing until the matching
 § Service Management block re-runs (`power-map-infra-drift` flags a skip, #560).
 
 To apply schema without restarting (e.g. after a manual `git pull` mid-session) — **from the
