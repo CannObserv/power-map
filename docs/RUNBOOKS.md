@@ -326,8 +326,10 @@ uv run "${env_args[@]}" python -m scripts.restandardize_addresses --execute
 uv run "${env_args[@]}" python -m scripts.restandardize_addresses --status local --limit 20
 ```
 
-A run inside address-validator's 00–06 UTC maintenance window is harmless: those rows
-stay `unavailable`, and only their `standardization_checked_at` moves.
+A run inside address-validator's 00–06 UTC maintenance window writes no form: those
+rows stay `unavailable`. But `--execute` still moves their `standardization_checked_at`,
+the audit's 3-day clock, so a row can read fresh while the validator has been down for
+weeks. Trust the `unavailable -> unavailable` tally line, not the age.
 
 ## Operational scripts — dry run by default & target echo (#402)
 
