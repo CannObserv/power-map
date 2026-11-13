@@ -74,6 +74,20 @@ WHERE conrelid = $1::regclass AND conname = $2
             "chk_ra_membership_type",
             ("principal", "substitute", "ex_officio", "acting"),
         ),
+        # #595 — address standardization provenance, the full value set.
+        (
+            "addresses",
+            "addresses_standardization_status_check",
+            (
+                "'standardized'",
+                "'declined'",
+                "'unavailable'",
+                "'rejected'",
+                "'unsupported'",
+                "'no_result'",
+                "'local'",
+            ),
+        ),
     ],
 )
 async def test_apply_schema_adds_missing_check(db_pool, table, conname, expected_fragments):

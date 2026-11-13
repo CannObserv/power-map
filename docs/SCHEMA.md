@@ -105,7 +105,8 @@ Written by the admin (#498) and merges; read only via `scripts/export_pm_tables.
 - `docs/SCHEMA_INDEXES.md` — the unique indexes that encode identity, role-type
   vocabulary governance (#266), entity-search FTS (#316), `pg_trgm`
 - `docs/SCHEMA_VALIDITY.md` — org name effective dates (#239), address validity
-  windows (#181), jurisdiction graph broadcast (#275)
+  windows (#181), address standardization provenance (#595), jurisdiction graph
+  broadcast (#275)
 - `docs/NAMES.md` — the org auto-promote invariant and last-identity guard
 
 ---

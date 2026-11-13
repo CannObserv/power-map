@@ -172,6 +172,42 @@ async def _write_confidence(conn: asyncpg.Connection, records: list[ConfidenceRe
         )
 
 
+async def _insert_mailing_address(
+    conn: asyncpg.Connection, entity_type: str, entity_id: str, a: dict[str, Any]
+) -> None:
+    """Insert a transformed address row and link it to the entity as ``mailing``.
+
+    ``a`` is the normalizer's value plus ``standardization_status`` (#595), which
+    is stored with a ``checked_at`` of now so a sweep can find rows that fell back.
+    """
+    addr_id = generate_id()
+    await conn.execute(
+        """INSERT INTO addresses (id, raw_input, standardized, address_line_1,
+               address_line_2, city, region, postal_code, country,
+               standardization_status, standardization_checked_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())""",
+        addr_id,
+        a.get("raw_input"),
+        a.get("standardized"),
+        a.get("address_line_1"),
+        a.get("address_line_2"),
+        a.get("city"),
+        a.get("region"),
+        a.get("postal_code"),
+        a.get("country", "US"),
+        a.get("standardization_status"),
+    )
+    await conn.execute(
+        "INSERT INTO entity_addresses"
+        " (id, entity_type, entity_id, address_id, address_type)"
+        " VALUES ($1, $2, $3, $4, 'mailing')",
+        generate_id(),
+        entity_type,
+        entity_id,
+        addr_id,
+    )
+
+
 async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str, Any]:
     """Run the full multi-pass import. Returns a summary dict."""
     start = time.monotonic()
@@ -340,32 +376,7 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                         ident["value"],
                     )
             if t["address"]:
-                addr_id = generate_id()
-                a = t["address"]
-                await conn.execute(
-                    """INSERT INTO addresses (id, raw_input, standardized, address_line_1,
-                           address_line_2, city, region, postal_code, country)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
-                    addr_id,
-                    a.get("raw_input"),
-                    a.get("standardized"),
-                    a.get("address_line_1"),
-                    a.get("address_line_2"),
-                    a.get("city"),
-                    a.get("region"),
-                    a.get("postal_code"),
-                    a.get("country", "US"),
-                )
-                await conn.execute(
-                    "INSERT INTO entity_addresses"
-                    " (id, entity_type, entity_id, address_id, address_type)"
-                    " VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(),
-                    "organization",
-                    t["org_id"],
-                    addr_id,
-                    "mailing",
-                )
+                await _insert_mailing_address(conn, "organization", t["org_id"], t["address"])
             for rec in t["confidence_records"]:
                 rec.assessed_by = f"import:{batch_id}"
             await _write_confidence(conn, t["confidence_records"])
@@ -473,32 +484,7 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
                         ident["value"],
                     )
             if t.get("address"):
-                addr_id = generate_id()
-                a = t["address"]
-                await conn.execute(
-                    """INSERT INTO addresses (id, raw_input, standardized, address_line_1,
-                           address_line_2, city, region, postal_code, country)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
-                    addr_id,
-                    a.get("raw_input"),
-                    a.get("standardized"),
-                    a.get("address_line_1"),
-                    a.get("address_line_2"),
-                    a.get("city"),
-                    a.get("region"),
-                    a.get("postal_code"),
-                    a.get("country", "US"),
-                )
-                await conn.execute(
-                    "INSERT INTO entity_addresses"
-                    " (id, entity_type, entity_id, address_id, address_type)"
-                    " VALUES ($1, $2, $3, $4, $5)",
-                    generate_id(),
-                    "person",
-                    t["person_id"],
-                    addr_id,
-                    "mailing",
-                )
+                await _insert_mailing_address(conn, "person", t["person_id"], t["address"])
             for rec in t["confidence_records"]:
                 rec.assessed_by = f"import:{batch_id}"
             await _write_confidence(conn, t["confidence_records"])

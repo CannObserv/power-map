@@ -10,6 +10,7 @@ import pytest
 import usaddress
 
 from src.core.normalizers.address import (
+    STANDARDIZATION_STATUSES,
     AddressNormalizerConfig,
     ExternalAddressNormalizer,
     FallbackAddressNormalizer,
@@ -17,7 +18,9 @@ from src.core.normalizers.address import (
     RateLimitedError,
     _reset_normalizer,
     get_address_normalizer,
+    standardization_status,
 )
+from src.core.normalizers.base import NormalizationResult
 from tests.core.normalizers.http_mock import mock_http_client
 
 # ---------------------------------------------------------------------------
@@ -673,6 +676,78 @@ async def test_external_validate_invalid_maps_to_failed(external_validate):
 async def test_external_validate_error_maps_to_failed(external_validate):
     r = await _validate_with_status(external_validate, "error")
     assert r.confidence_hint == "failed"
+
+
+async def test_external_validate_undetermined_maps_to_unconfirmed(external_validate):
+    """A provider answered without a determination: something was tried (#595)."""
+    r = await _validate_with_status(external_validate, "undetermined")
+    assert r.confidence_hint == "unconfirmed"
+
+
+# ---------------------------------------------------------------------------
+# standardization_status (#595)
+# ---------------------------------------------------------------------------
+
+
+def test_standardization_statuses_are_the_seven_provenance_values():
+    assert STANDARDIZATION_STATUSES == (
+        "standardized",
+        "declined",
+        "unavailable",
+        "rejected",
+        "unsupported",
+        "no_result",
+        "local",
+    )
+
+
+def test_status_standardized_when_a_form_came_back():
+    r = NormalizationResult(
+        value={"raw_input": "x", "standardized": "1 MAIN ST"},
+        validation_detail={"provider": "address-validator"},
+    )
+    assert standardization_status(r) == "standardized"
+
+
+@pytest.mark.parametrize("reason", ["unavailable", "rejected", "unsupported"])
+def test_status_is_the_fallback_reason(reason):
+    r = NormalizationResult(
+        value={"raw_input": "x", "standardized": None},
+        validation_detail={"provider": "usaddress", "fallback": reason},
+    )
+    assert standardization_status(r) == reason
+
+
+def test_status_no_result_when_the_validator_answered_without_a_form():
+    r = NormalizationResult(
+        value={"raw_input": "x", "standardized": None},
+        validation_detail={"provider": "google", "status": "not_found"},
+    )
+    assert standardization_status(r) == "no_result"
+
+
+def test_status_local_for_a_config_less_run():
+    r = LocalAddressNormalizer().normalize("123 Main St, Seattle WA 98101")
+    assert standardization_status(r) == "local"
+
+
+def test_status_local_for_a_non_us_config_less_run():
+    r = LocalAddressNormalizer().normalize("10 Downing St, London", country="GB")
+    assert standardization_status(r) == "local"
+
+
+def test_status_rejects_a_skipped_result():
+    """A skipped input writes no row, so it has no provenance to record."""
+    with pytest.raises(ValueError):
+        standardization_status(NormalizationResult(value=None, skipped=True))
+
+
+async def test_status_from_a_real_fallback(config, no_sleep):
+    """Crosses the seam: the marker the fallback writes is what the status reads."""
+    n = FallbackAddressNormalizer(config)
+    with mock_http_client(side_effect=[httpx.ConnectError("x")] * 3):
+        r = await n.normalize(_RAW)
+    assert standardization_status(r) == "unavailable"
 
 
 # ---------------------------------------------------------------------------

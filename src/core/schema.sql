@@ -221,6 +221,12 @@ CREATE TABLE IF NOT EXISTS addresses (
     latitude       DOUBLE PRECISION,
     longitude      DOUBLE PRECISION,
     components     JSONB,
+    -- #595: why the row has, or lacks, a standardized form; NULL = unknown
+    -- (pre-#595). Reconciled and backfilled by the #595 block at the end.
+    standardization_status     TEXT CHECK (standardization_status IN (
+        'standardized', 'declined', 'unavailable', 'rejected', 'unsupported',
+        'no_result', 'local')),
+    standardization_checked_at TIMESTAMPTZ,
     created_at     TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
     updated_at     TIMESTAMPTZ      NOT NULL DEFAULT NOW()
 );
@@ -4364,3 +4370,119 @@ DROP TRIGGER IF EXISTS trg_curation_overlay_updated_at ON curation_overlay;
 CREATE TRIGGER trg_curation_overlay_updated_at
     BEFORE UPDATE ON curation_overlay
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =============================================================================
+-- Migration (#595): address standardization provenance.
+-- =============================================================================
+-- standardization_status records why a row has, or lacks, a standardized form,
+-- so a re-standardization sweep (scripts/restandardize_addresses.py) retries only
+-- rows saved while address-validator was down — never a curator's "Keep my
+-- input" ('declined'). Values mirror STANDARDIZATION_STATUSES in
+-- src/core/normalizers/address.py; keep the inline CREATE TABLE, this block and
+-- that tuple in step. Appended here, not beside the table: the backfill reads
+-- field_confidence and the trigger's WHEN reads addresses.precision (#170), both
+-- created further down the file.
+ALTER TABLE addresses ADD COLUMN IF NOT EXISTS standardization_status TEXT;
+ALTER TABLE addresses ADD COLUMN IF NOT EXISTS standardization_checked_at TIMESTAMPTZ;
+
+DO $$ BEGIN
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'addresses'::regclass
+              AND conname = 'addresses_standardization_status_check'
+        ) THEN
+            ALTER TABLE addresses
+                ADD CONSTRAINT addresses_standardization_status_check
+                CHECK (standardization_status IN (
+                    'standardized', 'declined', 'unavailable', 'rejected', 'unsupported',
+                    'no_result', 'local'));
+        END IF;
+    EXCEPTION WHEN check_violation THEN
+        RAISE WARNING
+            'addresses_standardization_status_check not added: rows with an unknown '
+            'standardization_status exist. Fix them, then re-apply schema.';
+    END;
+END $$;
+
+-- Backfill legacy rows (status NULL) once; idempotent, since a set status is never
+-- revisited. A standardized form → 'standardized'. Otherwise the CSV import's
+-- field_confidence 'address' row for a linked entity, matched on the hash it was
+-- written with (sha256 of COALESCE(standardized, raw_input)), decides: its
+-- fallback marker (#589) if any; a markerless usaddress fallback → 'unavailable'
+-- (pre-#589 it can't tell an outage from a rejected input, so the sweep's first
+-- retry classifies it); any other provider → 'no_result'. No match → stays NULL.
+-- checked_at is the matched assessment's time, else the row's creation.
+-- Sets no updated_at itself (the #392 clobber can't bite); the touch trigger
+-- below ignores the status columns, so no parent's ETag moves.
+WITH fc AS (
+    SELECT DISTINCT ON (a.id)
+           a.id,
+           f.assessed_at,
+           f.validation_detail->>'provider' AS provider,
+           f.validation_detail->>'fallback' AS fallback
+    FROM addresses a
+    JOIN entity_addresses ea ON ea.address_id = a.id
+    JOIN field_confidence f
+      ON f.entity_type = ea.entity_type
+     AND f.entity_id   = ea.entity_id
+     AND f.field_name  = 'address'
+     AND f.value_hash  = encode(sha256(convert_to(COALESCE(a.standardized, a.raw_input), 'UTF8')), 'hex')
+    WHERE a.standardization_status IS NULL
+      AND COALESCE(a.standardized, a.raw_input) IS NOT NULL
+    ORDER BY a.id, f.assessed_at DESC, f.id DESC
+)
+UPDATE addresses a
+SET standardization_status = CASE
+        WHEN a.standardized IS NOT NULL THEN 'standardized'
+        WHEN fc.fallback IN ('unavailable', 'rejected', 'unsupported') THEN fc.fallback
+        WHEN fc.provider = 'usaddress' THEN 'unavailable'
+        ELSE 'no_result'
+    END,
+    standardization_checked_at = COALESCE(fc.assessed_at, a.created_at)
+FROM addresses a2
+LEFT JOIN fc ON fc.id = a2.id
+WHERE a.id = a2.id
+  AND a.standardization_status IS NULL
+  AND (a.standardized IS NOT NULL OR fc.id IS NOT NULL);
+
+-- Re-standardizing a row changes what its parents serve: role and assignment
+-- details carry addresses[].standardized (ETag on the parent's updated_at), and
+-- event lists carry event_place_address.standardized (ETag on
+-- max(entity_events.updated_at)). Touch both, through every link, on a real
+-- change to a served or meaningful column only — the status columns are left out
+-- so a still-unavailable retry and the backfill move no ETag (#595).
+CREATE OR REPLACE FUNCTION touch_parents_on_address_change()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE organizations SET updated_at = NOW() WHERE id IN (
+        SELECT entity_id FROM entity_addresses
+        WHERE address_id = NEW.id AND entity_type = 'organization');
+    UPDATE people SET updated_at = NOW() WHERE id IN (
+        SELECT entity_id FROM entity_addresses
+        WHERE address_id = NEW.id AND entity_type = 'person');
+    UPDATE jurisdictions SET updated_at = NOW() WHERE id IN (
+        SELECT entity_id FROM entity_addresses
+        WHERE address_id = NEW.id AND entity_type = 'jurisdiction');
+    UPDATE roles SET updated_at = NOW() WHERE id IN (
+        SELECT entity_id FROM entity_addresses
+        WHERE address_id = NEW.id AND entity_type = 'role');
+    UPDATE role_assignments SET updated_at = NOW() WHERE id IN (
+        SELECT entity_id FROM entity_addresses
+        WHERE address_id = NEW.id AND entity_type = 'role_assignment');
+    UPDATE entity_events SET updated_at = NOW() WHERE event_place_address_id = NEW.id;
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_touch_parents_on_address_change
+    AFTER UPDATE ON addresses
+    FOR EACH ROW
+    WHEN ((OLD.raw_input, OLD.standardized, OLD.address_line_1, OLD.address_line_2,
+           OLD.city, OLD.region, OLD.postal_code, OLD.country, OLD.latitude,
+           OLD.longitude, OLD.components, OLD.precision)
+          IS DISTINCT FROM
+          (NEW.raw_input, NEW.standardized, NEW.address_line_1, NEW.address_line_2,
+           NEW.city, NEW.region, NEW.postal_code, NEW.country, NEW.latitude,
+           NEW.longitude, NEW.components, NEW.precision))
+    EXECUTE FUNCTION touch_parents_on_address_change();

@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 
+from src.core.normalizers.address import standardization_status
 from src.core.normalizers.address_meta import get_country_format
 from src.core.normalizers.base import NormalizationResult
 
@@ -97,9 +98,30 @@ class NothingToConfirm:
 
     ``notice`` is set when that is because the normalizer fell back to the local
     parser (#589), so the save's flash can say the address went in unstandardized.
+    ``status`` is the row's ``standardization_status`` (#595); build both from a
+    normalizer result with ``nothing_to_confirm``.
     """
 
     notice: str | None = None
+    status: str = "no_result"
+
+
+def nothing_to_confirm(result: NormalizationResult) -> NothingToConfirm:
+    """The ``NothingToConfirm`` for a result with no standardized form (#589, #595).
+
+    A skipped (null-like) input never reached the validator, so it records ``local``.
+    """
+    status = "local" if result.skipped else standardization_status(result)
+    return NothingToConfirm(fallback_notice(result), status)
+
+
+def saved_status(standardized: str | None) -> str:
+    """``standardization_status`` for a ``mode=save`` submit from the confirm modal (#595).
+
+    Accept carries the standardized form; "Keep my input" carries none, which is the
+    curator declining it — the one status a re-standardization sweep never retries.
+    """
+    return "standardized" if standardized else "declined"
 
 
 def fallback_notice(result: NormalizationResult) -> str | None:
