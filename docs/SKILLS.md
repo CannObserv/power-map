@@ -11,7 +11,7 @@ Two directories serve different discovery systems:
 | `skills/` | agentskills.io | Committed overrides + symlinks → `skills-vendor/` |
 | `.claude/skills/` | Claude Code | Symlinks → `../../skills/<name>` |
 
-Local overrides in `skills/` automatically shadow vendor skills in both systems. When adding a skill, always create both the `skills/<name>` entry and `.claude/skills/<name>` symlink.
+Local overrides in `skills/` shadow vendor skills in both systems; never edit `skills-vendor/`. When adding a skill, always create both the `skills/<name>` entry and `.claude/skills/<name>` symlink.
 
 ## External Skill Repos (Git Submodules)
 
@@ -95,16 +95,16 @@ To add a new external skill repo: follow the `managing-skills` skill.
 | `init-project-fastapi` | `gregoryfoster-skills` | init project, bootstrap project, new fastapi project, set up foundation ³ |
 | `using-mayfly-chat` | `gregoryfoster-skills` | mayfly, open a channel, join the channel, `chat with <repo>`, agent chat ⁴ |
 | `maintaining-host-disk` | `gregoryfoster-skills` | disk GC, root disk is full, disk headroom, install the disk GC, update the disk GC, retire disk hygiene, VS Code server builds |
+| `patching-hosts` | `gregoryfoster-skills` | patch the host, OS updates, security updates, apply updates, unattended-upgrades, needrestart, is this host patched |
 
 ² **Project override — `using-git-worktrees` (#450):** its `worktree-create.sh` links a new
 worktree's `.venv` at the main checkout's. Here the main checkout is production's working
-directory, so that shared venv is rewritten by the service's own tooling — `uv run` (nine
+directory, so that shared venv is rewritten by the service's own tooling — `uv run` (the
 systemd units, one every 2 min) restamps the project version, `uv sync` (ExecStartPre)
 prunes the opt-in groups. `scripts/worktree-setup.sh` undoes the link straight after
-creation; it is not redundant with the skill, it deliberately reverses one of its steps.
-Opt-out requested upstream in [gregoryfoster/skills#201](https://github.com/gregoryfoster/skills/issues/201) —
-per the vendored-skill policy, never edit `skills-vendor/`. Details → `docs/COMMANDS.md`
-§ Development.
+creation.
+Upstream shipped an opt-out, `.skills/worktree_venv none` (gregoryfoster/skills#201), not yet
+adopted here. Details → `docs/COMMANDS.md` § Development.
 
 ¹ Description-driven: `brainstorming` before any creative work (this project's preferences: AGENTS.md § Design & Planning); `systematic-debugging` on any bug/test failure; `verification-before-completion` before any completion claim or commit; `test-driven-development` before writing implementation code.
 
