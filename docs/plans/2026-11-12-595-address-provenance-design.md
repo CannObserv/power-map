@@ -134,7 +134,7 @@ Prod has one candidate. A column with one consumer that doesn't exist yet isn't 
 - **The dry run makes the calls too.** address-validator is read-only, so the dry run can report the real outcome per status, plus the collisions it would merge. Only DB writes wait for `--execute`.
 - **Outcomes under `--execute`,** one transaction per address:
   - `standardized` → write it with Accept semantics: the lines, `standardized`, lat/long, `components`, status and `checked_at`. `raw_input` is kept. Then the Q5 merge runs.
-  - still `unavailable` → bump `checked_at` only.
+  - still `unavailable` → write nothing. *Amended 2026-11-13 (#797): this line said "bump `checked_at` only", which let every `--execute` reset the audit's 3-day clock during an outage. An unchanged status of any kind now writes nothing, so `checked_at` records when the status was decided.*
   - `rejected`, `unsupported` or `no_result` → set the status and `checked_at`.
 - **What the sweep writes:** only address-validator output, at the same trust level as `write_addresses`. It writes no `field_confidence` rows.
 

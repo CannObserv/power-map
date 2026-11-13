@@ -306,7 +306,9 @@ was down (`standardization_status='unavailable'`; the values and the merge rule 
 `ADDRESS_VALIDATOR_API_KEY` (exit 2 without it).
 
 **It is also the on-demand audit.** Every run prints counts per status and the oldest
-`unavailable` row's age, and **exits 3** when that age passes 3 days. No timer: no
+`unavailable` row's age, and **exits 3** when that age passes 3 days. The age is time
+stuck: a retry that comes back with an unchanged status writes nothing, so
+`standardization_checked_at` records when the status was decided (#797). No timer: no
 address has been written since the 2026-06-15 import. Revisit once a producer or the
 admin writes addresses again (a timer needs a co-status monitor, #566).
 
@@ -327,9 +329,14 @@ uv run "${env_args[@]}" python -m scripts.restandardize_addresses --status local
 ```
 
 A run inside address-validator's 00–06 UTC maintenance window writes no form: those
-rows stay `unavailable`. But `--execute` still moves their `standardization_checked_at`,
-the audit's 3-day clock, so a row can read fresh while the validator has been down for
-weeks. Trust the `unavailable -> unavailable` tally line, not the age.
+rows stay `unavailable`, and their age keeps counting. The `unavailable -> unavailable`
+tally line says how many of this run's retries failed again.
+
+Candidates go oldest `standardization_checked_at` first, ties by `id`. Since a failed
+retry writes nothing, it keeps its place: under `--limit N`, the same N stuck rows head
+every run, and rows behind them wait. Raise `--limit` past the stuck count (the status
+counts give it) to reach them. This bites the opt-in statuses most: a `--status
+unsupported` run re-asks the same rows until the validator covers their country.
 
 ## Operational scripts — dry run by default & target echo (#402)
 

@@ -41,6 +41,13 @@ def _standardized() -> NormalizationResult:
     )
 
 
+def _unavailable() -> NormalizationResult:
+    return NormalizationResult(
+        value={"raw_input": "1 Main St", "standardized": None},
+        validation_detail={"provider": "usaddress", "fallback": "unavailable"},
+    )
+
+
 def _rejected() -> NormalizationResult:
     return NormalizationResult(
         value={"raw_input": "1 Main St", "standardized": None},
@@ -136,6 +143,10 @@ async def _address(db, status: str, checked_at=None, raw="1 Main St, Olympia WA"
         aid,
     )
     return aid
+
+
+async def _checked_at(db, aid) -> datetime:
+    return await db.fetchval("SELECT standardization_checked_at FROM addresses WHERE id=$1", aid)
 
 
 async def _status(db, aid) -> tuple:
@@ -256,3 +267,32 @@ async def test_run_execute_repairs_the_stale_row_and_exits_0(db, lend_db):
     assert await run(["--database-url", "postgresql://h/db", "--execute"]) == 0
 
     assert await _status(db, aid) == ("standardized", FORM)
+
+
+@pytest.mark.integration
+async def test_run_execute_a_still_unavailable_retry_keeps_the_clock_and_exits_3(
+    db, lend_db, capsys
+):
+    """A retry that stays 'unavailable' writes nothing, so the audit still sees the age (#797)."""
+    await lend_db(_FakeNormalizer(_unavailable()))
+    stuck_since = datetime.now(UTC) - timedelta(days=10)
+    aid = await _address(db, "unavailable", stuck_since)
+
+    assert await run(["--database-url", "postgresql://h/db", "--execute"]) == EXIT_STALE
+    assert await _checked_at(db, aid) == stuck_since
+    assert "unavailable -> unavailable" in capsys.readouterr().out
+
+    assert await run(["--database-url", "postgresql://h/db"]) == EXIT_STALE
+    assert await _checked_at(db, aid) == stuck_since
+
+
+@pytest.mark.integration
+async def test_run_execute_a_still_unavailable_retry_keeps_its_place_in_the_queue(db, lend_db):
+    """Under --limit the oldest stuck rows head every run; the runbook says to raise it (#797)."""
+    await lend_db(_FakeNormalizer(_unavailable()))
+    older = await _address(db, "unavailable", datetime.now(UTC) - timedelta(days=10))
+    await _address(db, "unavailable", datetime.now(UTC) - timedelta(days=5))
+
+    await run(["--database-url", "postgresql://h/db", "--execute", "--limit", "1"])
+
+    assert [r["id"] for r in await fetch_candidates(db, ("unavailable",), 1)] == [older]

@@ -9,7 +9,7 @@ from datetime import date
 import pytest
 import pytest_asyncio
 
-from src.core.address_repair import apply_result, compose_input, find_twins
+from src.core.address_repair import RepairOutcome, apply_result, compose_input, find_twins
 from src.core.db import generate_id
 from src.core.normalizers.base import NormalizationResult
 from tests.db_utils import row_version
@@ -139,7 +139,22 @@ integration = pytest.mark.integration  # the compose_input tests need no DB
 
 
 @integration
-@pytest.mark.parametrize("reason", ["unavailable", "rejected", "unsupported"])
+@pytest.mark.parametrize("status", ["unavailable", "local", "unsupported"])
+async def test_an_unchanged_status_writes_nothing(db, status):
+    """``checked_at`` is when the status was decided, so the audit's clock keeps running (#797)."""
+    oid = await _org(db)
+    aid = await _address(db, "123 Main St Seattle WA", status=status)
+    await _link(db, oid, aid)
+    before = dict(await db.fetchrow("SELECT * FROM addresses WHERE id=$1", aid))
+
+    outcome = await apply_result(db, aid, _fell_back(status))
+
+    assert outcome == RepairOutcome(aid, status)
+    assert dict(await db.fetchrow("SELECT * FROM addresses WHERE id=$1", aid)) == before
+
+
+@integration
+@pytest.mark.parametrize("reason", ["rejected", "unsupported"])
 async def test_a_result_without_a_form_updates_only_the_status(db, reason):
     oid = await _org(db)
     aid = await _address(db, "123 Main St Seattle WA")
