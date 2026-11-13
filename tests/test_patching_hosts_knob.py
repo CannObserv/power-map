@@ -12,10 +12,12 @@ The rest are pure parses of the file:
 - **The posture is scheduled, weekly, in the owner's Wednesday window**
   (owner, 2026-11-13). ``cadence`` absent also reads weekly, so the reader's
   ``line`` is what tells a stated cadence from a default.
-- **A dated window is allowed to have passed.** It turns into a
-  ``past-window`` finding the day after, which doesn't make the host
-  report-only; the probe reports it at every run until the line is removed.
-  Every other finding reds.
+- **A dated line is allowed to have passed.** A dated window turns into a
+  ``past-window`` finding the day after, and an exception into an
+  ``expired-exception`` one at its review-by date. Neither makes the host
+  report-only, and the probe reports each at every run until the line is
+  changed. A prune's review-by date is its soak, so its expiry is the cue
+  for the next stage, not a fault. Every other finding reds.
 - **The one health line checks ``/ready``**, not ``/health``: the managed DB is
   gated on the egress IP, which can rotate across a reboot (#410), and only
   ``/ready`` reaches the DB.
@@ -25,7 +27,15 @@ The rest are pure parses of the file:
 - **No data store, no image owner.** The database is managed Postgres, so
   there's nothing local to dump. ``image-owner`` would publish a private
   repo's name from this public one (gregoryfoster/skills#350).
-- **Docker is pruned, not kept** (owner, 2026-11-13): no ``keep:docker``.
+- **Docker, nginx and fwupd are pruned, not kept** (owner, 2026-11-13): each
+  stage that ran is declared, and none is ``keep:``. fwupd is also held, so
+  its conffile prompt (the exeuntu image deletes the file) can't stop the
+  maintenance lane while the prune soaks.
+- **Every ``uv run`` timer service is declared not a restarter.** The probe's
+  restarter scan can't follow a ``uv run`` module, so each is a finding until
+  the knob says it only audits or reports. Adding a timer without its line reds.
+- **Each third-party apt origin has a policy**: Tailscale, NodeSource and the
+  GitHub CLI are followed in the maintenance lane, by site.
 - **No step overlaps a scheduled job.** Each timer in ``infra/`` that fires at a
   fixed time of day lands inside a ``quiet`` range, randomised delay and a
   minute of run time included, so moving a timer without the knob reds.
@@ -56,6 +66,15 @@ HOST = "power-map"
 # Time a fixed-time job needs after its randomised start. Measured runs take
 # at most 6 s (desired-state's dbt build); the minute is headroom.
 RUN_TIME = timedelta(minutes=1)
+
+# Findings a dated line raises once its date passes: reminders, not faults.
+DATED_KINDS = {"past-window", "expired-exception"}
+
+# The owner's prunes (2026-11-13): the stage each has reached.
+PRUNED = {"docker": "disabled", "nginx": "disabled", "fwupd": "disabled"}
+
+# Third-party apt origins on this host, each by its site.
+ORIGINS = {"pkgs.tailscale.com", "deb.nodesource.com", "cli.github.com"}
 
 vendor_only = pytest.mark.skipif(
     not vendor_skills.vendor_skills_present(),
@@ -135,7 +154,7 @@ def test_the_knob_reads_clean() -> None:
     """The skill's own reader: no finding but a passed dated window, not report-only."""
     assert READ_KNOB.is_file(), "skills/patching-hosts is not linked to the vendored skill"
     knob = _read_knob()
-    findings = [f for f in knob["findings"] if f["kind"] != "past-window"]
+    findings = [f for f in knob["findings"] if f["kind"] not in DATED_KINDS]
     assert findings == []
     assert knob["report_only"] is False, knob["report_only_reasons"]
     assert knob["class"]["value"] == "production"
@@ -204,3 +223,55 @@ def test_every_fixed_time_job_is_inside_a_quiet_range() -> None:
         assert any(lo <= start and latest <= hi for lo, hi in ranges), (
             f"{name} runs {start}–{latest}, inside no quiet range: {_named('quiet')}"
         )
+
+
+def _exceptions() -> dict[str, list[str]]:
+    """Each ``exception`` line's key, mapped to its review-by date and reason."""
+    return {words[0]: words[1:] for words in _named("exception")}
+
+
+def _uv_run_timer_services() -> set[str]:
+    """Each tracked service a tracked timer starts whose command is ``uv run``."""
+    services = set()
+    for timer in INFRA.glob("*.timer"):
+        service = INFRA / timer.name.replace(".timer", ".service")
+        text = service.read_text(encoding="utf-8") if service.is_file() else ""
+        if re.search(r"^ExecStart=uv run ", text, re.MULTILINE):
+            services.add(service.name)
+    return services
+
+
+def test_each_uv_run_timer_service_is_not_a_restarter() -> None:
+    services = _uv_run_timer_services()
+    assert services, "no uv-run timer service found in infra/: the parse is broken"
+    declared = {
+        key.removeprefix("not-restarter:")
+        for key in _exceptions()
+        if key.startswith("not-restarter:")
+    }
+    assert services <= declared, f"missing not-restarter lines: {sorted(services - declared)}"
+
+
+def test_the_failure_notifier_is_not_a_restarter() -> None:
+    assert "not-restarter:power-map-notify-failure@.service" in _exceptions()
+
+
+def test_the_prunes_are_declared_and_none_is_kept() -> None:
+    keys = set(_exceptions())
+    for name, stage in PRUNED.items():
+        assert f"{stage}:{name}" in keys, f"no {stage}:{name} line"
+        assert f"keep:{name}" not in keys
+
+
+def test_fwupd_is_held_while_it_soaks() -> None:
+    assert "held:fwupd" in _exceptions()
+
+
+def test_each_third_party_origin_is_followed() -> None:
+    assert {tuple(words) for words in _named("origin")} == {(site, "follow") for site in ORIGINS}
+
+
+def test_every_exception_has_a_date_and_a_reason() -> None:
+    for key, rest in _exceptions().items():
+        assert len(rest) >= 2, f"exception {key}: needs <review-by> <reason>"
+        assert re.fullmatch(r"\d{4}-\d\d-\d\d", rest[0]), f"exception {key}: {rest[0]}"
