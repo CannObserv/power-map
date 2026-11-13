@@ -195,3 +195,64 @@ async def test_oldest_unavailable_reads_the_longest_waiting_row(db):
     await _address(db, "unavailable", datetime(2001, 1, 1, tzinfo=UTC))
     await _address(db, "declined", datetime(1999, 1, 1, tzinfo=UTC))
     assert await oldest_unavailable(db) == datetime(2001, 1, 1, tzinfo=UTC)
+
+
+# ── run(): the audit's exit code, end to end ─────────────────────────────────
+
+
+class _Borrowed:
+    """The rollback-wrapped test connection, lent to ``run()``; its close() is a no-op."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    async def close(self):
+        pass
+
+
+@pytest.fixture
+def lend_db(db, monkeypatch):
+    """Point ``run()`` at the test transaction and the given normalizer.
+
+    Other 'unavailable' rows in the shared test DB would decide the exit code, so
+    they are reclassified inside the transaction (rolled back with it).
+    """
+
+    async def _lend(normalizer):
+        await db.execute(
+            "UPDATE addresses SET standardization_status = 'no_result'"
+            " WHERE standardization_status = 'unavailable'"
+        )
+        monkeypatch.setattr("scripts.restandardize_addresses.build_normalizer", lambda: normalizer)
+
+        async def _connect(dsn):
+            return _Borrowed(db)
+
+        monkeypatch.setattr("scripts.restandardize_addresses.asyncpg.connect", _connect)
+
+    return _lend
+
+
+@pytest.mark.integration
+async def test_run_dry_exits_3_on_a_stale_row_and_writes_nothing(db, lend_db):
+    normalizer = _FakeNormalizer(_standardized())
+    await lend_db(normalizer)
+    aid = await _address(db, "unavailable", datetime.now(UTC) - timedelta(days=10))
+
+    assert await run(["--database-url", "postgresql://h/db"]) == EXIT_STALE
+
+    assert len(normalizer.calls) == 1
+    assert await _status(db, aid) == ("unavailable", None)
+
+
+@pytest.mark.integration
+async def test_run_execute_repairs_the_stale_row_and_exits_0(db, lend_db):
+    await lend_db(_FakeNormalizer(_standardized()))
+    aid = await _address(db, "unavailable", datetime.now(UTC) - timedelta(days=10))
+
+    assert await run(["--database-url", "postgresql://h/db", "--execute"]) == 0
+
+    assert await _status(db, aid) == ("standardized", FORM)
