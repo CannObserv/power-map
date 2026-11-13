@@ -35,7 +35,7 @@ indexes are in `docs/SCHEMA_INDEXES.md`; conditional GETs in `docs/PUBLIC_API.md
 ## Address standardization provenance (#595)
 
 
-`addresses.standardization_status` records why a row has, or lacks, a standardized form; `standardization_checked_at` records when that was last decided. NULL = unknown (written before #595). The CHECK (`addresses_standardization_status_check`) mirrors `STANDARDIZATION_STATUSES` in `src/core/normalizers/address.py`.
+`addresses.standardization_status` records why a row has, or lacks, a standardized form; `standardization_checked_at` records when the current status was set: a retry that returns the same status leaves it alone (#797), so the sweep's 3-day audit reads time stuck. NULL = unknown (written before #595). The CHECK (`addresses_standardization_status_check`) mirrors `STANDARDIZATION_STATUSES` in `src/core/normalizers/address.py`.
 
 | Value | Meaning | Sweep retries? |
 |---|---|---|

@@ -12,6 +12,11 @@ candidate would become, plus the merges; only --execute writes, one transaction
 per address. It doubles as the on-demand audit: it prints counts per status and
 the oldest 'unavailable' row's age, and exits 3 when that age passes 3 days.
 
+A retry that comes back with an unchanged status writes nothing (#797), so the
+age is time stuck, and a stuck row keeps its place at the front of the queue
+(oldest standardization_checked_at first). Under --limit N the same N stuck rows
+head every run: raise --limit past the status's count to reach the rows behind.
+
 Usage:
     uv run python -m scripts.restandardize_addresses                       # dry run
     uv run python -m scripts.restandardize_addresses --execute             # write

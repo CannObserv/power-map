@@ -74,13 +74,15 @@ async def apply_result(
     """Record a fresh normalizer result on the row; merge if it standardized onto a twin.
 
     A result that still has no form updates only the status and ``checked_at``,
-    which the touch trigger ignores, so no parent's ETag moves.
+    which the touch trigger ignores, so no parent's ETag moves. An unchanged
+    status writes nothing (#797): ``checked_at`` records when the status was
+    decided, so the sweep's audit measures how long a row has been stuck.
     """
     status = standardization_status(result)
     if status != "standardized":
         await conn.execute(
             "UPDATE addresses SET standardization_status=$2, standardization_checked_at=NOW()"
-            " WHERE id=$1",
+            " WHERE id=$1 AND standardization_status IS DISTINCT FROM $2",
             address_id,
             status,
         )
