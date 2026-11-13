@@ -1,0 +1,36 @@
+# Scope each third-party apt origin .skills/patching-hosts follows (#658).
+# Named by its site, a followed origin selects every package it serves, and at
+# apt's default 500 it ties Ubuntu: a package it serves under an Ubuntu name
+# would replace Ubuntu's. So each site's catch-all sits below 500, and what it
+# was added for above 500 (patching-hosts policy.md, § Two lanes).
+# Installed to /etc/apt/preferences.d (docs/COMMANDS.md); drift: #560.
+# Guard: tests/test_infra_apt_pins.py.
+
+# Tailscale: the tailnet that co-index and co-status are reached over.
+Package: *
+Pin: origin pkgs.tailscale.com
+Pin-Priority: 100
+
+Package: tailscale tailscale-archive-keyring
+Pin: origin pkgs.tailscale.com
+Pin-Priority: 600
+
+# NodeSource: Node 22 for the npm dev toolchain (#737). NodeSource's own setup
+# also wrote /etc/apt/preferences.d/nodejs and nsolid at 600; this file sorts
+# first, and says the same for nodejs.
+Package: *
+Pin: origin deb.nodesource.com
+Pin-Priority: 100
+
+Package: nodejs
+Pin: origin deb.nodesource.com
+Pin-Priority: 600
+
+# The GitHub CLI (gh), which the agent tooling drives.
+Package: *
+Pin: origin cli.github.com
+Pin-Priority: 100
+
+Package: gh
+Pin: origin cli.github.com
+Pin-Priority: 600

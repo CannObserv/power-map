@@ -33,6 +33,7 @@
 "power-map-infra-drift.service" = "/etc/systemd/system/power-map-infra-drift.service"
 "power-map-infra-drift.timer" = "/etc/systemd/system/power-map-infra-drift.timer"
 "needrestart.conf.d/power-map.conf" = "/etc/needrestart/conf.d/power-map.conf"
+"apt-preferences.d/90-power-map-origins.pref" = "/etc/apt/preferences.d/90-power-map-origins.pref"
 "sysctl.d/90-power-map-memory.conf" = "/etc/sysctl.d/90-power-map-memory.conf"
 "system.slice.d/90-power-map-memory.conf" = "/etc/systemd/system/system.slice.d/90-power-map-memory.conf"
 "tailscaled.service.d/90-power-map-oom.conf" = "/etc/systemd/system/tailscaled.service.d/90-power-map-oom.conf"
