@@ -64,6 +64,15 @@ def test_the_parser_refuses_a_terminal_status(status):
     assert exc.value.code == 2
 
 
+@pytest.mark.parametrize("limit", ["0", "-1", "ten"])
+def test_a_non_positive_limit_is_a_usage_error(limit, capsys):
+    """A typo'd --limit stops at argparse (exit 2), not at Postgres after the echo."""
+    with pytest.raises(SystemExit) as exc:
+        asyncio.run(run(["--limit", limit, "--database-url", "postgresql://h/db"]))
+    assert exc.value.code == 2
+    assert "error: argument --limit:" in capsys.readouterr().err
+
+
 async def test_fetch_candidates_refuses_declined_before_touching_the_db():
     with pytest.raises(ValueError, match="declined"):
         await fetch_candidates(None, ("unavailable", "declined"), 10)

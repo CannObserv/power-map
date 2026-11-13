@@ -23,6 +23,7 @@ Exit codes:
     3  an 'unavailable' row older than 3 days remains (after the writes, with --execute)
 """
 
+import argparse
 import asyncio
 import sys
 from dataclasses import replace
@@ -50,6 +51,17 @@ EXIT_STALE = 3
 # A bulk run waits out address-validator's Retry-After rather than fall back,
 # like the CSV import (#597).
 _SWEEP_RETRY_AFTER_CAP = 60.0
+
+
+def positive_int(value: str) -> int:
+    """argparse type for ``--limit``: an int of at least 1."""
+    try:
+        n = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not an integer: {value!r}") from None
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {n}")
+    return n
 
 
 async def status_counts(conn: asyncpg.Connection) -> dict[str | None, int]:
@@ -172,7 +184,9 @@ async def run(argv: list[str] | None = None) -> int:
         choices=SWEEPABLE,
         help="Status to retry; repeatable. Default: unavailable.",
     )
-    parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="Max rows (default 100).")
+    parser.add_argument(
+        "--limit", type=positive_int, default=DEFAULT_LIMIT, help="Max rows (default 100)."
+    )
     args = parser.parse_args(argv)
     dsn = resolve_dsn(args, parser)
     normalizer = build_normalizer()
