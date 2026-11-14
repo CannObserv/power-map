@@ -74,7 +74,7 @@ async def test_identifier_types_items_have_required_fields(client, api_key):
 async def test_identifier_types_entity_type_is_from_the_check_vocabulary(client, api_key):
     response = await client.get(ENDPOINT, headers={"X-API-Key": api_key})
     kinds = {r["entity_type"] for r in response.json()["data"]}
-    assert kinds <= {"organization", "person", "role_assignment", "jurisdiction"}
+    assert kinds <= {"organization", "person", "role", "role_assignment", "jurisdiction"}
 
 
 @pytest.mark.integration

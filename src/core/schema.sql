@@ -120,11 +120,11 @@ CREATE TABLE IF NOT EXISTS link_types (
 
 -- Each row is a (entity_type × identifier_type) pairing.
 -- slug is globally unique; 'org_wa_pdc' and 'person_wa_pdc' are distinct entries.
--- Identifiers attach to role_assignments, not to role definitions — 'role' excluded.
+-- Role definitions carry identifiers too since #808 (role_cannabis_observer).
 CREATE TABLE IF NOT EXISTS entity_identifier_types (
     id           TEXT        PRIMARY KEY,
     entity_type  TEXT        NOT NULL
-                             CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction')),
+                             CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment', 'jurisdiction')),
     slug         TEXT        NOT NULL UNIQUE,
     display_name TEXT        NOT NULL,           -- short: "UBI", "SSN", "WA PDC"
     full_name    TEXT        NOT NULL,           -- long:  "Washington Unified Business Identifier"
@@ -1770,6 +1770,8 @@ BEGIN
         PERFORM 1 FROM organizations WHERE id = NEW.entity_id FOR KEY SHARE;
     ELSIF v_entity_type = 'person' THEN
         PERFORM 1 FROM people WHERE id = NEW.entity_id FOR KEY SHARE;
+    ELSIF v_entity_type = 'role' THEN
+        PERFORM 1 FROM roles WHERE id = NEW.entity_id FOR KEY SHARE;
     ELSIF v_entity_type = 'role_assignment' THEN
         PERFORM 1 FROM role_assignments WHERE id = NEW.entity_id FOR KEY SHARE;
     ELSIF v_entity_type = 'jurisdiction' THEN
@@ -2067,20 +2069,29 @@ ON CONFLICT (id) DO UPDATE SET
 
 DROP TABLE _seed_link_types;
 
--- Extend entity_identifier_types.entity_type CHECK before seeding jurisdiction rows.
--- Must run before the INSERT below on existing DBs; CREATE TABLE IF NOT EXISTS
--- already carries the new shape for fresh DBs.
-DO $$ BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.check_constraints
-        WHERE constraint_schema = 'public'
-          AND constraint_name = 'entity_identifier_types_entity_type_check'
-          AND check_clause NOT LIKE '%jurisdiction%'
-    ) THEN
-        ALTER TABLE entity_identifier_types DROP CONSTRAINT entity_identifier_types_entity_type_check;
-        ALTER TABLE entity_identifier_types ADD CONSTRAINT entity_identifier_types_entity_type_check
-            CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction'));
+-- Reconcile entity_identifier_types.entity_type CHECK before seeding the rows
+-- that need it (jurisdiction #168, role #808); CREATE TABLE IF NOT EXISTS carries
+-- the current shape only for fresh DBs. Absent → add, stale → replace, current →
+-- untouched (same pg_constraint row). Keyed on pg_constraint, which does not
+-- depend on the applying role owning the table as information_schema does. The
+-- marker is the rendered literal 'role'::text: a bare %role% always matches
+-- 'role_assignment'.
+DO $$
+DECLARE
+    v_def TEXT;
+BEGIN
+    SELECT pg_get_constraintdef(oid) INTO v_def
+    FROM pg_constraint
+    WHERE conrelid = 'entity_identifier_types'::regclass
+      AND conname = 'entity_identifier_types_entity_type_check';
+    IF v_def IS NOT NULL AND v_def LIKE '%''role''::text%' THEN
+        RETURN;
     END IF;
+    IF v_def IS NOT NULL THEN
+        ALTER TABLE entity_identifier_types DROP CONSTRAINT entity_identifier_types_entity_type_check;
+    END IF;
+    ALTER TABLE entity_identifier_types ADD CONSTRAINT entity_identifier_types_entity_type_check
+        CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment', 'jurisdiction'));
 END $$;
 
 -- Add is_internal column to existing DBs (#198).

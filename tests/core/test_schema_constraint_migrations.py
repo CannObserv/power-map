@@ -276,3 +276,51 @@ async def test_apply_schema_adds_retracted_at_to_a_crosswalk_that_predates_it(db
         )
     assert col is not None
     assert (col["data_type"], col["is_nullable"]) == ("timestamp with time zone", "YES")
+
+
+_EIT_CHECK = "entity_identifier_types_entity_type_check"
+#: The CHECK as every database held it before #808: no 'role'.
+_PRE_808_EIT_CHECK = (
+    "CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction'))"
+)
+
+
+@pytest.mark.parametrize("starting_shape", ["pre_808", "absent"])
+async def test_apply_schema_admits_role_in_the_identifier_type_check(db_pool, starting_shape):
+    """#808: a database holding today's CHECK, or none, ends up admitting 'role'.
+
+    The old reconcile matched ``NOT LIKE '%jurisdiction%'``, which today's clause
+    passes, and ``'role'`` is a substring of ``'role_assignment'`` — so the marker
+    must be the rendered literal ``'role'::text``. A second apply keeps the same
+    pg_constraint row (no DROP + re-ADD on every restart).
+    """
+    oid_sql = "SELECT oid FROM pg_constraint WHERE conrelid = $1::regclass AND conname = $2"
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            f"ALTER TABLE entity_identifier_types DROP CONSTRAINT IF EXISTS {_EIT_CHECK}"
+        )
+        if starting_shape == "pre_808":
+            await conn.execute(
+                f"ALTER TABLE entity_identifier_types"
+                f" ADD CONSTRAINT {_EIT_CHECK} {_PRE_808_EIT_CHECK}"
+            )
+            before = await conn.fetchval(_CONSTRAINT_DEF_SQL, "entity_identifier_types", _EIT_CHECK)
+            assert "'role'::text" not in before
+
+        await apply_schema(conn)
+        repaired = await conn.fetchval(_CONSTRAINT_DEF_SQL, "entity_identifier_types", _EIT_CHECK)
+        for fragment in (
+            "'organization'",
+            "'person'",
+            "'role'",
+            "'role_assignment'",
+            "'jurisdiction'",
+        ):
+            assert fragment in repaired
+        repaired_oid = await conn.fetchval(oid_sql, "entity_identifier_types", _EIT_CHECK)
+
+        await apply_schema(conn)
+        assert (
+            await conn.fetchval(_CONSTRAINT_COUNT_SQL, "entity_identifier_types", _EIT_CHECK) == 1
+        )
+        assert await conn.fetchval(oid_sql, "entity_identifier_types", _EIT_CHECK) == repaired_oid

@@ -416,7 +416,7 @@ async def test_identifier_type_new_row(client):
     response = await client.get("/admin/settings/identifier-types/new-row/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "display_name" in response.text
-    for et in ("organization", "person", "role_assignment", "jurisdiction"):
+    for et in ("organization", "person", "role", "role_assignment", "jurisdiction"):
         assert f'value="{et}"' in response.text
 
 

@@ -188,11 +188,52 @@ async def test_an_unknown_type_id_is_left_to_the_real_fk(conn):
     assert exc.value.constraint_name == "identifiers_entity_identifier_type_id_fkey"
 
 
+async def _role_type(conn) -> str:
+    """A role-keyed catalog row, made here so the test needs only the CHECK and trigger."""
+    tid = generate_id()
+    await conn.execute(
+        "INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_name)"
+        " VALUES ($1, 'role', $2, 'X', 'X')",
+        tid,
+        f"x-{tid.lower()}",
+    )
+    return tid
+
+
+async def test_an_identifier_on_a_role_is_accepted(conn):
+    """#808: the trigger has a role branch, so a role identifier is not refused as unknown."""
+    role, tid = await archived_entity(conn, "role"), await _role_type(conn)
+    iid = generate_id()
+    await conn.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, 'V')",
+        iid,
+        role,
+        tid,
+    )
+    assert await conn.fetchval("SELECT entity_id FROM identifiers WHERE id = $1", iid) == role
+
+
+async def test_a_role_identifier_on_a_missing_role_is_a_foreign_key_violation(conn):
+    """The role branch looks in roles, not people: a missing role id is refused."""
+    tid = await _role_type(conn)
+    with pytest.raises(asyncpg.ForeignKeyViolationError) as exc:
+        await conn.execute(
+            "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+            " VALUES ($1, $2, $3, 'V')",
+            generate_id(),
+            await archived_entity(conn, "person"),
+            tid,
+        )
+    _assert_guard(exc)
+
+
 async def test_an_unknown_entity_type_is_not_looked_up_as_a_person(conn):
     """A catalog type the trigger has no branch for fails as such, not as a missing person.
 
-    Unreachable while the catalog's CHECK admits only the four types, so the
-    CHECK is dropped inside this rolled-back transaction to get past it.
+    Unreachable while the catalog's CHECK holds, so the CHECK is dropped inside
+    this rolled-back transaction to get past it. ``entity_event`` stands in for a
+    type admitted there later without a branch (``role`` played this part until #808).
     """
     await conn.execute(
         "ALTER TABLE entity_identifier_types"
@@ -201,7 +242,7 @@ async def test_an_unknown_entity_type_is_not_looked_up_as_a_person(conn):
     tid = generate_id()
     await conn.execute(
         "INSERT INTO entity_identifier_types (id, entity_type, slug, display_name, full_name)"
-        " VALUES ($1, 'role', $2, 'X', 'X')",
+        " VALUES ($1, 'entity_event', $2, 'X', 'X')",
         tid,
         f"x-{tid.lower()}",
     )
