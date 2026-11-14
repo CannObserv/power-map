@@ -513,6 +513,7 @@ _ENTITY_TABLE = {
     "organization": "organizations",
     "person": "people",
     "jurisdiction": "jurisdictions",
+    "role": "roles",  # #808
     "role_assignment": "role_assignments",
 }
 

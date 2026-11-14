@@ -100,7 +100,7 @@ def sync_detailed(
 ) -> Response[Any | EntityGone | ErrorDetail | HTTPValidationError | RoleDetail]:
     """Get Role
 
-     Return a full role record with links, contact methods, and addresses.
+     Return a full role record with links, contact methods, addresses, and identifiers.
 
     Args:
         role_id (str):
@@ -134,7 +134,7 @@ def sync(
 ) -> Any | EntityGone | ErrorDetail | HTTPValidationError | RoleDetail | None:
     """Get Role
 
-     Return a full role record with links, contact methods, and addresses.
+     Return a full role record with links, contact methods, addresses, and identifiers.
 
     Args:
         role_id (str):
@@ -163,7 +163,7 @@ async def asyncio_detailed(
 ) -> Response[Any | EntityGone | ErrorDetail | HTTPValidationError | RoleDetail]:
     """Get Role
 
-     Return a full role record with links, contact methods, and addresses.
+     Return a full role record with links, contact methods, addresses, and identifiers.
 
     Args:
         role_id (str):
@@ -195,7 +195,7 @@ async def asyncio(
 ) -> Any | EntityGone | ErrorDetail | HTTPValidationError | RoleDetail | None:
     """Get Role
 
-     Return a full role record with links, contact methods, and addresses.
+     Return a full role record with links, contact methods, addresses, and identifiers.
 
     Args:
         role_id (str):

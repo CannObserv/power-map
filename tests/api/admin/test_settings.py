@@ -416,7 +416,7 @@ async def test_identifier_type_new_row(client):
     response = await client.get("/admin/settings/identifier-types/new-row/", headers=AUTH_HEADERS)
     assert response.status_code == 200
     assert "display_name" in response.text
-    for et in ("organization", "person", "role_assignment", "jurisdiction"):
+    for et in ("organization", "person", "role", "role_assignment", "jurisdiction"):
         assert f'value="{et}"' in response.text
 
 
@@ -695,7 +695,7 @@ async def test_create_identifier_type_invalid_entity_type_returns_422(client):
             "display_name": "Bad",
             "slug": "bad-et",
             "full_name": "Bad Full",
-            "entity_type": "role",
+            "entity_type": "entity_event",  # not a catalog type (role is, since #808)
         },
     )
     assert response.status_code == 422
@@ -721,7 +721,7 @@ async def test_identifier_type_edit_row_post_invalid_entity_type_returns_422(cli
                 "display_name": "Bad ET",
                 "slug": f"bad-et-{iid}",
                 "full_name": "Bad ET Full",
-                "entity_type": "role",
+                "entity_type": "entity_event",
             },
         )
         assert response.status_code == 422

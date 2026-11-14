@@ -84,8 +84,7 @@ async def test_every_polymorphic_table_is_seeded_or_survives(db):
 async def test_hard_delete_leaves_no_polymorphic_row(client, db, entity_type):
     eid = await archived_entity(db, entity_type)
     seeded = await seed_every_table(db, entity_type, eid)
-    if entity_type != "role":  # #605's case: the identifier must actually be there
-        assert "identifiers" in {t for t, _ in seeded}
+    assert "identifiers" in {t for t, _ in seeded}  # #605's case; role too since #808
 
     r = await client.delete(f"/admin/{ROUTES[entity_type]}/{eid}/", headers=HTMX_HEADERS)
     assert r.status_code == 200, r.text

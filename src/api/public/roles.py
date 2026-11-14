@@ -8,11 +8,13 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from src.api.deps import get_db
 from src.api.public.deps import (
     AuthedKey,
+    identifier_filter,
     require_api_key,
     require_scope,
 )
 from src.api.public.etag import conditional_response, make_etag
 from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
+from src.api.public.identifier_reads import fetch_identifiers, identifier_match
 from src.api.public.schemas import (
     ObservationResponse,
     RoleDetail,
@@ -21,7 +23,10 @@ from src.api.public.schemas import (
 )
 from src.core.observation import (
     Disposition,
+    IdentifierConflict,
+    ObservationRejected,
     resolve_role,
+    write_additional_identifiers,
     write_addresses,
     write_contact_methods,
     write_links,
@@ -58,12 +63,18 @@ async def list_roles(
     include_archived: bool = Query(default=False),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    id_filter: tuple[str | None, str | None] = Depends(identifier_filter),
     _: str = Depends(require_api_key),
     db=Depends(get_db),
 ) -> Any:
-    """Return a paginated list of roles, optionally filtered by organization."""
+    """Return a paginated list of roles, optionally filtered by organization.
+
+    ``identifier_type`` + ``identifier_value`` (both or neither) narrow the list
+    to roles holding that identifier (#808) — every holder, paginated as usual.
+    """
+    id_type, id_value = id_filter
     rows = await db.fetch(
-        """
+        f"""
         SELECT r.id, r.organization_id, r.title, r.notes,
                r.established_on, r.abolished_on,
                r.role_type_id, rt.slug AS role_type_slug,
@@ -73,14 +84,17 @@ async def list_roles(
         LEFT JOIN role_types rt ON rt.id = r.role_type_id
         WHERE ($1::TEXT IS NULL OR r.organization_id = $1)
           AND ($2 OR r.archived_at IS NULL)
+          AND {identifier_match("role", "r.id", 5, 6)}
         -- r.id: unique tiebreaker for stable offset pagination under (org, title) ties (#297)
         ORDER BY r.organization_id, r.title, r.id
         LIMIT $3 OFFSET $4
-        """,
+        """,  # noqa: S608 — identifier_match interpolates fixed strings only
         organization_id,
         include_archived,
         limit + 1,
         offset,
+        id_type,
+        id_value,
     )
 
     has_more = len(rows) > limit
@@ -146,7 +160,7 @@ async def get_role(
     _: str = Depends(require_api_key),
     db=Depends(get_db),
 ) -> Any:
-    """Return a full role record with links, contact methods, and addresses."""
+    """Return a full role record with links, contact methods, addresses, and identifiers."""
     row = await db.fetchrow(
         """
         SELECT r.id, r.organization_id, r.title, r.notes,
@@ -174,7 +188,31 @@ async def get_role(
         "links": [dict(r) for r in links],
         "contact_methods": [dict(r) for r in contact_methods],
         "addresses": [dict(r) for r in addresses],
+        "identifiers": await fetch_identifiers(db, "role", role_id),
     }
+
+
+async def _resolve_role(db: Any, req: RoleObservationRequest) -> tuple:
+    """Match or create the role by its natural key, retrying once on a create race.
+
+    The first attempt runs in a savepoint: a concurrent create of the same role
+    loses on the unique index, which would otherwise abort the enclosing
+    observation transaction. The retry then attaches to the winner's row. A second,
+    persistent conflict propagates (the route answers ``db_constraint_violation``).
+    """
+    resolve_kwargs = dict(
+        notes=req.notes,
+        established_on=req.established_on,
+        abolished_on=req.abolished_on,
+        role_type=req.role_type,
+        jurisdiction_id=req.jurisdiction_id,
+        qualifier=req.qualifier,
+    )
+    try:
+        async with db.transaction():
+            return await resolve_role(db, req.organization_id, req.title, **resolve_kwargs)
+    except asyncpg.UniqueViolationError:
+        return await resolve_role(db, req.organization_id, req.title, **resolve_kwargs)
 
 
 @router.post(
@@ -187,47 +225,38 @@ async def submit_role_observation(
     auth: AuthedKey = Depends(require_scope("observations:write")),
     db=Depends(get_db),
 ) -> ObservationResponse:
-    """Submit a role observation; match by (organization_id, title) or by pm_role_id."""
-    if req.identifier_type == "pm_role_id":
-        row = await db.fetchrow(
-            "SELECT id FROM roles WHERE id=$1 AND archived_at IS NULL",
-            req.identifier_value,
-        )
-        if row is None:
-            return ObservationResponse(
-                disposition="rejected", reason=f"pm_id_not_found: {req.identifier_value!r}"
-            )
-        role_id = row["id"]
-        disposition = Disposition.AUTO_ATTACHED
-    else:
-        resolve_kwargs = dict(
-            notes=req.notes,
-            established_on=req.established_on,
-            abolished_on=req.abolished_on,
-            role_type=req.role_type,
-            jurisdiction_id=req.jurisdiction_id,
-            qualifier=req.qualifier,
-        )
-        try:
-            role_id, disposition, reason = await resolve_role(
-                db, req.organization_id, req.title, **resolve_kwargs
-            )
-        except asyncpg.UniqueViolationError:
-            # Concurrent create of the same role: re-resolve so the loser
-            # of the race attaches to the winner's row instead of 500-ing. One
-            # retry only — a second, persistent conflict is treated as a genuine
-            # error and propagates (500).
-            role_id, disposition, reason = await resolve_role(
-                db, req.organization_id, req.title, **resolve_kwargs
-            )
-        if disposition is Disposition.REJECTED:
-            return ObservationResponse(disposition="rejected", reason=reason)
+    """Submit a role observation; match by (organization_id, title) or by pm_role_id.
 
+    Resolution and every payload write share one transaction (#456, roles since
+    #808), so ``rejected`` means nothing was written — a role the natural key
+    would have created included.
+    """
     try:
         async with db.transaction():
+            if req.identifier_type == "pm_role_id":
+                role_id = await db.fetchval(
+                    "SELECT id FROM roles WHERE id=$1 AND archived_at IS NULL",
+                    req.identifier_value,
+                )
+                if role_id is None:
+                    raise ObservationRejected(f"pm_id_not_found: {req.identifier_value!r}")
+                disposition = Disposition.AUTO_ATTACHED
+            else:
+                role_id, disposition, reason = await _resolve_role(db, req)
+                if disposition is Disposition.REJECTED:
+                    raise ObservationRejected(reason or "rejected")
+
             await write_links(db, role_id, "role", req.links)
             await write_contact_methods(db, role_id, "role", req.contact_methods)
             await write_addresses(db, role_id, "role", req.addresses)
+            await write_additional_identifiers(db, role_id, "role", req.additional_identifiers)
+    except ObservationRejected as exc:
+        return ObservationResponse(disposition="rejected", reason=exc.detail)
+    except IdentifierConflict as exc:
+        return ObservationResponse(
+            disposition="rejected",
+            reason=f"identifier_conflict: {exc.identifier_type_slug!r}",
+        )
     except (
         asyncpg.CheckViolationError,
         asyncpg.ForeignKeyViolationError,

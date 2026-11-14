@@ -257,7 +257,7 @@ async def test_read_row_is_the_tables_query_narrowed(client, db, t):
 
 
 async def test_invalid_entity_type_lands_on_the_new_row(client):
-    data = {**IDENTIFIER_TYPES.form("Tbody", "tbody-bad-et"), "entity_type": "role"}
+    data = {**IDENTIFIER_TYPES.form("Tbody", "tbody-bad-et"), "entity_type": "entity_event"}
     r = await client.post(IDENTIFIER_TYPES.base, headers=HTMX_HEADERS, data=data)
     assert r.status_code == 200
     assert r.headers["HX-Retarget"] == "#identifier-type-row-new"

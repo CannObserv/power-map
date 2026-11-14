@@ -33,7 +33,8 @@ citation hung off the fork.
   `<entity_type>_archived: '<id>'` and nothing is written (#481): archiving keeps the
   identifiers, so the producer's fix is an admin unarchive, not a new identifier.
   An unknown value whose entity type cannot be created bare (`role_wa_pdc` →
-  `role_assignment`) is rejected `entity_type_not_creatable: '<type>'`, never `new` (#604).
+  `role_assignment`, `role_cannabis_observer` → `role`) is rejected
+  `entity_type_not_creatable: '<type>'`, never `new` (#604).
   In `additional_identifiers`, an external type for another entity type (an `org_ubi`
   on a person) is rejected `identifier_type_mismatch: '<slug>'` (#617). The admin identifier
   panels refuse the same posts (another entity type's, or any `pm_*`) with a 400. Every
@@ -42,7 +43,7 @@ citation hung off the fork.
   `foreign_key_violation`. It checks on insert and when the reference — entity id, or the
   type's `entity_type` — changes; a retype within one entity type is not a change, so seed
   reconciliation's re-id never aborts `apply_schema` on an orphan. The referenced half
-  (#630): deleting a person, org, assignment or jurisdiction an identifier still names
+  (#630): deleting a person, org, role (#808), assignment or jurisdiction an identifier still names
   raises the same, so a `scripts/` delete drops or re-homes identifiers first. Guards:
   `tests/core/test_schema_identifier_entity.py`, `tests/core/test_schema_entity_identifiers.py`.
 
@@ -57,6 +58,10 @@ ones worth knowing before minting:
 | `person_wa_legislature_member_id` | person | WSL member id — sponsor wire, bottoms out at 1991 |
 | `person_wa_legislature_roster` | person | `<name fold>:<first session year>`, e.g. `aeolson:1923` — the archival 1889–2025 roster below the member-id floor (#456) |
 | `observo_speaker` | person | opaque Observo ULID |
+| `person_cannabis_observer` | person | cannabis.observer Person record `ulid` (#808) |
+| `org_cannabis_observer` | organization | cannabis.observer Organization record `ulid` (#808) |
+| `role_cannabis_observer` | role | cannabis.observer Role record `ulid` — a role **definition** (#808) |
+| `role_assignment_cannabis_observer` | role_assignment | cannabis.observer Role Assignment record `ulid` (#809). The older `role_wa_pdc` uses a bare `role_` prefix for an assignment type; this family spells `role_` for a role and `role_assignment_` for an assignment |
 | `org_ubi` | organization | WA Unified Business Identifier |
 | `org_wa_pdc` | organization | PDC **lobbyist-firm** filer_id, numeric |
 | `org_wa_pdc_committee` | organization | PDC **campaign-finance** committee filer_id, e.g. `LABORG 503` (#296) |
@@ -64,6 +69,18 @@ ones worth knowing before minting:
 | `org_wa_legislature_committee_id` | organization | WSL numeric `committee_id` (successor committees get their own id) |
 | `org_wa_legislature` | organization | the legislature-level anchor (#225) |
 | `org_wa_legislature_chamber` | organization | chamber key — `usa_wa_house` / `usa_wa_senate` (#225) |
+
+**The `*_cannabis_observer` family is attached, never addressed (#808, CannObserv/cli#1295).**
+They are external, so addressing an observation *by* one creates on an unknown value — a
+not-yet-linked site ULID would mint a duplicate person or org. The safe contract: address
+by `pm_person_id` / `pm_org_id` / `pm_role_id` / `pm_assignment_id`, attach the site
+ULID through `additional_identifiers`, and read it back on the entity's detail `GET`.
+To find an entity by one: `GET /roles` and `GET /assignments` take an `identifier_type`
++ `identifier_value` filter that returns **every** holder (pass `include_archived=true`
+to see archived ones too). No `(type, value)` uniqueness is enforced, so there
+`meta.count > 1` means a duplicate link to resolve, not a choice to make.
+`people/search` / `orgs/search` in identifier mode return **at most one** match
+(`has_more: false`), so they cannot show a duplicate.
 
 **The WA scheme types are history, not contract (#502).** The `*_wa_*` slugs above (and
 `role_wa_pdc`) hold identifiers recorded before the #490 cutover. The rows stay, and

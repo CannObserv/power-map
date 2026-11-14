@@ -11,6 +11,7 @@ from ..models.assignment_observation_request_op import AssignmentObservationRequ
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.observation_additional_identifier import ObservationAdditionalIdentifier
     from ..models.observation_address import ObservationAddress
     from ..models.observation_contact_method import ObservationContactMethod
     from ..models.observation_link import ObservationLink
@@ -44,6 +45,7 @@ class AssignmentObservationRequest:
             links (list[ObservationLink] | Unset):
             contact_methods (list[ObservationContactMethod] | Unset):
             addresses (list[ObservationAddress] | Unset):
+            additional_identifiers (list[ObservationAdditionalIdentifier] | Unset):
     """
 
     identifier_type: None | str | Unset = UNSET
@@ -58,6 +60,7 @@ class AssignmentObservationRequest:
     links: list[ObservationLink] | Unset = UNSET
     contact_methods: list[ObservationContactMethod] | Unset = UNSET
     addresses: list[ObservationAddress] | Unset = UNSET
+    additional_identifiers: list[ObservationAdditionalIdentifier] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -138,6 +141,13 @@ class AssignmentObservationRequest:
                 addresses_item = addresses_item_data.to_dict()
                 addresses.append(addresses_item)
 
+        additional_identifiers: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.additional_identifiers, Unset):
+            additional_identifiers = []
+            for additional_identifiers_item_data in self.additional_identifiers:
+                additional_identifiers_item = additional_identifiers_item_data.to_dict()
+                additional_identifiers.append(additional_identifiers_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -165,11 +175,16 @@ class AssignmentObservationRequest:
             field_dict["contact_methods"] = contact_methods
         if addresses is not UNSET:
             field_dict["addresses"] = addresses
+        if additional_identifiers is not UNSET:
+            field_dict["additional_identifiers"] = additional_identifiers
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.observation_additional_identifier import (
+            ObservationAdditionalIdentifier,  # noqa: PLC0415
+        )
         from ..models.observation_address import ObservationAddress  # noqa: PLC0415
         from ..models.observation_contact_method import ObservationContactMethod  # noqa: PLC0415
         from ..models.observation_link import ObservationLink  # noqa: PLC0415
@@ -298,6 +313,17 @@ class AssignmentObservationRequest:
 
                 addresses.append(addresses_item)
 
+        _additional_identifiers = d.pop("additional_identifiers", UNSET)
+        additional_identifiers: list[ObservationAdditionalIdentifier] | Unset = UNSET
+        if _additional_identifiers is not UNSET:
+            additional_identifiers = []
+            for additional_identifiers_item_data in _additional_identifiers:
+                additional_identifiers_item = ObservationAdditionalIdentifier.from_dict(
+                    additional_identifiers_item_data
+                )
+
+                additional_identifiers.append(additional_identifiers_item)
+
         assignment_observation_request = cls(
             identifier_type=identifier_type,
             identifier_value=identifier_value,
@@ -311,6 +337,7 @@ class AssignmentObservationRequest:
             links=links,
             contact_methods=contact_methods,
             addresses=addresses,
+            additional_identifiers=additional_identifiers,
         )
 
         assignment_observation_request.additional_properties = d

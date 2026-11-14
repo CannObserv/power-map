@@ -107,9 +107,10 @@ orgs/people/jurisdictions:
 - **Contacts** (email + phone) and **Links** on both — `roles_{contacts,links}.py` and
   `role_assignments_{contacts,links}.py`, thin wirings of `make_contacts_router` /
   `make_links_router` (`entity_type` `'role'` / `'role_assignment'`).
-- **Identifiers** on assignments only (`role_assignments_identifiers.py`) — the role
-  *definition* carries no identifiers (`entity_identifier_types` excludes `'role'`). The
-  picker excludes internal types, so `role_wa_pdc` is the offered public type.
+- **Identifiers** on both — `roles_identifiers.py` (since #808) and
+  `role_assignments_identifiers.py`. The picker excludes internal types, so the offered
+  public types are `role_cannabis_observer` and `role_wa_pdc` /
+  `role_assignment_cannabis_observer` respectively.
 - Partials mirror the org set under `roles/partials/` and `role_assignments/partials/`
   (context id keys `role_id` / `ra_id`); detail handlers fetch the arrays into context. The
   `+ Add` buttons are gated on an active (non-archived) role/assignment; existing rows stay

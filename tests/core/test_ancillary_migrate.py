@@ -368,6 +368,71 @@ async def test_rehome_role_dedups_identical_and_skips_touch(db):
     assert await row_version(db, "roles", winner) == before
 
 
+_ROLE_IDTYPE_ID = "01M7DPQMPBJEQ52A6TN3GGTGDA"  # 'role_cannabis_observer' (#808)
+
+
+async def _add_role_identifier(db, rid, value) -> str:
+    iid = generate_id()
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, $4)",
+        iid,
+        rid,
+        _ROLE_IDTYPE_ID,
+        value,
+    )
+    return iid
+
+
+async def test_rehome_role_carries_identifiers_to_the_survivor(db):
+    """#808: a merged role's identifier moves to the survivor, which the touch trigger bumps."""
+    loser, winner = await _role(db), await _role(db)
+    iid = await _add_role_identifier(db, loser, "01SITEULID")
+    before = await row_version(db, "roles", winner)
+
+    counts = await rehome_role_ancillary(db, loser, winner)
+
+    assert counts["identifiers"] == (1, 0)
+    assert await _entity_id(db, "identifiers", iid) == winner
+    assert await row_version(db, "roles", winner) != before
+
+
+async def test_rehome_role_dedups_an_identical_identifier(db):
+    """Both roles hold the same (type, value): the loser's copy goes, not a second row."""
+    loser, winner = await _role(db), await _role(db)
+    await _add_role_identifier(db, loser, "01SAME")
+    await _add_role_identifier(db, winner, "01SAME")
+
+    counts = await rehome_role_ancillary(db, loser, winner)
+
+    assert counts["identifiers"] == (0, 1)
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM identifiers WHERE entity_id = ANY($1::text[])", [loser, winner]
+        )
+        == 1
+    )
+
+
+async def test_rehome_role_leaves_another_types_identifier_alone(db):
+    """Scoped through the type's entity_type: an assignment type on the same id is not moved."""
+    loser, winner = await _role(db), await _role(db)
+    stray = generate_id()
+    async with trigger_disabled(db, "identifiers", "trg_identifiers_entity"):
+        await db.execute(
+            "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+            " VALUES ($1, $2, $3, 'STRAY')",
+            stray,
+            loser,
+            _RA_IDTYPE_ID,
+        )
+
+    counts = await rehome_role_ancillary(db, loser, winner)
+
+    assert counts["identifiers"] == (0, 0)
+    assert await _entity_id(db, "identifiers", stray) == loser
+
+
 async def test_delete_entity_ancillary_drops_role_rows(db):
     rid = await _role(db)
     await _add_role_link(db, rid, "https://x.example/y")

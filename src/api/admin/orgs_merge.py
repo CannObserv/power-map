@@ -218,7 +218,8 @@ async def _absorb_role(db, winner_role_id: str, loser_role_id: str) -> int:
         winner_role_id,
         loser_role_id,
     )
-    # #326: the loser role's own contacts/links have no FK — re-home before the delete.
+    # #326/#808: the loser role's own contacts/links/identifiers have no FK — re-home
+    # before the delete (trg_roles_identifiers refuses it while an identifier remains).
     await rehome_role_ancillary(db, loser_role_id, winner_role_id)
     await rehome_curation_overlay(db, "role", [(loser_role_id, winner_role_id)])  # #514
     await db.execute("DELETE FROM roles WHERE id=$1", loser_role_id)

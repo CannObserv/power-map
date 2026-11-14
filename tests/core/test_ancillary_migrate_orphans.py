@@ -75,8 +75,7 @@ def _grown(before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
 async def test_counts_every_row_a_raw_delete_strands(db, entity_type):
     eid = await archived_entity(db, entity_type)
     tables = await _seed_all(db, entity_type, eid)
-    if entity_type != "role":  # the #617 shape: an identifier off its type's table
-        assert "identifiers" in tables
+    assert "identifiers" in tables  # every hard-deletable type carries them since #808
 
     before = await count_orphaned_polymorphic_rows(db)
     await _raw_delete(db, entity_type, eid)

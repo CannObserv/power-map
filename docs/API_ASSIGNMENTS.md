@@ -17,7 +17,7 @@ resources share are in `docs/OBSERVATIONS.md`.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/v1/assignments` | API key | Paginated list of role assignments, optionally filtered. |
-| `GET` | `/api/v1/assignments/{id}` | API key | Full assignment record (links, contact methods, addresses) with ETag caching. Merged/deleted id → `410` + `merged_into` (`docs/PUBLIC_API.md` § Retired ids). |
+| `GET` | `/api/v1/assignments/{id}` | API key | Full assignment record (links, contact methods, addresses, identifiers) with ETag caching. Merged/deleted id → `410` + `merged_into` (`docs/PUBLIC_API.md` § Retired ids). |
 | `POST` | `/api/v1/assignments/observations` | `observations:write` scope | Submit an assignment observation (match-or-create, id-addressed update, or `op="retract"`). |
 
 ### List — `GET /api/v1/assignments`
@@ -31,6 +31,7 @@ Query parameters:
 | `person_id` | (none) | Filter to assignments for this person ULID. |
 | `role_id` | (none) | Filter to assignments for this role ULID. |
 | `include_archived` | `false` | Include archived assignments (`archived_at` non-null). |
+| `identifier_type` + `identifier_value` | (none) | Both or neither (else 422). Narrows to assignments holding that identifier (#809) — **every** holder, paginated and ordered as usual, ANDed with the other filters; the same filter `GET /roles` takes. A slug for another entity type, an unknown slug, or a `pm_*` slug (stored as no row) matches nothing. Rules → `docs/OBSERVATIONS.md` §"Identifier types". |
 | `limit` | 20 | 1–100 |
 | `offset` | 0 | |
 
@@ -47,6 +48,7 @@ Returns all list item fields plus:
 | `links` | Array of `{id, url, link_type_id, link_type_slug, link_type_name, is_active}` |
 | `contact_methods` | Array of `{id, contact_type, value, display_label (nullable)}` |
 | `addresses` | Array of `{id, address_id, address_type, raw_input (nullable), standardized (nullable), valid_from (nullable date), valid_until (nullable date)}` — `valid_from`/`valid_until` bound the validity window (`YYYY-MM-DD`); NULL = open-ended on that side |
+| `identifiers` | Array of `{id, type_id, type_slug, value}` — external types only, as on people and orgs (#809) |
 
 Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
 
@@ -85,6 +87,7 @@ POST /api/v1/assignments/observations
 | `notes` | optional | Free text. Only written on NEW; never reported in `unapplied`. |
 | `links` | optional | List of `{url, link_type_id XOR link_type_slug}`. Written on both NEW and AUTO_ATTACHED (append-only). |
 | `contact_methods` | optional | List of `{contact_type, value, display_label?}` — `contact_type` must be `email` or `phone`; `display_label` is an optional short human-readable label. Written on both NEW and AUTO_ATTACHED (append-only). |
+| `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` (#809) — `role_assignment_cannabis_observer`, `role_wa_pdc`. Same rules as on people and orgs: internal (`pm_*`) refused, another entity type's slug `identifier_type_mismatch: '<slug>'`, a held value a no-op, a different value for a held type `identifier_conflict: '<slug>'` — and a rejection writes nothing, a natural-key create included. Like the other ancillary lists: withheld and named in `unapplied` on a retracted-twin attach, ignored on `op="retract"`. A `pm_assignment_id` naming an archived assignment stays `pm_id_not_found`. |
 | `addresses` | optional | List of `{raw_input, address_type, valid_from?, valid_until?}`. Written on both NEW and AUTO_ATTACHED (append-only). `valid_from`/`valid_until` (`YYYY-MM-DD`, optional; `valid_from` ≤ `valid_until`, 422 otherwise) bound the address validity window; NULL/omitted = open-ended on that side. A **dateless** claim dedups against any existing window (never resurrects an admin-ended address); a **dated** claim dedups on the exact window and records a fresh row for a new one (#256). |
 
 **Disposition semantics:**
@@ -92,7 +95,7 @@ POST /api/v1/assignments/observations
 | Disposition | Condition |
 |-------------|-----------|
 | `new` | No active assignment with this `(person_id, role_id, start_date)` found; assignment created (standard mode only) |
-| `auto-attached` | Active assignment already exists (standard) or known ULID supplied (PM-native); attribute writes still applied. Standard mode may carry `unapplied: [...]` (#311) — supplied `end_date`/`is_current` values that were **not** applied (differing non-`NULL` bound, currency flip, or foreign-source row); absent/`null` on clean attaches. Also the two #391 quiet outcomes, both of which now carry `attached_archived: true` (#477): re-retracting an already-archived assignment, and a standard-mode re-observation matching an **archived** twin (anti-resurrection — the archived row's id). On that second case **nothing at all is written**: bound deltas are withheld and ancillary (`links` / `contact_methods` / `addresses`) is skipped rather than attached to a retracted row; every withheld name is reported in `unapplied` — **even when the supplied value equals what the archived row stores**, since a retracted tenure *contradicts* the claim rather than satisfying it (this is where the rule diverges from the active-row `unapplied` semantics above, which report only a differing value). |
+| `auto-attached` | Active assignment already exists (standard) or known ULID supplied (PM-native); attribute writes still applied. Standard mode may carry `unapplied: [...]` (#311) — supplied `end_date`/`is_current` values that were **not** applied (differing non-`NULL` bound, currency flip, or foreign-source row); absent/`null` on clean attaches. Also the two #391 quiet outcomes, both of which now carry `attached_archived: true` (#477): re-retracting an already-archived assignment, and a standard-mode re-observation matching an **archived** twin (anti-resurrection — the archived row's id). On that second case **nothing at all is written**: bound deltas are withheld and ancillary (`links` / `contact_methods` / `addresses` / `additional_identifiers`) is skipped rather than attached to a retracted row; every withheld name is reported in `unapplied` — **even when the supplied value equals what the archived row stores**, since a retracted tenure *contradicts* the claim rather than satisfying it (this is where the rule diverges from the active-row `unapplied` semantics above, which report only a differing value). |
 | `retracted` | `op="retract"` archived the `pm_assignment_id`-addressed assignment (#391). Assignments only — the other observation endpoints never return it. |
 | `rejected` | Person or role unknown/archived; unknown/archived ULID (PM-native); PM-native update conflicts (#311): `source_key_mismatch`, `is_current_end_date_conflict`, `start_after_end_date`, `start_date_conflict` (sibling collision); retract conflicts (#391): `invalid` (not id-addressed), `assignment_not_found`, `identity_immutable`, `source_key_mismatch`; DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 

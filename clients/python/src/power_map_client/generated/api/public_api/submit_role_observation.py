@@ -85,6 +85,10 @@ def sync_detailed(
 
      Submit a role observation; match by (organization_id, title) or by pm_role_id.
 
+    Resolution and every payload write share one transaction (#456, roles since
+    #808), so ``rejected`` means nothing was written — a role the natural key
+    would have created included.
+
     Args:
         body (RoleObservationRequest): Payload for POST /api/v1/roles/observations.
 
@@ -121,6 +125,10 @@ def sync(
 
      Submit a role observation; match by (organization_id, title) or by pm_role_id.
 
+    Resolution and every payload write share one transaction (#456, roles since
+    #808), so ``rejected`` means nothing was written — a role the natural key
+    would have created included.
+
     Args:
         body (RoleObservationRequest): Payload for POST /api/v1/roles/observations.
 
@@ -151,6 +159,10 @@ async def asyncio_detailed(
     """Submit Role Observation
 
      Submit a role observation; match by (organization_id, title) or by pm_role_id.
+
+    Resolution and every payload write share one transaction (#456, roles since
+    #808), so ``rejected`` means nothing was written — a role the natural key
+    would have created included.
 
     Args:
         body (RoleObservationRequest): Payload for POST /api/v1/roles/observations.
@@ -185,6 +197,10 @@ async def asyncio(
     """Submit Role Observation
 
      Submit a role observation; match by (organization_id, title) or by pm_role_id.
+
+    Resolution and every payload write share one transaction (#456, roles since
+    #808), so ``rejected`` means nothing was written — a role the natural key
+    would have created included.
 
     Args:
         body (RoleObservationRequest): Payload for POST /api/v1/roles/observations.

@@ -120,11 +120,11 @@ CREATE TABLE IF NOT EXISTS link_types (
 
 -- Each row is a (entity_type × identifier_type) pairing.
 -- slug is globally unique; 'org_wa_pdc' and 'person_wa_pdc' are distinct entries.
--- Identifiers attach to role_assignments, not to role definitions — 'role' excluded.
+-- Role definitions carry identifiers too since #808 (role_cannabis_observer).
 CREATE TABLE IF NOT EXISTS entity_identifier_types (
     id           TEXT        PRIMARY KEY,
     entity_type  TEXT        NOT NULL
-                             CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction')),
+                             CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment', 'jurisdiction')),
     slug         TEXT        NOT NULL UNIQUE,
     display_name TEXT        NOT NULL,           -- short: "UBI", "SSN", "WA PDC"
     full_name    TEXT        NOT NULL,           -- long:  "Washington Unified Business Identifier"
@@ -1694,6 +1694,9 @@ BEGIN
         UPDATE people SET updated_at = NOW() WHERE id = v_entity_id;
     ELSIF v_entity_type = 'jurisdiction' THEN
         UPDATE jurisdictions SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'role' THEN
+        -- #808: the role detail's ETag keys on roles.updated_at.
+        UPDATE roles SET updated_at = NOW() WHERE id = v_entity_id;
     ELSIF v_entity_type = 'role_assignment' THEN
         -- role_assignment identifiers (role_wa_pdc, pm_assignment_id) were the
         -- one identifier scope this dispatch missed until #327 — admin/merge/
@@ -1715,6 +1718,8 @@ BEGIN
             UPDATE people SET updated_at = NOW() WHERE id = OLD.entity_id;
         ELSIF v_entity_type = 'jurisdiction' THEN
             UPDATE jurisdictions SET updated_at = NOW() WHERE id = OLD.entity_id;
+        ELSIF v_entity_type = 'role' THEN
+            UPDATE roles SET updated_at = NOW() WHERE id = OLD.entity_id;
         ELSIF v_entity_type = 'role_assignment' THEN
             UPDATE role_assignments SET updated_at = NOW() WHERE id = OLD.entity_id;
         END IF;
@@ -1770,6 +1775,8 @@ BEGIN
         PERFORM 1 FROM organizations WHERE id = NEW.entity_id FOR KEY SHARE;
     ELSIF v_entity_type = 'person' THEN
         PERFORM 1 FROM people WHERE id = NEW.entity_id FOR KEY SHARE;
+    ELSIF v_entity_type = 'role' THEN
+        PERFORM 1 FROM roles WHERE id = NEW.entity_id FOR KEY SHARE;
     ELSIF v_entity_type = 'role_assignment' THEN
         PERFORM 1 FROM role_assignments WHERE id = NEW.entity_id FOR KEY SHARE;
     ELSIF v_entity_type = 'jurisdiction' THEN
@@ -2067,20 +2074,29 @@ ON CONFLICT (id) DO UPDATE SET
 
 DROP TABLE _seed_link_types;
 
--- Extend entity_identifier_types.entity_type CHECK before seeding jurisdiction rows.
--- Must run before the INSERT below on existing DBs; CREATE TABLE IF NOT EXISTS
--- already carries the new shape for fresh DBs.
-DO $$ BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.check_constraints
-        WHERE constraint_schema = 'public'
-          AND constraint_name = 'entity_identifier_types_entity_type_check'
-          AND check_clause NOT LIKE '%jurisdiction%'
-    ) THEN
-        ALTER TABLE entity_identifier_types DROP CONSTRAINT entity_identifier_types_entity_type_check;
-        ALTER TABLE entity_identifier_types ADD CONSTRAINT entity_identifier_types_entity_type_check
-            CHECK (entity_type IN ('organization', 'person', 'role_assignment', 'jurisdiction'));
+-- Reconcile entity_identifier_types.entity_type CHECK before seeding the rows
+-- that need it (jurisdiction #168, role #808); CREATE TABLE IF NOT EXISTS carries
+-- the current shape only for fresh DBs. Absent → add, stale → replace, current →
+-- untouched (same pg_constraint row). Keyed on pg_constraint, which does not
+-- depend on the applying role owning the table as information_schema does. The
+-- marker is the rendered literal 'role'::text: a bare %role% always matches
+-- 'role_assignment'.
+DO $$
+DECLARE
+    v_def TEXT;
+BEGIN
+    SELECT pg_get_constraintdef(oid) INTO v_def
+    FROM pg_constraint
+    WHERE conrelid = 'entity_identifier_types'::regclass
+      AND conname = 'entity_identifier_types_entity_type_check';
+    IF v_def IS NOT NULL AND v_def LIKE '%''role''::text%' THEN
+        RETURN;
     END IF;
+    IF v_def IS NOT NULL THEN
+        ALTER TABLE entity_identifier_types DROP CONSTRAINT entity_identifier_types_entity_type_check;
+    END IF;
+    ALTER TABLE entity_identifier_types ADD CONSTRAINT entity_identifier_types_entity_type_check
+        CHECK (entity_type IN ('organization', 'person', 'role', 'role_assignment', 'jurisdiction'));
 END $$;
 
 -- Add is_internal column to existing DBs (#198).
@@ -2165,7 +2181,20 @@ INSERT INTO _seed_entity_identifier_types (id, entity_type, slug, display_name, 
     -- deterministic: re-deriving it from the archived PDF plus the checked-in
     -- adjudication tables reproduces the same key, so it is stable rather than
     -- run-scoped. is_internal=FALSE so a roster observation can create a Person.
-    ('01M0JJV06B4658AKYH3MTSXFNF', 'person',          'person_wa_legislature_roster', 'WA Legislature Roster', 'Washington State Legislature Roster Identity', FALSE);
+    ('01M0JJV06B4658AKYH3MTSXFNF', 'person',          'person_wa_legislature_roster', 'WA Legislature Roster', 'Washington State Legislature Roster Identity', FALSE),
+    -- PM-native role id (#808): addresses a role definition, never creates one.
+    -- The role observation route keeps its own pm_role_id branch; seeding it puts
+    -- the type in the catalog and refuses it in additional_identifiers as internal.
+    ('01M7DPQM7DCK3GW6EPCFA59J06', 'role',            'pm_role_id',       'PM Role',       'Power Map Role ID',                     TRUE),
+    -- Cannabis Observer site records (#808, CannObserv/cli#1295): the value is the
+    -- site record's ulid. The CLI addresses an entity by pm_* and attaches these via
+    -- additional_identifiers -- addressing BY one of them creates on an unknown value.
+    -- 'role_' + 'assignment_' spells the assignment type in full here, unlike the
+    -- older role_wa_pdc, which names an assignment type with the bare 'role_' prefix.
+    ('01M7DPQMCVA815DZ2M8PXS198H', 'organization',    'org_cannabis_observer',             'Cannabis Observer', 'Cannabis Observer Organization ULID',    FALSE),
+    ('01M7DPQMH6CXKNTY183BXDMN1V', 'person',          'person_cannabis_observer',          'Cannabis Observer', 'Cannabis Observer Person ULID',          FALSE),
+    ('01M7DPQMPBJEQ52A6TN3GGTGDA', 'role',            'role_cannabis_observer',            'Cannabis Observer', 'Cannabis Observer Role ULID',            FALSE),
+    ('01M7DPQMVS8Y6PX1KB5CES7SGQ', 'role_assignment', 'role_assignment_cannabis_observer', 'Cannabis Observer', 'Cannabis Observer Role Assignment ULID', FALSE);
 
 SELECT reconcile_seeded_slugs('entity_identifier_types', '_seed_entity_identifier_types');
 
@@ -2889,6 +2918,10 @@ CREATE OR REPLACE TRIGGER trg_people_identifiers
 CREATE OR REPLACE TRIGGER trg_organizations_identifiers
     BEFORE DELETE ON organizations
     FOR EACH ROW EXECUTE FUNCTION refuse_delete_while_identified('organization');
+
+CREATE OR REPLACE TRIGGER trg_roles_identifiers
+    BEFORE DELETE ON roles
+    FOR EACH ROW EXECUTE FUNCTION refuse_delete_while_identified('role');
 
 CREATE OR REPLACE TRIGGER trg_role_assignments_identifiers
     BEFORE DELETE ON role_assignments

@@ -222,6 +222,34 @@ async def test_org_merge_tombstones_dropped_duplicate_assignment(client, db):
     assert tomb["merged_into"] == survivor
 
 
+async def test_org_merge_carries_the_loser_roles_identifier_to_its_pair(client, db):
+    """#808: `_absorb_role` re-homes the loser role's identifiers before deleting it.
+
+    Without the re-home, #630's trg_roles_identifiers refuses the delete and the
+    whole merge fails.
+    """
+    win_org, lose_org = await _org(db, "Ident Win"), await _org(db, "Ident Lose")
+    win_role, lose_role = await _role(db, win_org), await _role(db, lose_org)
+    iid = generate_id()
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " SELECT $1, $2, id, '01SITEROLE' FROM entity_identifier_types"
+        " WHERE slug = 'role_cannabis_observer'",
+        iid,
+        lose_role,
+    )
+
+    response = await client.post(
+        f"/admin/orgs/{win_org}/merge-with/{lose_org}/",
+        data={"merge_role_pairs": f"{win_role}:{lose_role}"},
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert await db.fetchval("SELECT id FROM roles WHERE id=$1", lose_role) is None
+    assert await db.fetchval("SELECT entity_id FROM identifiers WHERE id=$1", iid) == win_role
+
+
 async def test_org_merge_tombstones_emptied_loser_role(client, db):
     """The loser role is hard-deleted; its tombstone names the role that replaced it."""
     win_org, lose_org = await _org(db, "Role Tomb Win"), await _org(db, "Role Tomb Lose")

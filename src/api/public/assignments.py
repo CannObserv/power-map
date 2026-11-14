@@ -8,11 +8,13 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from src.api.deps import get_db
 from src.api.public.deps import (
     AuthedKey,
+    identifier_filter,
     require_api_key,
     require_scope,
 )
 from src.api.public.etag import conditional_response, make_etag
 from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
+from src.api.public.identifier_reads import fetch_identifiers, identifier_match
 from src.api.public.schemas import (
     AssignmentDetail,
     AssignmentListResponse,
@@ -21,11 +23,13 @@ from src.api.public.schemas import (
 )
 from src.core.observation import (
     Disposition,
+    IdentifierConflict,
     ObservationRejected,
     resolve_assignment,
     resolve_entity,
     retract_assignment,
     update_assignment_fields,
+    write_additional_identifiers,
     write_addresses,
     write_contact_methods,
     write_links,
@@ -61,28 +65,37 @@ async def list_assignments(
     include_archived: bool = Query(default=False),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    id_filter: tuple[str | None, str | None] = Depends(identifier_filter),
     _: str = Depends(require_api_key),
     db=Depends(get_db),
 ) -> Any:
-    """Return a paginated list of role assignments, optionally filtered."""
+    """Return a paginated list of role assignments, optionally filtered.
+
+    ``identifier_type`` + ``identifier_value`` (both or neither) narrow the list
+    to assignments holding that identifier (#809) — every holder, as on listRoles.
+    """
+    id_type, id_value = id_filter
     rows = await db.fetch(
-        """
-        SELECT id, person_id, role_id, is_current, start_date, end_date,
-               notes, membership_type, archived_at, created_at, updated_at
-        FROM role_assignments
-        WHERE ($1::TEXT IS NULL OR person_id = $1)
-          AND ($2::TEXT IS NULL OR role_id = $2)
-          AND ($3 OR archived_at IS NULL)
+        f"""
+        SELECT ra.id, ra.person_id, ra.role_id, ra.is_current, ra.start_date, ra.end_date,
+               ra.notes, ra.membership_type, ra.archived_at, ra.created_at, ra.updated_at
+        FROM role_assignments ra
+        WHERE ($1::TEXT IS NULL OR ra.person_id = $1)
+          AND ($2::TEXT IS NULL OR ra.role_id = $2)
+          AND ($3 OR ra.archived_at IS NULL)
+          AND {identifier_match("role_assignment", "ra.id", 6, 7)}
         -- id: unique tiebreaker for stable offset pagination; the active-row unique
         -- index doesn't cover archived rows, which can tie on (person, role, start) (#297)
-        ORDER BY person_id, role_id, start_date, id
+        ORDER BY ra.person_id, ra.role_id, ra.start_date, ra.id
         LIMIT $4 OFFSET $5
-        """,
+        """,  # noqa: S608 — identifier_match interpolates fixed strings only
         person_id,
         role_id,
         include_archived,
         limit + 1,
         offset,
+        id_type,
+        id_value,
     )
 
     has_more = len(rows) > limit
@@ -148,7 +161,7 @@ async def get_assignment(
     _: str = Depends(require_api_key),
     db=Depends(get_db),
 ) -> Any:
-    """Return a full assignment record with links, contact methods, and addresses."""
+    """Return a full assignment record with links, contact methods, addresses, and identifiers."""
     row = await db.fetchrow(
         """
         SELECT id, person_id, role_id, is_current, start_date, end_date,
@@ -172,6 +185,7 @@ async def get_assignment(
         "links": [dict(r) for r in links],
         "contact_methods": [dict(r) for r in contact_methods],
         "addresses": [dict(r) for r in addresses],
+        "identifiers": await fetch_identifiers(db, "role_assignment", assignment_id),
     }
 
 
@@ -296,6 +310,7 @@ async def submit_assignment_observation(
                         ("links", req.links),
                         ("contact_methods", req.contact_methods),
                         ("addresses", req.addresses),
+                        ("additional_identifiers", req.additional_identifiers),
                     )
                     if supplied
                 ]
@@ -305,8 +320,16 @@ async def submit_assignment_observation(
                     db, assignment_id, "role_assignment", req.contact_methods
                 )
                 await write_addresses(db, assignment_id, "role_assignment", req.addresses)
+                await write_additional_identifiers(
+                    db, assignment_id, "role_assignment", req.additional_identifiers
+                )
     except ObservationRejected as exc:
         return ObservationResponse(disposition="rejected", reason=exc.detail)
+    except IdentifierConflict as exc:
+        return ObservationResponse(
+            disposition="rejected",
+            reason=f"identifier_conflict: {exc.identifier_type_slug!r}",
+        )
     except (
         asyncpg.CheckViolationError,
         asyncpg.ForeignKeyViolationError,

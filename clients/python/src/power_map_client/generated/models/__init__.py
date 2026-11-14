@@ -5,6 +5,7 @@ from .assignment_address import AssignmentAddress
 from .assignment_contact_method import AssignmentContactMethod
 from .assignment_detail import AssignmentDetail
 from .assignment_detail_membership_type import AssignmentDetailMembershipType
+from .assignment_identifier import AssignmentIdentifier
 from .assignment_link import AssignmentLink
 from .assignment_list_item import AssignmentListItem
 from .assignment_list_item_membership_type import AssignmentListItemMembershipType
@@ -131,6 +132,7 @@ from .relationship_read import RelationshipRead
 from .role_address import RoleAddress
 from .role_contact_method import RoleContactMethod
 from .role_detail import RoleDetail
+from .role_identifier import RoleIdentifier
 from .role_link import RoleLink
 from .role_list_item import RoleListItem
 from .role_list_response import RoleListResponse
@@ -154,6 +156,7 @@ __all__ = (
     "AssignmentContactMethod",
     "AssignmentDetail",
     "AssignmentDetailMembershipType",
+    "AssignmentIdentifier",
     "AssignmentLink",
     "AssignmentListItem",
     "AssignmentListItemMembershipType",
@@ -274,6 +277,7 @@ __all__ = (
     "RoleAddress",
     "RoleContactMethod",
     "RoleDetail",
+    "RoleIdentifier",
     "RoleLink",
     "RoleListItem",
     "RoleListResponse",

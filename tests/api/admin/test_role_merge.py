@@ -237,6 +237,30 @@ async def test_merge_rehomes_loser_role_contacts_and_links(client, role_pair, db
     assert await row_version(db, "roles", role_a) != before
 
 
+async def test_merge_rehomes_loser_role_identifiers(client, role_pair, db):
+    """#808: the loser role's identifiers move to the winner; #630's guard would
+    otherwise refuse the loser's delete."""
+    org_id, role_a, role_b = role_pair
+    iid = generate_id()
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " SELECT $1, $2, id, '01SITEROLE' FROM entity_identifier_types"
+        " WHERE slug = 'role_cannabis_observer'",
+        iid,
+        role_b,
+    )
+    before = await row_version(db, "roles", role_a)
+
+    response = await client.post(
+        f"/admin/orgs/{org_id}/roles/{role_a}/merge/{role_b}/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert await db.fetchval("SELECT entity_id FROM identifiers WHERE id=$1", iid) == role_a
+    assert await row_version(db, "roles", role_a) != before
+
+
 # ── Merge preview modal (#255) ───────────────────────────────────────────────
 
 

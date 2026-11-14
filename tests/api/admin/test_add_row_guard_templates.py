@@ -103,6 +103,7 @@ FORM_ROW_PARTIALS = [
     "admin/roles/partials/_assignment_form_row.html",
     "admin/roles/partials/_contact_form_row.html",
     "admin/roles/partials/_link_form_row.html",
+    "admin/roles/partials/_identifier_form_row.html",
     "admin/role_assignments/partials/_contact_form_row.html",
     "admin/role_assignments/partials/_link_form_row.html",
     "admin/role_assignments/partials/_identifier_form_row.html",

@@ -9,8 +9,8 @@ to every UI and every read:
   ``(entity_type='role_assignment', entity_id)`` (identifiers scope through
   ``entity_identifier_types`` instead of an ``entity_type`` column).
 - **role (#326):** ``links`` / ``contact_methods`` keyed on ``(entity_type='role',
-  entity_id)`` — the two surfaces the admin role editors populate. (role is excluded
-  from identifiers/field_confidence/import_provenance.)
+  entity_id)`` — the two surfaces the admin role editors populate — and, since #808,
+  role-typed ``identifiers``. (role is excluded from field_confidence/import_provenance.)
 
 Before a delete, each merge path re-homes the loser's ancillary onto the survivor
 (``rehome_conflicting_assignment_ancillary`` for assignments,
@@ -291,9 +291,10 @@ async def rehome_assignment_relationships(
 # ---------------------------------------------------------------------------
 # Role-level ancillary (#326)
 #
-# A role *definition* carries only two of the polymorphic ancillary surfaces —
-# ``contact_methods`` and ``links`` keyed on ``(entity_type='role', entity_id)``.
-# (identifiers / field_confidence / import_provenance exclude 'role'.) The admin
+# A role *definition* carries three of the polymorphic ancillary surfaces —
+# ``contact_methods`` and ``links`` keyed on ``(entity_type='role', entity_id)``, and
+# role-typed ``identifiers`` (#808). (field_confidence / import_provenance exclude
+# 'role'.) The admin
 # contacts/links editors (#326) make these rows routinely populated, so the three
 # role-deleting paths (role hard-delete, role merge, org-merge role-pair) must
 # clean them up or they orphan exactly like the assignment case — same no-FK model.
@@ -324,18 +325,34 @@ _ROLE_SPECS: tuple[_AncillarySpec, ...] = (
         ),
         key_fields=("contact_type", "value"),
     ),
+    _AncillarySpec(
+        # #808: role-typed identifiers (role_cannabis_observer), scoped as the
+        # assignment spec is — through the type's entity_type.
+        name="identifiers",
+        select_sql=(
+            "SELECT i.id, i.entity_identifier_type_id, i.value FROM identifiers i"
+            " JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id"
+            " WHERE t.entity_type='role' AND i.entity_id=$1"
+        ),
+        exists_sql=(
+            "SELECT 1 FROM identifiers"
+            " WHERE entity_id=$1 AND entity_identifier_type_id=$2 AND value=$3"
+        ),
+        key_fields=("entity_identifier_type_id", "value"),
+    ),
 )
 
 
 async def rehome_role_ancillary(
     db: asyncpg.Connection, loser_id: str, winner_id: str
 ) -> dict[str, tuple[int, int]]:
-    """Re-point a loser role's contacts/links onto the winner before a merge delete.
+    """Re-point a loser role's contacts/links/identifiers onto the winner before a merge delete.
 
     Mirrors :func:`rehome_conflicting_assignment_ancillary` for the role case: each
     row is re-pointed onto ``winner_id`` or deleted when the winner already carries
-    an identical one. Both role specs (``links`` / ``contact_methods``) carry touch
-    triggers (#327), so a re-point bumps the survivor role's ``updated_at``.
+    an identical one. Every role spec (``links`` / ``contact_methods`` /
+    ``identifiers``) carries a touch trigger (#327, #808), so a re-point bumps the
+    survivor role's ``updated_at``.
     Returns per-table ``(moved, deduped)``. Role citations (#319) re-home alongside
     (NULL-safe, touch-triggered).
     """
@@ -841,7 +858,7 @@ _ORPHAN_SCOPES: dict[str, _OrphanScope] = {
     # The type is the identifier type's (#617): a row on the wrong kind of entity
     # names an id missing from its type's table, so it counts here too.
     "identifiers": _OrphanScope(
-        _NO_ROLE,
+        _EVERY_TYPE,  # role since #808
         "identifiers x JOIN entity_identifier_types t ON t.id = x.entity_identifier_type_id",
         type_column="t.entity_type",
     ),

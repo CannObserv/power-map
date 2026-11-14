@@ -1,8 +1,8 @@
 """Integration tests for role_assignment identifiers CRUD (#326).
 
-Only role_assignment (not role) carries identifiers — entity_identifier_types
-seeds `role_wa_pdc` (public) and `pm_assignment_id` (internal) for it. The admin
-picker excludes internal types, so only `role_wa_pdc` is offered.
+entity_identifier_types seeds `role_wa_pdc` (public) and `pm_assignment_id`
+(internal) for role_assignment. The admin picker excludes internal types, so the
+internal one is never offered. (Role definitions: test_roles_identifiers.py, #808.)
 """
 
 import pytest

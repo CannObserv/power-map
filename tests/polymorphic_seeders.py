@@ -61,6 +61,7 @@ async def archived_entity(db, entity_type: str) -> str:
 IDENTIFIER_DELETE_GUARDS = {
     "person": "trg_people_identifiers",
     "organization": "trg_organizations_identifiers",
+    "role": "trg_roles_identifiers",
     "role_assignment": "trg_role_assignments_identifiers",
     "jurisdiction": "trg_jurisdictions_identifiers",
 }
@@ -75,11 +76,7 @@ async def raw_delete(db, entity_type: str, entity_id: str) -> None:
     """
     table = ENTITY_TABLES[entity_type]
     sql = f"DELETE FROM {table} WHERE id = $1"
-    guard = IDENTIFIER_DELETE_GUARDS.get(entity_type)
-    if guard is None:  # role: identifiers cannot name one
-        await db.execute(sql, entity_id)
-        return
-    async with trigger_disabled(db, table, guard):
+    async with trigger_disabled(db, table, IDENTIFIER_DELETE_GUARDS[entity_type]):
         await db.execute(sql, entity_id)
 
 
@@ -117,8 +114,6 @@ async def seed_identifiers(db, et, eid):
     type_id = await db.fetchval(
         "SELECT id FROM entity_identifier_types WHERE entity_type = $1 ORDER BY id LIMIT 1", et
     )
-    if type_id is None:  # role: no identifier type keys it
-        return []
     i = generate_id()
     await db.execute(
         "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"

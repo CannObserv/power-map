@@ -1,7 +1,8 @@
 """Admin CRUD for role_assignment identifiers (#326).
 
-Only role_assignment carries identifiers (not the role definition); the picker
-excludes internal types, so `role_wa_pdc` is the offered public type.
+The picker excludes internal types, so `role_wa_pdc` and
+`role_assignment_cannabis_observer` are the offered public types. The role
+definition has its own panel since #808 (`roles_identifiers.py`).
 """
 
 from src.api.admin._identifiers_shared import make_identifiers_router

@@ -54,10 +54,11 @@ OrgNameType = Literal["legal", "dba", "former"]
 ORG_NAME_TYPES: tuple[OrgNameType, ...] = ("legal", "dba", "former")
 
 # entity_identifier_types.entity_type CHECK (src/core/schema.sql).
-EntityType = Literal["organization", "person", "role_assignment", "jurisdiction"]
+EntityType = Literal["organization", "person", "role", "role_assignment", "jurisdiction"]
 VALID_ENTITY_TYPES: tuple[EntityType, ...] = (
     "organization",
     "person",
+    "role",
     "role_assignment",
     "jurisdiction",
 )
