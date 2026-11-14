@@ -14,8 +14,8 @@ implicit rules this collection follows. Auth, pagination and conditional request
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `GET` | `/api/v1/roles` | API key | Paginated list of roles, optionally filtered by org. |
-| `GET` | `/api/v1/roles/{id}` | API key | Full role record (links, contact methods, addresses) with ETag caching. Merged/deleted id → `410` + `merged_into` (`docs/PUBLIC_API.md` § Retired ids). |
+| `GET` | `/api/v1/roles` | API key | Paginated list of roles, optionally filtered by org or identifier. |
+| `GET` | `/api/v1/roles/{id}` | API key | Full role record (links, contact methods, addresses, identifiers) with ETag caching. Merged/deleted id → `410` + `merged_into` (`docs/PUBLIC_API.md` § Retired ids). |
 | `GET` | `/api/v1/role-types` | API key | Full (unpaginated) catalog of role-type classifiers — the structural-match vocabulary. ETag caching (content hash) — see [Conditional requests](PUBLIC_API.md#conditional-requests). |
 | `POST` | `/api/v1/roles/observations` | `observations:write` scope | Submit a role observation (match-or-create). |
 
@@ -29,6 +29,7 @@ Query parameters:
 |-----------|---------|-------|
 | `organization_id` | (none) | Filter to roles owned by this org ULID. Highly recommended; without it the list spans all orgs. |
 | `include_archived` | `false` | Include archived roles (`archived_at` non-null). |
+| `identifier_type` + `identifier_value` | (none) | Both or neither (else 422). Narrows to roles holding that identifier (#808) — **every** holder, paginated and ordered as usual, ANDed with `organization_id`; the same filter `GET /assignments` takes. A slug for another entity type, an unknown slug, or `pm_role_id` (stored as no row) matches nothing. Rules → `docs/OBSERVATIONS.md` §"Identifier types". |
 | `limit` | 20 | 1–100 |
 | `offset` | 0 | |
 
@@ -81,6 +82,7 @@ Returns all list item fields plus:
 | `links` | Array of `{id, url, link_type_id, link_type_slug, link_type_name, is_active}` |
 | `contact_methods` | Array of `{id, contact_type, value, display_label (nullable)}` |
 | `addresses` | Array of `{id, address_id, address_type, raw_input (nullable), standardized (nullable), valid_from (nullable date), valid_until (nullable date)}` — `valid_from`/`valid_until` bound the validity window (`YYYY-MM-DD`); NULL = open-ended on that side |
+| `identifiers` | Array of `{id, type_id, type_slug, value}` — external types only, as on people and orgs (#808) |
 
 Supports ETag / `If-None-Match` conditional requests; 304 on cache hit.
 
@@ -108,6 +110,7 @@ Two mutually exclusive resolution modes:
 | `links` | optional | List of `{url, link_type_id XOR link_type_slug}`. Written on both NEW and AUTO_ATTACHED (append-only). |
 | `contact_methods` | optional | List of `{contact_type, value, display_label?}` — `contact_type` must be `email` or `phone`; `display_label` is an optional short human-readable label. Written on both NEW and AUTO_ATTACHED (append-only). |
 | `addresses` | optional | List of `{raw_input, address_type, valid_from?, valid_until?}`. Written on both NEW and AUTO_ATTACHED (append-only). `valid_from`/`valid_until` (`YYYY-MM-DD`, optional; `valid_from` ≤ `valid_until`, 422 otherwise) bound the address validity window; NULL/omitted = open-ended on that side. A **dateless** claim dedups against any existing window (never resurrects an admin-ended address); a **dated** claim dedups on the exact window and records a fresh row for a new one (#256). |
+| `additional_identifiers` | optional | List of `{identifier_type_slug, identifier_value}` (#808) — `role_cannabis_observer`. Same rules as on people and orgs: internal (`pm_*`) refused, another entity type's slug `identifier_type_mismatch: '<slug>'`, a held value a no-op, a different value for a held type `identifier_conflict: '<slug>'`. |
 
 **Disposition semantics:**
 
@@ -115,6 +118,6 @@ Two mutually exclusive resolution modes:
 |-------------|-----------|
 | `new` | No active matching role found (plain: `(org_id, lower(title))`; with jurisdiction: `(org_id, role_type, jurisdiction_id, qualifier)`); role created (standard mode only) |
 | `auto-attached` | Active matching role already exists (standard) or known ULID supplied (PM-native); attribute writes still applied |
-| `rejected` | Organization unknown or archived; unknown/archived ULID (PM-native); unknown `role_type` slug; a role with a jurisdiction missing `role_type`; a jurisdictional observation of a `requires_qualifier` office missing `qualifier` (`qualifier_required` — #273); a jurisdictional observation of a `forbids_qualifier` office supplying one (`qualifier_forbidden` — #302); unknown or archived `jurisdiction_id`; a create with no `title` (`title_required`); DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
+| `rejected` | Nothing is written — resolution and payload share one transaction (#456, roles since #808), so a role the natural key would have created is rolled back too. Organization unknown or archived; unknown/archived ULID (PM-native); unknown `role_type` slug; a role with a jurisdiction missing `role_type`; a jurisdictional observation of a `requires_qualifier` office missing `qualifier` (`qualifier_required` — #273); a jurisdictional observation of a `forbids_qualifier` office supplying one (`qualifier_forbidden` — #302); unknown or archived `jurisdiction_id`; a create with no `title` (`title_required`); an unknown `link_type_slug`; an `additional_identifiers` refusal (above); DB constraint violation. A human-readable `reason` string is always present on rejected responses. |
 
 **Note:** `notes`, `established_on`, and `abolished_on` are only written on NEW disposition. They are intentionally not updated on AUTO_ATTACHED to preserve first-submitter authority over these core role fields.
