@@ -198,3 +198,26 @@ async def test_identifier_types_etag_changes_on_row_add(client, db, api_key):
         assert after.status_code == 200
     finally:
         await db.execute("DELETE FROM entity_identifier_types WHERE id=$1", iid)
+
+
+#: #808: seeded so a rebuilt database holds them — slug → (entity_type, is_internal).
+SEEDED_808 = {
+    "pm_role_id": ("role", True),
+    "org_cannabis_observer": ("organization", False),
+    "person_cannabis_observer": ("person", False),
+    "role_cannabis_observer": ("role", False),
+    "role_assignment_cannabis_observer": ("role_assignment", False),
+}
+
+
+@pytest.mark.integration
+async def test_identifier_types_seed_the_cannabis_observer_family(client, api_key):
+    """The site's record ULIDs are external (attachable); pm_role_id addresses only."""
+    response = await client.get(ENDPOINT, headers={"X-API-Key": api_key})
+    by_slug = {r["slug"]: r for r in response.json()["data"]}
+    for slug, (entity_type, internal) in SEEDED_808.items():
+        assert slug in by_slug, f"{slug} not seeded"
+        assert (by_slug[slug]["entity_type"], by_slug[slug]["is_internal"]) == (
+            entity_type,
+            internal,
+        )

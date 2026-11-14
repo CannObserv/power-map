@@ -26,6 +26,7 @@ GUARD = IDENTIFIER_ENTITY_GUARD
 TYPE_SLUGS = {
     "person": "person_ssn",
     "organization": "org_ubi",
+    "role": "role_cannabis_observer",
     "role_assignment": "role_wa_pdc",
     "jurisdiction": "jur_fips",
 }
@@ -33,6 +34,7 @@ TYPE_SLUGS = {
 OTHER = {
     "person": "organization",
     "organization": "person",
+    "role": "organization",
     "role_assignment": "person",
     "jurisdiction": "organization",
 }

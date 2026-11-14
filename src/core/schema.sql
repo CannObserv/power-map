@@ -1694,6 +1694,9 @@ BEGIN
         UPDATE people SET updated_at = NOW() WHERE id = v_entity_id;
     ELSIF v_entity_type = 'jurisdiction' THEN
         UPDATE jurisdictions SET updated_at = NOW() WHERE id = v_entity_id;
+    ELSIF v_entity_type = 'role' THEN
+        -- #808: the role detail's ETag keys on roles.updated_at.
+        UPDATE roles SET updated_at = NOW() WHERE id = v_entity_id;
     ELSIF v_entity_type = 'role_assignment' THEN
         -- role_assignment identifiers (role_wa_pdc, pm_assignment_id) were the
         -- one identifier scope this dispatch missed until #327 — admin/merge/
@@ -1715,6 +1718,8 @@ BEGIN
             UPDATE people SET updated_at = NOW() WHERE id = OLD.entity_id;
         ELSIF v_entity_type = 'jurisdiction' THEN
             UPDATE jurisdictions SET updated_at = NOW() WHERE id = OLD.entity_id;
+        ELSIF v_entity_type = 'role' THEN
+            UPDATE roles SET updated_at = NOW() WHERE id = OLD.entity_id;
         ELSIF v_entity_type = 'role_assignment' THEN
             UPDATE role_assignments SET updated_at = NOW() WHERE id = OLD.entity_id;
         END IF;
@@ -2176,7 +2181,20 @@ INSERT INTO _seed_entity_identifier_types (id, entity_type, slug, display_name, 
     -- deterministic: re-deriving it from the archived PDF plus the checked-in
     -- adjudication tables reproduces the same key, so it is stable rather than
     -- run-scoped. is_internal=FALSE so a roster observation can create a Person.
-    ('01M0JJV06B4658AKYH3MTSXFNF', 'person',          'person_wa_legislature_roster', 'WA Legislature Roster', 'Washington State Legislature Roster Identity', FALSE);
+    ('01M0JJV06B4658AKYH3MTSXFNF', 'person',          'person_wa_legislature_roster', 'WA Legislature Roster', 'Washington State Legislature Roster Identity', FALSE),
+    -- PM-native role id (#808): addresses a role definition, never creates one.
+    -- The role observation route keeps its own pm_role_id branch; seeding it puts
+    -- the type in the catalog and refuses it in additional_identifiers as internal.
+    ('01M7DPQM7DCK3GW6EPCFA59J06', 'role',            'pm_role_id',       'PM Role',       'Power Map Role ID',                     TRUE),
+    -- Cannabis Observer site records (#808, CannObserv/cli#1295): the value is the
+    -- site record's ulid. The CLI addresses an entity by pm_* and attaches these via
+    -- additional_identifiers -- addressing BY one of them creates on an unknown value.
+    -- 'role_' + 'assignment_' spells the assignment type in full here, unlike the
+    -- older role_wa_pdc, which names an assignment type with the bare 'role_' prefix.
+    ('01M7DPQMCVA815DZ2M8PXS198H', 'organization',    'org_cannabis_observer',             'Cannabis Observer', 'Cannabis Observer Organization ULID',    FALSE),
+    ('01M7DPQMH6CXKNTY183BXDMN1V', 'person',          'person_cannabis_observer',          'Cannabis Observer', 'Cannabis Observer Person ULID',          FALSE),
+    ('01M7DPQMPBJEQ52A6TN3GGTGDA', 'role',            'role_cannabis_observer',            'Cannabis Observer', 'Cannabis Observer Role ULID',            FALSE),
+    ('01M7DPQMVS8Y6PX1KB5CES7SGQ', 'role_assignment', 'role_assignment_cannabis_observer', 'Cannabis Observer', 'Cannabis Observer Role Assignment ULID', FALSE);
 
 SELECT reconcile_seeded_slugs('entity_identifier_types', '_seed_entity_identifier_types');
 
@@ -2900,6 +2918,10 @@ CREATE OR REPLACE TRIGGER trg_people_identifiers
 CREATE OR REPLACE TRIGGER trg_organizations_identifiers
     BEFORE DELETE ON organizations
     FOR EACH ROW EXECUTE FUNCTION refuse_delete_while_identified('organization');
+
+CREATE OR REPLACE TRIGGER trg_roles_identifiers
+    BEFORE DELETE ON roles
+    FOR EACH ROW EXECUTE FUNCTION refuse_delete_while_identified('role');
 
 CREATE OR REPLACE TRIGGER trg_role_assignments_identifiers
     BEFORE DELETE ON role_assignments

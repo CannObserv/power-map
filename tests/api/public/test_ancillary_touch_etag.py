@@ -232,12 +232,12 @@ _TOP_LEVEL = ("organization", "person", "role", "role_assignment", "jurisdiction
 
 # Every touch-triggered ancillary table, on every parent its trigger dispatches
 # to — which is every entity type the table's CHECK admits. ``identifiers`` has
-# no role types and ``entity_addresses`` no assignment ones; ``citations`` adds
+# every top-level type since #808, ``entity_addresses`` no assignment ones; ``citations`` adds
 # the two sub-entities its trigger resolves to their owner.
 _CASES = [
     *(("links", t) for t in _TOP_LEVEL),
     *(("contact_methods", t) for t in _TOP_LEVEL),
-    *(("identifiers", t) for t in ("organization", "person", "role_assignment", "jurisdiction")),
+    *(("identifiers", t) for t in _TOP_LEVEL),
     *(("entity_addresses", t) for t in ("organization", "person", "role", "jurisdiction")),
     *(("citations", t) for t in (*_TOP_LEVEL, "person_name", "entity_event")),
 ]

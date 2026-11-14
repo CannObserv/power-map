@@ -1,10 +1,10 @@
-"""#630: the four identifier entity tables behave like the referenced side of an FK.
+"""#630: the identifier entity tables behave like the referenced side of an FK.
 
 ``identifiers.entity_id`` is polymorphic — its table is the one its type's
 ``entity_identifier_types.entity_type`` names — so no real FK can hold it.
 ``trg_identifiers_entity`` (#622) is the referencing half; the ``BEFORE DELETE``
 triggers here are the referenced half: deleting a person, organization, role
-assignment or jurisdiction that an identifier still names raises
+(#808), role assignment or jurisdiction that an identifier still names raises
 ``foreign_key_violation``, naming the trigger as its constraint (restrict). The
 admin hard delete drops the identifiers first (``delete_entity_ancillary``,
 #605) and merges re-home them; this is the backstop for every other path. A
@@ -29,6 +29,7 @@ GUARDS = IDENTIFIER_DELETE_GUARDS
 TYPE_SLUGS = {
     "person": "person_ssn",
     "organization": "org_ubi",
+    "role": "role_cannabis_observer",
     "role_assignment": "role_wa_pdc",
     "jurisdiction": "jur_fips",
 }
