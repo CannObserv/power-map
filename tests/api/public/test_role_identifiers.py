@@ -12,6 +12,7 @@ import os
 import pytest
 import pytest_asyncio
 
+from src.api.public import roles as roles_route
 from src.core.db import generate_id
 
 pytestmark = [pytest.mark.integration]
@@ -359,3 +360,51 @@ async def test_an_unknown_role_identifier_never_creates(client, write_headers):
     )
 
     assert r.json()["reason"] == "entity_type_not_creatable: 'role'"
+
+
+# --- the create race, inside the observation transaction --------------------
+
+
+async def test_a_lost_create_race_attaches_and_still_writes_the_payload(
+    client, db, write_headers, org, monkeypatch
+):
+    """#808 moved resolution inside the write transaction; the race retry must survive it.
+
+    The first resolve hits a real unique violation on uq_role_org_title. Its
+    savepoint rolls back alone (taking the stand-in twin with it), so the retry
+    resolves and the payload still writes — without the savepoint, the aborted
+    observation transaction would fail every statement after it.
+    """
+    real_resolve = roles_route.resolve_role
+    calls = 0
+
+    async def racing_resolve(conn, organization_id, title, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            await conn.execute(
+                "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+                generate_id(),
+                organization_id,
+                title,
+            )
+            await conn.execute(  # the loser's own insert: a real UniqueViolation
+                "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, $3)",
+                generate_id(),
+                organization_id,
+                title,
+            )
+        return await real_resolve(conn, organization_id, title, **kwargs)
+
+    monkeypatch.setattr(roles_route, "resolve_role", racing_resolve)
+
+    r = await client.post(
+        _OBS,
+        json={"organization_id": org, "title": "Raced", **_extra("01RACE")},
+        headers=write_headers,
+    )
+
+    body = r.json()
+    assert calls == 2
+    assert body["disposition"] == "new"  # the twin rolled back with the first attempt
+    assert await _held(db, body["entity_id"]) == ["01RACE"]

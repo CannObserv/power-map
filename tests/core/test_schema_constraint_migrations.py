@@ -300,15 +300,18 @@ async def test_apply_schema_admits_role_in_the_identifier_type_check(db_pool, st
             f"ALTER TABLE entity_identifier_types DROP CONSTRAINT IF EXISTS {_EIT_CHECK}"
         )
         if starting_shape == "pre_808":
+            # NOT VALID: this database already holds the seeded role types, which a
+            # real pre-#808 database never did; the reconcile must replace it anyway.
             await conn.execute(
                 f"ALTER TABLE entity_identifier_types"
-                f" ADD CONSTRAINT {_EIT_CHECK} {_PRE_808_EIT_CHECK}"
+                f" ADD CONSTRAINT {_EIT_CHECK} {_PRE_808_EIT_CHECK} NOT VALID"
             )
             before = await conn.fetchval(_CONSTRAINT_DEF_SQL, "entity_identifier_types", _EIT_CHECK)
             assert "'role'::text" not in before
 
         await apply_schema(conn)
         repaired = await conn.fetchval(_CONSTRAINT_DEF_SQL, "entity_identifier_types", _EIT_CHECK)
+        assert "NOT VALID" not in repaired
         for fragment in (
             "'organization'",
             "'person'",
