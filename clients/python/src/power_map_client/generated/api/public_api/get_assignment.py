@@ -100,7 +100,7 @@ def sync_detailed(
 ) -> Response[Any | AssignmentDetail | EntityGone | ErrorDetail | HTTPValidationError]:
     """Get Assignment
 
-     Return a full assignment record with links, contact methods, and addresses.
+     Return a full assignment record with links, contact methods, addresses, and identifiers.
 
     Args:
         assignment_id (str):
@@ -134,7 +134,7 @@ def sync(
 ) -> Any | AssignmentDetail | EntityGone | ErrorDetail | HTTPValidationError | None:
     """Get Assignment
 
-     Return a full assignment record with links, contact methods, and addresses.
+     Return a full assignment record with links, contact methods, addresses, and identifiers.
 
     Args:
         assignment_id (str):
@@ -163,7 +163,7 @@ async def asyncio_detailed(
 ) -> Response[Any | AssignmentDetail | EntityGone | ErrorDetail | HTTPValidationError]:
     """Get Assignment
 
-     Return a full assignment record with links, contact methods, and addresses.
+     Return a full assignment record with links, contact methods, addresses, and identifiers.
 
     Args:
         assignment_id (str):
@@ -195,7 +195,7 @@ async def asyncio(
 ) -> Any | AssignmentDetail | EntityGone | ErrorDetail | HTTPValidationError | None:
     """Get Assignment
 
-     Return a full assignment record with links, contact methods, and addresses.
+     Return a full assignment record with links, contact methods, addresses, and identifiers.
 
     Args:
         assignment_id (str):

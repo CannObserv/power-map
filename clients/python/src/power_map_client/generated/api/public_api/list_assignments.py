@@ -18,6 +18,8 @@ def _get_kwargs(
     include_archived: bool | Unset = False,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
+    identifier_type: None | str | Unset = UNSET,
+    identifier_value: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -41,6 +43,20 @@ def _get_kwargs(
     params["limit"] = limit
 
     params["offset"] = offset
+
+    json_identifier_type: None | str | Unset
+    if isinstance(identifier_type, Unset):
+        json_identifier_type = UNSET
+    else:
+        json_identifier_type = identifier_type
+    params["identifier_type"] = json_identifier_type
+
+    json_identifier_value: None | str | Unset
+    if isinstance(identifier_value, Unset):
+        json_identifier_value = UNSET
+    else:
+        json_identifier_value = identifier_value
+    params["identifier_value"] = json_identifier_value
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -106,10 +122,15 @@ def sync_detailed(
     include_archived: bool | Unset = False,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
+    identifier_type: None | str | Unset = UNSET,
+    identifier_value: None | str | Unset = UNSET,
 ) -> Response[AssignmentListResponse | ErrorDetail | HTTPValidationError]:
     """List Assignments
 
      Return a paginated list of role assignments, optionally filtered.
+
+    ``identifier_type`` + ``identifier_value`` (both or neither) narrow the list
+    to assignments holding that identifier (#809) — every holder, as on listRoles.
 
     Args:
         person_id (None | str | Unset):
@@ -117,6 +138,8 @@ def sync_detailed(
         include_archived (bool | Unset):  Default: False.
         limit (int | Unset):  Default: 20.
         offset (int | Unset):  Default: 0.
+        identifier_type (None | str | Unset):
+        identifier_value (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -132,6 +155,8 @@ def sync_detailed(
         include_archived=include_archived,
         limit=limit,
         offset=offset,
+        identifier_type=identifier_type,
+        identifier_value=identifier_value,
     )
 
     response = client.get_httpx_client().request(
@@ -149,10 +174,15 @@ def sync(
     include_archived: bool | Unset = False,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
+    identifier_type: None | str | Unset = UNSET,
+    identifier_value: None | str | Unset = UNSET,
 ) -> AssignmentListResponse | ErrorDetail | HTTPValidationError | None:
     """List Assignments
 
      Return a paginated list of role assignments, optionally filtered.
+
+    ``identifier_type`` + ``identifier_value`` (both or neither) narrow the list
+    to assignments holding that identifier (#809) — every holder, as on listRoles.
 
     Args:
         person_id (None | str | Unset):
@@ -160,6 +190,8 @@ def sync(
         include_archived (bool | Unset):  Default: False.
         limit (int | Unset):  Default: 20.
         offset (int | Unset):  Default: 0.
+        identifier_type (None | str | Unset):
+        identifier_value (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -176,6 +208,8 @@ def sync(
         include_archived=include_archived,
         limit=limit,
         offset=offset,
+        identifier_type=identifier_type,
+        identifier_value=identifier_value,
     ).parsed
 
 
@@ -187,10 +221,15 @@ async def asyncio_detailed(
     include_archived: bool | Unset = False,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
+    identifier_type: None | str | Unset = UNSET,
+    identifier_value: None | str | Unset = UNSET,
 ) -> Response[AssignmentListResponse | ErrorDetail | HTTPValidationError]:
     """List Assignments
 
      Return a paginated list of role assignments, optionally filtered.
+
+    ``identifier_type`` + ``identifier_value`` (both or neither) narrow the list
+    to assignments holding that identifier (#809) — every holder, as on listRoles.
 
     Args:
         person_id (None | str | Unset):
@@ -198,6 +237,8 @@ async def asyncio_detailed(
         include_archived (bool | Unset):  Default: False.
         limit (int | Unset):  Default: 20.
         offset (int | Unset):  Default: 0.
+        identifier_type (None | str | Unset):
+        identifier_value (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -213,6 +254,8 @@ async def asyncio_detailed(
         include_archived=include_archived,
         limit=limit,
         offset=offset,
+        identifier_type=identifier_type,
+        identifier_value=identifier_value,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -228,10 +271,15 @@ async def asyncio(
     include_archived: bool | Unset = False,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
+    identifier_type: None | str | Unset = UNSET,
+    identifier_value: None | str | Unset = UNSET,
 ) -> AssignmentListResponse | ErrorDetail | HTTPValidationError | None:
     """List Assignments
 
      Return a paginated list of role assignments, optionally filtered.
+
+    ``identifier_type`` + ``identifier_value`` (both or neither) narrow the list
+    to assignments holding that identifier (#809) — every holder, as on listRoles.
 
     Args:
         person_id (None | str | Unset):
@@ -239,6 +287,8 @@ async def asyncio(
         include_archived (bool | Unset):  Default: False.
         limit (int | Unset):  Default: 20.
         offset (int | Unset):  Default: 0.
+        identifier_type (None | str | Unset):
+        identifier_value (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -256,5 +306,7 @@ async def asyncio(
             include_archived=include_archived,
             limit=limit,
             offset=offset,
+            identifier_type=identifier_type,
+            identifier_value=identifier_value,
         )
     ).parsed

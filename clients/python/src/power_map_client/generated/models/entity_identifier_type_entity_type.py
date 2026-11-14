@@ -5,6 +5,7 @@ class EntityIdentifierTypeEntityType(StrEnum):
     JURISDICTION = "jurisdiction"
     ORGANIZATION = "organization"
     PERSON = "person"
+    ROLE = "role"
     ROLE_ASSIGNMENT = "role_assignment"
 
     def __str__(self) -> str:

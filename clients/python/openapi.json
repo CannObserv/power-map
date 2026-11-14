@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "power-map",
-    "version": "0.70.1"
+    "version": "0.71.0"
   },
   "paths": {
     "/health": {
@@ -44,7 +44,7 @@
           "public-api"
         ],
         "summary": "List Assignments",
-        "description": "Return a paginated list of role assignments, optionally filtered.",
+        "description": "Return a paginated list of role assignments, optionally filtered.\n\n``identifier_type`` + ``identifier_value`` (both or neither) narrow the list\nto assignments holding that identifier (#809) — every holder, as on listRoles.",
         "operationId": "listAssignments",
         "security": [
           {
@@ -116,6 +116,38 @@
               "default": 0,
               "title": "Offset"
             }
+          },
+          {
+            "name": "identifier_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Identifier Type"
+            }
+          },
+          {
+            "name": "identifier_value",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Identifier Value"
+            }
           }
         ],
         "responses": {
@@ -179,7 +211,7 @@
           "public-api"
         ],
         "summary": "Get Assignment",
-        "description": "Return a full assignment record with links, contact methods, and addresses.",
+        "description": "Return a full assignment record with links, contact methods, addresses, and identifiers.",
         "operationId": "getAssignment",
         "security": [
           {
@@ -4094,7 +4126,7 @@
           "public-api"
         ],
         "summary": "List Roles",
-        "description": "Return a paginated list of roles, optionally filtered by organization.",
+        "description": "Return a paginated list of roles, optionally filtered by organization.\n\n``identifier_type`` + ``identifier_value`` (both or neither) narrow the list\nto roles holding that identifier (#808) — every holder, paginated as usual.",
         "operationId": "listRoles",
         "security": [
           {
@@ -4149,6 +4181,38 @@
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          },
+          {
+            "name": "identifier_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Identifier Type"
+            }
+          },
+          {
+            "name": "identifier_value",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Identifier Value"
             }
           }
         ],
@@ -4213,7 +4277,7 @@
           "public-api"
         ],
         "summary": "Get Role",
-        "description": "Return a full role record with links, contact methods, and addresses.",
+        "description": "Return a full role record with links, contact methods, addresses, and identifiers.",
         "operationId": "getRole",
         "security": [
           {
@@ -4324,7 +4388,7 @@
           "public-api"
         ],
         "summary": "Submit Role Observation",
-        "description": "Submit a role observation; match by (organization_id, title) or by pm_role_id.",
+        "description": "Submit a role observation; match by (organization_id, title) or by pm_role_id.\n\nResolution and every payload write share one transaction (#456, roles since\n#808), so ``rejected`` means nothing was written — a role the natural key\nwould have created included.",
         "operationId": "submitRoleObservation",
         "requestBody": {
           "content": {
@@ -4695,6 +4759,13 @@
             },
             "type": "array",
             "title": "Addresses"
+          },
+          "identifiers": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentIdentifier"
+            },
+            "type": "array",
+            "title": "Identifiers"
           }
         },
         "type": "object",
@@ -4708,7 +4779,36 @@
           "updated_at"
         ],
         "title": "AssignmentDetail",
-        "description": "Full assignment record including links, contact methods, and addresses."
+        "description": "Full assignment record including links, contact methods, addresses, and identifiers."
+      },
+      "AssignmentIdentifier": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type_id": {
+            "type": "string",
+            "title": "Type Id"
+          },
+          "type_slug": {
+            "type": "string",
+            "title": "Type Slug"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type_id",
+          "type_slug",
+          "value"
+        ],
+        "title": "AssignmentIdentifier",
+        "description": "An external identifier attached to a role assignment (#809)."
       },
       "AssignmentLink": {
         "properties": {
@@ -4991,6 +5091,13 @@
             },
             "type": "array",
             "title": "Addresses"
+          },
+          "additional_identifiers": {
+            "items": {
+              "$ref": "#/components/schemas/ObservationAdditionalIdentifier"
+            },
+            "type": "array",
+            "title": "Additional Identifiers"
           }
         },
         "type": "object",
@@ -5888,6 +5995,7 @@
             "enum": [
               "organization",
               "person",
+              "role",
               "role_assignment",
               "jurisdiction"
             ],
@@ -9264,6 +9372,13 @@
             },
             "type": "array",
             "title": "Addresses"
+          },
+          "identifiers": {
+            "items": {
+              "$ref": "#/components/schemas/RoleIdentifier"
+            },
+            "type": "array",
+            "title": "Identifiers"
           }
         },
         "type": "object",
@@ -9275,7 +9390,36 @@
           "updated_at"
         ],
         "title": "RoleDetail",
-        "description": "Full role record including links, contact methods, and addresses."
+        "description": "Full role record including links, contact methods, addresses, and identifiers."
+      },
+      "RoleIdentifier": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type_id": {
+            "type": "string",
+            "title": "Type Id"
+          },
+          "type_slug": {
+            "type": "string",
+            "title": "Type Slug"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type_id",
+          "type_slug",
+          "value"
+        ],
+        "title": "RoleIdentifier",
+        "description": "An external identifier attached to a role (#808)."
       },
       "RoleLink": {
         "properties": {
@@ -9598,6 +9742,13 @@
             },
             "type": "array",
             "title": "Addresses"
+          },
+          "additional_identifiers": {
+            "items": {
+              "$ref": "#/components/schemas/ObservationAdditionalIdentifier"
+            },
+            "type": "array",
+            "title": "Additional Identifiers"
           }
         },
         "type": "object",

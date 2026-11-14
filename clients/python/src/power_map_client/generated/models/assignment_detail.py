@@ -13,6 +13,7 @@ from ..types import UNSET, Unset
 if TYPE_CHECKING:
     from ..models.assignment_address import AssignmentAddress
     from ..models.assignment_contact_method import AssignmentContactMethod
+    from ..models.assignment_identifier import AssignmentIdentifier
     from ..models.assignment_link import AssignmentLink
 
 
@@ -21,7 +22,7 @@ T = TypeVar("T", bound="AssignmentDetail")
 
 @_attrs_define
 class AssignmentDetail:
-    """Full assignment record including links, contact methods, and addresses.
+    """Full assignment record including links, contact methods, addresses, and identifiers.
 
     Attributes:
         id (str):
@@ -40,6 +41,7 @@ class AssignmentDetail:
         links (list[AssignmentLink] | Unset):
         contact_methods (list[AssignmentContactMethod] | Unset):
         addresses (list[AssignmentAddress] | Unset):
+        identifiers (list[AssignmentIdentifier] | Unset):
     """
 
     id: str
@@ -56,6 +58,7 @@ class AssignmentDetail:
     links: list[AssignmentLink] | Unset = UNSET
     contact_methods: list[AssignmentContactMethod] | Unset = UNSET
     addresses: list[AssignmentAddress] | Unset = UNSET
+    identifiers: list[AssignmentIdentifier] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -124,6 +127,13 @@ class AssignmentDetail:
                 addresses_item = addresses_item_data.to_dict()
                 addresses.append(addresses_item)
 
+        identifiers: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.identifiers, Unset):
+            identifiers = []
+            for identifiers_item_data in self.identifiers:
+                identifiers_item = identifiers_item_data.to_dict()
+                identifiers.append(identifiers_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -151,6 +161,8 @@ class AssignmentDetail:
             field_dict["contact_methods"] = contact_methods
         if addresses is not UNSET:
             field_dict["addresses"] = addresses
+        if identifiers is not UNSET:
+            field_dict["identifiers"] = identifiers
 
         return field_dict
 
@@ -158,6 +170,7 @@ class AssignmentDetail:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.assignment_address import AssignmentAddress  # noqa: PLC0415
         from ..models.assignment_contact_method import AssignmentContactMethod  # noqa: PLC0415
+        from ..models.assignment_identifier import AssignmentIdentifier  # noqa: PLC0415
         from ..models.assignment_link import AssignmentLink  # noqa: PLC0415
 
         d = dict(src_dict)
@@ -262,6 +275,15 @@ class AssignmentDetail:
 
                 addresses.append(addresses_item)
 
+        _identifiers = d.pop("identifiers", UNSET)
+        identifiers: list[AssignmentIdentifier] | Unset = UNSET
+        if _identifiers is not UNSET:
+            identifiers = []
+            for identifiers_item_data in _identifiers:
+                identifiers_item = AssignmentIdentifier.from_dict(identifiers_item_data)
+
+                identifiers.append(identifiers_item)
+
         assignment_detail = cls(
             id=id,
             person_id=person_id,
@@ -277,6 +299,7 @@ class AssignmentDetail:
             links=links,
             contact_methods=contact_methods,
             addresses=addresses,
+            identifiers=identifiers,
         )
 
         assignment_detail.additional_properties = d

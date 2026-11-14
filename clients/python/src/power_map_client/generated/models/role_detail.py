@@ -12,6 +12,7 @@ from ..types import UNSET, Unset
 if TYPE_CHECKING:
     from ..models.role_address import RoleAddress
     from ..models.role_contact_method import RoleContactMethod
+    from ..models.role_identifier import RoleIdentifier
     from ..models.role_link import RoleLink
 
 
@@ -20,7 +21,7 @@ T = TypeVar("T", bound="RoleDetail")
 
 @_attrs_define
 class RoleDetail:
-    """Full role record including links, contact methods, and addresses.
+    """Full role record including links, contact methods, addresses, and identifiers.
 
     Attributes:
         id (str):
@@ -39,6 +40,7 @@ class RoleDetail:
         links (list[RoleLink] | Unset):
         contact_methods (list[RoleContactMethod] | Unset):
         addresses (list[RoleAddress] | Unset):
+        identifiers (list[RoleIdentifier] | Unset):
     """
 
     id: str
@@ -57,6 +59,7 @@ class RoleDetail:
     links: list[RoleLink] | Unset = UNSET
     contact_methods: list[RoleContactMethod] | Unset = UNSET
     addresses: list[RoleAddress] | Unset = UNSET
+    identifiers: list[RoleIdentifier] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -145,6 +148,13 @@ class RoleDetail:
                 addresses_item = addresses_item_data.to_dict()
                 addresses.append(addresses_item)
 
+        identifiers: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.identifiers, Unset):
+            identifiers = []
+            for identifiers_item_data in self.identifiers:
+                identifiers_item = identifiers_item_data.to_dict()
+                identifiers.append(identifiers_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -178,6 +188,8 @@ class RoleDetail:
             field_dict["contact_methods"] = contact_methods
         if addresses is not UNSET:
             field_dict["addresses"] = addresses
+        if identifiers is not UNSET:
+            field_dict["identifiers"] = identifiers
 
         return field_dict
 
@@ -185,6 +197,7 @@ class RoleDetail:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.role_address import RoleAddress  # noqa: PLC0415
         from ..models.role_contact_method import RoleContactMethod  # noqa: PLC0415
+        from ..models.role_identifier import RoleIdentifier  # noqa: PLC0415
         from ..models.role_link import RoleLink  # noqa: PLC0415
 
         d = dict(src_dict)
@@ -321,6 +334,15 @@ class RoleDetail:
 
                 addresses.append(addresses_item)
 
+        _identifiers = d.pop("identifiers", UNSET)
+        identifiers: list[RoleIdentifier] | Unset = UNSET
+        if _identifiers is not UNSET:
+            identifiers = []
+            for identifiers_item_data in _identifiers:
+                identifiers_item = RoleIdentifier.from_dict(identifiers_item_data)
+
+                identifiers.append(identifiers_item)
+
         role_detail = cls(
             id=id,
             organization_id=organization_id,
@@ -338,6 +360,7 @@ class RoleDetail:
             links=links,
             contact_methods=contact_methods,
             addresses=addresses,
+            identifiers=identifiers,
         )
 
         role_detail.additional_properties = d
