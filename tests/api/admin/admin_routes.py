@@ -93,17 +93,15 @@ async def seed_subresources(
     db,
     entity_type: str,
     entity_id: str,
-    ident_type_id: str | None,
+    ident_type_id: str,
     *,
-    include_identifier: bool = True,
     include_address: bool = True,
 ) -> dict:
-    """Contact + link rows for one entity (always), plus optional identifier and
-    address rows; returns the seeded child ids.
+    """Contact, link and identifier rows for one entity, plus an optional address
+    row; returns the seeded child ids.
 
-    ``include_identifier``/``include_address`` are opt-out for entity types that
-    have no such ancillary GET routes — roles carry only contacts+links (#326),
-    and no ``role`` ``entity_identifier_types`` row exists to key an identifier."""
+    ``include_address`` is opt-out for entity types with no address GET routes —
+    roles and assignments."""
     link_type_id = await db.fetchval("SELECT id FROM link_types WHERE is_social = FALSE LIMIT 1")
     out = {
         "contact_id": generate_id(),
@@ -124,15 +122,14 @@ async def seed_subresources(
         entity_id,
         link_type_id,
     )
-    if include_identifier:
-        out["ident_id"] = generate_id()
-        await db.execute(
-            "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
-            " VALUES ($1, $2, $3, 'A11Y-1')",
-            out["ident_id"],
-            entity_id,
-            ident_type_id,
-        )
+    out["ident_id"] = generate_id()
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, 'A11Y-1')",
+        out["ident_id"],
+        entity_id,
+        ident_type_id,
+    )
     if include_address:
         out["addr_id"] = generate_id()
         address_id = generate_id()
@@ -165,7 +162,7 @@ async def seed_admin_fixtures(db) -> dict:
         r["entity_type"]: r["id"]
         for r in await db.fetch(
             "SELECT DISTINCT ON (entity_type) entity_type, id"
-            " FROM entity_identifier_types ORDER BY entity_type, id"
+            " FROM entity_identifier_types ORDER BY entity_type, is_internal, id"
         )
     }
 
@@ -253,11 +250,10 @@ async def seed_admin_fixtures(db) -> dict:
         s["role_id"],
     )
 
-    # Role + role_assignment ancillary (#326/#329): roles carry contacts+links
-    # only (no `role` identifier type); assignments add identifiers. Neither has
-    # address routes.
+    # Role + role_assignment ancillary (#326/#329): both carry contacts, links and
+    # identifiers (roles since #808). Neither has address routes.
     s["role_sub"] = await seed_subresources(
-        db, "role", s["role_id"], None, include_identifier=False, include_address=False
+        db, "role", s["role_id"], ident_types["role"], include_address=False
     )
     s["ra_sub"] = await seed_subresources(
         db,
