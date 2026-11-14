@@ -1674,12 +1674,22 @@ class AssignmentAddress(BaseModel):
     valid_until: date | None = None
 
 
+class AssignmentIdentifier(BaseModel):
+    """An external identifier attached to a role assignment (#809)."""
+
+    id: str
+    type_id: str
+    type_slug: str
+    value: str
+
+
 class AssignmentDetail(AssignmentListItem):
-    """Full assignment record including links, contact methods, and addresses."""
+    """Full assignment record including links, contact methods, addresses, and identifiers."""
 
     links: list[AssignmentLink] = Field(default_factory=list)
     contact_methods: list[AssignmentContactMethod] = Field(default_factory=list)
     addresses: list[AssignmentAddress] = Field(default_factory=list)
+    identifiers: list[AssignmentIdentifier] = Field(default_factory=list)
 
 
 class AssignmentObservationRequest(BaseModel):
@@ -1714,6 +1724,10 @@ class AssignmentObservationRequest(BaseModel):
     links: list[ObservationLink] = Field(default_factory=list)
     contact_methods: list[ObservationContactMethod] = Field(default_factory=list)
     addresses: list[ObservationAddress] = Field(default_factory=list)
+    # #809: assignment-typed external identifiers (role_assignment_cannabis_observer,
+    # role_wa_pdc). Ancillary like links: withheld (and named in `unapplied`) on a
+    # #391 retracted-twin attach, ignored on op="retract".
+    additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_resolution_mode(self) -> "AssignmentObservationRequest":
