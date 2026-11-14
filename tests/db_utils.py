@@ -82,6 +82,16 @@ async def trigger_disabled(conn: asyncpg.Connection, table: str, trigger: str):
     await conn.execute(f"ALTER TABLE {table} ENABLE TRIGGER {trigger}")
 
 
+async def drop_index(conn: asyncpg.Connection, index: str) -> None:
+    """Plant rows a unique index now refuses, as legacy data or a pre-index apply left them.
+
+    ``DROP INDEX`` holds an ACCESS EXCLUSIVE lock to the end of the caller's
+    transaction, so use this only inside a rolled-back test transaction — whose
+    rollback is also what restores the index.
+    """
+    await conn.execute(f"DROP INDEX {index}")
+
+
 #: The tables :func:`row_version` reads — every entity table a touch trigger bumps.
 _VERSIONED_TABLES = frozenset(
     {

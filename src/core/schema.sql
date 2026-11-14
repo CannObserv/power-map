@@ -829,6 +829,35 @@ CREATE INDEX IF NOT EXISTS idx_identifiers_entity
 CREATE INDEX IF NOT EXISTS idx_identifiers_lookup
     ON identifiers(entity_identifier_type_id, value);
 
+-- #812: one cannabis.observer site record maps to one Power Map entity. A value
+-- of a *_cannabis_observer type may appear once in the table: on one entity, in
+-- one row, archived holders included (archiving keeps identifiers, #481). The
+-- predicate names the four seeded type ids as literals -- a partial index can't
+-- read entity_identifier_types -- so it depends on those seed ids (see the
+-- seed rows; src/core/identifier_taken.py holds the same set). Other types are
+-- left out on purpose: role_wa_pdc and person_wa_pdc_filer hold legitimate
+-- cross-entity repeats. A unique index runs in apply_schema's phase 1, inside
+-- the schema transaction (never CONCURRENTLY), and the restart applies the
+-- schema, so existing duplicates warn and skip rather than abort the start
+-- (#398/#748), as uq_role_org_title does. schema-parity does not read indexes:
+-- after a deploy, confirm the index exists in pg_indexes.
+DO $$ BEGIN
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_identifiers_cannabis_observer
+        ON identifiers (entity_identifier_type_id, value)
+        WHERE entity_identifier_type_id IN (
+            '01M7DPQMCVA815DZ2M8PXS198H',  -- org_cannabis_observer
+            '01M7DPQMH6CXKNTY183BXDMN1V',  -- person_cannabis_observer
+            '01M7DPQMPBJEQ52A6TN3GGTGDA',  -- role_cannabis_observer
+            '01M7DPQMVS8Y6PX1KB5CES7SGQ'   -- role_assignment_cannabis_observer
+        );
+EXCEPTION WHEN unique_violation THEN
+    RAISE WARNING
+        'uq_identifiers_cannabis_observer not created: a *_cannabis_observer value '
+        'is held more than once. Find them with SELECT entity_identifier_type_id, value '
+        'FROM identifiers GROUP BY 1, 2 HAVING count(*) > 1, keep one holder per value '
+        '(merge or unlink the others), then re-apply schema.';
+END $$;
+
 -- Citations (#319): human-checkable source provenance for a fact — a URL/title/
 -- excerpt/accessed-date attached to an entity or one of its fields. Polymorphic
 -- with NO FK (ancillary convention, like links/contact_methods); the daily
@@ -2191,6 +2220,8 @@ INSERT INTO _seed_entity_identifier_types (id, entity_type, slug, display_name, 
     -- additional_identifiers -- addressing BY one of them creates on an unknown value.
     -- 'role_' + 'assignment_' spells the assignment type in full here, unlike the
     -- older role_wa_pdc, which names an assignment type with the bare 'role_' prefix.
+    -- uq_identifiers_cannabis_observer (#812) names these four ids as literals in
+    -- its predicate: never re-id them, or the index silently stops covering a type.
     ('01M7DPQMCVA815DZ2M8PXS198H', 'organization',    'org_cannabis_observer',             'Cannabis Observer', 'Cannabis Observer Organization ULID',    FALSE),
     ('01M7DPQMH6CXKNTY183BXDMN1V', 'person',          'person_cannabis_observer',          'Cannabis Observer', 'Cannabis Observer Person ULID',          FALSE),
     ('01M7DPQMPBJEQ52A6TN3GGTGDA', 'role',            'role_cannabis_observer',            'Cannabis Observer', 'Cannabis Observer Role ULID',            FALSE),

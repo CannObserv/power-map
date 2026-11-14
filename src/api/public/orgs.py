@@ -41,6 +41,7 @@ from src.api.public.schemas import (
     OrgSearchResponse,
 )
 from src.core.citations import write_citations
+from src.core.identifier_taken import unique_violation_reason
 from src.core.merge_history import fetch_tombstones
 from src.core.observation import (
     Disposition,
@@ -142,11 +143,11 @@ async def submit_org_observation(
             disposition="rejected",
             reason=f"identifier_conflict: {exc.identifier_type_slug!r}",
         )
-    except (
-        asyncpg.CheckViolationError,
-        asyncpg.ForeignKeyViolationError,
-        asyncpg.UniqueViolationError,
-    ):
+    except asyncpg.UniqueViolationError as exc:
+        # #812: a lost race on uq_identifiers_cannabis_observer is identifier_taken.
+        reason = await unique_violation_reason(db, exc)
+        return ObservationResponse(disposition="rejected", reason=reason)
+    except (asyncpg.CheckViolationError, asyncpg.ForeignKeyViolationError):
         return ObservationResponse(disposition="rejected", reason="db_constraint_violation")
 
     return ObservationResponse(

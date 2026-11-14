@@ -76,11 +76,21 @@ not-yet-linked site ULID would mint a duplicate person or org. The safe contract
 by `pm_person_id` / `pm_org_id` / `pm_role_id` / `pm_assignment_id`, attach the site
 ULID through `additional_identifiers`, and read it back on the entity's detail `GET`.
 To find an entity by one: `GET /roles` and `GET /assignments` take an `identifier_type`
-+ `identifier_value` filter that returns **every** holder (pass `include_archived=true`
-to see archived ones too). No `(type, value)` uniqueness is enforced, so there
-`meta.count > 1` means a duplicate link to resolve, not a choice to make.
-`people/search` / `orgs/search` in identifier mode return **at most one** match
-(`has_more: false`), so they cannot show a duplicate.
++ `identifier_value` filter (`include_archived=true` for archived holders);
+`people/search` / `orgs/search` in identifier mode return at most one match.
+
+**One value, one entity (#812).** A value of any of the four appears once in
+`identifiers` — one entity, one row, archived holders included
+(`uq_identifiers_cannabis_observer`; every other type still repeats across entities).
+Attaching a value another entity holds rejects the observation
+`identifier_taken: '<slug>' held by '<id>'`, or `held by archived '<id>'`: archiving
+keeps identifiers (#481), so the fix is to unarchive or merge the holder, not to send a
+new value. It is distinct from `identifier_conflict` (this entity already holds a
+*different* value of the type), which is checked first. A writer committing the value
+between that check and the insert loses on the index and gets the same reason (a bare
+`identifier_taken` if the violation can't be read back). The admin panels refuse it
+with a warning naming the holder. So a list filter's `meta.count > 1` can only be a
+duplicate that predates the index, whose `DO` block warns and skips while one exists.
 
 **The WA scheme types are history, not contract (#502).** The `*_wa_*` slugs above (and
 `role_wa_pdc`) hold identifiers recorded before the #490 cutover. The rows stay, and

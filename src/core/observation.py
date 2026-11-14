@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from src.core.dataset_ownership import dataset_owned_identifier, dataset_owned_link
 from src.core.db import generate_id, linked_entity_vanished
+from src.core.identifier_taken import UNIQUE_IDENTIFIER_TYPE_IDS, identifier_holder, taken_reason
 from src.core.logging import get_logger
 from src.core.normalizers.address import get_address_normalizer, standardization_status
 from src.core.normalizers.email import EmailNormalizer
@@ -1493,6 +1494,8 @@ async def write_additional_identifiers(
       - Type for another entity type → raise ObservationRejected (#617)
       - A type a dataset owns on this entity, not already held → raise
         ObservationRejected ``identifier_locked`` (#710)
+      - A ``*_cannabis_observer`` value another entity holds, archived or not →
+        raise ObservationRejected ``identifier_taken`` naming the holder (#812)
       - New type → insert
     """
     for item in additional_identifiers:
@@ -1531,6 +1534,13 @@ async def write_additional_identifiers(
             raise ObservationRejected(f"identifier_locked: {slug!r}")
         if held:
             raise IdentifierConflict(slug)
+        # #812: a *_cannabis_observer value names one entity. Name the holder
+        # here; one committing after this read meets the index instead, and the
+        # route maps that race to the same reason (unique_violation_reason).
+        if eit_id in UNIQUE_IDENTIFIER_TYPE_IDS:
+            holder = await identifier_holder(conn, eit_id, value, other_than=entity_id)
+            if holder is not None:
+                raise ObservationRejected(taken_reason(slug, holder))
         await conn.execute(
             "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
             " VALUES ($1, $2, $3, $4)",

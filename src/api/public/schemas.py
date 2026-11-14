@@ -1501,7 +1501,8 @@ class RoleObservationRequest(BaseModel):
     # #808: role-typed external identifiers (role_cannabis_observer). Same rules as
     # the other entity types: internal refused, another type's slug is
     # identifier_type_mismatch, a different value of a held type is
-    # identifier_conflict — and a rejection writes nothing, the role included.
+    # identifier_conflict, a value another role holds is identifier_taken (#812)
+    # — and a rejection writes nothing, the role included.
     additional_identifiers: list[ObservationAdditionalIdentifier] = Field(default_factory=list)
 
     @field_validator("qualifier", mode="before")
