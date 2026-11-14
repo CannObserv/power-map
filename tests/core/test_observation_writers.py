@@ -2029,6 +2029,74 @@ async def test_write_additional_identifiers_rejects_other_entity_types_slug(db, 
     assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", person_id) == 0
 
 
+def _site(value: str) -> list:
+    return [
+        ObservationAdditionalIdentifier(
+            identifier_type_slug="person_cannabis_observer", identifier_value=value
+        )
+    ]
+
+
+async def _person_holding(db, value: str, *, archived: bool = False) -> str:
+    pid = generate_id()
+    await db.execute(
+        "INSERT INTO people (id, archived_at) VALUES ($1, CASE WHEN $2 THEN now() END)",
+        pid,
+        archived,
+    )
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " SELECT $1, $2, id, $3 FROM entity_identifier_types"
+        " WHERE slug = 'person_cannabis_observer'",
+        generate_id(),
+        pid,
+        value,
+    )
+    return pid
+
+
+@pytest.mark.parametrize("archived", [False, True])
+async def test_write_additional_identifiers_a_value_another_entity_holds_is_taken(
+    db, person_id, archived
+):
+    """#812: one site ULID names one entity — the pre-check names the holder."""
+    holder = await _person_holding(db, "01SITEULID", archived=archived)
+
+    with pytest.raises(ObservationRejected) as exc:
+        await write_additional_identifiers(db, person_id, "person", _site("01SITEULID"))
+
+    state = "archived " if archived else ""
+    assert exc.value.detail == (
+        f"identifier_taken: 'person_cannabis_observer' held by {state}'{holder}'"
+    )
+    assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", person_id) == 0
+
+
+async def test_write_additional_identifiers_a_held_different_value_stays_a_conflict(db, person_id):
+    """This entity's own conflict is reported first, as before #812."""
+    await _person_holding(db, "01ELSEWHERE")
+    await write_additional_identifiers(db, person_id, "person", _site("01MINE"))
+
+    with pytest.raises(IdentifierConflict):
+        await write_additional_identifiers(db, person_id, "person", _site("01ELSEWHERE"))
+
+
+async def test_write_additional_identifiers_other_types_repeat_across_entities(db, person_id):
+    """Only the four *_cannabis_observer types are unique; a PDC filer key repeats."""
+    other = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", other)
+    filer = [
+        ObservationAdditionalIdentifier(
+            identifier_type_slug="person_wa_pdc_filer", identifier_value="SMITHJ 123"
+        )
+    ]
+    await write_additional_identifiers(db, other, "person", filer)
+
+    await write_additional_identifiers(db, person_id, "person", filer)
+
+    assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", person_id) == 1
+
+
 async def _anchor(db, person_id: str) -> None:
     """Give the person a usa-wa anchor in scope (#710)."""
     await db.execute(

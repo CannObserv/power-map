@@ -14,6 +14,8 @@ import pytest_asyncio
 
 from src.api.public import roles as roles_route
 from src.core.db import generate_id
+from src.core.identifier_taken import IDENTIFIER_TAKEN_GUARD
+from tests.db_utils import drop_index
 
 pytestmark = [pytest.mark.integration]
 
@@ -145,7 +147,12 @@ async def test_lookup_finds_the_role(client, db, read_headers, org):
 
 
 async def test_lookup_returns_every_holder_not_one(client, db, read_headers, org):
-    """No (type, value) uniqueness: a duplicate link shows as two rows, never a silent pick."""
+    """A duplicate shows as two rows, never a silent pick.
+
+    #812's index refuses a new one, but one can predate it: its DO block skips the
+    index, with a warning, over duplicates already there.
+    """
+    await drop_index(db, IDENTIFIER_TAKEN_GUARD)
     a, b = await _role(db, org, "A"), await _role(db, org, "B")
     await _identify(db, a, "01DUP")
     await _identify(db, b, "01DUP")

@@ -23,8 +23,26 @@ from src.core.dataset_ownership import (
     owned_identifier,
 )
 from src.core.db import generate_id, identifier_entity_vanished
+from src.core.identifier_taken import Holder, identifier_holder, is_identifier_taken
 
 templates = Jinja2Templates(directory="src/templates")
+
+
+def taken_message(entity_type: str, entity_id: str, value: str, holder: Holder | None) -> str:
+    """The warning flash for a value ``uq_identifiers_cannabis_observer`` refused (#812)."""
+    shown = f"<strong>{escape(value)}</strong>"
+    if holder is None:  # the holder let go between the refusal and this read
+        return f"{shown} was in use; nothing changed. Try again."
+    if holder.entity_id == entity_id:
+        return f"{shown} is already on this record; nothing changed."
+    label = entity_type.replace("_", " ")
+    if holder.archived:
+        # #481: archiving keeps identifiers, so the fix is the holder, not the value.
+        return (
+            f"{shown} is held by an archived {label} ({escape(holder.entity_id)}). "
+            "Unarchive or merge it; nothing changed."
+        )
+    return f"{shown} is held by another {label} ({escape(holder.entity_id)}); nothing changed."
 
 
 async def fetch_identifiers(db, entity_type: str, entity_id: str) -> list[dict]:
@@ -115,18 +133,25 @@ def make_identifiers_router(
         )
         return {**row, "dataset_owned": owned}
 
-    async def _insert_or_404(db, sql: str, *args) -> None:
-        """Run an identifier insert; 404 when the entity vanished since its check (#622).
+    async def _write_or_404(db, sql: str, *args) -> bool:
+        """Run an identifier insert or update; False when its value is taken (#812).
 
-        Its own (sub)transaction, so the refused write leaves the connection usable.
+        404 when the entity vanished since its check (#622). Its own
+        (sub)transaction (#424), so a refused write leaves the connection usable —
+        under a request transaction, and for the holder read that follows.
         """
         try:
             async with db.transaction():
                 await db.execute(sql, *args)
+        except asyncpg.UniqueViolationError as exc:
+            if not is_identifier_taken(exc):
+                raise
+            return False
         except asyncpg.ForeignKeyViolationError as exc:
             if not identifier_entity_vanished(exc):
                 raise
             raise HTTPException(status_code=404, detail=entity_not_found_msg) from exc
+        return True
 
     async def _require_attachable_type(type_id: str, db) -> None:
         """400 unless the type is one the picker offers: this entity type, external.
@@ -177,6 +202,14 @@ def make_identifiers_router(
             request, entity_id, db, flash_trigger("warning", IDENTIFIER_LOCKED_MSG)
         )
 
+    async def _taken(request, entity_id: str, db, type_id: str, value: str):
+        """A door refusing a value another row holds (#812): the rows as they stand, and who."""
+        if not is_htmx(request):
+            return RedirectResponse(with_flash(detail_url(entity_id), "exists"), status_code=303)
+        holder = await identifier_holder(db, type_id, value)
+        message = taken_message(entity_type, entity_id, value, holder)
+        return await _rows_response(request, entity_id, db, flash_trigger("warning", message))
+
     # ---- routes -----------------------------------------------------------------
 
     @router.get("/new-row/")
@@ -204,14 +237,14 @@ def make_identifiers_router(
         user: AdminUser = Depends(get_admin_user),
         db=Depends(get_db),
     ):
-        """Create a new identifier, unless a dataset owns its type on this entity (#710)."""
+        """Create an identifier, unless a dataset owns its type (#710) or it is taken (#812)."""
         await _get_entity_or_404(entity_id, db)
         await _require_attachable_type(entity_identifier_type_id, db)
         # #710 CR 10: a key added here could never be deleted, so the add is refused too.
         if await dataset_owned_identifier(db, entity_type, entity_id, entity_identifier_type_id):
             return await _locked(request, entity_id, db)
         iid = generate_id()
-        await _insert_or_404(
+        if not await _write_or_404(
             db,
             "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
             " VALUES ($1, $2, $3, $4)",
@@ -219,7 +252,8 @@ def make_identifiers_router(
             entity_id,
             entity_identifier_type_id,
             value.strip(),
-        )
+        ):
+            return await _taken(request, entity_id, db, entity_identifier_type_id, value.strip())
         if not is_htmx(request):
             return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
         return await _rows_response(
@@ -283,12 +317,15 @@ def make_identifiers_router(
         await _require_attachable_type(entity_identifier_type_id, db)
         if await dataset_owned_identifier(db, entity_type, entity_id, entity_identifier_type_id):
             return await _locked(request, entity_id, db)
-        await db.execute(
+        # A retype counts too: a value free under its old type can be taken under the new.
+        if not await _write_or_404(
+            db,
             "UPDATE identifiers SET entity_identifier_type_id=$1, value=$2 WHERE id=$3",
             entity_identifier_type_id,
             value.strip(),
             ident_id,
-        )
+        ):
+            return await _taken(request, entity_id, db, entity_identifier_type_id, value.strip())
         if not is_htmx(request):
             return RedirectResponse(with_flash(detail_url(entity_id), "saved"), status_code=303)
         return await _rows_response(
