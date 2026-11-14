@@ -75,11 +75,12 @@ They are external, so addressing an observation *by* one creates on an unknown v
 not-yet-linked site ULID would mint a duplicate person or org. The safe contract: address
 by `pm_person_id` / `pm_org_id` / `pm_role_id` / `pm_assignment_id`, attach the site
 ULID through `additional_identifiers`, and read it back on the entity's detail `GET`.
-To find an entity by one, use `people/search` / `orgs/search`, or the `identifier_type`
-+ `identifier_value` filter on `GET /roles` and `GET /assignments`. That filter returns
-**every** holder (pass `include_archived=true` to see archived ones too): no `(type,
-value)` uniqueness is enforced, so `meta.count > 1` means a duplicate link to resolve,
-not a choice to make.
+To find an entity by one: `GET /roles` and `GET /assignments` take an `identifier_type`
++ `identifier_value` filter that returns **every** holder (pass `include_archived=true`
+to see archived ones too). No `(type, value)` uniqueness is enforced, so there
+`meta.count > 1` means a duplicate link to resolve, not a choice to make.
+`people/search` / `orgs/search` in identifier mode return **at most one** match
+(`has_more: false`), so they cannot show a duplicate.
 
 **The WA scheme types are history, not contract (#502).** The `*_wa_*` slugs above (and
 `role_wa_pdc`) hold identifiers recorded before the #490 cutover. The rows stay, and
