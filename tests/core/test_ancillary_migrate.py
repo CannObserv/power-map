@@ -21,7 +21,8 @@ from src.core.ancillary_migrate import (
     rehome_role_ancillary,
 )
 from src.core.db import generate_id
-from tests.db_utils import row_version, trigger_disabled, until_lock_waiting
+from src.core.identifier_taken import IDENTIFIER_TAKEN_GUARD
+from tests.db_utils import drop_index, row_version, trigger_disabled, until_lock_waiting
 from tests.polymorphic_seeders import archived_entity
 
 pytestmark = [pytest.mark.integration]
@@ -398,7 +399,11 @@ async def test_rehome_role_carries_identifiers_to_the_survivor(db):
 
 
 async def test_rehome_role_dedups_an_identical_identifier(db):
-    """Both roles hold the same (type, value): the loser's copy goes, not a second row."""
+    """Both roles hold the same (type, value): the loser's copy goes, not a second row.
+
+    #812's index refuses that pair now; one that predates it is what this resolves.
+    """
+    await drop_index(db, IDENTIFIER_TAKEN_GUARD)
     loser, winner = await _role(db), await _role(db)
     await _add_role_identifier(db, loser, "01SAME")
     await _add_role_identifier(db, winner, "01SAME")
