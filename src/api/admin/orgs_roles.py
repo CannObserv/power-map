@@ -222,8 +222,9 @@ async def role_merge(
             loser_id,
         )
 
-        # #326: re-home the loser role's own contacts/links onto the winner before
-        # the hard-delete, else they orphan (entity_type='role', no FK).
+        # #326/#808: re-home the loser role's own contacts/links/identifiers onto the
+        # winner before the hard-delete, else they orphan (no FK) — or, for
+        # identifiers, trg_roles_identifiers refuses the delete.
         await rehome_role_ancillary(db, loser_id, winner_id)
         await rehome_curation_overlay(db, "role", [(loser_id, winner_id)])  # #514
         await db.execute("DELETE FROM roles WHERE id=$1", loser_id)
