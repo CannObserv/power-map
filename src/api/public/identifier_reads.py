@@ -8,8 +8,8 @@ on the wire.
 
 from typing import Any
 
-#: The entity types these helpers serve; each names the table its id lives in.
-_ALIASED = {"role": "r", "role_assignment": "ra"}
+#: The entity types the list-route lookup serves (#808, #809).
+_LOOKUP_TYPES = frozenset({"role", "role_assignment"})
 
 
 async def fetch_identifiers(db: Any, entity_type: str, entity_id: str) -> list[dict]:
@@ -38,7 +38,7 @@ def identifier_match(entity_type: str, id_column: str, type_param: int, value_pa
     duplicate link shows as two rows rather than one silent pick. Only stored rows
     match — a ``pm_*`` type has none; read an entity by id with ``GET /{id}``.
     """
-    if entity_type not in _ALIASED:
+    if entity_type not in _LOOKUP_TYPES:
         raise ValueError(f"no identifier lookup for {entity_type!r}")
     return (
         f"(${type_param}::TEXT IS NULL OR EXISTS ("
