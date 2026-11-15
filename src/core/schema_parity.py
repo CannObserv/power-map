@@ -221,7 +221,9 @@ ORDER BY t.relname, tg.tgname
 #: EXCLUDE constraint owns, which the constraint snapshot already covers. The
 #: ``contype`` filter matters: an FK also sets ``conindid``, to the *referenced*
 #: table's unique index, which may be a standalone one this snapshot must keep.
-#: ``indisvalid`` is read so an invalid index differs from a valid one.
+#: ``indisvalid`` is read so an invalid index differs from a valid one. A partition's
+#: child index is skipped: Postgres names it, and a missing one leaves the parent's
+#: index invalid, which the parent's row already shows.
 _UNIQUE_INDEX_SNAPSHOT_SQL = """
 SELECT t.relname AS table_name,
        ic.relname AS index_name,
@@ -234,6 +236,7 @@ JOIN pg_namespace n ON n.oid = t.relnamespace
 WHERE n.nspname = 'public'
   AND i.indisunique
   AND NOT i.indisprimary
+  AND NOT ic.relispartition
   AND NOT EXISTS (
       SELECT 1 FROM pg_constraint c
       WHERE c.conindid = i.indexrelid

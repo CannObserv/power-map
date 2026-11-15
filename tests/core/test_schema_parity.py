@@ -626,6 +626,28 @@ async def test_snapshot_keeps_a_unique_index_an_fk_references(db_pool):
 
 
 @pytest.mark.integration
+async def test_snapshot_skips_partition_child_indexes(db_pool):
+    """A unique index on a partitioned parent gives each partition a child index whose
+    name Postgres picks and schema.sql never holds; its absence would read as a
+    pending deploy. The parent stays, and a missing child shows as the parent's
+    ``indisvalid``. Built in a rolled-back txn."""
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            await conn.execute(
+                "CREATE TABLE _pm816_part (a INT NOT NULL) PARTITION BY LIST (a);"
+                "CREATE TABLE _pm816_part_1 PARTITION OF _pm816_part FOR VALUES IN (1);"
+                "CREATE UNIQUE INDEX _pm816_uq_part ON _pm816_part (a);"
+            )
+            snap = await snapshot_unique_indexes(conn)
+        finally:
+            await tr.rollback()
+    assert IndexKey(table="_pm816_part", name="_pm816_uq_part") in snap
+    assert not any(k.table == "_pm816_part_1" for k in snap)
+
+
+@pytest.mark.integration
 async def test_schema_sql_declares_every_live_object(db_pool):
     """The matching rules hold on the real schema: of the test DB's constraints
     (most named by Postgres, never written in schema.sql), functions, triggers and
