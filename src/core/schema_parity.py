@@ -190,7 +190,7 @@ WHERE n.nspname = 'public'
   AND p.prokind = 'f'
   AND NOT EXISTS (
       SELECT 1 FROM pg_depend d
-      WHERE d.objid = p.oid AND d.deptype = 'e'
+      WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e'
   )
 ORDER BY p.proname, args
 """
@@ -210,7 +210,7 @@ WHERE n.nspname = 'public'
   AND NOT tg.tgisinternal
   AND NOT EXISTS (
       SELECT 1 FROM pg_depend d
-      WHERE d.objid = tg.oid AND d.deptype = 'e'
+      WHERE d.classid = 'pg_trigger'::regclass AND d.objid = tg.oid AND d.deptype = 'e'
   )
 ORDER BY t.relname, tg.tgname
 """

@@ -426,6 +426,18 @@ async def test_snapshot_unique_indexes_scopes_the_extension_check_to_pg_class():
     assert "d.classid = 'pg_class'::regclass" in sql
 
 
+@pytest.mark.parametrize(
+    ("snapshot", "catalog"),
+    [(snapshot_functions, "pg_proc"), (snapshot_triggers, "pg_trigger")],
+)
+async def test_function_and_trigger_extension_checks_name_their_catalog(snapshot, catalog):
+    """The same ``classid`` scoping on the older kinds (#816 CR 12)."""
+    conn = _RowsConn([])
+    await snapshot(conn)
+    sql = " ".join(conn.sql[0].split())
+    assert f"d.classid = '{catalog}'::regclass" in sql
+
+
 def test_classify_missing_splits_drift_from_reference_ahead(deployed):
     """Missing in target + declared by the deployed schema.sql → drift; missing but
     undeclared → reference ahead (a pending deploy or a stray branch apply)."""
