@@ -14,7 +14,7 @@ implicit rules this collection follows. Auth, pagination and conditional request
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `GET` | `/api/v1/orgs/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q`), `jurisdiction` (slug or ULID — filters to orgs with a `governing` affiliation for that jurisdiction), `include_archived`, `limit`, `offset`. |
+| `GET` | `/api/v1/orgs/search` | API key | Search by display name or identifier. Params: `q`, `identifier_type` + `identifier_value` (takes precedence over `q` and `jurisdiction`; returns every holder, ordered by `id`, #811), `jurisdiction` (slug or ULID — filters to orgs with a `governing` affiliation for that jurisdiction), `include_archived`, `limit`, `offset`. |
 | `GET` | `/api/v1/orgs/{id}` | API key | Detail by ULID. Returns names, acronyms, identifiers, jurisdiction affiliations, `active`, `created_at`, and `updated_at`. ETag caching — see `docs/PUBLIC_API.md` § Caching — detail endpoints. Merged/deleted id → `410` + `merged_into` (§ Retired ids). |
 | `POST` | `/api/v1/orgs/batch-get` | API key | Many detail reads in one call and **one read-bucket token** (#654): one `getOrg` outcome per distinct id. See § Batch read. |
 | `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. ETag caching — see the events response-shape section. |
@@ -86,7 +86,8 @@ by succession**, never a merge: each external identifier keeps a permanent 1:1
 org anchor, and continuity is the edge. Name search stays list-shaped (it always
 was — names collide across chambers and eras); disambiguate chain members by
 `lifespan` window, or take the chain head for "current". Identifier search
-remains the exact-resolution channel. Full chain traversal = follow the pointers
+remains the exact-resolution channel: it returns every org holding the value, so
+more than one result is a duplicate link (#811). Full chain traversal = follow the pointers
 or read `/orgs/{id}/events`.
 
 ### Renames and the name timeline
