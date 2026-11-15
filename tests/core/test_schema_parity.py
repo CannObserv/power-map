@@ -169,6 +169,7 @@ EXCEPTION WHEN unique_violation THEN
 END $$;
 ALTER INDEX IF EXISTS uq_people_old RENAME TO uq_people_renamed;
 DROP INDEX IF EXISTS uq_people_dropped;
+CREATE INDEX IF NOT EXISTS idx_people_last_name ON people (last_name);
 -- uq_people_planned is only mentioned in a comment.
 """
 
@@ -334,14 +335,18 @@ def test_deployed_rejects_an_unknown_kind(deployed):
     ],
 )
 def test_deployed_declares_created_unique_indexes(deployed, name):
-    """``CREATE [UNIQUE] INDEX [CONCURRENTLY] [IF NOT EXISTS] name``, top level or in a
+    """``CREATE UNIQUE INDEX [CONCURRENTLY] [IF NOT EXISTS] name``, top level or in a
     ``DO`` block, declares it; so does a rename onto the name (#816)."""
     assert deployed.declares("unique_index", IndexKey(table="people", name=name))
 
 
-@pytest.mark.parametrize("name", ["uq_people_dropped", "uq_people_planned", "uq_people_old"])
+@pytest.mark.parametrize(
+    "name", ["uq_people_dropped", "uq_people_planned", "uq_people_old", "idx_people_last_name"]
+)
 def test_deployed_does_not_declare_a_dropped_mentioned_or_renamed_away_index(deployed, name):
-    """A ``DROP INDEX``, a comment, or the old side of a rename does not create it."""
+    """A ``DROP INDEX``, a comment, or the old side of a rename does not create it; nor
+    does a non-unique ``CREATE INDEX`` — a branch that makes it unique is ahead, not
+    "declared" drift, while prod still holds the non-unique one the snapshot skips."""
     assert not deployed.declares("unique_index", IndexKey(table="people", name=name))
 
 

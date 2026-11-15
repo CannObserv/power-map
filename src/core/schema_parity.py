@@ -59,8 +59,8 @@ PR deploys. An object missing in the target is therefore classified against the
 one it does not is the reference running ahead of the deploy — a pending deploy
 or a stray branch's apply — reported but not failed on. Matching is by name:
 ``CREATE [OR REPLACE] FUNCTION|TRIGGER name`` for functions and triggers;
-``CREATE [UNIQUE] INDEX [CONCURRENTLY] [IF NOT EXISTS] name`` or ``ALTER INDEX …
-RENAME TO name`` for indexes, top level or inside a ``DO`` block. Most
+``CREATE UNIQUE INDEX [CONCURRENTLY] [IF NOT EXISTS] name`` or ``ALTER INDEX …
+RENAME TO name`` for unique indexes, top level or inside a ``DO`` block. Most
 constraints never appear in ``schema.sql`` at all — Postgres names an inline
 ``PRIMARY KEY`` / ``REFERENCES`` / ``CHECK`` / ``UNIQUE`` itself — so a constraint
 counts as declared when its name is written there, or when it has Postgres'
@@ -364,11 +364,13 @@ _CREATE_FUNCTION_RE = re.compile(
 _CREATE_TRIGGER_RE = re.compile(
     r'\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:CONSTRAINT\s+)?TRIGGER\s+"?(\w+)"?', re.IGNORECASE
 )
-#: ``CREATE [UNIQUE] INDEX [CONCURRENTLY] [IF NOT EXISTS] name``, top level or in a ``DO``
-#: block. An index name cannot be schema-qualified; an unnamed ``CREATE INDEX ON`` is
-#: kept out of schema.sql by a test, since the name Postgres picks never appears.
-_CREATE_INDEX_RE = re.compile(
-    r'\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?',
+#: ``CREATE UNIQUE INDEX [CONCURRENTLY] [IF NOT EXISTS] name``, top level or in a ``DO``
+#: block. Only unique ones: a non-unique index of the same name is outside the
+#: snapshot, so a branch making it unique must read as ahead. An index name cannot
+#: be schema-qualified; an unnamed ``CREATE INDEX ON`` is kept out of schema.sql by
+#: a test, since the name Postgres picks never appears.
+_CREATE_UNIQUE_INDEX_RE = re.compile(
+    r'\bCREATE\s+UNIQUE\s+INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?',
     re.IGNORECASE,
 )
 #: ``ALTER INDEX [IF EXISTS] [public.]old RENAME TO name`` — ``name`` is declared too.
@@ -425,7 +427,7 @@ class DeployedSchema:
 
     functions: frozenset[str]
     triggers: frozenset[str]
-    indexes: frozenset[str]
+    indexes: frozenset[str]  # unique-index names (and rename targets)
     tables: frozenset[str]
     words: frozenset[str]
 
@@ -446,7 +448,7 @@ class DeployedSchema:
         return cls(
             functions=names(_CREATE_FUNCTION_RE),
             triggers=names(_CREATE_TRIGGER_RE),
-            indexes=names(_CREATE_INDEX_RE) | names(_RENAME_INDEX_RE),
+            indexes=names(_CREATE_UNIQUE_INDEX_RE) | names(_RENAME_INDEX_RE),
             tables=names(_CREATE_TABLE_RE),
             words=names(_WORD_RE),
         )
