@@ -520,12 +520,17 @@ async def test_non_v1_path_not_logged(client, db):
 
 @pytest.mark.integration
 async def test_invalid_key_logs_null_key_row(client, db):
+    # Bound the poll to rows written after this point (#813): earlier tests
+    # (e.g. test_auth.py) commit identical 401 rows, which would satisfy an
+    # unbounded "newest row" poll even if this request logged nothing.
+    before = await db.fetchval("SELECT COALESCE(MAX(id), 0) FROM api_request_log")
     resp = await client.get("/api/v1/", headers={"X-API-Key": "pm_definitely_invalid"})
     assert resp.status_code == 401
     row = await _poll_row(
         db,
         "SELECT * FROM api_request_log WHERE path='/api/v1/' AND status_code=401"
-        " ORDER BY id DESC LIMIT 1",
+        " AND id > $1 ORDER BY id DESC LIMIT 1",
+        before,
     )
     assert row is not None
     assert row["api_key_id"] is None
