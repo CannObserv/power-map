@@ -161,8 +161,9 @@ async def search_people(
 
     When identifier_type and identifier_value are both supplied they take precedence
     over q and return every person holding that identifier, ordered by id and
-    paginated by limit and offset (#811). Identifiers are not unique, so more than
-    one result means a duplicate link.
+    paginated by limit and offset (#811). Identifiers are not unique: more than one
+    holder (count > 1, or has_more) is a duplicate link, and an archived holder
+    shows only with include_archived=true.
     """
     limit = min(limit, 50)
     id_type, id_value = id_filter

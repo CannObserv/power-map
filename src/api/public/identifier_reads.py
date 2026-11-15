@@ -9,11 +9,9 @@ same way (#811), so all four entity types answer a lookup alike on the wire.
 
 from typing import Any
 
-#: The entity types the list-route lookup serves (#808, #809).
-_LOOKUP_TYPES = frozenset({"role", "role_assignment"})
-
-#: The entity types the search routes' identifier mode serves (#811).
-_HOLDER_TYPES = frozenset({"person", "organization"})
+#: The entity types an identifier lookup serves: the list-route filter (#808,
+#: #809) and the search routes' identifier mode (#811).
+_LOOKUP_TYPES = frozenset({"person", "organization", "role", "role_assignment"})
 
 
 async def fetch_identifiers(db: Any, entity_type: str, entity_id: str) -> list[dict]:
@@ -32,42 +30,34 @@ async def fetch_identifiers(db: Any, entity_type: str, entity_id: str) -> list[d
     return [dict(r) for r in rows]
 
 
-def identifier_match(entity_type: str, id_column: str, type_param: int, value_param: int) -> str:
-    """SQL predicate: the row holds the identifier, or the filter is absent.
-
-    ``$type_param`` / ``$value_param`` are both NULL (no filter) or both set — the
-    route's ``identifier_filter`` dependency guarantees it. An ``EXISTS`` rather
-    than a join, so an entity holding the value twice is still one row, and every
-    holder is returned: identifiers have no ``(type, value)`` uniqueness, so a
-    duplicate link shows as two rows rather than one silent pick. Only stored rows
-    match — a ``pm_*`` type has none; read an entity by id with ``GET /{id}``.
-    """
-    if entity_type not in _LOOKUP_TYPES:
-        raise ValueError(f"no identifier lookup for {entity_type!r}")
-    return (
-        f"(${type_param}::TEXT IS NULL OR EXISTS ("
-        " SELECT 1 FROM identifiers i"
-        " JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id"
-        f" WHERE i.entity_id = {id_column} AND t.entity_type = '{entity_type}'"
-        f" AND t.slug = ${type_param} AND i.value = ${value_param}))"
-    )
-
-
 def identifier_holders(entity_type: str, type_param: int, value_param: int) -> str:
     """SQL subquery: the ids of every entity holding the identifier.
 
-    For ``{id_column} IN (...)``, where ``$type_param`` / ``$value_param`` are
-    both set — the search routes' identifier mode (#811). ``IN`` makes it a
-    semi-join, so an entity holding the value in two rows is still one holder,
-    and the ``(type, value)`` lookup index drives it. Unlike
-    :func:`identifier_match` there is no "filter absent" branch: a generic plan
-    could not fold one away. Only stored rows match — a ``pm_*`` type has none.
+    For ``{id_column} IN (...)``. ``IN`` makes it a semi-join, so an entity
+    holding the value in two rows is still one holder, and every holder is
+    returned: identifiers have no ``(type, value)`` uniqueness, so a duplicate
+    link shows as two rows rather than one silent pick. The ``(type, value)``
+    lookup index drives it. Only stored rows match — a ``pm_*`` type has none;
+    read an entity by id with ``GET /{id}``. The search routes' identifier mode
+    uses it bare, both params always set (#811): a generic plan could not fold
+    away :func:`identifier_match`'s "filter absent" branch.
     """
-    if entity_type not in _HOLDER_TYPES:
-        raise ValueError(f"no identifier holder lookup for {entity_type!r}")
+    if entity_type not in _LOOKUP_TYPES:
+        raise ValueError(f"no identifier lookup for {entity_type!r}")
     return (
         "SELECT i.entity_id FROM identifiers i"
         " JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id"
         f" WHERE t.entity_type = '{entity_type}'"
         f" AND t.slug = ${type_param} AND i.value = ${value_param}"
     )
+
+
+def identifier_match(entity_type: str, id_column: str, type_param: int, value_param: int) -> str:
+    """SQL predicate: the row holds the identifier, or the filter is absent.
+
+    ``$type_param`` / ``$value_param`` are both NULL (no filter) or both set — the
+    route's ``identifier_filter`` dependency guarantees it. The list routes' optional
+    filter (#808, #809), over :func:`identifier_holders`.
+    """
+    holders = identifier_holders(entity_type, type_param, value_param)
+    return f"(${type_param}::TEXT IS NULL OR {id_column} IN ({holders}))"

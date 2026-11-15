@@ -75,9 +75,9 @@ They are external, so addressing an observation *by* one creates on an unknown v
 not-yet-linked site ULID would mint a duplicate person or org. The safe contract: address
 by `pm_person_id` / `pm_org_id` / `pm_role_id` / `pm_assignment_id`, attach the site
 ULID through `additional_identifiers`, and read it back on the entity's detail `GET`.
-Lookup by one: `GET /roles`, `GET /assignments`, `people/search` and `orgs/search`
-take `identifier_type` + `identifier_value` and return every holder, paged by `id`
-(archived: `include_archived=true`); `count > 1` = duplicate link (#811).
+Lookup by one: `GET /roles`, `GET /assignments`, `people/search`, `orgs/search` take
+`identifier_type` + `identifier_value`, return every holder paged by `id` (archived:
+`include_archived=true`); `count > 1`/`has_more` = duplicate (#811).
 
 **One value, one entity (#812).** A value of any of the four appears once in
 `identifiers` — one entity, one row, archived holders included

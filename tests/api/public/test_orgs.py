@@ -686,6 +686,23 @@ async def test_identifier_search_archived_holder_needs_include_archived(
 
 
 @pytest.mark.integration
+async def test_identifier_search_holders_ignore_q(client, api_key, make_sos_holders):
+    """q neither narrows nor widens identifier mode: every holder, nothing else (#811)."""
+    value, ids = await make_sos_holders(2)
+    r = await _search_by_identifier(client, api_key, "wa_sos", value, q="Television")
+    assert [o["id"] for o in r.json()["data"]] == ids
+
+
+@pytest.mark.integration
+async def test_identifier_search_clamps_limit(client, api_key, make_sos_holders):
+    """Identifier mode clamps limit to 50, as the q path does (#811)."""
+    value, ids = await make_sos_holders(2)
+    r = await _search_by_identifier(client, api_key, "wa_sos", value, limit=100)
+    assert r.json()["meta"]["limit"] == 50
+    assert [o["id"] for o in r.json()["data"]] == ids
+
+
+@pytest.mark.integration
 async def test_identifier_search_wins_over_jurisdiction(client, api_key, make_sos_holders):
     """Identifier mode still takes precedence over jurisdiction (#811)."""
     value, ids = await make_sos_holders(2)

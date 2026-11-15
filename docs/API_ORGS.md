@@ -86,8 +86,8 @@ by succession**, never a merge: each external identifier keeps a permanent 1:1
 org anchor, and continuity is the edge. Name search stays list-shaped (it always
 was — names collide across chambers and eras); disambiguate chain members by
 `lifespan` window, or take the chain head for "current". Identifier search
-remains the exact-resolution channel: it returns every org holding the value, so
-more than one result is a duplicate link (#811). Full chain traversal = follow the pointers
+remains the exact-resolution channel: it returns every org holding the value, and
+more than one (`count > 1`, or `has_more`) is a duplicate link (#811). Full chain traversal = follow the pointers
 or read `/orgs/{id}/events`.
 
 ### Renames and the name timeline

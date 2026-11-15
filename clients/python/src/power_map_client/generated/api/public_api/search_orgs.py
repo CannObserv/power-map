@@ -126,8 +126,9 @@ def sync_detailed(
 
     Parameter precedence (first match wins, others ignored):
     1. identifier_type + identifier_value — every org holding that identifier, ordered by
-       id and paginated by limit and offset (#811). Identifiers are not unique, so more
-       than one result means a duplicate link.
+       id and paginated by limit and offset (#811). Identifiers are not unique: more
+       than one holder (count > 1, or has_more) is a duplicate link, and an archived
+       holder shows only with include_archived=true.
     2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q further
        narrows by name when provided.
     3. q alone — substring search across names and acronyms.
@@ -183,8 +184,9 @@ def sync(
 
     Parameter precedence (first match wins, others ignored):
     1. identifier_type + identifier_value — every org holding that identifier, ordered by
-       id and paginated by limit and offset (#811). Identifiers are not unique, so more
-       than one result means a duplicate link.
+       id and paginated by limit and offset (#811). Identifiers are not unique: more
+       than one holder (count > 1, or has_more) is a duplicate link, and an archived
+       holder shows only with include_archived=true.
     2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q further
        narrows by name when provided.
     3. q alone — substring search across names and acronyms.
@@ -235,8 +237,9 @@ async def asyncio_detailed(
 
     Parameter precedence (first match wins, others ignored):
     1. identifier_type + identifier_value — every org holding that identifier, ordered by
-       id and paginated by limit and offset (#811). Identifiers are not unique, so more
-       than one result means a duplicate link.
+       id and paginated by limit and offset (#811). Identifiers are not unique: more
+       than one holder (count > 1, or has_more) is a duplicate link, and an archived
+       holder shows only with include_archived=true.
     2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q further
        narrows by name when provided.
     3. q alone — substring search across names and acronyms.
@@ -290,8 +293,9 @@ async def asyncio(
 
     Parameter precedence (first match wins, others ignored):
     1. identifier_type + identifier_value — every org holding that identifier, ordered by
-       id and paginated by limit and offset (#811). Identifiers are not unique, so more
-       than one result means a duplicate link.
+       id and paginated by limit and offset (#811). Identifiers are not unique: more
+       than one holder (count > 1, or has_more) is a duplicate link, and an archived
+       holder shows only with include_archived=true.
     2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q further
        narrows by name when provided.
     3. q alone — substring search across names and acronyms.

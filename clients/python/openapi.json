@@ -3114,7 +3114,7 @@
           "public-api"
         ],
         "summary": "Search Orgs",
-        "description": "Search organizations by name, acronym, or name variant.\n\nParameter precedence (first match wins, others ignored):\n1. identifier_type + identifier_value — every org holding that identifier, ordered by\n   id and paginated by limit and offset (#811). Identifiers are not unique, so more\n   than one result means a duplicate link.\n2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q further\n   narrows by name when provided.\n3. q alone — substring search across names and acronyms.",
+        "description": "Search organizations by name, acronym, or name variant.\n\nParameter precedence (first match wins, others ignored):\n1. identifier_type + identifier_value — every org holding that identifier, ordered by\n   id and paginated by limit and offset (#811). Identifiers are not unique: more\n   than one holder (count > 1, or has_more) is a duplicate link, and an archived\n   holder shows only with include_archived=true.\n2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q further\n   narrows by name when provided.\n3. q alone — substring search across names and acronyms.",
         "operationId": "searchOrgs",
         "security": [
           {
@@ -3666,7 +3666,7 @@
           "public-api"
         ],
         "summary": "Search People",
-        "description": "Search people by display name or public name variant.\n\nWhen identifier_type and identifier_value are both supplied they take precedence\nover q and return every person holding that identifier, ordered by id and\npaginated by limit and offset (#811). Identifiers are not unique, so more than\none result means a duplicate link.",
+        "description": "Search people by display name or public name variant.\n\nWhen identifier_type and identifier_value are both supplied they take precedence\nover q and return every person holding that identifier, ordered by id and\npaginated by limit and offset (#811). Identifiers are not unique: more than one\nholder (count > 1, or has_more) is a duplicate link, and an archived holder\nshows only with include_archived=true.",
         "operationId": "searchPeople",
         "security": [
           {

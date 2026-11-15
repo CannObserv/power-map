@@ -625,6 +625,23 @@ async def test_identifier_search_holder_with_repeated_value_returned_once(
 
 
 @pytest.mark.integration
+async def test_identifier_search_holders_ignore_q(client, api_key, make_pdc_holders):
+    """q neither narrows nor widens identifier mode: every holder, nothing else (#811)."""
+    value, ids = await make_pdc_holders(2)
+    r = await _search_by_identifier(client, api_key, "person_wa_pdc", value, q="Jane")
+    assert [p["id"] for p in r.json()["data"]] == ids
+
+
+@pytest.mark.integration
+async def test_identifier_search_clamps_limit(client, api_key, make_pdc_holders):
+    """Identifier mode clamps limit to 50, as the q path does (#811)."""
+    value, ids = await make_pdc_holders(2)
+    r = await _search_by_identifier(client, api_key, "person_wa_pdc", value, limit=100)
+    assert r.json()["meta"]["limit"] == 50
+    assert [p["id"] for p in r.json()["data"]] == ids
+
+
+@pytest.mark.integration
 async def test_identifier_search_archived_holder_needs_include_archived(
     client, api_key, make_pdc_holders, db
 ):
