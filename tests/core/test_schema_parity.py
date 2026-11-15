@@ -409,7 +409,6 @@ async def test_snapshot_unique_indexes_excludes_only_constraint_backing_indexes(
     await snapshot_unique_indexes(conn)
     sql = " ".join(conn.sql[0].split())
     assert "c.contype IN ('p', 'u', 'x')" in sql
-    assert "c.conrelid = i.indrelid" in sql
 
 
 def test_classify_missing_splits_drift_from_reference_ahead(deployed):
@@ -607,15 +606,18 @@ async def test_snapshot_unique_indexes_against_live_db(db_pool):
 @pytest.mark.integration
 async def test_snapshot_keeps_a_unique_index_an_fk_references(db_pool):
     """An FK's ``conindid`` points at the referenced unique index; that index is not
-    constraint-backed and must stay in the snapshot. Built in a rolled-back txn."""
+    constraint-backed and must stay in the snapshot. The FK is self-referencing, so
+    its ``conrelid`` is the index's own table and only the ``contype`` filter keeps
+    the index. Built in a rolled-back txn."""
     async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
         try:
             await conn.execute(
-                "CREATE TABLE _pm816_parent (code TEXT NOT NULL);"
+                "CREATE TABLE _pm816_parent (code TEXT NOT NULL, parent_code TEXT);"
                 "CREATE UNIQUE INDEX _pm816_uq_code ON _pm816_parent (code);"
-                "CREATE TABLE _pm816_child (code TEXT REFERENCES _pm816_parent (code));"
+                "ALTER TABLE _pm816_parent ADD FOREIGN KEY (parent_code)"
+                " REFERENCES _pm816_parent (code);"
             )
             snap = await snapshot_unique_indexes(conn)
         finally:

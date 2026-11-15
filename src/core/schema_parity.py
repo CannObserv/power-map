@@ -237,7 +237,6 @@ WHERE n.nspname = 'public'
   AND NOT EXISTS (
       SELECT 1 FROM pg_constraint c
       WHERE c.conindid = i.indexrelid
-        AND c.conrelid = i.indrelid
         AND c.contype IN ('p', 'u', 'x')
   )
   AND NOT EXISTS (
