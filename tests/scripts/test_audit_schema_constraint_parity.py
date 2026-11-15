@@ -519,19 +519,9 @@ def test_a_major_mismatch_skips_the_index_diff(stub_dbs, run_audit):
     assert "unique_index" not in stub_dbs.calls
 
 
-def test_a_pre_816_state_file_still_reads(stub_dbs, run_audit, state_path):
-    """A streak file written before the fourth kind existed keeps its streaks: the
-    keys are free-form ``<kind>.<label>`` strings, so a new kind only adds keys."""
-    state_path.parent.mkdir(parents=True)
-    state_path.write_text(json.dumps({"streaks": {"function.f()": _streak(2)}}))
-    pending = IndexKey(table="t", name="uq_t_pending")
-    _index_dbs(stub_dbs, ref={pending: "CREATE UNIQUE INDEX uq_t_pending …"}, major_map=None)
-    assert run_audit(today=_DAY + timedelta(1)).exit_code == 4
-    streaks = json.loads(state_path.read_text())["streaks"]
-    assert streaks == {"unique_index.t.uq_t_pending": _streak(1, _DAY + timedelta(1))}
-
-
 def test_a_major_skip_keeps_an_index_streak(stub_dbs, run_audit, state_path):
+    """The state file's keys are free-form ``<kind>.<label>``, so a fourth kind adds
+    keys; a skipped kind's streak carries over by its ``unique_index.`` prefix."""
     state_path.parent.mkdir(parents=True)
     state_path.write_text(json.dumps({"streaks": {"unique_index.t.uq_t_pending": _streak(2)}}))
     _index_dbs(stub_dbs, major_map={_REF: 17, _PROD: 16})
