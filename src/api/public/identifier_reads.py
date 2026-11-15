@@ -1,15 +1,19 @@
-"""Identifier reads shared by the role and assignment routes (#808, #809).
+"""Identifier reads shared by the role, assignment, people and org routes.
 
-Both read sides follow the people/orgs detail shape (``{id, type_id, type_slug,
-value}``, internal types omitted), and both list routes take the same optional
-``identifier_type`` + ``identifier_value`` filter, so the two read the same way
-on the wire.
+The role and assignment read sides follow the people/orgs detail shape (``{id,
+type_id, type_slug, value}``, internal types omitted), and both list routes take
+the same optional ``identifier_type`` + ``identifier_value`` filter (#808, #809).
+``people/search`` and ``orgs/search`` in identifier mode return every holder the
+same way (#811), so all four entity types answer a lookup alike on the wire.
 """
 
 from typing import Any
 
 #: The entity types the list-route lookup serves (#808, #809).
 _LOOKUP_TYPES = frozenset({"role", "role_assignment"})
+
+#: The entity types the search routes' identifier mode serves (#811).
+_HOLDER_TYPES = frozenset({"person", "organization"})
 
 
 async def fetch_identifiers(db: Any, entity_type: str, entity_id: str) -> list[dict]:
@@ -46,4 +50,24 @@ def identifier_match(entity_type: str, id_column: str, type_param: int, value_pa
         " JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id"
         f" WHERE i.entity_id = {id_column} AND t.entity_type = '{entity_type}'"
         f" AND t.slug = ${type_param} AND i.value = ${value_param}))"
+    )
+
+
+def identifier_holders(entity_type: str, type_param: int, value_param: int) -> str:
+    """SQL subquery: the ids of every entity holding the identifier.
+
+    For ``{id_column} IN (...)``, where ``$type_param`` / ``$value_param`` are
+    both set — the search routes' identifier mode (#811). ``IN`` makes it a
+    semi-join, so an entity holding the value in two rows is still one holder,
+    and the ``(type, value)`` lookup index drives it. Unlike
+    :func:`identifier_match` there is no "filter absent" branch: a generic plan
+    could not fold one away. Only stored rows match — a ``pm_*`` type has none.
+    """
+    if entity_type not in _HOLDER_TYPES:
+        raise ValueError(f"no identifier holder lookup for {entity_type!r}")
+    return (
+        "SELECT i.entity_id FROM identifiers i"
+        " JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id"
+        f" WHERE t.entity_type = '{entity_type}'"
+        f" AND t.slug = ${type_param} AND i.value = ${value_param}"
     )

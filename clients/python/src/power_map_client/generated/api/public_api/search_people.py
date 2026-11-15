@@ -116,7 +116,9 @@ def sync_detailed(
      Search people by display name or public name variant.
 
     When identifier_type and identifier_value are both supplied they take precedence
-    over q and return at most one result with has_more always false.
+    over q and return every person holding that identifier, ordered by id and
+    paginated by limit and offset (#811). Identifiers are not unique, so more than
+    one result means a duplicate link.
 
     Args:
         q (str | Unset):  Default: ''.
@@ -165,7 +167,9 @@ def sync(
      Search people by display name or public name variant.
 
     When identifier_type and identifier_value are both supplied they take precedence
-    over q and return at most one result with has_more always false.
+    over q and return every person holding that identifier, ordered by id and
+    paginated by limit and offset (#811). Identifiers are not unique, so more than
+    one result means a duplicate link.
 
     Args:
         q (str | Unset):  Default: ''.
@@ -209,7 +213,9 @@ async def asyncio_detailed(
      Search people by display name or public name variant.
 
     When identifier_type and identifier_value are both supplied they take precedence
-    over q and return at most one result with has_more always false.
+    over q and return every person holding that identifier, ordered by id and
+    paginated by limit and offset (#811). Identifiers are not unique, so more than
+    one result means a duplicate link.
 
     Args:
         q (str | Unset):  Default: ''.
@@ -256,7 +262,9 @@ async def asyncio(
      Search people by display name or public name variant.
 
     When identifier_type and identifier_value are both supplied they take precedence
-    over q and return at most one result with has_more always false.
+    over q and return every person holding that identifier, ordered by id and
+    paginated by limit and offset (#811). Identifiers are not unique, so more than
+    one result means a duplicate link.
 
     Args:
         q (str | Unset):  Default: ''.

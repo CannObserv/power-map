@@ -19,6 +19,7 @@ from src.api.public.events import (
     row_to_event,
 )
 from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone, resolve_merged_into
+from src.api.public.identifier_reads import identifier_holders
 from src.api.public.ratelimit import BUCKET_EXTRA_KEY
 from src.api.public.responses import NOT_FOUND, NOT_MODIFIED_OR_NOT_FOUND
 from src.api.public.schemas import (
@@ -303,6 +304,22 @@ def _org_row_to_dict(r: Any) -> dict[str, Any]:
     }
 
 
+async def _org_search_page(db: Any, rows: list, limit: int, offset: int) -> dict[str, Any]:
+    """Shape ``limit + 1`` fetched rows into one search page with a real has_more."""
+    page = rows[:limit]
+    data = [_org_row_to_dict(r) for r in page]
+    await _annotate_succession(db, data)
+    return {
+        "data": data,
+        "meta": {
+            "limit": limit,
+            "offset": offset,
+            "count": len(page),
+            "has_more": len(rows) > limit,
+        },
+    }
+
+
 @router.get(
     "/search",
     response_model=OrgSearchResponse,
@@ -321,7 +338,9 @@ async def search_orgs(
     """Search organizations by name, acronym, or name variant.
 
     Parameter precedence (first match wins, others ignored):
-    1. identifier_type + identifier_value — returns at most one result, has_more=false.
+    1. identifier_type + identifier_value — every org holding that identifier, ordered by
+       id and paginated by limit and offset (#811). Identifiers are not unique, so more
+       than one result means a duplicate link.
     2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q further
        narrows by name when provided.
     3. q alone — substring search across names and acronyms.
@@ -331,7 +350,7 @@ async def search_orgs(
 
     if id_type is not None:
         rows = await db.fetch(
-            """
+            f"""
             SELECT
                 o.id,
                 n.name,
@@ -339,31 +358,20 @@ async def search_orgs(
                 o.parent_id,
                 o.archived_at
             FROM organizations o
-            JOIN identifiers i ON i.entity_id = o.id
-            JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
             LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
             LEFT JOIN organization_acronyms a ON a.organization_id = o.id AND a.is_canonical = TRUE
-            WHERE t.slug = $1
-              AND i.value = $2
-              AND t.entity_type = 'organization'
+            WHERE o.id IN ({identifier_holders("organization", 1, 2)})
               AND ($3 OR o.archived_at IS NULL)
-            LIMIT 1
-            """,
+            ORDER BY o.id  -- holder order has no meaning; unique for pagination (#297)
+            LIMIT $4 OFFSET $5
+            """,  # noqa: S608 — identifier_holders interpolates fixed strings only
             id_type,
             id_value,
             include_archived,
+            limit + 1,
+            offset,
         )
-        data = [_org_row_to_dict(r) for r in rows]
-        await _annotate_succession(db, data)
-        return {
-            "data": data,
-            "meta": {
-                "limit": limit,
-                "offset": offset,
-                "count": len(rows),
-                "has_more": False,
-            },
-        }
+        return await _org_search_page(db, rows, limit, offset)
 
     if jurisdiction is not None:
         return await _search_by_jurisdiction(
@@ -403,20 +411,7 @@ async def search_orgs(
         offset,
     )
 
-    has_more = len(rows) > limit
-    page = rows[:limit]
-
-    data = [_org_row_to_dict(r) for r in page]
-    await _annotate_succession(db, data)
-    return {
-        "data": data,
-        "meta": {
-            "limit": limit,
-            "offset": offset,
-            "count": len(page),
-            "has_more": has_more,
-        },
-    }
+    return await _org_search_page(db, rows, limit, offset)
 
 
 async def _search_by_jurisdiction(
@@ -465,19 +460,7 @@ async def _search_by_jurisdiction(
         offset,
         q.strip() if q else None,
     )
-    has_more = len(rows) > limit
-    page = rows[:limit]
-    data = [_org_row_to_dict(r) for r in page]
-    await _annotate_succession(db, data)
-    return {
-        "data": data,
-        "meta": {
-            "limit": limit,
-            "offset": offset,
-            "count": len(page),
-            "has_more": has_more,
-        },
-    }
+    return await _org_search_page(db, rows, limit, offset)
 
 
 @router.post(

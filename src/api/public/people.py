@@ -19,6 +19,7 @@ from src.api.public.events import (
     row_to_event,
 )
 from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
+from src.api.public.identifier_reads import identifier_holders
 from src.api.public.responses import NOT_MODIFIED_OR_NOT_FOUND
 from src.api.public.schemas import (
     CitationObservationResult,
@@ -159,41 +160,31 @@ async def search_people(
     """Search people by display name or public name variant.
 
     When identifier_type and identifier_value are both supplied they take precedence
-    over q and return at most one result with has_more always false.
+    over q and return every person holding that identifier, ordered by id and
+    paginated by limit and offset (#811). Identifiers are not unique, so more than
+    one result means a duplicate link.
     """
     limit = min(limit, 50)
     id_type, id_value = id_filter
 
     if id_type is not None:
         rows = await db.fetch(
-            """
+            f"""
             SELECT p.id, v.display_name, p.archived_at
             FROM people p
-            JOIN identifiers i ON i.entity_id = p.id
-            JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id
             LEFT JOIN v_person_display_names v ON v.person_id = p.id
-            WHERE t.slug = $1
-              AND i.value = $2
-              AND t.entity_type = 'person'
+            WHERE p.id IN ({identifier_holders("person", 1, 2)})
               AND ($3 OR p.archived_at IS NULL)
-            LIMIT 1
-            """,
+            ORDER BY p.id  -- holder order has no meaning; unique for pagination (#297)
+            LIMIT $4 OFFSET $5
+            """,  # noqa: S608 — identifier_holders interpolates fixed strings only
             id_type,
             id_value,
             include_archived,
+            limit + 1,
+            offset,
         )
-        return {
-            "data": [
-                {"id": r["id"], "display_name": r["display_name"], "archived_at": r["archived_at"]}
-                for r in rows
-            ],
-            "meta": {
-                "limit": limit,
-                "offset": offset,
-                "count": len(rows),
-                "has_more": False,
-            },
-        }
+        return _person_search_page(rows, limit, offset)
 
     if not q.strip():
         return {
@@ -224,9 +215,12 @@ async def search_people(
         offset,
     )
 
-    has_more = len(rows) > limit
-    page = rows[:limit]
+    return _person_search_page(rows, limit, offset)
 
+
+def _person_search_page(rows: list, limit: int, offset: int) -> dict:
+    """Shape ``limit + 1`` fetched rows into one search page with a real has_more."""
+    page = rows[:limit]
     return {
         "data": [
             {"id": r["id"], "display_name": r["display_name"], "archived_at": r["archived_at"]}
@@ -236,7 +230,7 @@ async def search_people(
             "limit": limit,
             "offset": offset,
             "count": len(page),
-            "has_more": has_more,
+            "has_more": len(rows) > limit,
         },
     }
 
