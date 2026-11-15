@@ -23,10 +23,10 @@ WARNING is the only other trace, and each is the sole guard of an invariant the
 code relies on.
 
 This module is the reusable core of that sweep: snapshot every constraint,
-function, trigger and unique index on a DB as ``{key: def}`` and diff a *reference* snapshot
-against a *target*. The full server-normalised definition is compared — not mere
-presence — so FK ``ON DELETE`` actions, CHECK bodies, and function/trigger
-bodies are all in scope (the #315 FK differed only in its action):
+function, trigger and unique index on a DB as ``{key: def}`` and diff a
+*reference* snapshot against a *target*. The full server-normalised definition is
+compared — not mere presence — so FK ``ON DELETE`` actions, CHECK bodies, and
+function/trigger bodies are all in scope (the #315 FK differed only in its action):
 
 * constraints — ``pg_get_constraintdef`` keyed on ``(table, name)``
 * functions — ``pg_get_functiondef`` keyed on signature (``name(arg types)``,
@@ -38,12 +38,14 @@ bodies are all in scope (the #315 FK differed only in its action):
   (constraint/FK-enforcement) and extension-owned triggers excluded
 * unique indexes — ``pg_get_indexdef`` keyed on ``(table, name)``; primary keys
   and the index a ``UNIQUE`` / ``EXCLUDE`` constraint owns are excluded (the
-  constraint snapshot covers them), extension-owned tables too. Non-unique
-  indexes are out of scope: a missing one costs speed, not correctness. An
-  invalid index carries ``INVALID_INDEX_MARKER`` in its def. ``apply_schema``
-  builds unique indexes inside its transaction, so a skipped ``DO`` block leaves
-  no index (missing); only a failed hand-run ``CONCURRENTLY`` build leaves an
-  invalid one, which ``CREATE UNIQUE INDEX IF NOT EXISTS`` then never rebuilds
+  constraint snapshot covers them), and so are extension-owned tables and
+  partition child indexes (Postgres names them; a missing one invalidates the
+  parent). Non-unique indexes are out of scope: a missing one costs speed, not
+  correctness. An invalid index carries ``INVALID_INDEX_MARKER`` in its def.
+  ``apply_schema`` builds unique indexes inside its transaction, so a skipped
+  ``DO`` block leaves no index (missing); only a failed hand-run
+  ``CONCURRENTLY`` build leaves an invalid one, which ``CREATE UNIQUE INDEX IF
+  NOT EXISTS`` then never rebuilds
 
 Contract of the guard (``scripts/audit_schema_constraint_parity.py``): the
 *target* (prod) must carry everything the *reference* has, with identical
@@ -74,13 +76,13 @@ the error that hides something, so it is the one the rule avoids. Mismatched
 definitions are not classified — a branch that changes a body still reads as
 drift until it deploys.
 
-PG-version note: ``pg_get_functiondef`` / ``pg_get_triggerdef`` / ``pg_get_indexdef``
-are deterministic on a *given* server version but their formatting can legitimately differ across
-majors. Two DBs applying the same ``schema.sql`` on the same major produce
-byte-identical defs (no whitespace normalisation needed); the guard skips the
-function/trigger/unique-index diffs on a major mismatch rather than misreport a version
-artifact as body drift. ``pg_get_constraintdef`` is version-stable, so the
-constraint diff always runs.
+PG-version note: ``pg_get_functiondef`` / ``pg_get_triggerdef`` /
+``pg_get_indexdef`` are deterministic on a *given* server version but their
+formatting can legitimately differ across majors. Two DBs applying the same
+``schema.sql`` on the same major produce byte-identical defs (no whitespace
+normalisation needed); the guard skips the function/trigger/unique-index diffs on
+a major mismatch rather than misreport a version artifact as drift.
+``pg_get_constraintdef`` is version-stable, so the constraint diff always runs.
 
 Reference fidelity: the strongest reference is a database built from an *empty*
 schema via ``apply_schema`` (its real ``CREATE TABLE`` runs every inline
@@ -535,9 +537,10 @@ def format_drift_report(drift: SchemaObjectDrift, *, reference: str, target: str
     """Human-readable multi-line report of a drift, for the ops-check journal log.
 
     Object identities are namespaced by kind (``constraint.`` / ``function.`` /
-    ``trigger.`` / ``unique_index.``) so a combined multi-kind report stays unambiguous. Multi-line
-    function/trigger bodies have their continuation lines indented to align under
-    the ``reference:`` / ``target:`` label rather than spilling to column 0.
+    ``trigger.`` / ``unique_index.``) so a combined multi-kind report stays
+    unambiguous. Multi-line function/trigger bodies have their continuation lines
+    indented to align under the ``reference:`` / ``target:`` label rather than
+    spilling to column 0.
     """
     kind = drift.kind
     lines: list[str] = []
