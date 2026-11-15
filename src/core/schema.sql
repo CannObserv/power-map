@@ -840,7 +840,8 @@ CREATE INDEX IF NOT EXISTS idx_identifiers_lookup
 -- the schema transaction (never CONCURRENTLY), and the restart applies the
 -- schema, so existing duplicates warn and skip rather than abort the start
 -- (#398/#748), as uq_role_org_title does. A skip is drift to the daily
--- schema-parity audit's unique_index kind (#816), which names it.
+-- schema-parity audit's unique_index kind (#816) when its reference DB carries
+-- the index and runs prod's PG major.
 DO $$ BEGIN
     CREATE UNIQUE INDEX IF NOT EXISTS uq_identifiers_cannabis_observer
         ON identifiers (entity_identifier_type_id, value)
