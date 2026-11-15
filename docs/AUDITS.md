@@ -200,7 +200,8 @@ checkout's, which the unit runs from; `--deployed-schema` overrides):
   failed on exactly this before.
 
 Matching is by name. Functions and triggers: `CREATE [OR REPLACE] FUNCTION|TRIGGER
-name`; unique indexes: `CREATE UNIQUE INDEX … name` or `RENAME TO name`. Constraints: most never appear in `schema.sql` (Postgres names an inline
+name`; unique indexes: `CREATE UNIQUE INDEX … name` or `RENAME TO name`.
+Constraints: most never appear in `schema.sql` (Postgres names an inline
 `PRIMARY KEY` / `REFERENCES` / `CHECK` / `UNIQUE` itself), so one counts as
 declared when its name is written there, or when it has the implicit shape
 `<table>_<columns>_<pkey|fkey|key|check|excl|not_null>[N]` on a created table
