@@ -9,12 +9,14 @@ WorkingDirectory=/home/exedev/power-map
 EnvironmentFile=/etc/power-map/.env
 # Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
 # Snapshots every constraint (pg_get_constraintdef), function (pg_get_functiondef),
-# and trigger (pg_get_triggerdef) on the reference DB (PARITY_REFERENCE_URL,
-# default TEST_DATABASE_URL) and on prod (DATABASE_URL), and exits 3 when prod is
-# missing or disagrees on any reference object — the CREATE TABLE IF NOT EXISTS
-# inline-constraint drift class (#307/#312/#315) plus the CREATE OR REPLACE
-# function/trigger body-drift window (#331; extension-owned/internal excluded,
-# version-sensitive kinds skipped on a PG-major mismatch). Exit 3 (not 2) stays
+# trigger (pg_get_triggerdef) and standalone unique index (pg_get_indexdef plus
+# validity, #816) on the reference DB (PARITY_REFERENCE_URL, default
+# TEST_DATABASE_URL) and on prod (DATABASE_URL), and exits 3 when prod is missing
+# or disagrees on any reference object — the CREATE TABLE IF NOT EXISTS
+# inline-constraint drift class (#307/#312/#315), the CREATE OR REPLACE
+# function/trigger body-drift window (#331; extension-owned/internal excluded),
+# and a unique index a warn-don't-abort DO block skipped (#816). The
+# version-sensitive kinds (all but constraints) skip on a PG-major mismatch. Exit 3 (not 2) stays
 # distinct from argparse usage errors; the unit shows as failed, so drift
 # surfaces in `systemctl --failed` and alerts as `drift`.
 # A reference-only object the deployed src/core/schema.sql (this checkout's) does

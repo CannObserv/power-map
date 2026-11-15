@@ -2,7 +2,8 @@
 
 The drift diff itself is tested in ``tests/core/test_schema_parity.py``; here we
 pin the pieces the systemd timer depends on — ``run()``'s per-kind OK-vs-drift
-branching and summed drift-count return across constraints/functions/triggers,
+branching and summed drift-count return across constraints/functions/triggers/
+unique indexes (#816),
 the PG-major version skip for the version-sensitive kinds, the two
 misconfiguration guards (empty reference, reference == target) that keep the
 monitor from passing vacuously, the reference-ahead classification against the
@@ -24,7 +25,14 @@ from pathlib import Path
 import pytest
 
 import scripts.audit_schema_constraint_parity as audit
-from src.core.schema_parity import ConstraintKey, DeployedSchema, FunctionKey, TriggerKey
+from src.core.schema_parity import (
+    INVALID_INDEX_MARKER,
+    ConstraintKey,
+    DeployedSchema,
+    FunctionKey,
+    IndexKey,
+    TriggerKey,
+)
 
 _CK = ConstraintKey(table="entity_events", name="fk_addr")
 _SET_NULL = "FOREIGN KEY (a) REFERENCES addresses(id) ON DELETE SET NULL"
@@ -32,6 +40,8 @@ _NO_ACTION = "FOREIGN KEY (a) REFERENCES addresses(id)"
 
 _FK = FunctionKey(signature="touch_parent_on_link_change()")
 _TK = TriggerKey(table="links", name="trg_touch_entity_on_link_change")
+_IK = IndexKey(table="identifiers", name="uq_identifiers_cannabis_observer")
+_IDX = "CREATE UNIQUE INDEX uq_identifiers_cannabis_observer ON public.identifiers USING btree (v)"
 
 _REF = "postgres://u:pw@ref-host:5432/refdb"
 _PROD = "postgres://u:pw@prod-host:5432/proddb"
@@ -43,6 +53,10 @@ CREATE TABLE IF NOT EXISTS entity_events (a TEXT, CONSTRAINT fk_addr FOREIGN KEY
 CREATE OR REPLACE FUNCTION touch_parent_on_link_change() RETURNS trigger AS $$ $$;
 CREATE OR REPLACE TRIGGER trg_touch_entity_on_link_change AFTER INSERT ON links
     FOR EACH ROW EXECUTE FUNCTION touch_parent_on_link_change();
+DO $$ BEGIN
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_identifiers_cannabis_observer ON identifiers (v);
+EXCEPTION WHEN unique_violation THEN RAISE WARNING 'not created';
+END $$;
 """)
 
 #: The deployed schema.sql of 2026-10-09 00:01 UTC, as far as the incident goes:
@@ -89,18 +103,19 @@ class _FakeConn:
         self.closed = True
 
 
-def _snap(*, constraint=None, function=None, trigger=None):
+def _snap(*, constraint=None, function=None, trigger=None, unique_index=None):
     """Build a per-kind snapshot bundle, defaulting each kind to empty."""
     return {
         "constraint": constraint or {},
         "function": function or {},
         "trigger": trigger or {},
+        "unique_index": unique_index or {},
     }
 
 
 @pytest.fixture
 def stub_dbs(monkeypatch):
-    """Wire ``asyncpg.connect`` + the three ``snapshot_*`` helpers to per-DSN data.
+    """Wire ``asyncpg.connect`` + the four ``snapshot_*`` helpers to per-DSN data.
 
     Returns a setter taking ``{dsn: bundle}`` (bundle from ``_snap``) and an
     optional ``majors={dsn: int}``; ``run()`` then sees each URL resolve to its
@@ -124,6 +139,7 @@ def stub_dbs(monkeypatch):
     monkeypatch.setattr(audit, "snapshot_constraints", _snapshotter("constraint"))
     monkeypatch.setattr(audit, "snapshot_functions", _snapshotter("function"))
     monkeypatch.setattr(audit, "snapshot_triggers", _snapshotter("trigger"))
+    monkeypatch.setattr(audit, "snapshot_unique_indexes", _snapshotter("unique_index"))
 
     def _set(mapping, *, major_map=None):
         bundles.clear()
@@ -173,11 +189,17 @@ def run_audit(state_path):
 
 
 def test_run_returns_zero_when_parity(stub_dbs, run_audit):
-    snap = _snap(constraint={_CK: _SET_NULL}, function={_FK: "f"}, trigger={_TK: "t"})
+    snap = _snap(
+        constraint={_CK: _SET_NULL},
+        function={_FK: "f"},
+        trigger={_TK: "t"},
+        unique_index={_IK: _IDX},
+    )
     stub_dbs({_REF: snap, _PROD: {k: dict(v) for k, v in snap.items()}})
     assert run_audit().exit_code == 0
-    # Same major → all three kinds snapshotted on both DBs.
-    assert sorted(stub_dbs.calls) == sorted(["constraint", "function", "trigger"] * 2)
+    # Same major → all four kinds snapshotted on both DBs.
+    assert sorted(stub_dbs.calls) == sorted(audit._KINDS * 2)
+    assert "unique_index" in audit._KINDS
 
 
 def test_run_returns_drift_count_on_constraint_mismatch(stub_dbs, run_audit):
@@ -226,6 +248,7 @@ def test_run_skips_version_sensitive_kinds_on_major_mismatch(stub_dbs, run_audit
         assert run_audit().exit_code == 0
     assert "function parity SKIPPED" in caplog.text
     assert "trigger parity SKIPPED" in caplog.text
+    assert "unique_index parity SKIPPED" in caplog.text
     # Skipped kinds must not be snapshotted at all (no wasted pg_get_*def query) —
     # only the constraint snapshot runs, once per DB.
     assert set(stub_dbs.calls) == {"constraint"}
@@ -432,6 +455,90 @@ def test_main_errors_without_target(monkeypatch):
 
 
 # --- reference ahead of the deployed schema (#632) ----------------------------
+
+
+# --- unique indexes (#816) ------------------------------------------------------
+
+
+def _index_dbs(stub_dbs, *, ref=None, prod=None, major_map=None):
+    """Constraint parity on both sides; unique indexes as given."""
+    stub_dbs(
+        {
+            _REF: _snap(constraint={_CK: _SET_NULL}, unique_index=ref or {}),
+            _PROD: _snap(constraint={_CK: _SET_NULL}, unique_index=prod or {}),
+        },
+        major_map=major_map,
+    )
+
+
+def test_unique_index_parity_is_reported_by_kind(stub_dbs, run_audit, caplog):
+    _index_dbs(stub_dbs, ref={_IK: _IDX}, prod={_IK: _IDX})
+    with caplog.at_level(logging.INFO):
+        assert run_audit().exit_code == 0
+    assert "Schema unique_index parity OK" in caplog.text
+    assert "carries all 1 reference unique_index(s)" in caplog.text
+
+
+def test_a_skipped_warn_dont_abort_index_is_drift(stub_dbs, run_audit, caplog):
+    """The #816 case: the DO block warned and skipped on prod, the deployed schema.sql
+    declares the index → drift, exit 3, the index named in the report."""
+    _index_dbs(stub_dbs, ref={_IK: _IDX})
+    with caplog.at_level(logging.WARNING):
+        result = run_audit()
+    assert result.drift_count == 1
+    assert result.exit_code == 3
+    assert "Schema unique_index DRIFT" in caplog.text
+    assert "unique_index.identifiers.uq_identifiers_cannabis_observer" in caplog.text
+
+
+def test_an_undeclared_missing_index_is_reference_ahead(stub_dbs, run_audit):
+    pending = IndexKey(table="identifiers", name="uq_identifiers_pending")
+    _index_dbs(stub_dbs, ref={pending: "CREATE UNIQUE INDEX uq_identifiers_pending …"})
+    result = run_audit()
+    assert result.drift_count == 0
+    assert result.ahead == ("unique_index.identifiers.uq_identifiers_pending",)
+    assert result.exit_code == 4
+
+
+def test_a_different_index_definition_is_drift(stub_dbs, run_audit):
+    _index_dbs(stub_dbs, ref={_IK: _IDX}, prod={_IK: _IDX + " WHERE (v IS NOT NULL)"})
+    assert run_audit().drift_count == 1
+
+
+def test_an_invalid_index_on_prod_is_drift(stub_dbs, run_audit, caplog):
+    """A failed ``CONCURRENTLY`` build leaves the name taken; the marker makes it differ."""
+    _index_dbs(stub_dbs, ref={_IK: _IDX}, prod={_IK: _IDX + INVALID_INDEX_MARKER})
+    with caplog.at_level(logging.WARNING):
+        assert run_audit().exit_code == 3
+    assert "INVALID" in caplog.text
+
+
+def test_a_major_mismatch_skips_the_index_diff(stub_dbs, run_audit):
+    _index_dbs(stub_dbs, ref={_IK: _IDX}, major_map={_REF: 17, _PROD: 16})
+    assert run_audit().exit_code == 0
+    assert "unique_index" not in stub_dbs.calls
+
+
+def test_a_pre_816_state_file_still_reads(stub_dbs, run_audit, state_path):
+    """A streak file written before the fourth kind existed keeps its streaks: the
+    keys are free-form ``<kind>.<label>`` strings, so a new kind only adds keys."""
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(json.dumps({"streaks": {"function.f()": _streak(2)}}))
+    pending = IndexKey(table="t", name="uq_t_pending")
+    _index_dbs(stub_dbs, ref={pending: "CREATE UNIQUE INDEX uq_t_pending …"}, major_map=None)
+    assert run_audit(today=_DAY + timedelta(1)).exit_code == 4
+    streaks = json.loads(state_path.read_text())["streaks"]
+    assert streaks == {"unique_index.t.uq_t_pending": _streak(1, _DAY + timedelta(1))}
+
+
+def test_a_major_skip_keeps_an_index_streak(stub_dbs, run_audit, state_path):
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(json.dumps({"streaks": {"unique_index.t.uq_t_pending": _streak(2)}}))
+    _index_dbs(stub_dbs, major_map={_REF: 17, _PROD: 16})
+    assert run_audit().exit_code == 0
+    assert json.loads(state_path.read_text())["streaks"] == {
+        "unique_index.t.uq_t_pending": _streak(2)
+    }
 
 
 def _incident_dbs(stub_dbs):

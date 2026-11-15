@@ -6,8 +6,9 @@ snapshots are plain dicts, so the diff semantics (missing / mismatched /
 target-only) are tested in isolation from asyncpg. ``DeployedSchema`` /
 ``classify_missing`` / ``advance_streaks`` (#632) split a reference-only object
 into real drift or a reference ahead of the deployed ``schema.sql``, over SQL
-text. Integration tests exercise the live constraint/function/trigger snapshot
-queries against the test DB.
+text. Integration tests exercise the live constraint/function/trigger/unique-index
+snapshot queries against the test DB. Unique indexes (#816) carry their validity
+in their def, so an index a failed ``CONCURRENTLY`` build left invalid differs.
 """
 
 import re
@@ -17,9 +18,12 @@ import pytest
 
 from src.core.db import SCHEMA_PATH
 from src.core.schema_parity import (
+    INVALID_INDEX_MARKER,
+    VERSION_SENSITIVE_KINDS,
     ConstraintKey,
     DeployedSchema,
     FunctionKey,
+    IndexKey,
     TriggerKey,
     advance_streaks,
     classify_missing,
@@ -28,6 +32,7 @@ from src.core.schema_parity import (
     snapshot_constraints,
     snapshot_functions,
     snapshot_triggers,
+    snapshot_unique_indexes,
     strip_line_comments,
 )
 
@@ -155,6 +160,16 @@ DO $$ BEGIN
     CREATE TRIGGER trg_people_search_tsv BEFORE INSERT ON people
         FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_people_full_name ON people (first_name, last_name);
+CREATE UNIQUE INDEX CONCURRENTLY uq_people_concurrent ON people (id);
+DO $$ BEGIN
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_people_guarded ON people (birth_year);
+EXCEPTION WHEN unique_violation THEN
+    RAISE WARNING 'uq_people_guarded not created';
+END $$;
+ALTER INDEX IF EXISTS uq_people_old RENAME TO uq_people_renamed;
+DROP INDEX IF EXISTS uq_people_dropped;
+-- uq_people_planned is only mentioned in a comment.
 """
 
 
@@ -253,15 +268,15 @@ _DYNAMIC_DDL_RE = re.compile(
     re.DOTALL,
 )
 _CREATE_DDL_RE = re.compile(
-    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:CONSTRAINT\s+)?(?:UNLOGGED\s+)?"
-    r"(?:FUNCTION|TRIGGER|TABLE)\b",
+    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:CONSTRAINT\s+)?(?:UNLOGGED\s+)?(?:UNIQUE\s+)?"
+    r"(?:FUNCTION|TRIGGER|TABLE|INDEX)\b",
     re.IGNORECASE,
 )
 
 
 def test_schema_sql_creates_no_object_through_dynamic_sql():
     """``DeployedSchema`` reads names from ``CREATE`` text, so a quoted string that an
-    ``EXECUTE`` turns into a function, trigger or table would hide its name and read
+    ``EXECUTE`` turns into a function, trigger, table or index would hide its name and read
     a deployed object as ahead. Keep such DDL out of schema.sql, or teach the reader."""
     sql = strip_line_comments(SCHEMA_PATH.read_text())
     literals = [m.group(1) for m in _DYNAMIC_DDL_RE.finditer(sql)]
@@ -274,6 +289,7 @@ def test_schema_sql_creates_no_object_through_dynamic_sql():
         "EXECUTE format('CREATE TRIGGER %I BEFORE INSERT ON t', 'trg');",
         "v := 'CREATE OR REPLACE FUNCTION f() RETURNS int'; EXECUTE v;",
         "EXECUTE format($f$CREATE TABLE %I (id int)$f$, 'x');",
+        "EXECUTE format('CREATE UNIQUE INDEX %I ON t (a)', 'uq');",
     ],
 )
 def test_dynamic_ddl_detector(sql):
@@ -281,9 +297,119 @@ def test_dynamic_ddl_detector(sql):
     assert any(_CREATE_DDL_RE.search(lit) for lit in literals)
 
 
+#: ``CREATE [UNIQUE] INDEX [CONCURRENTLY] [IF NOT EXISTS] ON`` — no name, so Postgres
+#: picks one (``<table>_<cols>_idx``) that the text reader cannot see.
+_UNNAMED_INDEX_RE = re.compile(
+    r"\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?ON\b",
+    re.IGNORECASE,
+)
+
+
+def test_schema_sql_names_every_index_it_creates():
+    """An unnamed ``CREATE INDEX ON t`` gets a Postgres-chosen name that
+    ``DeployedSchema`` never sees, so its absence from prod would read as a pending
+    deploy (#816). Name every index."""
+    sql = strip_line_comments(SCHEMA_PATH.read_text())
+    assert _UNNAMED_INDEX_RE.findall(sql) == []
+
+
+def test_unnamed_index_detector():
+    assert _UNNAMED_INDEX_RE.search("CREATE UNIQUE INDEX CONCURRENTLY ON t (a);")
+    assert not _UNNAMED_INDEX_RE.search("CREATE UNIQUE INDEX uq_on ON t (a);")
+
+
 def test_deployed_rejects_an_unknown_kind(deployed):
-    with pytest.raises(ValueError, match="index"):
-        deployed.declares("index", ConstraintKey(table="people", name="people_pkey"))
+    with pytest.raises(ValueError, match="sequence"):
+        deployed.declares("sequence", ConstraintKey(table="people", name="people_pkey"))
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "uq_people_full_name",  # top level, IF NOT EXISTS
+        "uq_people_concurrent",  # CONCURRENTLY
+        "uq_people_guarded",  # inside a warn-don't-abort DO block (#398/#748)
+        "uq_people_renamed",  # the target of ALTER INDEX … RENAME TO
+        "UQ_PEOPLE_FULL_NAME",
+    ],
+)
+def test_deployed_declares_created_unique_indexes(deployed, name):
+    """``CREATE [UNIQUE] INDEX [CONCURRENTLY] [IF NOT EXISTS] name``, top level or in a
+    ``DO`` block, declares it; so does a rename onto the name (#816)."""
+    assert deployed.declares("unique_index", IndexKey(table="people", name=name))
+
+
+@pytest.mark.parametrize("name", ["uq_people_dropped", "uq_people_planned", "uq_people_old"])
+def test_deployed_does_not_declare_a_dropped_mentioned_or_renamed_away_index(deployed, name):
+    """A ``DROP INDEX``, a comment, or the old side of a rename does not create it."""
+    assert not deployed.declares("unique_index", IndexKey(table="people", name=name))
+
+
+def test_unique_indexes_are_version_sensitive():
+    """``pg_get_indexdef`` is server-formatted like function/trigger defs, so a PG
+    major mismatch skips the index diff (#816 operator decision)."""
+    assert "unique_index" in VERSION_SENSITIVE_KINDS
+    assert "constraint" not in VERSION_SENSITIVE_KINDS
+
+
+def test_index_key_label_names_table_and_index():
+    assert IndexKey(table="roles", name="uq_role_org_title").label == "roles.uq_role_org_title"
+
+
+def test_format_report_namespaces_unique_indexes(deployed):
+    declared = IndexKey(table="people", name="uq_people_full_name")
+    pending = IndexKey(table="people", name="uq_people_planned")
+    drift = classify_missing(
+        diff_defs(kind="unique_index", reference={declared: "a", pending: "b"}, target={}),
+        deployed,
+    )
+    report = format_drift_report(drift, reference="r", target="p")
+    assert "  - unique_index.people.uq_people_full_name" in report
+    assert "  - unique_index.people.uq_people_planned" in report
+    assert drift.missing_in_target == [declared]
+    assert drift.reference_ahead == [pending]
+
+
+class _RowsConn:
+    """Answers ``fetch`` with canned rows, recording the SQL it was asked."""
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.sql: list[str] = []
+
+    async def fetch(self, sql):
+        self.sql.append(sql)
+        return self.rows
+
+
+_DEF = "CREATE UNIQUE INDEX uq_x ON public.t USING btree (a)"
+
+
+async def test_snapshot_unique_indexes_marks_an_invalid_index():
+    """An invalid index (a failed ``CONCURRENTLY`` build, which ``IF NOT EXISTS`` then
+    never rebuilds) carries a marker in its def, so a valid reference copy mismatches."""
+    conn = _RowsConn(
+        [
+            {"table_name": "t", "index_name": "uq_x", "def": _DEF, "valid": True},
+            {"table_name": "t", "index_name": "uq_y", "def": _DEF, "valid": False},
+        ]
+    )
+    snap = await snapshot_unique_indexes(conn)
+    assert snap[IndexKey(table="t", name="uq_x")] == _DEF
+    assert snap[IndexKey(table="t", name="uq_y")] == _DEF + INVALID_INDEX_MARKER
+    valid = {IndexKey(table="t", name="uq_y"): _DEF}
+    drift = diff_defs(kind="unique_index", reference=valid, target=snap)
+    assert [k for k, _, _ in drift.mismatched] == [IndexKey(table="t", name="uq_y")]
+
+
+async def test_snapshot_unique_indexes_excludes_only_constraint_backing_indexes():
+    """An FK sets ``conindid`` too, to the referenced table's unique index; only a
+    PK/UNIQUE/EXCLUDE constraint's own index is covered by the constraint snapshot."""
+    conn = _RowsConn([])
+    await snapshot_unique_indexes(conn)
+    sql = " ".join(conn.sql[0].split())
+    assert "c.contype IN ('p', 'u', 'x')" in sql
+    assert "c.conrelid = i.indrelid" in sql
 
 
 def test_classify_missing_splits_drift_from_reference_ahead(deployed):
@@ -384,6 +510,22 @@ def test_real_schema_sql_declares_the_2026_10_09_objects():
         assert deployed.declares("trigger", TriggerKey(table=table, name=name))
 
 
+@pytest.mark.parametrize(
+    ("table", "name"),
+    [
+        ("identifiers", "uq_identifiers_cannabis_observer"),
+        ("roles", "uq_role_structural"),
+        ("roles", "uq_role_org_title"),
+        ("role_assignments", "uq_role_assignment_person_role_start"),
+    ],
+)
+def test_real_schema_sql_declares_the_warn_dont_abort_indexes(table, name):
+    """The four unique indexes whose ``DO`` block warns and skips on a duplicate
+    (#398/#748): their absence from prod is real drift, never a pending deploy."""
+    deployed = DeployedSchema.from_sql(SCHEMA_PATH.read_text())
+    assert deployed.declares("unique_index", IndexKey(table=table, name=name))
+
+
 # --- live snapshot integration ------------------------------------------------
 
 
@@ -440,9 +582,52 @@ async def test_snapshot_triggers_captures_touch_triggers_and_excludes_internal(d
 
 
 @pytest.mark.integration
+async def test_snapshot_unique_indexes_against_live_db(db_pool):
+    """Standalone unique indexes only: no PK, no index backing a UNIQUE constraint
+    (the constraint snapshot has those), every one valid on a fresh apply."""
+    async with db_pool.acquire() as conn:
+        snap = await snapshot_unique_indexes(conn)
+        backing = {
+            r["name"]
+            for r in await conn.fetch(
+                "SELECT i.relname AS name FROM pg_constraint c "
+                "JOIN pg_class i ON i.oid = c.conindid "
+                "JOIN pg_namespace n ON n.oid = i.relnamespace "
+                "WHERE n.nspname = 'public' AND c.contype IN ('p', 'u')"
+            )
+        }
+    assert IndexKey(table="identifiers", name="uq_identifiers_cannabis_observer") in snap
+    assert IndexKey(table="roles", name="uq_role_org_title") in snap
+    assert backing and not backing & {k.name for k in snap}
+    assert all(d.startswith("CREATE UNIQUE INDEX") for d in snap.values())
+    assert not any(d.endswith(INVALID_INDEX_MARKER) for d in snap.values())
+    assert not diff_defs(kind="unique_index", reference=snap, target=dict(snap)).has_drift
+
+
+@pytest.mark.integration
+async def test_snapshot_keeps_a_unique_index_an_fk_references(db_pool):
+    """An FK's ``conindid`` points at the referenced unique index; that index is not
+    constraint-backed and must stay in the snapshot. Built in a rolled-back txn."""
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            await conn.execute(
+                "CREATE TABLE _pm816_parent (code TEXT NOT NULL);"
+                "CREATE UNIQUE INDEX _pm816_uq_code ON _pm816_parent (code);"
+                "CREATE TABLE _pm816_child (code TEXT REFERENCES _pm816_parent (code));"
+            )
+            snap = await snapshot_unique_indexes(conn)
+        finally:
+            await tr.rollback()
+    assert IndexKey(table="_pm816_parent", name="_pm816_uq_code") in snap
+
+
+@pytest.mark.integration
 async def test_schema_sql_declares_every_live_object(db_pool):
     """The matching rules hold on the real schema: of the test DB's constraints
-    (most named by Postgres, never written in schema.sql), functions and triggers,
+    (most named by Postgres, never written in schema.sql), functions, triggers and
+    unique indexes,
     none reads as ahead of the schema.sql that built it. A failure names either a
     rule gap or a stray branch's ``apply-schema.sh --test`` still on the shared
     test DB."""
@@ -451,6 +636,7 @@ async def test_schema_sql_declares_every_live_object(db_pool):
             "constraint": await snapshot_constraints(conn),
             "function": await snapshot_functions(conn),
             "trigger": await snapshot_triggers(conn),
+            "unique_index": await snapshot_unique_indexes(conn),
         }
     deployed = DeployedSchema.from_sql(SCHEMA_PATH.read_text())
     ahead = sorted(

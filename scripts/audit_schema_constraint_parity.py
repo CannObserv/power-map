@@ -1,12 +1,14 @@
-"""Daily schema-parity audit: prod vs a reference DB (issues #315, #331, #632, #680).
+"""Daily schema-parity audit: prod vs a reference DB (issues #315, #331, #632, #680, #816).
 
 Snapshots every **constraint** (``CHECK`` / ``FOREIGN KEY`` / ``UNIQUE`` / ``PK``,
-full ``pg_get_constraintdef``), **function** (``pg_get_functiondef``), and
-**trigger** (``pg_get_triggerdef``) on a *reference* DB and on the *target*
+full ``pg_get_constraintdef``), **function** (``pg_get_functiondef``),
+**trigger** (``pg_get_triggerdef``), and standalone **unique index**
+(``pg_get_indexdef`` plus validity, #816) on a *reference* DB and on the *target*
 (prod), and fails when the target is missing, or disagrees on, any reference
 object. Catches the ``CREATE TABLE IF NOT EXISTS`` inline-constraint drift class
 (#307→#312 CHECKs, #315's FK ON DELETE action) plus the ``CREATE OR REPLACE``
-function/trigger body-drift window (#331) continuously and from *any* source —
+function/trigger body-drift window (#331), and a unique index a warn-don't-abort
+``DO`` block skipped (#816), continuously and from *any* source —
 manual DDL, a partial migration, a deploy whose ``apply_schema`` no-op'd a new
 inline constraint, a hand-applied hotfix — not only at code-review time.
 
@@ -19,11 +21,11 @@ DB built from an *empty* schema via ``apply_schema`` (see module docstring in
 ``src.core.schema_parity`` for the residual gap when it is not). ``sync-schema-
 to-do.sh`` keeps the default reference (``co_pm_db_test``) current on deploy.
 
-Function/trigger defs are version-sensitive: ``pg_get_functiondef`` /
-``pg_get_triggerdef`` formatting can legitimately differ across PG majors, so on
-a major mismatch between reference and target those two kinds are skipped (loud
-WARNING) rather than misreported as body drift. Constraints are version-stable
-and always diff.
+Function/trigger/unique-index defs are version-sensitive: ``pg_get_functiondef`` /
+``pg_get_triggerdef`` / ``pg_get_indexdef`` formatting can legitimately differ
+across PG majors, so on a major mismatch between reference and target those three
+kinds are skipped (loud WARNING) rather than misreported as drift. Constraints are
+version-stable and always diff.
 
 Reference ahead (#632): the default reference is the shared test DB, which
 worktrees apply their schema to (``apply-schema.sh --test``) before their PR
@@ -105,6 +107,7 @@ from src.core.schema_parity import (
     snapshot_constraints,
     snapshot_functions,
     snapshot_triggers,
+    snapshot_unique_indexes,
 )
 
 logger = get_logger(__name__)
@@ -152,7 +155,7 @@ class AuditResult:
 #: Report/diff order: constraints first (always diffed, version-stable), then the
 #: version-sensitive kinds. See ``_snapshot_all`` for why the snapshotters are
 #: resolved by bare name, not a module-level dict of captured function objects.
-_KINDS = ("constraint", "function", "trigger")
+_KINDS = ("constraint", "function", "trigger", "unique_index")
 
 
 async def _snapshot_all(conn: asyncpg.Connection, kinds: tuple[str, ...]) -> dict[str, dict]:
@@ -167,6 +170,7 @@ async def _snapshot_all(conn: asyncpg.Connection, kinds: tuple[str, ...]) -> dic
         "constraint": snapshot_constraints,
         "function": snapshot_functions,
         "trigger": snapshot_triggers,
+        "unique_index": snapshot_unique_indexes,
     }
     return {kind: await snappers[kind](conn) for kind in kinds}
 
@@ -337,7 +341,7 @@ async def run(
     """Snapshot both DBs across all kinds, diff, classify, log; return the outcome.
 
     Drift count = summed missing-in-target + mismatched across constraints,
-    functions, and triggers (``target_only`` is logged but excluded, matching
+    functions, triggers and unique indexes (``target_only`` is logged but excluded, matching
     ``SchemaObjectDrift.has_drift``), after ``classify_missing`` moves the
     objects ``deployed`` does not declare to ``ahead``. Each ahead object's
     consecutive-run streak is advanced in ``state_path`` (one run per UTC day,
@@ -347,7 +351,7 @@ async def run(
     object off as ahead — is reported as such, so the monitor fails loudly rather
     than passing vacuously (the silent-no-op class #315 targets).
 
-    Version-sensitive kinds (functions, triggers) are skipped with a WARNING when
+    Version-sensitive kinds (functions, triggers, unique indexes) are skipped with a WARNING when
     reference and target run different PG majors — their ``pg_get_*def``
     formatting can legitimately differ, so a diff there would be a version
     artifact, not drift. Constraints are version-stable and always diff.
