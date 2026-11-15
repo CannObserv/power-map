@@ -172,23 +172,20 @@ sudo journalctl -u power-map-anomaly -f          # WARNINGs per anomalous key
 
 ---
 
-## Schema-parity audit (issues #315, #331, #632)
+## Schema-parity audit (issues #315, #331, #632, #816)
 
 
 `scripts/audit_schema_constraint_parity.py` snapshots every **constraint**
-(`pg_get_constraintdef`), **function** (`pg_get_functiondef`), and **trigger**
-(`pg_get_triggerdef`) on a reference DB (`--reference-url`, default
-`PARITY_REFERENCE_URL` → `TEST_DATABASE_URL`) and on prod (`--target-url`,
-default `DATABASE_URL`), and exits 3 when prod is missing or disagrees on any
-reference object — the `CREATE TABLE IF NOT EXISTS` inline-constraint drift class
-(#307/#312 CHECKs, #315's FK `ON DELETE` action) plus the `CREATE OR REPLACE`
-function/trigger body-drift window (#331; the `touch_parent_*` /
-`trg_touch_entity_*` surface). Compares the **full def**, not just presence, so
-FK actions, CHECK bodies, and function/trigger bodies are in scope. The
-per-kind report namespaces objects `constraint.*` / `function.*` / `trigger.*`.
-Read-only; catches drift from any source (manual DDL, partial migration, a
-hand-applied hotfix, a deploy whose `apply_schema` no-op'd a new inline
-constraint).
+(`pg_get_constraintdef`), **function** (`pg_get_functiondef`), **trigger**
+(`pg_get_triggerdef`) and standalone **unique index** (`pg_get_indexdef` plus
+validity; PKs and constraint-backed indexes excluded) on a reference DB
+(`--reference-url`, default `PARITY_REFERENCE_URL` → `TEST_DATABASE_URL`) and on
+prod (`--target-url`, default `DATABASE_URL`), and exits 3 when prod is missing or
+disagrees on any reference object, **full def** compared: inline-constraint drift
+(#307/#312/#315), `CREATE OR REPLACE` body drift (#331), and a unique index a
+warn-don't-abort `DO` block skipped or a failed `CONCURRENTLY` build left invalid
+(#816). Report keys: `constraint.*` / `function.*` / `trigger.*` /
+`unique_index.*`. Read-only.
 
 **Reference ahead of the deploy (#632).** The default reference is
 `co_pm_db_test`, and the worktree loop applies a *branch's* schema to it
@@ -203,7 +200,8 @@ checkout's, which the unit runs from; `--deployed-schema` overrides):
   failed on exactly this before.
 
 Matching is by name. Functions and triggers: `CREATE [OR REPLACE] FUNCTION|TRIGGER
-name`. Constraints: most never appear in `schema.sql` (Postgres names an inline
+name`; unique indexes: `CREATE UNIQUE INDEX … name` or `RENAME TO name`.
+Constraints: most never appear in `schema.sql` (Postgres names an inline
 `PRIMARY KEY` / `REFERENCES` / `CHECK` / `UNIQUE` itself), so one counts as
 declared when its name is written there, or when it has the implicit shape
 `<table>_<columns>_<pkey|fkey|key|check|excl|not_null>[N]` on a created table
@@ -222,8 +220,8 @@ no worktree needs them, or rebuild it from empty. Per-object streaks live in
 `data/schema_parity/reference_ahead.json` (`--state-file`); a run with a streak to
 keep, or an unreadable file to replace, that cannot write it fails.
 
-Function/trigger defs are PG-version-formatted, so on a **PG major mismatch**
-between reference and target those two kinds are skipped (loud WARNING) rather
+Function/trigger/index defs are PG-version-formatted, so on a **PG major mismatch**
+between reference and target those three kinds are skipped (loud WARNING) rather
 than misreported as drift; constraints are version-stable and always diff. Keep
 the reference on prod's major (point `PARITY_REFERENCE_URL` at a same-major DB).
 See `docs/SCHEMA_INDEXES.md` §"Unique Indexes" for why a fresh-DB-only unit guard

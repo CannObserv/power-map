@@ -1,4 +1,4 @@
-"""Schema-object parity comparison between two live databases (#315, #331).
+"""Schema-object parity comparison between two live databases (#315, #331, #816).
 
 ``CREATE TABLE IF NOT EXISTS`` no-ops on an existing table, so a ``CHECK`` /
 ``CONSTRAINT`` / ``REFERENCES … ON DELETE`` modifier added inline *after* a
@@ -15,11 +15,18 @@ trigger surface (~a dozen ``touch_parent_*`` functions + ``trg_touch_*``
 triggers maintaining the ``updated_at`` every detail ETag keys on) is
 load-bearing enough to guard.
 
+**Unique indexes** (#816) are the fourth kind. A unique index built in a
+warn-don't-abort ``DO`` block (``uq_role_org_title``, ``uq_role_structural``,
+``uq_role_assignment_person_role_start``, ``uq_identifiers_cannabis_observer``)
+skips itself on a duplicate so the restart never aborts (#398/#748); the journal
+WARNING is the only other trace, and each is the sole guard of an invariant the
+code relies on.
+
 This module is the reusable core of that sweep: snapshot every constraint,
-function, and trigger on a DB as ``{key: def}`` and diff a *reference* snapshot
-against a *target*. The full server-normalised definition is compared — not mere
-presence — so FK ``ON DELETE`` actions, CHECK bodies, and function/trigger
-bodies are all in scope (the #315 FK differed only in its action):
+function, trigger and unique index on a DB as ``{key: def}`` and diff a
+*reference* snapshot against a *target*. The full server-normalised definition is
+compared — not mere presence — so FK ``ON DELETE`` actions, CHECK bodies, and
+function/trigger bodies are all in scope (the #315 FK differed only in its action):
 
 * constraints — ``pg_get_constraintdef`` keyed on ``(table, name)``
 * functions — ``pg_get_functiondef`` keyed on signature (``name(arg types)``,
@@ -29,6 +36,16 @@ bodies are all in scope (the #315 FK differed only in its action):
   guard and would swamp the diff / false-positive on any PG-version skew
 * triggers — ``pg_get_triggerdef`` keyed on ``(table, name)``, internal
   (constraint/FK-enforcement) and extension-owned triggers excluded
+* unique indexes — ``pg_get_indexdef`` keyed on ``(table, name)``; primary keys
+  and the index a ``UNIQUE`` / ``EXCLUDE`` constraint owns are excluded (the
+  constraint snapshot covers them), and so are extension-owned tables and
+  partition child indexes (Postgres names them; a missing one invalidates the
+  parent). Non-unique indexes are out of scope: a missing one costs speed, not
+  correctness. An invalid index carries ``INVALID_INDEX_MARKER`` in its def.
+  ``apply_schema`` builds unique indexes inside its transaction, so a skipped
+  ``DO`` block leaves no index (missing); only a failed hand-run
+  ``CONCURRENTLY`` build leaves an invalid one, which ``CREATE UNIQUE INDEX IF
+  NOT EXISTS`` then never rebuilds
 
 Contract of the guard (``scripts/audit_schema_constraint_parity.py``): the
 *target* (prod) must carry everything the *reference* has, with identical
@@ -43,7 +60,9 @@ PR deploys. An object missing in the target is therefore classified against the
 **deployed** ``schema.sql`` (``DeployedSchema``): one it declares is real drift;
 one it does not is the reference running ahead of the deploy — a pending deploy
 or a stray branch's apply — reported but not failed on. Matching is by name:
-``CREATE [OR REPLACE] FUNCTION|TRIGGER name`` for functions and triggers. Most
+``CREATE [OR REPLACE] FUNCTION|TRIGGER name`` for functions and triggers;
+``CREATE UNIQUE INDEX [CONCURRENTLY] [IF NOT EXISTS] name`` or ``ALTER INDEX …
+RENAME TO name`` for unique indexes, top level or inside a ``DO`` block. Most
 constraints never appear in ``schema.sql`` at all — Postgres names an inline
 ``PRIMARY KEY`` / ``REFERENCES`` / ``CHECK`` / ``UNIQUE`` itself — so a constraint
 counts as declared when its name is written there, or when it has Postgres'
@@ -57,13 +76,13 @@ the error that hides something, so it is the one the rule avoids. Mismatched
 definitions are not classified — a branch that changes a body still reads as
 drift until it deploys.
 
-PG-version note: ``pg_get_functiondef`` / ``pg_get_triggerdef`` are deterministic
-on a *given* server version but their formatting can legitimately differ across
-majors. Two DBs applying the same ``schema.sql`` on the same major produce
-byte-identical defs (no whitespace normalisation needed); the guard skips the
-function/trigger diff on a major mismatch rather than misreport a version
-artifact as body drift. ``pg_get_constraintdef`` is version-stable, so the
-constraint diff always runs.
+PG-version note: ``pg_get_functiondef`` / ``pg_get_triggerdef`` /
+``pg_get_indexdef`` are deterministic on a *given* server version but their
+formatting can legitimately differ across majors. Two DBs applying the same
+``schema.sql`` on the same major produce byte-identical defs (no whitespace
+normalisation needed); the guard skips the function/trigger/unique-index diffs on
+a major mismatch rather than misreport a version artifact as drift.
+``pg_get_constraintdef`` is version-stable, so the constraint diff always runs.
 
 Reference fidelity: the strongest reference is a database built from an *empty*
 schema via ``apply_schema`` (its real ``CREATE TABLE`` runs every inline
@@ -124,6 +143,21 @@ class TriggerKey(NamedTuple):
         return f"{self.table}.{self.name}"
 
 
+class IndexKey(NamedTuple):
+    """Identity of a unique index: its table and name.
+
+    Index names are unique per schema; the table is in the key so the report reads
+    ``unique_index.<table>.<name>``, like constraints and triggers.
+    """
+
+    table: str
+    name: str
+
+    @property
+    def label(self) -> str:
+        return f"{self.table}.{self.name}"
+
+
 #: All constraints on user tables in ``public``, keyed for full-definition diff.
 #: ``pg_get_constraintdef`` normalises the definition identically on both sides,
 #: so equal strings mean genuinely equal constraints (CHECK bodies, FK actions,
@@ -158,7 +192,7 @@ WHERE n.nspname = 'public'
   AND p.prokind = 'f'
   AND NOT EXISTS (
       SELECT 1 FROM pg_depend d
-      WHERE d.objid = p.oid AND d.deptype = 'e'
+      WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e'
   )
 ORDER BY p.proname, args
 """
@@ -178,16 +212,55 @@ WHERE n.nspname = 'public'
   AND NOT tg.tgisinternal
   AND NOT EXISTS (
       SELECT 1 FROM pg_depend d
-      WHERE d.objid = tg.oid AND d.deptype = 'e'
+      WHERE d.classid = 'pg_trigger'::regclass AND d.objid = tg.oid AND d.deptype = 'e'
   )
 ORDER BY t.relname, tg.tgname
 """
 
 
+#: Standalone unique indexes on ``public`` tables, keyed on ``(table, name)`` for
+#: full-def diff (#816). Primary keys go, and so does an index a PK / UNIQUE /
+#: EXCLUDE constraint owns, which the constraint snapshot already covers. The
+#: ``contype`` filter matters: an FK also sets ``conindid``, to the *referenced*
+#: table's unique index, which may be a standalone one this snapshot must keep.
+#: ``indisvalid`` is read so an invalid index differs from a valid one. A partition's
+#: child index is skipped: Postgres names it, and a missing one leaves the parent's
+#: index invalid, which the parent's row already shows.
+_UNIQUE_INDEX_SNAPSHOT_SQL = """
+SELECT t.relname AS table_name,
+       ic.relname AS index_name,
+       pg_get_indexdef(i.indexrelid) AS def,
+       i.indisvalid AS valid
+FROM pg_index i
+JOIN pg_class ic ON ic.oid = i.indexrelid
+JOIN pg_class t ON t.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = 'public'
+  AND i.indisunique
+  AND NOT i.indisprimary
+  AND NOT ic.relispartition
+  AND NOT EXISTS (
+      SELECT 1 FROM pg_constraint c
+      WHERE c.conindid = i.indexrelid
+        AND c.contype IN ('p', 'u', 'x')
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM pg_depend d
+      WHERE d.classid = 'pg_class'::regclass AND d.objid = t.oid AND d.deptype = 'e'
+  )
+ORDER BY t.relname, ic.relname
+"""
+
+#: Appended to an invalid index's def. ``pg_get_indexdef`` reads the same for a
+#: valid and an invalid index, and an invalid unique index never checked the rows
+#: that existed when its build failed (#816).
+INVALID_INDEX_MARKER = "  -- INVALID: a failed or running CONCURRENTLY build"
+
+
 #: Kinds whose ``pg_get_*def`` formatting can legitimately differ across PG
 #: majors — the parity guard skips them on a major mismatch (see module docstring).
 #: Constraints are version-stable and are not listed, so they always diff.
-VERSION_SENSITIVE_KINDS: frozenset[str] = frozenset({"function", "trigger"})
+VERSION_SENSITIVE_KINDS: frozenset[str] = frozenset({"function", "trigger", "unique_index"})
 
 
 @dataclass(frozen=True)
@@ -199,7 +272,8 @@ class SchemaObjectDrift:
     objects missing in the target that the deployed ``schema.sql`` does not
     declare, filled only by ``classify_missing`` (see module docstring), which
     also sets ``classified`` — the report then says the missing ones are declared.
-    ``kind`` namespaces the report (``constraint`` / ``function`` / ``trigger``).
+    ``kind`` namespaces the report (``constraint`` / ``function`` / ``trigger`` /
+    ``unique_index``).
     """
 
     kind: str
@@ -242,6 +316,20 @@ async def snapshot_triggers(conn: asyncpg.Connection) -> dict[TriggerKey, str]:
     return {TriggerKey(table=r["table_name"], name=r["trigger_name"]): r["def"] for r in rows}
 
 
+async def snapshot_unique_indexes(conn: asyncpg.Connection) -> dict[IndexKey, str]:
+    """Return ``{(table, name): index_def}`` for every standalone unique index on ``conn``.
+
+    An invalid index's def ends in ``INVALID_INDEX_MARKER`` (see module docstring).
+    """
+    rows = await conn.fetch(_UNIQUE_INDEX_SNAPSHOT_SQL)
+    return {
+        IndexKey(table=r["table_name"], name=r["index_name"]): (
+            r["def"] if r["valid"] else r["def"] + INVALID_INDEX_MARKER
+        )
+        for r in rows
+    }
+
+
 def diff_defs(
     *,
     kind: str,
@@ -251,7 +339,7 @@ def diff_defs(
     """Diff a reference snapshot against a target; keys sorted for stable output.
 
     Kind-agnostic: works on any ``{key: def}`` snapshot (constraints, functions,
-    triggers). Drift = any reference object absent from the target
+    triggers, unique indexes). Drift = any reference object absent from the target
     (``missing_in_target``) or present with a different definition
     (``mismatched``, carrying reference and target defs). Objects only in the
     target are reported as ``target_only`` but never count as drift.
@@ -277,6 +365,20 @@ _CREATE_FUNCTION_RE = re.compile(
 #: ``CREATE [OR REPLACE] [CONSTRAINT] TRIGGER name``, top level or inside a ``DO`` block.
 _CREATE_TRIGGER_RE = re.compile(
     r'\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:CONSTRAINT\s+)?TRIGGER\s+"?(\w+)"?', re.IGNORECASE
+)
+#: ``CREATE UNIQUE INDEX [CONCURRENTLY] [IF NOT EXISTS] name``, top level or in a ``DO``
+#: block. Only unique ones: a non-unique index of the same name is outside the
+#: snapshot, so a branch making it unique must read as ahead. An index name cannot
+#: be schema-qualified; an unnamed ``CREATE INDEX ON`` is kept out of schema.sql by
+#: a test, since the name Postgres picks never appears.
+_CREATE_UNIQUE_INDEX_RE = re.compile(
+    r'\bCREATE\s+UNIQUE\s+INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?',
+    re.IGNORECASE,
+)
+#: ``ALTER INDEX [IF EXISTS] [public.]old RENAME TO name`` — ``name`` is declared too.
+_RENAME_INDEX_RE = re.compile(
+    r'\bALTER\s+INDEX\s+(?:IF\s+EXISTS\s+)?(?:"?public"?\.)?"?\w+"?\s+RENAME\s+TO\s+"?(\w+)"?',
+    re.IGNORECASE,
 )
 #: ``CREATE [UNLOGGED] TABLE [IF NOT EXISTS] [public.]name``.
 _CREATE_TABLE_RE = re.compile(
@@ -327,12 +429,13 @@ class DeployedSchema:
 
     functions: frozenset[str]
     triggers: frozenset[str]
+    indexes: frozenset[str]  # unique-index names (and rename targets)
     tables: frozenset[str]
     words: frozenset[str]
 
     @classmethod
     def from_sql(cls, sql: str) -> "DeployedSchema":
-        """Index the function, trigger and table names ``sql`` creates, and its words.
+        """Index the function, trigger, index and table names ``sql`` creates, and its words.
 
         ``--`` comments go first: a name a comment mentions is not one the schema
         declares. The strip is quote-aware, since cutting a line at a ``--`` inside
@@ -347,6 +450,7 @@ class DeployedSchema:
         return cls(
             functions=names(_CREATE_FUNCTION_RE),
             triggers=names(_CREATE_TRIGGER_RE),
+            indexes=names(_CREATE_UNIQUE_INDEX_RE) | names(_RENAME_INDEX_RE),
             tables=names(_CREATE_TABLE_RE),
             words=names(_WORD_RE),
         )
@@ -362,6 +466,8 @@ class DeployedSchema:
             return key.signature.split("(", 1)[0].lower() in self.functions
         if kind == "trigger":
             return key.name.lower() in self.triggers
+        if kind == "unique_index":
+            return key.name.lower() in self.indexes
         if kind == "constraint":
             return self._declares_constraint(key.table.lower(), key.name.lower())
         raise ValueError(f"unknown schema object kind: {kind!r}")
@@ -431,9 +537,10 @@ def format_drift_report(drift: SchemaObjectDrift, *, reference: str, target: str
     """Human-readable multi-line report of a drift, for the ops-check journal log.
 
     Object identities are namespaced by kind (``constraint.`` / ``function.`` /
-    ``trigger.``) so a combined multi-kind report stays unambiguous. Multi-line
-    function/trigger bodies have their continuation lines indented to align under
-    the ``reference:`` / ``target:`` label rather than spilling to column 0.
+    ``trigger.`` / ``unique_index.``) so a combined multi-kind report stays
+    unambiguous. Multi-line function/trigger bodies have their continuation lines
+    indented to align under the ``reference:`` / ``target:`` label rather than
+    spilling to column 0.
     """
     kind = drift.kind
     lines: list[str] = []
