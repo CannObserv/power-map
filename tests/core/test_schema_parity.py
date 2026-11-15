@@ -416,6 +416,16 @@ async def test_snapshot_unique_indexes_excludes_only_constraint_backing_indexes(
     assert "c.contype IN ('p', 'u', 'x')" in sql
 
 
+async def test_snapshot_unique_indexes_scopes_the_extension_check_to_pg_class():
+    """``pg_depend.objid`` is unique only with its ``classid``: OIDs repeat across
+    catalogs after wraparound, and an extension member elsewhere sharing a table's
+    OID would drop that table's unique indexes from the snapshot unseen."""
+    conn = _RowsConn([])
+    await snapshot_unique_indexes(conn)
+    sql = " ".join(conn.sql[0].split())
+    assert "d.classid = 'pg_class'::regclass" in sql
+
+
 def test_classify_missing_splits_drift_from_reference_ahead(deployed):
     """Missing in target + declared by the deployed schema.sql → drift; missing but
     undeclared → reference ahead (a pending deploy or a stray branch apply)."""

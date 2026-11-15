@@ -244,7 +244,7 @@ WHERE n.nspname = 'public'
   )
   AND NOT EXISTS (
       SELECT 1 FROM pg_depend d
-      WHERE d.objid = t.oid AND d.deptype = 'e'
+      WHERE d.classid = 'pg_class'::regclass AND d.objid = t.oid AND d.deptype = 'e'
   )
 ORDER BY t.relname, ic.relname
 """
