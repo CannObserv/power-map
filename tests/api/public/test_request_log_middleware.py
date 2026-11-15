@@ -520,14 +520,21 @@ async def test_non_v1_path_not_logged(client, db):
 
 @pytest.mark.integration
 async def test_invalid_key_logs_null_key_row(client, db):
-    resp = await client.get("/api/v1/", headers={"X-API-Key": "pm_definitely_invalid"})
+    # Tag the request so the poll finds only its own row (#813): earlier tests
+    # (e.g. test_auth.py) commit identical 401 rows, some still in flight, which
+    # would satisfy an untagged poll even if this request logged nothing.
+    agent = f"test-invalid-key-{generate_id()}"
+    resp = await client.get(
+        "/api/v1/", headers={"X-API-Key": "pm_definitely_invalid", "User-Agent": agent}
+    )
     assert resp.status_code == 401
     row = await _poll_row(
         db,
-        "SELECT * FROM api_request_log WHERE path='/api/v1/' AND status_code=401"
-        " ORDER BY id DESC LIMIT 1",
+        "SELECT * FROM api_request_log WHERE user_agent=$1 ORDER BY id DESC LIMIT 1",
+        agent,
     )
     assert row is not None
+    assert (row["path"], row["status_code"]) == ("/api/v1/", 401)
     assert row["api_key_id"] is None
     assert row["route_group"] == "other"
 
