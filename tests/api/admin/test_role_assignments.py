@@ -613,7 +613,30 @@ async def test_list_shows_citations_indicator(client, db, ra_id):
     assert 'aria-label="1 citation"' in response.text
 
 
-async def test_list_omits_citations_indicator_when_none(client, ra_id):
+def _list_row(html: str, ra_id: str) -> str:
+    """Return the list ``<tr>`` whose link points at assignment ``ra_id``."""
+    link = html.index(f'href="/admin/role-assignments/{ra_id}/"')
+    return html[html.rindex("<tr", 0, link) : html.index("</tr>", link)]
+
+
+async def test_list_omits_citations_indicator_when_none(client, db, ra_id, person_id, role_id):
+    # A cited assignment beside ours (#813): tests/api/public commits such rows to
+    # the shared DB, so the check must read our own row, not the whole page.
+    cited = generate_id()
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id, is_current, start_date)"
+        " VALUES ($1, $2, $3, FALSE, '2001-01-01')",
+        cited,
+        person_id,
+        role_id,
+    )
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, url)"
+        " VALUES ($1, 'role_assignment', $2, 'https://example.com/n')",
+        generate_id(),
+        cited,
+    )
     response = await client.get("/admin/role-assignments/", headers=AUTH_HEADERS)
     assert response.status_code == 200
-    assert "citation-indicator" not in response.text
+    assert "citation-indicator" in _list_row(response.text, cited)
+    assert "citation-indicator" not in _list_row(response.text, ra_id)
