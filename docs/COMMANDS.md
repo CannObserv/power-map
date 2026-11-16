@@ -242,7 +242,7 @@ sudo journalctl -u power-map -f      # watch startup; schema errors surface here
 ```
 
 Then tag the release, which is the pin for `power-map-client` consumers (#618):
-`git tag v<version> && git push origin v<version>`, at the deployed `main`. The daily
+`git tag -a v<version> -m v<version> && git push origin v<version>`, at the deployed `main`. The daily
 `power-map-openapi-parity` run checks it (#631): an untagged or mis-tagged deployed version
 exits 4, after a 2 h grace from the restart.
 

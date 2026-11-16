@@ -454,12 +454,19 @@ It also checks the release tag (#631), the pin consumers install from.
 `v<served info.version>` must exist on GitHub and point at a commit whose
 `clients/python/openapi.json` equals the served schema, so a tag at the wrong
 ref fails as well as a missing one. Either exits 4, and the journal names the
-fix (`git tag v<version> && git push origin v<version>` from the main checkout;
-`-f` on both to move a wrong one). Drift (3) outranks it. The repo is public,
-so the REST API is called without credentials. The check is skipped, with a log
-line and no effect on the exit, while `power-map.service` is under 2 h past
+fix (`git tag -a v<version> -m v<version> && git push origin v<version>` from
+the main checkout; `-f` on both to move a wrong one). A lightweight tag on the
+right commit passes. Drift (3) outranks it. The repo is public, so nothing is
+authenticated. The tag is resolved with one `git ls-remote` over
+`https://github.com/CannObserv/power-map`, not `origin` (SSH) and not the REST
+API (#824): the anonymous REST quota belongs to the egress IP, which other
+consumers share, and the check went dark when they spent it. Git runs with
+inherited `GIT_*` scrubbed, no system or global config, and no prompt. The
+snapshot comes from `raw.githubusercontent.com`. The check is skipped, with a
+log line and no effect on the exit, while `power-map.service` is under 2 h past
 `ActiveEnterTimestamp` (a deploy just before the daily run gets until the next
-one), and when GitHub is unreachable, rate-limited or answers oddly (WARNING).
+one), and when git fails or times out, or GitHub is unreachable or answers
+oddly (WARNING).
 Any start opens the window, including the `Persistent=true` catch-up run after
 a reboot, so that day's tag check is skipped.
 
