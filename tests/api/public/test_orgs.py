@@ -7,6 +7,7 @@ from datetime import date
 import pytest
 import pytest_asyncio
 
+from src.core.ancillary_migrate import delete_entity_ancillary
 from src.core.db import generate_id
 
 pytestmark = pytest.mark.integration
@@ -585,6 +586,129 @@ async def test_identifier_search_include_archived(client, api_key, org_fixture, 
     ids = [o["id"] for o in r.json()["data"]]
     assert org_fixture["org_id"] in ids
     await db.execute("UPDATE organizations SET archived_at=NULL WHERE id=$1", org_fixture["org_id"])
+
+
+# ---------------------------------------------------------------------------
+# Search — identifier mode returns every holder (#811)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def make_sos_holders(db, org_fixture):
+    """Factory: ``n`` orgs holding one fresh ``wa_sos`` value.
+
+    Returns ``(value, holder_ids)``, the ids sorted as the route orders them.
+    ``rows_each`` > 1 stores the value on each holder more than once —
+    identifiers have no ``(entity_id, type, value)`` uniqueness.
+    """
+    created: list[str] = []
+
+    async def _make(n: int, *, rows_each: int = 1) -> tuple[str, list[str]]:
+        value = f"SOS-811-{generate_id()}"
+        for _ in range(n):
+            oid = generate_id()
+            await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+            created.append(oid)
+            for _ in range(rows_each):
+                await db.execute(
+                    "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+                    " VALUES ($1,$2,$3,$4)",
+                    generate_id(),
+                    oid,
+                    org_fixture["eid_type_id"],
+                    value,
+                )
+        return value, sorted(created[-n:])
+
+    yield _make
+    for oid in created:
+        await delete_entity_ancillary(db, "organization", oid)
+        await db.execute("DELETE FROM organizations WHERE id=$1", oid)
+
+
+@pytest.mark.integration
+async def test_identifier_search_returns_every_holder(client, api_key, make_sos_holders):
+    """Two orgs holding one value both come back, ordered by id (#811)."""
+    value, ids = await make_sos_holders(2)
+    r = await _search_by_identifier(client, api_key, "wa_sos", value)
+    assert r.status_code == 200
+    body = r.json()
+    assert [o["id"] for o in body["data"]] == ids
+    assert body["meta"] == {"limit": 10, "offset": 0, "count": 2, "has_more": False}
+
+
+@pytest.mark.integration
+async def test_identifier_search_paginates_holders(client, api_key, make_sos_holders):
+    """More holders than ``limit``: has_more, and ``offset`` reads the next page (#811)."""
+    value, ids = await make_sos_holders(3)
+    first = await _search_by_identifier(client, api_key, "wa_sos", value, limit=2)
+    assert first.status_code == 200
+    assert [o["id"] for o in first.json()["data"]] == ids[:2]
+    assert first.json()["meta"] == {"limit": 2, "offset": 0, "count": 2, "has_more": True}
+
+    second = await _search_by_identifier(client, api_key, "wa_sos", value, limit=2, offset=2)
+    assert second.status_code == 200
+    assert [o["id"] for o in second.json()["data"]] == ids[2:]
+    assert second.json()["meta"] == {"limit": 2, "offset": 2, "count": 1, "has_more": False}
+
+
+@pytest.mark.integration
+async def test_identifier_search_exact_limit_has_no_more(client, api_key, make_sos_holders):
+    """Holders == limit: a full page, has_more false (#811)."""
+    value, ids = await make_sos_holders(2)
+    r = await _search_by_identifier(client, api_key, "wa_sos", value, limit=2)
+    assert [o["id"] for o in r.json()["data"]] == ids
+    assert r.json()["meta"]["has_more"] is False
+
+
+@pytest.mark.integration
+async def test_identifier_search_holder_with_repeated_value_returned_once(
+    client, api_key, make_sos_holders
+):
+    """An org storing the value twice is one holder, not two rows (#811)."""
+    value, ids = await make_sos_holders(1, rows_each=2)
+    r = await _search_by_identifier(client, api_key, "wa_sos", value, limit=1)
+    assert [o["id"] for o in r.json()["data"]] == ids
+    assert r.json()["meta"] == {"limit": 1, "offset": 0, "count": 1, "has_more": False}
+
+
+@pytest.mark.integration
+async def test_identifier_search_archived_holder_needs_include_archived(
+    client, api_key, make_sos_holders, db
+):
+    """An archived holder is left out unless include_archived=true (#811)."""
+    value, ids = await make_sos_holders(2)
+    await db.execute("UPDATE organizations SET archived_at=NOW() WHERE id=$1", ids[0])
+    r = await _search_by_identifier(client, api_key, "wa_sos", value)
+    assert [o["id"] for o in r.json()["data"]] == ids[1:]
+    r = await _search_by_identifier(client, api_key, "wa_sos", value, include_archived="true")
+    assert [o["id"] for o in r.json()["data"]] == ids
+
+
+@pytest.mark.integration
+async def test_identifier_search_holders_ignore_q(client, api_key, make_sos_holders):
+    """q neither narrows nor widens identifier mode: every holder, nothing else (#811)."""
+    value, ids = await make_sos_holders(2)
+    r = await _search_by_identifier(client, api_key, "wa_sos", value, q="Television")
+    assert [o["id"] for o in r.json()["data"]] == ids
+
+
+@pytest.mark.integration
+async def test_identifier_search_clamps_limit(client, api_key, make_sos_holders):
+    """Identifier mode clamps limit to 50, as the q path does (#811)."""
+    value, ids = await make_sos_holders(2)
+    r = await _search_by_identifier(client, api_key, "wa_sos", value, limit=100)
+    assert r.json()["meta"]["limit"] == 50
+    assert [o["id"] for o in r.json()["data"]] == ids
+
+
+@pytest.mark.integration
+async def test_identifier_search_wins_over_jurisdiction(client, api_key, make_sos_holders):
+    """Identifier mode still takes precedence over jurisdiction (#811)."""
+    value, ids = await make_sos_holders(2)
+    r = await _search_by_identifier(client, api_key, "wa_sos", value, jurisdiction="no-such")
+    assert r.status_code == 200
+    assert [o["id"] for o in r.json()["data"]] == ids
 
 
 # ---------------------------------------------------------------------------
