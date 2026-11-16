@@ -10,11 +10,17 @@ lands in ``systemctl --failed``.
 #631 adds the release-tag check: ``v<served version>`` must exist on GitHub and
 point at a commit whose snapshot equals the served schema. Exit 4 otherwise,
 unless the service started inside the grace window or GitHub can't be reached.
+
+#824 resolves the tag with ``git ls-remote`` over https instead of GitHub's REST
+API, whose anonymous quota this egress IP shares. The git call has its own seam
+(``git=``), so no test here runs a network ``git ls-remote``; the local-repo
+tests at the end run the real binary against a ``file://`` bare repo.
 """
 
 import http.client
 import io
 import json
+import os
 import subprocess
 import sys
 import urllib.error
@@ -25,10 +31,13 @@ import pytest
 
 from scripts.check_openapi_parity import (
     DEFAULT_URL,
+    GIT_URL,
     GRACE,
     differences,
+    git_env,
     main,
     service_started_at,
+    tagged_commit,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -42,13 +51,9 @@ _COMMITTED = {
 
 
 _LIVE_URL = "http://pm.test/openapi.json"
-_API = "https://api.github.com/repos/CannObserv/power-map/git"
 _SHA = "a" * 40
 _TAG_SHA = "b" * 40
-
-
-def _ref_url(version: str = "1.2.3") -> str:
-    return f"{_API}/ref/tags/v{version}"
+_REF = "refs/tags/v1.2.3"
 
 
 def _raw_url(sha: str = _SHA) -> str:
@@ -57,26 +62,48 @@ def _raw_url(sha: str = _SHA) -> str:
     )
 
 
-def _lightweight(sha: str = _SHA) -> dict:
-    return {"ref": "refs/tags/v1.2.3", "object": {"sha": sha, "type": "commit"}}
+def _lightweight(sha: str = _SHA, ref: str = _REF) -> str:
+    """``git ls-remote`` output for a lightweight tag: the ref names the commit."""
+    return f"{sha}\t{ref}\n"
+
+
+def _annotated(sha: str = _SHA, tag_sha: str = _TAG_SHA, ref: str = _REF) -> str:
+    """``git ls-remote`` output for an annotated tag: the tag object, then the peeled commit."""
+    return f"{tag_sha}\t{ref}\n{sha}\t{ref}^{{}}\n"
+
+
+def _git(stdout: str = "", returncode: int = 0, stderr: str = "", calls: list | None = None):
+    """A stand-in for ``subprocess.run`` that answers every git call with one result."""
+
+    def run(cmd, **kwargs):
+        if calls is not None:
+            calls.append((cmd, kwargs))
+        return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
+
+    return run
+
+
+def _git_raises(error: BaseException):
+    def run(cmd, **kwargs):
+        raise error
+
+    return run
+
+
+_ABSENT = _git(returncode=2)  # --exit-code: no ref matched
 
 
 def _http_error(url: str, code: int) -> urllib.error.HTTPError:
     return urllib.error.HTTPError(url, code, "status", {}, None)
 
 
-def _tagged(schema: object = _COMMITTED, sha: str = _SHA) -> dict:
-    """GitHub as it is when v1.2.3 is a lightweight tag on a commit carrying *schema*."""
-    return {_ref_url(): _lightweight(sha), _raw_url(sha): schema}
-
-
 def _opener(body: object, github: dict | None = None):
-    """Serve *body* as the live schema and *github* as the GitHub responses.
+    """Serve *body* as the live schema and *github* as raw.githubusercontent.com.
 
-    A value that is an exception is raised; a URL missing from *github* is a 404,
-    so a test that forgets a response fails loudly as "untagged", not silently.
+    The default *github* serves the committed schema at ``_SHA``. A value that is
+    an exception is raised; a URL missing from *github* is a 404.
     """
-    responses = {_LIVE_URL: body, **(_tagged() if github is None else github)}
+    responses = {_LIVE_URL: body, **({_raw_url(): _COMMITTED} if github is None else github)}
 
     def opener(url, timeout):
         if url not in responses:
@@ -97,15 +124,26 @@ def _long_ago():
     return datetime.now(UTC) - timedelta(days=3)
 
 
+def _never_git(cmd, **kwargs):
+    raise AssertionError(f"git must not run here: {cmd}")
+
+
 def _run(
-    monkeypatch, tmp_path, opener, started_at=_long_ago, extra=(), committed=_COMMITTED
+    monkeypatch,
+    tmp_path,
+    opener,
+    started_at=_long_ago,
+    extra=(),
+    committed=_COMMITTED,
+    git=None,
 ) -> int:
+    """Run the CLI; *git* defaults to a lightweight v1.2.3 on ``_SHA``, never real git."""
     snapshot = tmp_path / "openapi.json"
     snapshot.write_text(json.dumps(committed, indent=2))
     argv = ["check_openapi_parity", "--url", _LIVE_URL, *extra]
     monkeypatch.setattr(sys, "argv", [*argv, "--snapshot", str(snapshot)])
     with pytest.raises(SystemExit) as exc:
-        main(opener=opener, started_at=started_at)
+        main(opener=opener, started_at=started_at, git=git or _git(_lightweight()))
     return exc.value.code
 
 
@@ -153,8 +191,8 @@ def test_main_exits_0_when_live_matches(monkeypatch, tmp_path, capsys):
 def test_main_exits_3_on_a_difference(monkeypatch, tmp_path, capsys):
     """The journal names what differs: it is the first thing an operator reads."""
     live = {**_COMMITTED, "info": {"title": "power-map", "version": "9.9.9"}}
-    github = {_ref_url("9.9.9"): _lightweight(), _raw_url(): live}
-    assert _run(monkeypatch, tmp_path, _opener(live, github)) == 3
+    git = _git(_lightweight(ref="refs/tags/v9.9.9"))
+    assert _run(monkeypatch, tmp_path, _opener(live, {_raw_url(): live}), git=git) == 3
     assert "info.version: live 9.9.9, committed 1.2.3" in capsys.readouterr().out
 
 
@@ -203,11 +241,11 @@ def test_main_exits_1_when_a_body_is_not_a_json_object(monkeypatch, tmp_path, ca
 def test_main_rejects_a_non_positive_timeout(monkeypatch, timeout):
     monkeypatch.setattr(sys, "argv", ["check_openapi_parity", "--timeout", timeout])
     with pytest.raises(SystemExit) as exc:
-        main(opener=_unreachable)
+        main(opener=_unreachable, git=_never_git)
     assert exc.value.code == 2
 
 
-# --- the release tag (#631) ---------------------------------------------------
+# --- the release tag (#631, resolved with git ls-remote since #824) -----------
 
 
 def test_main_exits_0_when_the_tag_is_on_a_matching_commit(monkeypatch, tmp_path, capsys):
@@ -215,21 +253,26 @@ def test_main_exits_0_when_the_tag_is_on_a_matching_commit(monkeypatch, tmp_path
     assert f"v1.2.3 at {_SHA[:12]} matches" in capsys.readouterr().out
 
 
-def test_an_annotated_tag_is_followed_to_its_commit(monkeypatch, tmp_path):
-    github = {
-        _ref_url(): {"object": {"sha": _TAG_SHA, "type": "tag"}},
-        f"{_API}/tags/{_TAG_SHA}": {"object": {"sha": _SHA, "type": "commit"}},
-        _raw_url(): _COMMITTED,
-    }
-    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 0
+def test_an_annotated_tag_resolves_to_its_peeled_commit(monkeypatch, tmp_path, capsys):
+    """The ``^{}`` line is the commit; the tag object's own SHA is never fetched."""
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED), git=_git(_annotated())) == 0
+    assert f"v1.2.3 at {_SHA[:12]} matches" in capsys.readouterr().out
+
+
+def test_a_lightweight_tag_passes_as_it_did_before(monkeypatch, tmp_path, capsys):
+    """No new finding (#824): re-tagging a lightweight release is the operator's call."""
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED), git=_git(_lightweight())) == 0
+    out = capsys.readouterr().out
+    assert f"v1.2.3 at {_SHA[:12]} matches" in out
+    assert "lightweight tag" not in out  # tmp_path carries the test's name
 
 
 def test_main_exits_4_when_the_version_is_untagged(monkeypatch, tmp_path, capsys):
-    """The journal names the fix: it is the first thing an operator reads."""
-    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github={})) == 4
+    """The journal names the fix, an annotated tag: the release rule is ``git tag -a``."""
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED), git=_ABSENT) == 4
     out = capsys.readouterr().out
     assert "v1.2.3 is not tagged on CannObserv/power-map" in out
-    assert "git tag v1.2.3 && git push origin v1.2.3" in out
+    assert "git tag -a v1.2.3 -m v1.2.3 && git push origin v1.2.3" in out
 
 
 def test_main_exits_4_when_the_tag_is_on_a_commit_with_another_schema(
@@ -237,22 +280,22 @@ def test_main_exits_4_when_the_tag_is_on_a_commit_with_another_schema(
 ):
     """A tag pushed at the wrong ref is caught, not only a missing one."""
     older = {**_COMMITTED, "paths": {"/health": {"get": {}}}}
-    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, _tagged(older))) == 4
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, {_raw_url(): older})) == 4
     out = capsys.readouterr().out
     assert f"v1.2.3 points at {_SHA[:12]}" in out
     assert "differs from the served schema" in out
-    assert "git push -f origin v1.2.3" in out
+    assert "git tag -a -f v1.2.3 -m v1.2.3 && git push -f origin v1.2.3" in out
 
 
 def test_main_exits_4_when_the_tagged_commit_has_no_snapshot(monkeypatch, tmp_path, capsys):
-    github = {_ref_url(): _lightweight()}
-    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 4
+    """Also what a tag on a tree or blob reads as: ls-remote can't say what it peels to."""
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github={})) == 4
     assert "has no clients/python/openapi.json" in capsys.readouterr().out
 
 
 def test_schema_drift_outranks_a_tag_finding_and_both_are_logged(monkeypatch, tmp_path, capsys):
     live = {**_COMMITTED, "openapi": "3.0.0"}
-    assert _run(monkeypatch, tmp_path, _opener(live, github={})) == 3
+    assert _run(monkeypatch, tmp_path, _opener(live), git=_ABSENT) == 3
     out = capsys.readouterr().out
     assert "top-level keys differ: openapi" in out
     assert "v1.2.3 is not tagged" in out
@@ -264,7 +307,7 @@ def test_a_fresh_deploy_inside_the_grace_window_skips_the_tag_check(monkeypatch,
     def just_started():
         return datetime.now(UTC) - GRACE + timedelta(minutes=5)
 
-    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github={}), just_started) == 0
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED), just_started, git=_never_git) == 0
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     skip = [line for line in lines if "grace window" in line["message"]]
     assert [line["level"] for line in skip] == ["INFO"]
@@ -272,38 +315,134 @@ def test_a_fresh_deploy_inside_the_grace_window_skips_the_tag_check(monkeypatch,
 
 
 def test_an_unknown_start_time_still_checks_the_tag(monkeypatch, tmp_path):
-    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github={}), lambda: None) == 4
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED), lambda: None, git=_ABSENT) == 4
 
 
 @pytest.mark.parametrize(
-    "failure",
+    "git",
     [
-        urllib.error.URLError("name resolution failed"),
-        _http_error(_ref_url(), 403),
-        _http_error(_ref_url(), 503),
-        TimeoutError("timed out"),
+        _git(
+            returncode=128,
+            stderr="fatal: unable to access 'https://github.com/…': "
+            "Could not resolve host: github.com\n",
+        ),
+        _git(
+            returncode=128,
+            stderr="fatal: could not read Username for "
+            "'https://github.com': terminal prompts disabled\n",
+        ),
+        _git(returncode=1),
+        _git_raises(subprocess.TimeoutExpired("git", 10)),
+        _git_raises(FileNotFoundError(2, "No such file or directory", "git")),
+        _git_raises(PermissionError(13, "Permission denied", "git")),
     ],
-    ids=["unreachable", "rate-limited", "unavailable", "timeout"],
+    ids=["unreachable", "auth-prompt", "other-exit", "timeout", "no-git", "not-executable"],
 )
-def test_github_trouble_skips_only_the_tag_check(monkeypatch, tmp_path, capsys, failure):
+def test_git_trouble_skips_only_the_tag_check(monkeypatch, tmp_path, capsys, git):
     """WARNING, not INFO: the check was wanted and did not happen."""
-    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, {_ref_url(): failure})) == 0
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED), git=git) == 0
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     skip = [line for line in lines if "release tag not checked" in line["message"]]
     assert [line["level"] for line in skip] == ["WARNING"]
+    assert "is not tagged" not in skip[0]["message"]
 
 
-def test_github_trouble_does_not_hide_schema_drift(monkeypatch, tmp_path):
+def test_git_trouble_names_git_s_own_reason(monkeypatch, tmp_path, capsys):
+    """The last stderr line is what an operator needs; the exit code alone is not."""
+    git = _git(returncode=128, stderr="warning: x\nfatal: Could not resolve host: github.com\n")
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED), git=git) == 0
+    out = capsys.readouterr().out
+    assert "git ls-remote exited 128 for v1.2.3" in out
+    assert "Could not resolve host: github.com" in out
+
+
+def test_git_trouble_does_not_hide_schema_drift(monkeypatch, tmp_path):
     live = {**_COMMITTED, "openapi": "3.0.0"}
-    failure = urllib.error.URLError("unreachable")
-    assert _run(monkeypatch, tmp_path, _opener(live, {_ref_url(): failure})) == 3
+    git = _git_raises(subprocess.TimeoutExpired("git", 10))
+    assert _run(monkeypatch, tmp_path, _opener(live), git=git) == 3
 
 
-def test_an_unexpected_github_body_skips_the_tag_check(monkeypatch, tmp_path, capsys):
-    """GitHub answering 200 with something other than a ref is not a finding."""
-    github = {_ref_url(): ["not", "a", "ref"]}
-    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 0
-    assert "release tag not checked" in capsys.readouterr().out
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        "<html>unicorn</html>\n",
+        f"not-a-sha\t{_REF}\n",
+        f"{_SHA}\t{_REF}^{{}}\n",
+    ],
+    ids=["garbage", "bad-sha", "peeled-without-tag"],
+)
+def test_unparseable_ls_remote_output_skips_the_tag_check(monkeypatch, tmp_path, capsys, stdout):
+    """git answered 0 with something it never prints: not a finding, never a crash."""
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED), git=_git(stdout)) == 0
+    out = capsys.readouterr().out
+    assert "release tag not checked" in out
+    assert "is not tagged" not in out
+
+
+def test_ls_remote_globs_match_only_the_exact_tag(monkeypatch, tmp_path, capsys):
+    """Patterns are globs matched on the tail: ``v1.2*`` also returns v1.2.3. Absent."""
+    live = {**_COMMITTED, "info": {"title": "power-map", "version": "1.2*"}}
+    git = _git(_lightweight() + _annotated(ref="refs/tags/v1.2.30"))
+    assert _run(monkeypatch, tmp_path, _opener(live), committed=live, git=git) == 4
+    assert "v1.2* is not tagged" in capsys.readouterr().out
+
+
+def test_a_sha256_repository_s_object_names_are_accepted(monkeypatch, tmp_path, capsys):
+    sha = "c" * 64
+    github = {_raw_url(sha): _COMMITTED}
+    assert (
+        _run(monkeypatch, tmp_path, _opener(_COMMITTED, github), git=_git(_lightweight(sha))) == 0
+    )
+    assert f"at {sha[:12]} matches" in capsys.readouterr().out
+
+
+def test_git_is_asked_over_https_for_the_tag_and_its_peel(monkeypatch, tmp_path):
+    """Not ``origin``: in the main checkout that is SSH, which needs the deploy key."""
+    calls = []
+    assert (
+        _run(monkeypatch, tmp_path, _opener(_COMMITTED), git=_git(_lightweight(), calls=calls)) == 0
+    )
+    [(cmd, kwargs)] = calls
+    assert cmd == [
+        "git",
+        "ls-remote",
+        "--exit-code",
+        "https://github.com/CannObserv/power-map",
+        "refs/tags/v1.2.3",
+        "refs/tags/v1.2.3^{}",
+    ]
+    assert GIT_URL == "https://github.com/CannObserv/power-map"
+    assert kwargs["timeout"] == 10.0
+    assert kwargs["cwd"] == "/"
+    assert kwargs["capture_output"] is True
+    assert kwargs["text"] is True
+
+
+def test_git_runs_with_a_scrubbed_non_interactive_environment(monkeypatch):
+    """A hook's GIT_DIR, a credential prompt, or an insteadOf rewrite would each derail it."""
+    monkeypatch.setenv("GIT_DIR", "/elsewhere/.git")
+    monkeypatch.setenv("GIT_INDEX_FILE", "/elsewhere/index")
+    monkeypatch.setenv(
+        "GIT_CONFIG_PARAMETERS", "'url.git@github.com:.insteadof'='https://github.com/'"
+    )
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    env = git_env()
+    assert "GIT_DIR" not in env
+    assert "GIT_INDEX_FILE" not in env
+    assert "GIT_CONFIG_PARAMETERS" not in env
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+    assert env["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert env["GIT_CONFIG_GLOBAL"] == os.devnull
+    assert env["PATH"] == "/usr/bin:/bin"
+
+
+def test_the_git_seam_gets_that_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("GIT_DIR", "/elsewhere/.git")
+    calls = []
+    _run(monkeypatch, tmp_path, _opener(_COMMITTED), git=_git(_lightweight(), calls=calls))
+    [(_, kwargs)] = calls
+    assert kwargs["env"] == git_env()
+    assert "GIT_DIR" not in kwargs["env"]
 
 
 def test_a_served_schema_without_a_version_skips_the_tag_check(monkeypatch, tmp_path, capsys):
@@ -313,7 +452,7 @@ def test_a_served_schema_without_a_version_skips_the_tag_check(monkeypatch, tmp_
         assert url == _LIVE_URL, "no version, so GitHub is never asked"
         return io.BytesIO(json.dumps(unversioned).encode())
 
-    assert _run(monkeypatch, tmp_path, opener, committed=unversioned) == 0
+    assert _run(monkeypatch, tmp_path, opener, committed=unversioned, git=_never_git) == 0
     assert "no info.version" in capsys.readouterr().out
 
 
@@ -324,7 +463,56 @@ def test_no_tag_check_never_asks_github(monkeypatch, tmp_path):
         assert url == _LIVE_URL
         return io.BytesIO(json.dumps(_COMMITTED).encode())
 
-    assert _run(monkeypatch, tmp_path, opener, extra=["--no-tag-check"]) == 0
+    assert _run(monkeypatch, tmp_path, opener, extra=["--no-tag-check"], git=_never_git) == 0
+
+
+def test_a_tagged_snapshot_that_is_not_json_is_a_mis_tag(monkeypatch, tmp_path, capsys):
+    """GitHub served the file; its content is wrong, so the tag is the finding."""
+    raw = _raw_url()
+
+    def opener(url, timeout):
+        if url == raw:
+            return io.BytesIO(b"<<<<<<< conflict")
+        return _opener(_COMMITTED)(url, timeout)
+
+    assert _run(monkeypatch, tmp_path, opener) == 4
+    assert "differs from the served schema" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        urllib.error.URLError("reset"),
+        _http_error(_raw_url(), 503),
+        _http_error(_raw_url(), 429),
+        TimeoutError("timed out"),
+        http.client.IncompleteRead(b"", 10),
+    ],
+    ids=["unreachable", "unavailable", "rate-limited", "timeout", "truncated"],
+)
+def test_trouble_fetching_the_tagged_snapshot_skips_the_check(
+    monkeypatch, tmp_path, capsys, failure
+):
+    """Only a 404 there means the tagged commit lacks the snapshot. urllib wraps OSError
+    only around sending, so a broken response arrives unwrapped."""
+    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, {_raw_url(): failure})) == 0
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    skip = [line for line in lines if "release tag not checked" in line["message"]]
+    assert [line["level"] for line in skip] == ["WARNING"]
+
+
+def test_a_protocol_error_on_the_tagged_snapshot_does_not_hide_drift(monkeypatch, tmp_path):
+    live = {**_COMMITTED, "openapi": "3.0.0"}
+    github = {_raw_url(): http.client.IncompleteRead(b"", 10)}
+    assert _run(monkeypatch, tmp_path, _opener(live, github)) == 3
+
+
+def test_a_protocol_error_on_the_live_schema_is_a_fetch_failure(monkeypatch, tmp_path, capsys):
+    def opener(url, timeout):
+        raise http.client.IncompleteRead(b"{", 100)
+
+    assert _run(monkeypatch, tmp_path, opener, git=_never_git) == 1
+    assert "could not fetch" in capsys.readouterr().out
 
 
 # --- service_started_at ---------------------------------------------------------
@@ -377,106 +565,48 @@ def test_grace_is_about_two_hours():
     assert GRACE == timedelta(hours=2)
 
 
-@pytest.mark.parametrize(
-    "tag_object",
-    [{"object": "not-a-mapping"}, _http_error(f"{_API}/tags/{_TAG_SHA}", 404)],
-    ids=["malformed", "missing"],
-)
-def test_a_broken_annotated_tag_skips_the_check(monkeypatch, tmp_path, capsys, tag_object):
-    """The ref exists, so a bad tag object is GitHub's oddity: never "not tagged", never a crash."""
-    github = {
-        _ref_url(): {"object": {"sha": _TAG_SHA, "type": "tag"}},
-        f"{_API}/tags/{_TAG_SHA}": tag_object,
-    }
-    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 0
-    out = capsys.readouterr().out
-    assert "release tag not checked" in out
-    assert "is not tagged" not in out
+# --- the real git binary, against a local bare repo (#824) ---------------------
+#
+# The seam tests above pin the argv and the parser to what git prints today.
+# These run that argv through the real binary, so a git that prints the peel or
+# the absent case differently fails here, not in production. file:// only: never
+# the network.
 
 
-def test_a_tagged_snapshot_that_is_not_json_is_a_mis_tag(monkeypatch, tmp_path, capsys):
-    """GitHub served the file; its content is wrong, so the tag is the finding."""
-    raw = _raw_url()
-
-    def opener(url, timeout):
-        if url == raw:
-            return io.BytesIO(b"<<<<<<< conflict")
-        return _opener(_COMMITTED)(url, timeout)
-
-    assert _run(monkeypatch, tmp_path, opener) == 4
-    assert "differs from the served schema" in capsys.readouterr().out
+def _real_git(*args: str, cwd: Path) -> str:
+    cmd = ["git", "-c", "user.name=t", "-c", "user.email=t@example.test", *args]
+    result = subprocess.run(cmd, cwd=cwd, env=git_env(), capture_output=True, text=True, check=True)
+    return result.stdout.strip()
 
 
-def test_an_unreachable_tagged_snapshot_skips_the_check(monkeypatch, tmp_path, capsys):
-    github = {_ref_url(): _lightweight(), _raw_url(): urllib.error.URLError("reset")}
-    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 0
-    assert "release tag not checked" in capsys.readouterr().out
+@pytest.fixture
+def bare_repo(tmp_path) -> tuple[str, str]:
+    """A file:// bare repo with an annotated v1.0.0 and a lightweight v1.0.1 on one commit."""
+    work = tmp_path / "work"
+    work.mkdir()
+    _real_git("init", "-q", cwd=work)
+    _real_git("commit", "-q", "--allow-empty", "-m", "c", cwd=work)
+    commit = _real_git("rev-parse", "HEAD", cwd=work)
+    _real_git("tag", "-a", "v1.0.0", "-m", "v1.0.0", cwd=work)
+    _real_git("tag", "v1.0.1", cwd=work)
+    _real_git("tag", "v1.0.10", cwd=work)
+    bare = tmp_path / "bare.git"
+    _real_git("clone", "-q", "--bare", str(work), str(bare), cwd=tmp_path)
+    return bare.as_uri(), commit
 
 
-@pytest.mark.parametrize(
-    "github",
-    [
-        {_ref_url(): http.client.BadStatusLine("HTTP/9 ???")},
-        {_ref_url(): _lightweight(), _raw_url(): http.client.IncompleteRead(b"", 10)},
-    ],
-    ids=["bad-status-on-ref", "truncated-snapshot"],
-)
-def test_a_protocol_error_from_github_skips_the_check(monkeypatch, tmp_path, capsys, github):
-    """urllib wraps OSError only around sending: a broken response arrives unwrapped."""
-    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 0
-    assert "release tag not checked" in capsys.readouterr().out
+@pytest.mark.parametrize("tag", ["v1.0.0", "v1.0.1"], ids=["annotated", "lightweight"])
+def test_real_git_resolves_a_tag_to_its_commit(bare_repo, tag):
+    url, commit = bare_repo
+    assert tagged_commit(tag, 10.0, subprocess.run, url=url) == commit
 
 
-def test_a_protocol_error_from_github_does_not_hide_drift(monkeypatch, tmp_path):
-    live = {**_COMMITTED, "openapi": "3.0.0"}
-    github = {_ref_url(): http.client.IncompleteRead(b"", 10)}
-    assert _run(monkeypatch, tmp_path, _opener(live, github)) == 3
+def test_real_git_reports_an_absent_tag_as_none(bare_repo):
+    url, _ = bare_repo
+    assert tagged_commit("v9.9.9", 10.0, subprocess.run, url=url) is None
 
 
-def test_a_protocol_error_on_the_live_schema_is_a_fetch_failure(monkeypatch, tmp_path, capsys):
-    def opener(url, timeout):
-        raise http.client.IncompleteRead(b"{", 100)
-
-    assert _run(monkeypatch, tmp_path, opener) == 1
-    assert "could not fetch" in capsys.readouterr().out
-
-
-def test_a_non_json_answer_from_github_is_not_called_unreachable(monkeypatch, tmp_path, capsys):
-    """GitHub answered; the journal must not send the operator chasing the network."""
-    ref = _ref_url()
-
-    def opener(url, timeout):
-        if url == ref:
-            return io.BytesIO(b"<html>unicorn</html>")
-        return _opener(_COMMITTED)(url, timeout)
-
-    assert _run(monkeypatch, tmp_path, opener) == 0
-    out = capsys.readouterr().out
-    assert "is not JSON" in out
-    assert "unreachable" not in out
-
-
-def test_the_tag_is_quoted_into_the_url(monkeypatch, tmp_path):
-    """Unquoted, `1.2#rc` would ask GitHub about v1.2 — a tag nobody named."""
-    live = {**_COMMITTED, "info": {"title": "power-map", "version": "1.2#rc"}}
-    asked = []
-
-    def opener(url, timeout):
-        asked.append(url)
-        return _opener(live, github={})(url, timeout)
-
-    assert _run(monkeypatch, tmp_path, opener, committed=live) == 4
-    assert asked[1] == f"{_API}/ref/tags/v1.2%23rc"
-
-
-def test_a_tag_on_something_other_than_a_commit_skips_the_check(monkeypatch, tmp_path, capsys):
-    github = {_ref_url(): {"object": {"sha": _SHA, "type": "tree"}}}
-    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 0
-    assert "does not resolve to a commit" in capsys.readouterr().out
-
-
-def test_a_server_error_on_the_tagged_snapshot_skips_the_check(monkeypatch, tmp_path, capsys):
-    """Only a 404 there means the tagged commit lacks the snapshot."""
-    github = {_ref_url(): _lightweight(), _raw_url(): _http_error(_raw_url(), 503)}
-    assert _run(monkeypatch, tmp_path, _opener(_COMMITTED, github)) == 0
-    assert "release tag not checked" in capsys.readouterr().out
+def test_real_git_matches_only_the_exact_tag(bare_repo):
+    """``v1.0.1*`` would glob v1.0.1 and v1.0.10; neither is the tag asked for."""
+    url, _ = bare_repo
+    assert tagged_commit("v1.0.1*", 10.0, subprocess.run, url=url) is None

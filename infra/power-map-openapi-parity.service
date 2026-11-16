@@ -16,7 +16,9 @@ EnvironmentFile=/etc/power-map/.env
 # with no restart. Exit 1 when the schema cannot be fetched.
 # Exit 4 when v<served version> is missing on GitHub or tags a commit whose
 # snapshot differs (#631); skipped within 2 h of power-map.service starting, or
-# when GitHub is unreachable (unauthenticated REST API; the repo is public).
+# when git or GitHub can't answer. The tag is resolved with an anonymous
+# `git ls-remote` over https (#824), not the REST API: that quota is the egress
+# IP's, shared with others. Needs git on PATH; the repo is public.
 # Read-only: HTTP only, no DB, no writes; it alerts through the check-in below.
 ExecStart=uv run python -m scripts.check_openapi_parity
 TimeoutStartSec=120
