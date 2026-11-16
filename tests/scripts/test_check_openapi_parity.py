@@ -4,7 +4,7 @@ The commit-time gate (``tests/clients/python/test_drift.py``) keeps the snapshot
 in step with the code. This guard checks what that gate cannot see: the schema
 the running workers actually serve. It catches a schema that depends on
 runtime configuration, a deploy that skipped the gate, and a pull that was never
-followed by a restart. HTTP-only, read-only. Exit 3 on a difference, so the unit
+followed by a restart. Read-only. Exit 3 on a difference, so the unit
 lands in ``systemctl --failed``.
 
 #631 adds the release-tag check: ``v<served version>`` must exist on GitHub and

@@ -22,9 +22,9 @@ entered ``active`` less than ``GRACE`` ago (a deploy minutes before the daily
 run can't have been tagged yet), when git or GitHub can't answer or answers
 unexpectedly, and under ``--no-tag-check``.
 
-HTTP-only and read-only: no database, no writes, no privilege. It does not open
-a GitHub issue. A difference shows in ``systemctl --failed``, and #566's alerting
-will carry it once that lands.
+HTTP plus one ``git ls-remote``, read-only: no database, no writes, no
+privilege. It does not open a GitHub issue. A difference shows in
+``systemctl --failed``, and #566's alerting will carry it once that lands.
 
 Exit codes: 0 = identical and tagged; 3 = the live schema differs (the journal
 names what), which outranks 4; 4 = the served version is untagged or mis-tagged

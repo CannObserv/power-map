@@ -19,7 +19,8 @@ EnvironmentFile=/etc/power-map/.env
 # when git or GitHub can't answer. The tag is resolved with an anonymous
 # `git ls-remote` over https (#824), not the REST API: that quota is the egress
 # IP's, shared with others. Needs git on PATH; the repo is public.
-# Read-only: HTTP only, no DB, no writes; it alerts through the check-in below.
+# Read-only: HTTP plus one git ls-remote, no DB, no writes; it alerts through
+# the check-in below.
 ExecStart=uv run python -m scripts.check_openapi_parity
 TimeoutStartSec=120
 
