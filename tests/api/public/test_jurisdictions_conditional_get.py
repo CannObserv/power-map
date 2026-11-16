@@ -22,13 +22,14 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from tests.db_utils import drop_committed_key
 
 pytestmark = [pytest.mark.integration]
 
 
 # Committing (autocommit) variants: each write is its own transaction, so the
-# trigger's NOW() actually advances between them. Rows leak but carry unique
-# ULIDs (the test DB is session-truncated); the api_key is cleaned up.
+# trigger's NOW() actually advances between them. Nothing rolls back, so each
+# fixture deletes what it commits, the api_key with its request-log rows (#819).
 @pytest_asyncio.fixture(loop_scope="session")
 async def db(committing_db):
     return committing_db
@@ -53,8 +54,7 @@ async def api_key(db):
         hashlib.sha256(raw.encode()).hexdigest(),
     )
     yield raw
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    await drop_committed_key(db, kid, uid)
 
 
 @pytest_asyncio.fixture(loop_scope="session")

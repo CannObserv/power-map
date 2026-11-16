@@ -10,9 +10,13 @@ session start.
 
 import asyncio
 import contextlib
+from collections.abc import Iterable
 
 import asyncpg
 import pytest
+
+from src.api.public.middleware import drain_pending_writes
+from src.core.ancillary_migrate import ENTITY_TABLES, delete_entity_ancillary
 
 # Reference/lookup tables whose seed rows must survive a data reset.
 REFERENCE_TABLES = frozenset(
@@ -122,3 +126,53 @@ async def row_version(conn: asyncpg.Connection, table: str, row_id: str) -> str 
     if table not in _VERSIONED_TABLES:
         raise ValueError(f"row_version: not an entity table: {table!r}")
     return await conn.fetchval(f"SELECT ctid::text FROM {table} WHERE id = $1", row_id)
+
+
+#: Name tables with a plain FK to their entity, deleted ahead of the entity row:
+#: entity type → (FK column, tables).
+_NAME_TABLES = {
+    "organization": ("organization_id", ("organization_acronyms", "organization_names")),
+    "person": ("person_id", ("person_names",)),
+}
+
+
+async def purge_committed_entities(
+    conn: asyncpg.Connection, entities: Iterable[tuple[str, str]]
+) -> None:
+    """Hard-delete committed test entities and every row they own (#819).
+
+    For a fixture on the committing client: the session-start truncation is the
+    only other cleanup, so whatever it leaves stays for the rest of the run and
+    moves any test's global aggregate. Takes ``(entity_type, id)`` pairs **in
+    delete order**: an assignment before its role, a role before its org, an
+    org whose event names another org before that org. Mirrors the admin hard
+    delete, :func:`delete_entity_ancillary` first, then the names, then the
+    row. It also clears any ``deleted_entities`` tombstone for the id, which a
+    merge writes for the absorbed side. An id with no row left is fine.
+    """
+    for entity_type, entity_id in entities:
+        await delete_entity_ancillary(conn, entity_type, entity_id)
+        fk, tables = _NAME_TABLES.get(entity_type, ("", ()))
+        for table in tables:
+            await conn.execute(f"DELETE FROM {table} WHERE {fk} = $1", entity_id)
+        await conn.execute(f"DELETE FROM {ENTITY_TABLES[entity_type]} WHERE id = $1", entity_id)
+        await conn.execute(
+            "DELETE FROM deleted_entities WHERE entity_type = $1 AND entity_id = $2",
+            entity_type,
+            entity_id,
+        )
+
+
+async def drop_committed_key(conn: asyncpg.Connection, key_id: str, user_id: str) -> None:
+    """Delete a committed test API key, its request-log rows, and its user (#819).
+
+    Deleting the key alone would not remove its log rows:
+    ``api_request_log.api_key_id`` is ``ON DELETE SET NULL``, so they would stay
+    as keyless rows that look like unauthenticated captures. The middleware
+    writes on a background task, so drain it first, or a late row lands after
+    the delete.
+    """
+    await drain_pending_writes()
+    await conn.execute("DELETE FROM api_request_log WHERE api_key_id = $1", key_id)
+    await conn.execute("DELETE FROM api_keys WHERE id = $1", key_id)
+    await conn.execute("DELETE FROM app_users WHERE id = $1", user_id)

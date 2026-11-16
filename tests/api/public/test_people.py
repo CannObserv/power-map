@@ -8,6 +8,7 @@ import pytest_asyncio
 
 from src.core.ancillary_migrate import delete_entity_ancillary
 from src.core.db import generate_id
+from tests.db_utils import drop_committed_key
 
 pytestmark = pytest.mark.integration
 
@@ -16,7 +17,7 @@ pytestmark = pytest.mark.integration
 # *advances* after a mutation. Postgres now() is fixed at transaction start, so
 # the single-transaction rollback client would freeze it. Shadow db/client with
 # the committing (autocommit) variants so each write is its own transaction and
-# timestamps advance (#288). Rows leak but carry unique ULIDs (session-truncated).
+# timestamps advance (#288). Nothing rolls back: each fixture deletes what it commits (#819).
 @pytest_asyncio.fixture(loop_scope="session")
 async def db(committing_db):
     return committing_db
@@ -44,8 +45,7 @@ async def api_key(db):
     )
     yield raw_key
     # Committing fixture (see db/client shadows above): clean up committed rows.
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    await drop_committed_key(db, kid, uid)
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -188,11 +188,12 @@ async def test_search_has_more_false_when_under_limit(client, api_key, person_fi
 
 
 @pytest.mark.integration
-async def test_search_has_more_true(client, api_key, person_fixture, db):
+async def test_search_has_more_true(client, api_key, person_fixture, db, committed_entities):
     """has_more=True when matching results exceed limit."""
     second_id = generate_id()
     name_id = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", second_id)
+    committed_entities.append(("person", second_id))
     await db.execute(
         "INSERT INTO person_names"
         " (id, person_id, name, name_type, is_canonical, visibility)"
@@ -491,11 +492,14 @@ async def test_identifier_search_value_only_returns_422(client, api_key):
 
 
 @pytest.mark.integration
-async def test_identifier_search_wins_over_q(client, api_key, person_fixture, db):
+async def test_identifier_search_wins_over_q(
+    client, api_key, person_fixture, db, committed_entities
+):
     """When both q and identifier params are given, identifier takes precedence."""
     other_id = generate_id()
     other_name_id = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", other_id)
+    committed_entities.append(("person", other_id))
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, visibility)"
         " VALUES ($1,$2,'Jane Other','legal',TRUE,'public')",

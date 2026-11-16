@@ -9,6 +9,7 @@ import pytest_asyncio
 
 from src.core.ancillary_migrate import delete_entity_ancillary
 from src.core.db import generate_id
+from tests.db_utils import drop_committed_key
 
 pytestmark = pytest.mark.integration
 
@@ -17,7 +18,7 @@ pytestmark = pytest.mark.integration
 # *advances* after a mutation. Postgres now() is fixed at transaction start, so
 # the single-transaction rollback client would freeze it. Shadow db/client with
 # the committing (autocommit) variants so each write is its own transaction and
-# timestamps advance (#288). Rows leak but carry unique ULIDs (session-truncated).
+# timestamps advance (#288). Nothing rolls back: each fixture deletes what it commits (#819).
 @pytest_asyncio.fixture(loop_scope="session")
 async def db(committing_db):
     return committing_db
@@ -46,8 +47,7 @@ async def api_key(db):
     yield raw_key
     # Committing fixture (see db/client shadows above): clean up so committed
     # rows don't leak into other tests' searches.
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    await drop_committed_key(db, kid, uid)
 
 
 @pytest_asyncio.fixture(loop_scope="session")

@@ -7,8 +7,9 @@ ancillary table through raw SQL — the path an app-layer bump would miss — an
 reads the parent's ETag back over the public API.
 
 Committing variants (#288): ``now()`` is frozen inside one transaction, so the
-rollback client could never see ``updated_at`` advance. Rows leak but carry
-unique ULIDs and are cleared by the session-start truncation.
+rollback client could never see ``updated_at`` advance. Each test records what
+it commits in ``committed_entities``, whose teardown purges it with every
+ancillary row it owns (#819).
 """
 
 import hashlib
@@ -19,6 +20,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from tests.db_utils import drop_committed_key
 
 pytestmark = pytest.mark.integration
 
@@ -49,51 +51,56 @@ async def api_key(db):
         hashlib.sha256(raw_key.encode()).hexdigest(),
     )
     yield raw_key
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    await drop_committed_key(db, kid, uid)
 
 
 # ── parents: entity_type → (create, detail path) ─────────────────────────────
 #
 # A create returns ``(target_id, detail_id)``: the id the ancillary row names,
 # and the id whose detail ETag must move. They differ only for the two citable
-# sub-entities, whose citation trigger touches the owning entity instead.
+# sub-entities, whose citation trigger touches the owning entity instead. Each
+# records what it commits in ``made`` after what it points at, so the reverse
+# order ``committed_entities`` purges in deletes children first.
 
 
-async def _org(db) -> str:
+async def _org(db, made) -> str:
     oid = generate_id()
     await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    made.append(("organization", oid))
     return oid
 
 
-async def _person(db) -> str:
+async def _person(db, made) -> str:
     pid = generate_id()
     await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    made.append(("person", pid))
     return pid
 
 
-async def _role(db) -> str:
+async def _role(db, made) -> str:
     rid = generate_id()
     await db.execute(
         "INSERT INTO roles (id, organization_id, title) VALUES ($1,$2,'Director')",
         rid,
-        await _org(db),
+        await _org(db, made),
     )
+    made.append(("role", rid))
     return rid
 
 
-async def _assignment(db) -> str:
+async def _assignment(db, made) -> str:
     raid = generate_id()
     await db.execute(
         "INSERT INTO role_assignments (id, person_id, role_id, is_current) VALUES ($1,$2,$3,TRUE)",
         raid,
-        await _person(db),
-        await _role(db),
+        await _person(db, made),
+        await _role(db, made),
     )
+    made.append(("role_assignment", raid))
     return raid
 
 
-async def _jurisdiction(db) -> str:
+async def _jurisdiction(db, made) -> str:
     jid = generate_id()
     type_id = await db.fetchval("SELECT id FROM jurisdiction_types WHERE slug='state'")
     await db.execute(
@@ -103,11 +110,12 @@ async def _jurisdiction(db) -> str:
         f"ETag Probe {jid}",
         type_id,
     )
+    made.append(("jurisdiction", jid))
     return jid
 
 
-async def _person_name(db) -> tuple[str, str]:
-    pid, nid = await _person(db), generate_id()
+async def _person_name(db, made) -> tuple[str, str]:
+    pid, nid = await _person(db, made), generate_id()
     await db.execute(
         "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, visibility)"
         " VALUES ($1,$2,'ETag Probe','alias',FALSE,'public')",
@@ -117,8 +125,8 @@ async def _person_name(db) -> tuple[str, str]:
     return nid, pid
 
 
-async def _org_event(db) -> tuple[str, str]:
-    oid, eid = await _org(db), generate_id()
+async def _org_event(db, made) -> tuple[str, str]:
+    oid, eid = await _org(db, made), generate_id()
     founded = await db.fetchval("SELECT id FROM entity_event_types WHERE slug='founded'")
     await db.execute(
         "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
@@ -133,8 +141,8 @@ async def _org_event(db) -> tuple[str, str]:
 def _itself(create: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[tuple[str, str]]]:
     """A top-level entity is both what the ancillary row names and whose ETag moves."""
 
-    async def _create(db) -> tuple[str, str]:
-        entity_id = await create(db)
+    async def _create(db, made) -> tuple[str, str]:
+        entity_id = await create(db, made)
         return entity_id, entity_id
 
     return _create
@@ -244,9 +252,11 @@ _CASES = [
 
 
 @pytest.mark.parametrize(("table", "entity_type"), _CASES)
-async def test_ancillary_insert_changes_parent_etag(client, db, api_key, table, entity_type):
+async def test_ancillary_insert_changes_parent_etag(
+    client, db, api_key, committed_entities, table, entity_type
+):
     create, path = _PARENTS[entity_type]
-    entity_id, detail_id = await create(db)
+    entity_id, detail_id = await create(db, committed_entities)
     url = path.format(detail_id)
     headers = {"X-API-Key": api_key}
 
