@@ -132,7 +132,7 @@ async def test_resolves_and_mints(conn):
 
 
 async def test_ambiguous_principal_reported_not_guessed(conn):
-    staffer_role, _, _ = await _scenario(conn)
+    staffer_role, staffer_asg, seat_asg = await _scenario(conn)
     # a second "June Robinson" makes the principal ambiguous
     await _person(conn, "June Robinson")
     targets = (Target(staffer_role, "June Robinson"),)
@@ -140,8 +140,12 @@ async def test_ambiguous_principal_reported_not_guessed(conn):
     resolutions = await resolve(conn, targets)
     (r,) = resolutions
     assert r.problem is not None and "matched 2 people" in r.problem
-    # dry-run mints nothing
-    minted = await conn.fetchval("SELECT count(*) FROM role_assignment_relationships")
+    # dry-run mints nothing — on this scenario's assignments; the table is shared (#819)
+    minted = await conn.fetchval(
+        "SELECT count(*) FROM role_assignment_relationships"
+        " WHERE from_assignment_id = ANY($1::text[]) OR to_assignment_id = ANY($1::text[])",
+        [staffer_asg, seat_asg],
+    )
     assert minted == 0
 
 

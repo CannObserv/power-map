@@ -28,10 +28,18 @@ HX = {**AUTH, "HX-Request": "true"}
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def db(db_pool):
+    """A rolled-back transaction that starts with no pins at all (#819).
+
+    The page counts and pages the whole overlay, and the test DB is shared: a pin
+    another test committed would move "11 records" or fill the empty list.
+    Emptying the table inside this transaction isolates both without durably
+    deleting anything.
+    """
     async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
         try:
+            await conn.execute("DELETE FROM curation_overlay")
             yield conn
         finally:
             await tr.rollback()

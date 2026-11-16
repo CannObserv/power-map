@@ -180,6 +180,15 @@ async def _edge(conn, frm, to, vf=None, vu=None):
     return eid
 
 
+def _categories_of(findings, edge_id):
+    """The finding categories naming ``edge_id`` — this test's own edge only (#819).
+
+    The audit reads the whole table, and the test DB is shared: another test's
+    committed edge must not move a count this test asserts.
+    """
+    return [cat for cat, rows in findings.items() for f in rows if f["id"] == edge_id]
+
+
 @integration
 async def test_reconcile_clamps_and_is_idempotent(conn):
     # observation-path edge whose window outlives the principal's ended seat
@@ -188,7 +197,7 @@ async def test_reconcile_clamps_and_is_idempotent(conn):
     e = await _edge(conn, frm, to, vf=D(2023, 1, 1), vu=D(2030, 1, 1))
 
     findings = await run_audit(conn, execute=True)
-    assert len(findings["clamp"]) == 1
+    assert _categories_of(findings, e) == ["clamp"]
     row = await conn.fetchrow(
         "SELECT valid_until FROM role_assignment_relationships WHERE id=$1", e
     )
@@ -196,7 +205,7 @@ async def test_reconcile_clamps_and_is_idempotent(conn):
 
     # idempotent: a second pass finds nothing
     again = await audit(conn)
-    assert sum(len(v) for v in again.values()) == 0
+    assert _categories_of(again, e) == []
 
 
 @integration
@@ -204,8 +213,9 @@ async def test_report_mode_real_drift_exits_three(conn):
     # A real drifted edge → audit() findings → report-mode exit code 3 (#363).
     frm = await _assignment(conn, start=D(2023, 1, 1))
     to = await _assignment(conn, start=D(2023, 1, 1), end=D(2024, 12, 31))
-    await _edge(conn, frm, to, vf=D(2023, 1, 1), vu=D(2030, 1, 1))
+    e = await _edge(conn, frm, to, vf=D(2023, 1, 1), vu=D(2030, 1, 1))
     findings = await audit(conn)  # report-only, no mutation
+    assert _categories_of(findings, e) == ["clamp"]
     assert _exit_code(findings, execute=False) == 3
 
 
@@ -220,7 +230,7 @@ async def test_reconcile_archives_on_archived_endpoint(conn):
     # the audit is the backstop for any edge the cascade missed (e.g. direct SQL).
     await conn.execute("UPDATE role_assignment_relationships SET archived_at = NULL WHERE id=$1", e)
     findings = await run_audit(conn, execute=True)
-    assert len(findings["archived_endpoint"]) == 1
+    assert _categories_of(findings, e) == ["archived_endpoint"]
     archived = await conn.fetchval(
         "SELECT archived_at FROM role_assignment_relationships WHERE id=$1", e
     )
