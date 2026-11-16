@@ -129,20 +129,18 @@ async def _left(conn, ids: dict[str, str]) -> dict[str, int]:
 
 async def test_purge_removes_the_graph_and_all_it_owns(conn):
     ids = await _graph(conn)
-    try:
-        await purge_committed_entities(
-            conn,
-            [
-                ("role_assignment", ids["ra"]),
-                ("role", ids["role"]),
-                ("organization", ids["org"]),
-                ("organization", ids["other_org"]),
-                ("organization", ids["other_org"] + "X"),  # merged away: tombstone only
-                ("person", ids["person"]),
-            ],
-        )
-    finally:
-        left = await _left(conn, ids)
+    await purge_committed_entities(
+        conn,
+        [
+            ("role_assignment", ids["ra"]),
+            ("role", ids["role"]),
+            ("organization", ids["org"]),
+            ("organization", ids["other_org"]),
+            ("organization", ids["other_org"] + "X"),  # merged away: tombstone only
+            ("person", ids["person"]),
+        ],
+    )
+    left = await _left(conn, ids)
     assert left == dict.fromkeys(left, 0)
 
 
