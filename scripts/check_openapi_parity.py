@@ -12,16 +12,19 @@ and a pull that was never followed by a restart (``info.version`` then differs).
 It also checks the release tag (#631), the pin ``power-map-client`` consumers
 install from. ``v<served info.version>`` must exist on GitHub and point at a
 commit whose ``clients/python/openapi.json`` equals the served schema, so a tag
-pushed at the wrong ref is caught as well as a missing one. The repo is public:
-the REST API needs no credentials. The check is skipped, with a log line and no
-effect on the exit, when ``power-map.service`` entered ``active`` less than
-``GRACE`` ago (a deploy minutes before the daily run can't have been tagged
-yet), when GitHub can't be reached or answers unexpectedly, and under
-``--no-tag-check``.
+pushed at the wrong ref is caught as well as a missing one. The repo is public,
+so neither call needs credentials. The tag is resolved with one anonymous
+``git ls-remote`` over https (#824), not the REST API: that quota (60 an hour)
+belongs to the egress IP, which other consumers share, and once spent, the check
+went dark. The snapshot comes from ``raw.githubusercontent.com``. The check is
+skipped, with a log line and no effect on the exit, when ``power-map.service``
+entered ``active`` less than ``GRACE`` ago (a deploy minutes before the daily
+run can't have been tagged yet), when git or GitHub can't answer or answers
+unexpectedly, and under ``--no-tag-check``.
 
-HTTP-only and read-only: no database, no writes, no privilege. It does not open
-a GitHub issue. A difference shows in ``systemctl --failed``, and #566's alerting
-will carry it once that lands.
+HTTP plus one ``git ls-remote``, read-only: no database, no writes, no
+privilege. It does not open a GitHub issue. A difference shows in
+``systemctl --failed``, and #566's alerting will carry it once that lands.
 
 Exit codes: 0 = identical and tagged; 3 = the live schema differs (the journal
 names what), which outranks 4; 4 = the served version is untagged or mis-tagged
@@ -36,6 +39,8 @@ Usage:
 
 import http.client
 import json
+import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -43,7 +48,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 from urllib.request import urlopen
 
 from scripts._dsn import build_parser
@@ -62,6 +66,10 @@ FETCH_ERRORS = (OSError, urllib.error.URLError, http.client.HTTPException)
 MAX_NAMES = 10
 
 REPO = "CannObserv/power-map"
+# Over https, never ``origin``: in the main checkout that is SSH and needs the deploy key.
+GIT_URL = f"https://github.com/{REPO}"
+# A SHA-1 or SHA-256 object name, as ``git ls-remote`` prints it.
+OBJECT_NAME = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 SNAPSHOT_PATH = "clients/python/openapi.json"
 SERVICE = "power-map.service"
 # The timer runs once a day; a deploy just before it gets until the next run.
@@ -69,7 +77,7 @@ GRACE = timedelta(hours=2)
 
 
 class TagCheckSkipped(Exception):
-    """GitHub could not answer the question; this is not a finding."""
+    """git or GitHub could not answer the question; this is not a finding."""
 
 
 def _names(keys: list[str]) -> str:
@@ -150,66 +158,91 @@ def _fetch_json(opener, url: str, timeout: float) -> Any:
         return json.loads(response.read())
 
 
-def _github_object(opener, url: str, timeout: float) -> dict[str, Any]:
-    """The ``object`` of a GitHub ref or annotated tag; raises HTTPError as fetched.
+def git_env() -> dict[str, str]:
+    """This process's environment for a ``git ls-remote`` that nothing local can steer.
 
-    Every other failure, and any body without a well-formed ``object``, is
-    ``TagCheckSkipped``: GitHub's oddity, not a finding.
+    Inherited ``GIT_*`` (a hook's ``GIT_DIR``, ``GIT_CONFIG_PARAMETERS``) go; a
+    credential prompt fails instead of hanging the unit; and no system or global
+    config is read, so a ``url.<base>.insteadOf`` can't rewrite https to SSH.
     """
-    try:
-        target = _fetch_json(opener, url, timeout)["object"]
-    except urllib.error.HTTPError:
-        raise
-    except FETCH_ERRORS as exc:
-        raise TagCheckSkipped(f"GitHub unreachable — {exc}") from exc
-    except ValueError as exc:
-        raise TagCheckSkipped(f"GitHub's answer for {url} is not JSON") from exc
-    except (KeyError, TypeError) as exc:
-        raise TagCheckSkipped(f"GitHub's answer for {url} has no object") from exc
-    if not isinstance(target, dict) or not isinstance(target.get("sha"), str):
-        raise TagCheckSkipped(f"GitHub's answer for {url} has no object")
-    return target
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_TERMINAL_PROMPT="0", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    return env
 
 
-def _tagged_commit(opener, tag: str, timeout: float) -> str | None:
-    """The commit *tag* names on GitHub, following an annotated tag; None if absent.
+def _last_line(text: str) -> str:
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    return lines[-1] if lines else "no message"
 
-    Only a 404 on the ref itself means absent: the ref exists once it answers.
+
+def tagged_commit(
+    tag: str,
+    timeout: float,
+    git: Callable[..., subprocess.CompletedProcess],
+    url: str = GIT_URL,
+) -> str | None:
+    """The commit *tag* names at *url*, peeling an annotated tag; None if absent.
+
+    *git* is ``subprocess.run`` or a test's stand-in. One ``git ls-remote`` asks
+    for the tag and its peel: an annotated tag answers both lines and the
+    ``^{}`` one is the commit, a lightweight tag only the first. ls-remote's
+    patterns are globs matched on the ref's tail, so only exact names count.
+    Raises ``TagCheckSkipped`` when git fails, times out, isn't there, or prints
+    what it never prints.
     """
-    api = f"https://api.github.com/repos/{REPO}/git"
+    ref = f"refs/tags/{tag}"
+    peeled = f"{ref}^{{}}"
+    cmd = ["git", "ls-remote", "--exit-code", url, ref, peeled]
     try:
-        target = _github_object(opener, f"{api}/ref/tags/{quote(tag, safe='')}", timeout)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return None
-        raise TagCheckSkipped(f"GitHub answered {exc.code} for {tag}") from exc
-    if target.get("type") == "tag":
-        try:
-            target = _github_object(opener, f"{api}/tags/{target['sha']}", timeout)
-        except urllib.error.HTTPError as exc:
-            raise TagCheckSkipped(f"GitHub answered {exc.code} for {tag}'s tag object") from exc
-    if target.get("type") != "commit":
-        raise TagCheckSkipped(f"{tag} does not resolve to a commit")
-    return target["sha"]
+        result = git(cmd, capture_output=True, text=True, timeout=timeout, env=git_env(), cwd="/")
+    except subprocess.TimeoutExpired as exc:
+        raise TagCheckSkipped(f"git ls-remote timed out after {timeout:g} s for {tag}") from exc
+    except OSError as exc:
+        raise TagCheckSkipped(f"git could not run — {exc}") from exc
+    if result.returncode == 2:  # --exit-code: no ref matched either pattern
+        return None
+    if result.returncode != 0:
+        raise TagCheckSkipped(
+            f"git ls-remote exited {result.returncode} for {tag} — {_last_line(result.stderr)}"
+        )
+    found = {}
+    for line in result.stdout.splitlines():
+        name, tab, refname = line.partition("\t")
+        if not tab or not OBJECT_NAME.fullmatch(name):
+            raise TagCheckSkipped(f"git ls-remote printed an unreadable line for {tag}")
+        if refname in (ref, peeled):
+            found[refname] = name
+    if ref not in found:
+        if peeled in found:
+            raise TagCheckSkipped(f"git ls-remote printed {tag}'s peel without the tag")
+        return None
+    return found.get(peeled, found[ref])
 
 
-def release_tag_finding(live: dict[str, Any], opener, timeout: float) -> str | None:
+def release_tag_finding(
+    live: dict[str, Any],
+    opener,
+    timeout: float,
+    git: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+) -> str | None:
     """Why ``v<live version>`` is not a correct pin, or None when it is.
 
     *live* must carry ``info.version`` (``KeyError`` otherwise; the CLI checks
-    first). Raises ``TagCheckSkipped`` when GitHub can't say either way.
+    first). Raises ``TagCheckSkipped`` when git or GitHub can't say either way.
+    The remedies name an annotated tag, the release rule; a lightweight tag on
+    the right commit still passes.
     """
     tag = f"v{live['info']['version']}"
-    sha = _tagged_commit(opener, tag, timeout)
+    sha = tagged_commit(tag, timeout, git)
     if sha is None:
         return (
             f"{tag} is not tagged on {REPO} — from the main checkout at the deployed "
-            f"commit: git tag {tag} && git push origin {tag}"
+            f"commit: git tag -a {tag} -m {tag} && git push origin {tag}"
         )
     raw = f"https://raw.githubusercontent.com/{REPO}/{sha}/{SNAPSHOT_PATH}"
     move = (
-        f"move it — from the main checkout at the deployed commit: git tag -f {tag} "
-        f"&& git push -f origin {tag} (anyone who pinned {tag} has the wrong client)"
+        f"move it — from the main checkout at the deployed commit: git tag -a -f {tag} "
+        f"-m {tag} && git push -f origin {tag} (anyone who pinned {tag} has the wrong client)"
     )
     try:
         tagged = _fetch_json(opener, raw, timeout)
@@ -235,11 +268,12 @@ def _check_release_tag(
     opener,
     timeout: float,
     started_at: Callable[[], datetime | None],
+    git: Callable[..., subprocess.CompletedProcess],
 ) -> str | None:
     """Run the tag check unless it must be skipped.
 
-    A skip by design (no version, inside the grace window) logs INFO; GitHub
-    trouble logs WARNING, since the check was wanted and did not happen.
+    A skip by design (no version, inside the grace window) logs INFO; git or
+    GitHub trouble logs WARNING, since the check was wanted and did not happen.
     """
     version = live.get("info", {}).get("version") if isinstance(live.get("info"), dict) else None
     if not version:
@@ -256,14 +290,21 @@ def _check_release_tag(
         )
         return None
     try:
-        return release_tag_finding(live, opener, timeout)
+        return release_tag_finding(live, opener, timeout, git)
     except TagCheckSkipped as exc:
         logger.warning("openapi parity: release tag not checked — %s", exc)
         return None
 
 
-def main(opener=urlopen, started_at: Callable[[], datetime | None] = service_started_at) -> None:
-    """CLI entry point; exits 0, 1, 3 or 4 as the module docstring says."""
+def main(
+    opener=urlopen,
+    started_at: Callable[[], datetime | None] = service_started_at,
+    git: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+) -> None:
+    """CLI entry point; exits 0, 1, 3 or 4 as the module docstring says.
+
+    *opener* fetches over HTTP, *git* runs ``git ls-remote``: both are seams for tests.
+    """
     configure_logging()
     parser = build_parser(__doc__)
     parser.add_argument("--url", default=DEFAULT_URL, help=f"live schema (default {DEFAULT_URL})")
@@ -273,7 +314,12 @@ def main(opener=urlopen, started_at: Callable[[], datetime | None] = service_sta
         default=DEFAULT_SNAPSHOT,
         help="committed schema (default clients/python/openapi.json beside this script)",
     )
-    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="seconds")
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_TIMEOUT,
+        help="seconds, per HTTP request and for git ls-remote as a whole",
+    )
     parser.add_argument(
         "--no-tag-check",
         action="store_true",
@@ -314,7 +360,7 @@ def main(opener=urlopen, started_at: Callable[[], datetime | None] = service_sta
         logger.info("openapi parity: %s matches %s", args.url, args.snapshot)
     tag_finding = None
     if not args.no_tag_check:
-        tag_finding = _check_release_tag(live, opener, args.timeout, started_at)
+        tag_finding = _check_release_tag(live, opener, args.timeout, started_at, git)
         if tag_finding:
             logger.warning("openapi parity: %s", tag_finding)
     if found:
