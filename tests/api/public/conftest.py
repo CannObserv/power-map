@@ -25,6 +25,7 @@ from src.api.public import ratelimit
 from src.core import db as core_db
 from src.core.db import generate_id
 from src.core.embedding_registry import EmbeddingRegistry
+from tests.db_utils import purge_committed_entities
 
 
 @pytest.fixture(autouse=True)
@@ -117,11 +118,28 @@ async def committing_db(db_pool):
       writes via the global pool on a background task).
 
     Each statement autocommits, so timestamps advance and other connections see
-    the data. No teardown: rows leak but carry unique ULIDs and are cleared by the
-    session-start truncation (matches the pre-#288 public `db` semantics).
+    the data. Nothing rolls back, and the DB is truncated only at session start, so
+    a row left here stays for the rest of the run and moves any other test's
+    global aggregate (#819). A fixture that commits deletes what it wrote:
+    ``committed_entities`` for entities, ``tests.db_utils.drop_committed_key``
+    for an API key.
     """
     async with db_pool.acquire() as conn:
         yield conn
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def committed_entities(committing_db):
+    """Record ``(entity_type, id)`` pairs a test commits; purge them at teardown (#819).
+
+    Purged in reverse order of recording, so record an entity after anything it
+    points at (an assignment after its role, a role after its org, an org after
+    the org its event names); see :func:`tests.db_utils.purge_committed_entities`.
+    For tests on the committing client only: a rollback-client row is gone already.
+    """
+    made: list[tuple[str, str]] = []
+    yield made
+    await purge_committed_entities(committing_db, reversed(made))
 
 
 @pytest_asyncio.fixture(loop_scope="session")

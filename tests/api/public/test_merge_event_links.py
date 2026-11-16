@@ -17,7 +17,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
-from tests.db_utils import row_version
+from tests.db_utils import drop_committed_key, row_version
 
 pytestmark = [pytest.mark.integration]
 
@@ -39,7 +39,8 @@ async def api_key(committing_db):
         raw_key[:8],
         hashlib.sha256(raw_key.encode()).hexdigest(),
     )
-    return raw_key
+    yield raw_key
+    await drop_committed_key(committing_db, kid, uid)
 
 
 async def _org(db, name) -> str:
@@ -56,12 +57,17 @@ async def _org(db, name) -> str:
 
 
 async def test_org_merge_repoints_predecessor_link_through_public_api(
-    committing_client, committing_db, api_key
+    committing_client, committing_db, api_key, committed_entities
 ):
     db, client = committing_db, committing_client
     pred = await _org(db, "M611 Predecessor Committee")
     loser = await _org(db, "M611 Successor Committee")
     winner = await _org(db, "M611 Successor Committee (dup)")
+    # pred's event names the successor, so pred is purged first; the merge
+    # deletes loser and leaves its tombstone, which the purge also takes.
+    committed_entities.extend(
+        [("organization", winner), ("organization", loser), ("organization", pred)]
+    )
     await db.execute(
         """INSERT INTO entity_events
                (id, entity_type, entity_id, event_type_id, linked_entity_type, linked_entity_id)

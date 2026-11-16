@@ -21,6 +21,7 @@ from src.api.public.middleware import (
 from src.core.db import generate_id
 from src.core.json_depth import MAX_JSON_DEPTH
 from src.core.storable_text import find_unstorable
+from tests.db_utils import drop_committed_key
 
 
 async def _drain_pending_writes(timeout: float = 5.0):
@@ -436,16 +437,9 @@ async def plain_key(db):
         key_hash,
     )
     yield raw, kid
-    # Committing fixture: drain in-flight middleware writes first, then delete the
-    # log rows before the key (api_request_log.api_key_id FK → api_keys). Best
-    # effort — a stalled write must not turn teardown into an error.
-    try:
-        await _drain_pending_writes()
-    except TimeoutError:
-        pass
-    await db.execute("DELETE FROM api_request_log WHERE api_key_id=$1", kid)
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    # Committing fixture: drains in-flight middleware writes, then deletes the log
+    # rows before the key (#819).
+    await drop_committed_key(db, kid, uid)
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -477,17 +471,9 @@ async def obs_key(db):
         "INSERT INTO api_key_scopes (api_key_id, scope_id) VALUES ($1,$2)", kid, scope_id
     )
     yield raw, kid
-    # Committing fixture: drain in-flight middleware writes, then delete in
-    # FK-safe order (log rows + scopes reference the key). Best effort — a stalled
-    # write must not turn teardown into an error.
-    try:
-        await _drain_pending_writes()
-    except TimeoutError:
-        pass
-    await db.execute("DELETE FROM api_request_log WHERE api_key_id=$1", kid)
-    await db.execute("DELETE FROM api_key_scopes WHERE api_key_id=$1", kid)
-    await db.execute("DELETE FROM api_keys WHERE id=$1", kid)
-    await db.execute("DELETE FROM app_users WHERE id=$1", uid)
+    # Committing fixture: drains in-flight middleware writes, then deletes the log
+    # rows before the key; its scopes go with it (ON DELETE CASCADE) (#819).
+    await drop_committed_key(db, kid, uid)
 
 
 @pytest.mark.integration
@@ -603,7 +589,7 @@ def test_enrich_other_and_nondict_noop():
 
 
 @pytest.mark.integration
-async def test_observation_new_enriched(client, db, obs_key):
+async def test_observation_new_enriched(client, db, obs_key, committed_entities):
     raw, kid = obs_key
     payload = {"identifier_type": "person_wa_pdc", "identifier_value": "arl_" + os.urandom(6).hex()}
     resp = await client.post(
@@ -611,6 +597,7 @@ async def test_observation_new_enriched(client, db, obs_key):
     )
     assert resp.status_code == 200
     body = resp.json()
+    committed_entities.append(("person", body["entity_id"]))
     assert body["disposition"] == "new"
     row = await _poll_row(
         db,

@@ -29,6 +29,25 @@ async def db(db_pool):
             await tr.rollback()
 
 
+# The test DB is shared and these tables accrete rows other tests commit, so
+# every assertion reads only this run's rows: its batch's provenance, or the
+# entities that provenance names (#819).
+
+
+async def _batch_entity_ids(db, batch_id: str, entity_type: str, *actions: str) -> list[str]:
+    """Ids of ``entity_type`` rows the batch's provenance records under ``actions``."""
+    return [
+        r["entity_id"]
+        for r in await db.fetch(
+            "SELECT entity_id FROM import_provenance"
+            " WHERE batch_id = $1 AND entity_type = $2 AND action = ANY($3::text[])",
+            batch_id,
+            entity_type,
+            list(actions),
+        )
+    ]
+
+
 async def test_run_import_creates_orgs(db):
     config = ImportConfig(
         orgs_csv=ORGS_FIXTURE,
@@ -39,8 +58,11 @@ async def test_run_import_creates_orgs(db):
     )
     summary = await run_import(db, config)
     assert summary["orgs_loaded"] >= 1
-    count = await db.fetchval("SELECT count(*) FROM organizations")
-    assert count >= 1
+    created = await _batch_entity_ids(db, summary["batch_id"], "organization", "created")
+    count = await db.fetchval(
+        "SELECT count(*) FROM organizations WHERE id = ANY($1::text[])", created
+    )
+    assert count == summary["orgs_loaded"]
 
 
 async def test_run_import_provenance_written(db):
@@ -67,11 +89,13 @@ async def test_run_import_field_confidence_written(db):
         imported_by="test",
         source_reliability=0.8,
     )
-    await run_import(db, config)
-    count = await db.fetchval("SELECT count(*) FROM field_confidence")
-    assert count >= 1
-    row = await db.fetchrow("SELECT * FROM field_confidence LIMIT 1")
-    assert row["source_reliability"] == pytest.approx(0.8)
+    summary = await run_import(db, config)
+    rows = await db.fetch(
+        "SELECT source_reliability FROM field_confidence WHERE assessed_by = $1",
+        f"import:{summary['batch_id']}",
+    )
+    assert rows
+    assert all(r["source_reliability"] == pytest.approx(0.8) for r in rows)
 
 
 async def test_run_import_idempotent(db):
@@ -83,13 +107,15 @@ async def test_run_import_idempotent(db):
         imported_by="test",
         source_reliability=0.8,
     )
-    await run_import(db, config)
-    count_before = await db.fetchval("SELECT count(*) FROM organizations")
-    await run_import(db, config)
-    count_after = await db.fetchval("SELECT count(*) FROM organizations")
-    assert count_before == count_after
-    matched = await db.fetchval("SELECT count(*) FROM import_provenance WHERE action = 'matched'")
-    assert matched >= 1
+    first = await run_import(db, config)
+    created = sorted(await _batch_entity_ids(db, first["batch_id"], "organization", "created"))
+    assert created
+    # Same files, same hash: the re-run writes under the first run's batch.
+    second = await run_import(db, config)
+    after = sorted(await _batch_entity_ids(db, second["batch_id"], "organization", "created"))
+    assert after == created
+    matched = await _batch_entity_ids(db, second["batch_id"], "organization", "matched")
+    assert sorted(matched) == created
 
 
 async def test_run_import_bad_phone_no_contact_method(db):
@@ -108,13 +134,29 @@ async def test_run_import_bad_phone_no_contact_method(db):
     summary = await run_import(db, config)
     # Bob's COO role must have loaded despite the bad phone
     assert summary["roles_loaded"] >= 1
-    # No phone contact_method should exist for any role_assignment
+    # No phone contact_method should exist for any of this batch's role_assignments
+    assignments = await _batch_entity_ids(db, summary["batch_id"], "role_assignment", "created")
     phone_count = await db.fetchval(
         "SELECT count(*) FROM contact_methods"
-        " WHERE entity_type = 'role_assignment' AND contact_type = 'phone'"
-        " AND value = 'bad-phone'"
+        " WHERE entity_type = 'role_assignment' AND entity_id = ANY($1::text[])"
+        " AND contact_type = 'phone' AND value = 'bad-phone'",
+        assignments,
     )
     assert phone_count == 0
+
+
+async def _role_count(db, org_ids: list[str]) -> int:
+    return await db.fetchval(
+        "SELECT count(*) FROM roles WHERE organization_id = ANY($1::text[])", org_ids
+    )
+
+
+async def _assignment_count(db, org_ids: list[str]) -> int:
+    return await db.fetchval(
+        "SELECT count(*) FROM role_assignments ra JOIN roles r ON r.id = ra.role_id"
+        " WHERE r.organization_id = ANY($1::text[])",
+        org_ids,
+    )
 
 
 async def test_run_import_roles_idempotent_new_batch(db, tmp_path):
@@ -133,9 +175,11 @@ async def test_run_import_roles_idempotent_new_batch(db, tmp_path):
     )
     summary1 = await run_import(db, config1)
     assert summary1["roles_loaded"] > 0
+    orgs = await _batch_entity_ids(db, summary1["batch_id"], "organization", "created", "matched")
+    assert orgs
 
-    role_count = await db.fetchval("SELECT count(*) FROM roles")
-    assignment_count = await db.fetchval("SELECT count(*) FROM role_assignments")
+    role_count = await _role_count(db, orgs)
+    assignment_count = await _assignment_count(db, orgs)
 
     # Copy CSVs to tmp_path; append a blank line to orgs to change the combined hash
     orgs2 = tmp_path / "orgs2.csv"
@@ -156,8 +200,8 @@ async def test_run_import_roles_idempotent_new_batch(db, tmp_path):
     )
     summary2 = await run_import(db, config2)
 
-    role_count_after = await db.fetchval("SELECT count(*) FROM roles")
-    assignment_count_after = await db.fetchval("SELECT count(*) FROM role_assignments")
+    role_count_after = await _role_count(db, orgs)
+    assignment_count_after = await _assignment_count(db, orgs)
 
     assert role_count_after == role_count, "duplicate roles created on second import"
     assert assignment_count_after == assignment_count, (
