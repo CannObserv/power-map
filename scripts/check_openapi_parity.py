@@ -314,7 +314,12 @@ def main(
         default=DEFAULT_SNAPSHOT,
         help="committed schema (default clients/python/openapi.json beside this script)",
     )
-    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="seconds")
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_TIMEOUT,
+        help="seconds, per HTTP request and for git ls-remote as a whole",
+    )
     parser.add_argument(
         "--no-tag-check",
         action="store_true",
