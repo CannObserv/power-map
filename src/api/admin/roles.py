@@ -148,10 +148,14 @@ async def role_create(
     notes_c = notes.strip() or None
 
     async def _reload(error: str):
-        org_name = None
+        # Re-fill the org combobox only for an org that still exists, labelled by
+        # its id when it has no name — never a hidden id behind an empty box.
+        org = None
         if organization_id_c:
-            org_name = await db.fetchval(
-                "SELECT display_name FROM v_org_display_names WHERE organization_id=$1",
+            org = await db.fetchrow(
+                "SELECT o.id, dn.display_name FROM organizations o"
+                " LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id"
+                " WHERE o.id=$1",
                 organization_id_c,
             )
         jur_name = None
@@ -168,8 +172,8 @@ async def role_create(
                 "role": None,
                 "role_types": await fetch_role_types(db),
                 "values": {
-                    "organization_id": organization_id_c,
-                    "org_name": org_name,
+                    "organization_id": org["id"] if org else None,
+                    "org_name": (org["display_name"] or org["id"]) if org else None,
                     "title": title_c,
                     "role_type_id": role_type_id_c,
                     "jurisdiction_id": jurisdiction_id_c,
@@ -186,6 +190,8 @@ async def role_create(
     # carry ``required`` — so an unpicked org is reported here, not as a 422.
     if not organization_id_c:
         return await _reload("Organization is required — search for one and pick it from the list.")
+    if not await db.fetchval("SELECT 1 FROM organizations WHERE id=$1", organization_id_c):
+        return await _reload("The selected organization no longer exists — pick another.")
     # Mirror the DB check-constraints (chk_role_qualifier_needs_jurisdiction,
     # chk_role_jurisdiction_needs_role_type) so the admin sees a clear message
     # rather than a raw IntegrityError.

@@ -5,6 +5,7 @@ Requires DATABASE_URL. Run with:
 """
 
 import json
+import re
 
 import pytest
 import pytest_asyncio
@@ -1017,6 +1018,36 @@ async def test_create_role_error_reload_keeps_the_chosen_org(client, org_id):
     assert "Title is required" in r.text
     assert f'name="organization_id" id="org-id-hidden" value="{org_id}"' in r.text
     assert 'value="Test Org"' in r.text
+
+
+async def test_create_role_error_reload_drops_an_org_that_no_longer_exists(client):
+    """CR 1: a vanished org's id isn't echoed into the hidden input behind an empty box."""
+    gone = generate_id()
+    r = await client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={"organization_id": gone, "title": "Ghost Org Role #834", "notes": ""},
+    )
+    assert r.status_code == 200
+    assert "no longer exists" in r.text
+    assert gone not in r.text
+    assert 'name="organization_id" id="org-id-hidden" value=""' in r.text
+
+
+async def test_create_role_error_reload_labels_a_nameless_org_by_id(client, db):
+    """CR 1: an org with no name row still shows *something* for its kept id."""
+    oid = generate_id()
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", oid)
+    r = await client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={"organization_id": oid, "title": "", "notes": ""},
+    )
+    assert r.status_code == 200
+    assert f'name="organization_id" id="org-id-hidden" value="{oid}"' in r.text
+    assert re.search(rf'id="org-search"[^>]*value="{oid}"', r.text)
 
 
 # ---------------------------------------------------------------------------
