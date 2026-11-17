@@ -8,7 +8,7 @@ consumer had to rediscover ``prefix=""`` and ``auth_header_name="X-API-Key"``;
 
 from importlib.metadata import version
 
-import httpx
+import httpx2
 import power_map_client
 import pytest
 from power_map_client import AuthenticatedClient, connect
@@ -17,13 +17,13 @@ from power_map_client.generated.api.health import get_health
 
 
 def _capture():
-    seen: list[httpx.Request] = []
+    seen: list[httpx2.Request] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         seen.append(request)
-        return httpx.Response(200, json={"status": "ok", "build": "0.0.0"})
+        return httpx2.Response(200, json={"status": "ok", "build": "0.0.0"})
 
-    return seen, httpx.MockTransport(handler)
+    return seen, httpx2.MockTransport(handler)
 
 
 def test_connect_sends_the_key_as_x_api_key():
@@ -43,14 +43,14 @@ def test_connect_returns_an_authenticated_client():
 def test_connect_passes_options_through():
     """Observed through behaviour, not the generated client's private fields."""
 
-    def teapot(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(418)
+    def teapot(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(418)
 
     client = connect(
         "http://pm.test",
         "pm_secret",
         raise_on_unexpected_status=True,
-        httpx_args={"transport": httpx.MockTransport(teapot)},
+        httpx_args={"transport": httpx2.MockTransport(teapot)},
     )
     with pytest.raises(errors.UnexpectedStatus):
         get_health.sync_detailed(client=client)

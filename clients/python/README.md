@@ -97,6 +97,15 @@ field errors or a single message), and `EntityGone` for 410.
 `X-API-Key`. Any other `AuthenticatedClient` option, such as `timeout` or
 `httpx_args`, passes through `connect()`.
 
+### The transport is httpx2, not httpx
+
+Since 0.73.0 the generated code runs on [httpx2](https://pydantic.dev/docs/httpx2/get-started/)
+(openapi-python-client 0.30). httpx2 shares no classes with httpx, so anything
+you pass in or catch must come from `httpx2`: `timeout=httpx2.Timeout(...)`,
+`httpx_args={"transport": httpx2.MockTransport(...)}`, and
+`except httpx2.HTTPError` / `httpx2.TimeoutException`. An `httpx` object breaks
+on use, and an `except httpx.HTTPError` no longer catches a transport failure.
+
 ### Models are attrs, not Pydantic
 
 The generator emits [attrs](https://www.attrs.org) classes. To use Pydantic
