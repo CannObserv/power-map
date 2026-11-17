@@ -51,6 +51,8 @@ Run (isolated, marker-gated — same constraints as ``test_a11y_browser.py``)::
         pytest tests/api/admin/test_browser_smoke.py -m browser
 """
 
+import re
+
 import asyncpg
 import pytest
 import pytest_asyncio
@@ -242,6 +244,32 @@ async def test_typeahead_wires_on_hard_load(live_server, seeded_ids, page):
         state="visible", timeout=5_000
     )
     assert await inp.get_attribute("aria-expanded") == "true"
+
+
+async def test_new_role_org_lookup_picks_and_submits(live_server, seeded_ids, page):
+    """The New Role org field is the org typeahead (#834), end to end.
+
+    Picking from the lookup fills the hidden ``organization_id``; submitting
+    creates the role under that org. Two comboboxes share the page (org +
+    jurisdiction), so the org options must carry their own scoped ids.
+    """
+    page, _ = await goto_with_retry(page, f"{live_server}/admin/roles/new/")
+    inp = page.locator("#org-search")
+    await inp.click()
+    await inp.press_sequentially("A11y Org One", delay=25)
+    option = page.locator("#org-search-results li[data-id]").first
+    await option.wait_for(state="visible", timeout=15_000)
+    assert (await option.get_attribute("id")).startswith("org-search-results-")
+    await inp.press("ArrowDown")
+    await inp.press("Enter")
+    assert await page.input_value("#org-id-hidden") == seeded_ids["org_id"]
+    assert await page.locator("#org-clear").is_visible()
+
+    await page.fill("#title", "Browser Lookup Role 834")
+    await page.get_by_role("button", name="Create role").click()
+    # The form starts on /admin/roles/new/, which a glob would match at once.
+    await page.wait_for_url(re.compile(r"/admin/roles/(?!new/)[0-9A-Z]{26}/"))
+    assert "A11y Org One" in await page.locator("#org-field").inner_text()
 
 
 # Counts overlay-note loads as htmx settles them. ``htmx:afterSettle`` fires on
