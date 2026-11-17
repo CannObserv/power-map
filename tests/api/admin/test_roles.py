@@ -973,6 +973,53 @@ async def test_new_role_form_does_not_promise_a_generated_title(client):
 
 
 # ---------------------------------------------------------------------------
+# #834 — the New Role org field is the org typeahead, not a full <select>
+# ---------------------------------------------------------------------------
+
+
+async def test_new_role_form_org_field_is_a_typeahead_not_a_select(client, org_id):
+    r = await client.get("/admin/roles/new/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert '<select id="organization_id"' not in r.text
+    # No org list is pre-rendered — the lookup fetches matches on demand.
+    assert f'value="{org_id}"' not in r.text
+    assert 'id="org-search"' in r.text
+    assert 'hx-get="/admin/orgs/search/"' in r.text
+    assert 'aria-controls="org-search-results"' in r.text
+    assert 'type="hidden" name="organization_id" id="org-id-hidden"' in r.text
+    assert 'id="org-clear"' in r.text
+    assert "inputId: 'org-search'" in r.text
+
+
+async def test_create_role_without_organization_reports_it_instead_of_422(client, db):
+    """A hidden input can't carry ``required``: an empty org re-renders with an error."""
+    r = await client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={"organization_id": "", "title": "Orphan Role #834", "notes": ""},
+    )
+    assert r.status_code == 200
+    assert "Organization is required" in r.text
+    assert 'value="Orphan Role #834"' in r.text
+    assert await db.fetchval("SELECT count(*) FROM roles WHERE title='Orphan Role #834'") == 0
+
+
+async def test_create_role_error_reload_keeps_the_chosen_org(client, org_id):
+    """A validation-error reload re-fills the org combobox: label and hidden id."""
+    r = await client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={"organization_id": org_id, "title": "", "notes": ""},
+    )
+    assert r.status_code == 200
+    assert "Title is required" in r.text
+    assert f'name="organization_id" id="org-id-hidden" value="{org_id}"' in r.text
+    assert 'value="Test Org"' in r.text
+
+
+# ---------------------------------------------------------------------------
 # CR round 1 — follow-up fixes
 # ---------------------------------------------------------------------------
 

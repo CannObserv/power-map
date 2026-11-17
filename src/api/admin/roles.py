@@ -102,16 +102,6 @@ async def roles_list(
     return templates.TemplateResponse(request, template, ctx, headers=resp_headers)
 
 
-async def _fetch_orgs(db):
-    """Active organizations for the role-form org select."""
-    return await db.fetch(
-        """SELECT o.id, dn.display_name AS name
-           FROM organizations o
-           LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
-           WHERE o.archived_at IS NULL ORDER BY dn.display_name NULLS LAST"""
-    )
-
-
 @router.get("/new/")
 async def role_new_form(
     request: Request,
@@ -126,7 +116,6 @@ async def role_new_form(
             "user": user,
             "active_section": "roles",
             "role": None,
-            "orgs": await _fetch_orgs(db),
             "role_types": await fetch_role_types(db),
             "values": {},
         },
@@ -136,7 +125,7 @@ async def role_new_form(
 @router.post("/new/")
 async def role_create(
     request: Request,
-    organization_id: str = Form(...),
+    organization_id: str = Form(""),
     title: str = Form(""),
     role_type_id: str = Form(""),
     jurisdiction_id: str = Form(""),
@@ -151,6 +140,7 @@ async def role_create(
     role with a jurisdiction, synthesizes the canonical WA title (#267) — falling
     back to requiring a manual title when synthesis is unavailable.
     """
+    organization_id_c = organization_id.strip()
     title_c = title.strip()
     role_type_id_c = role_type_id.strip() or None
     jurisdiction_id_c = jurisdiction_id.strip() or None
@@ -158,6 +148,12 @@ async def role_create(
     notes_c = notes.strip() or None
 
     async def _reload(error: str):
+        org_name = None
+        if organization_id_c:
+            org_name = await db.fetchval(
+                "SELECT display_name FROM v_org_display_names WHERE organization_id=$1",
+                organization_id_c,
+            )
         jur_name = None
         if jurisdiction_id_c:
             jur_name = await db.fetchval(
@@ -170,10 +166,10 @@ async def role_create(
                 "user": user,
                 "active_section": "roles",
                 "role": None,
-                "orgs": await _fetch_orgs(db),
                 "role_types": await fetch_role_types(db),
                 "values": {
-                    "organization_id": organization_id,
+                    "organization_id": organization_id_c,
+                    "org_name": org_name,
                     "title": title_c,
                     "role_type_id": role_type_id_c,
                     "jurisdiction_id": jurisdiction_id_c,
@@ -186,6 +182,10 @@ async def role_create(
             status_code=200,
         )
 
+    # The org field is a typeahead writing a hidden input (#834), which can't
+    # carry ``required`` — so an unpicked org is reported here, not as a 422.
+    if not organization_id_c:
+        return await _reload("Organization is required — search for one and pick it from the list.")
     # Mirror the DB check-constraints (chk_role_qualifier_needs_jurisdiction,
     # chk_role_jurisdiction_needs_role_type) so the admin sees a clear message
     # rather than a raw IntegrityError.
@@ -225,7 +225,7 @@ async def role_create(
             " (id, organization_id, title, notes, role_type_id, jurisdiction_id, qualifier)"
             " VALUES ($1, $2, $3, $4, $5, $6, $7)",
             role_id,
-            organization_id,
+            organization_id_c,
             title_c,
             notes_c,
             role_type_id_c,
