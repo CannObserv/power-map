@@ -136,9 +136,9 @@ async def role_create(
 ):
     """Create a new role — plain or with a role type + jurisdiction (+ qualifier).
 
-    Validates the two DB check-constraints up front with clear errors, and, for a
-    role with a jurisdiction, synthesizes the canonical WA title (#267) — falling
-    back to requiring a manual title when synthesis is unavailable.
+    Requires an existing organization, picked from the org typeahead (#834), and
+    validates the DB check-constraints and qualifier policy up front with clear
+    errors. The title is always typed — never synthesized (#497).
     """
     organization_id_c = organization_id.strip()
     title_c = title.strip()
