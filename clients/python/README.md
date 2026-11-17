@@ -31,6 +31,10 @@ A release that changes the public schema shows the change in
 `clients/python/openapi.json` in that release's diff. Read the diff before you
 move your pin.
 
+A release can also change the generated code without changing the schema, when
+the generator's own output changes. That release is a minor bump, and this file
+says what moved: 0.73.0's switch to httpx2 is one (see below).
+
 ## Usage
 
 ```python
@@ -96,6 +100,15 @@ field errors or a single message), and `EntityGone` for 410.
 `Authorization: Bearer <token>` by default, while the API reads the key from
 `X-API-Key`. Any other `AuthenticatedClient` option, such as `timeout` or
 `httpx_args`, passes through `connect()`.
+
+### The transport is httpx2, not httpx
+
+Since 0.73.0 the generated code runs on [httpx2](https://pydantic.dev/docs/httpx2/get-started/)
+(openapi-python-client 0.30). httpx2 shares no classes with httpx, so anything
+you pass in or catch must come from `httpx2`: `timeout=httpx2.Timeout(...)`,
+`httpx_args={"transport": httpx2.MockTransport(...)}`, and
+`except httpx2.HTTPError` / `httpx2.TimeoutException`. An `httpx` object breaks
+on use, and an `except httpx.HTTPError` no longer catches a transport failure.
 
 ### Models are attrs, not Pydantic
 

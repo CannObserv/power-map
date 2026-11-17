@@ -22,7 +22,9 @@ def connect(base_url: str, api_key: str, **kwargs: Any) -> AuthenticatedClient:
     The generated ``AuthenticatedClient`` defaults to ``Authorization: Bearer``;
     the API's scheme is ``APIKeyHeader`` (``X-API-Key``, no prefix). Any other
     ``AuthenticatedClient`` option (``timeout``, ``httpx_args``,
-    ``raise_on_unexpected_status``, …) passes through.
+    ``raise_on_unexpected_status``, …) passes through. The transport is httpx2
+    (since 0.73.0): a ``timeout`` or a transport in ``httpx_args`` must be an
+    ``httpx2`` object, and a transport failure raises ``httpx2.HTTPError``.
     """
     return AuthenticatedClient(
         base_url=base_url,

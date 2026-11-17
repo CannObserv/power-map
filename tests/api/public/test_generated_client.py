@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
-from httpx import ASGITransport
+from httpx2 import ASGITransport
 from power_map_client import Client, connect
 from power_map_client.generated.api.public_api import batch_get_orgs, get_org, search_orgs
 from power_map_client.generated.models import (

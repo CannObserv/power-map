@@ -51,7 +51,7 @@ def test_declared_dependencies_are_exactly_the_imports():
 
 def test_the_scan_sees_the_generated_tree():
     """Guards the scan itself: an empty walk would make the equality vacuous."""
-    assert {"attrs", "httpx"} <= _third_party_imports()
+    assert {"attrs", "httpx2"} <= _third_party_imports()
 
 
 def test_an_import_is_matched_to_its_distribution_name():
