@@ -31,6 +31,10 @@ A release that changes the public schema shows the change in
 `clients/python/openapi.json` in that release's diff. Read the diff before you
 move your pin.
 
+A release can also change the generated code without changing the schema, when
+the generator's own output changes. That release is a minor bump, and this file
+says what moved: 0.73.0's switch to httpx2 is one (see below).
+
 ## Usage
 
 ```python
