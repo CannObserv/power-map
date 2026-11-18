@@ -1313,11 +1313,11 @@ wheels = [
 
 [[package]]
 name = "notifier-client"
-version = "0.3.2"
-source = { git = "https://github.com/CannObserv/notifier.git?subdirectory=clients%2Fpython&tag=v0.3.2#8e7c020b52e3c2d4b8cea9fa1bbe0e9be2e86e4f" }
+version = "0.4.0"
+source = { git = "https://github.com/CannObserv/notifier.git?subdirectory=clients%2Fpython&tag=v0.4.0#bcf042eb5a1a0df09fb1f1067905198c4c7c5b81" }
 dependencies = [
     { name = "attrs" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "python-ulid" },
 ]
 
@@ -1445,6 +1445,7 @@ dependencies = [
     { name = "email-validator" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "httpx2" },
     { name = "jinja2" },
     { name = "nameparser" },
     { name = "nicknames" },
@@ -1495,10 +1496,11 @@ requires-dist = [
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "fastapi", specifier = ">=0.137.2" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "httpx2", specifier = ">=2.16.2,<3" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "nameparser", specifier = ">=3.0.1" },
     { name = "nicknames", specifier = ">=1.0.1" },
-    { name = "notifier-client", git = "https://github.com/CannObserv/notifier.git?subdirectory=clients%2Fpython&tag=v0.3.2" },
+    { name = "notifier-client", git = "https://github.com/CannObserv/notifier.git?subdirectory=clients%2Fpython&tag=v0.4.0" },
     { name = "phonenumbers", specifier = ">=9.0.26" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "python-json-logger", specifier = ">=4.0.0" },

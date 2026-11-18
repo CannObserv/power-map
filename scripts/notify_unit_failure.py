@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import httpx
+import httpx2
 from notifier_client import NotifierClient, NotifierError, RetryConfig
 
 from src.core.logging import configure_logging, get_logger
@@ -56,8 +56,8 @@ JOURNAL_LINES = 100
 # a false failure and retry into the request still in flight.
 REQUEST_TIMEOUT_SECONDS = 30.0
 RETRY = RetryConfig(max_attempts=2)
-# httpx timeouts are per phase, so attempts alone do not bound a run. This does,
-# inside the unit's TimeoutStartSec=.
+# The SDK's timeouts (httpx2's) are per phase, so attempts alone do not bound a
+# run. This does, inside the unit's TimeoutStartSec=.
 RUN_BUDGET_SECONDS = 60
 
 
@@ -218,7 +218,9 @@ def main(
                 notify(config, failure, host=socket.gethostname(), client_factory=client_factory)
             )
         )
-    except (NotifierError, httpx.HTTPError, TimeoutError) as exc:
+    # httpx2.HTTPError: what the SDK re-raises once its retries run out, from
+    # notifier-client 0.4.0 on (#831). It must be the SDK's own HTTP library.
+    except (NotifierError, httpx2.HTTPError, TimeoutError) as exc:
         logger.warning(
             "notifier dispatch for %s failed (%s: %s); the journal line stands",
             unit,
