@@ -1,6 +1,6 @@
 [project]
 name = "power-map"
-version = "0.73.0"
+version = "0.73.1"
 description = "Web service for mapping political and corporate power: people, organizations, roles, and their temporal relationships."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,6 +10,9 @@ dependencies = [
     "email-validator>=2.3.0",
     "fastapi>=0.137.2",
     "httpx>=0.28.1",
+    # notify_unit_failure.py catches notifier-client's network errors by class
+    # (#831): the SDK's own floor, so the two move together.
+    "httpx2>=2.16.2,<3",
     "jinja2>=3.1.6",
     # 3.x parse(); 2.x HumanName is gone (#782). The person tiers' readings
     # are pinned in tests/core/normalizers/test_name_match.py (#777).
@@ -17,7 +20,7 @@ dependencies = [
     "nicknames>=1.0.1",
     # power-map.service's OnFailure= dispatch (#566). A main dependency, not a
     # group: the API's own `uv sync` prunes groups from the checkout the handler runs in.
-    "notifier-client>=0.3.2,<1",
+    "notifier-client>=0.4.0,<1",
     "phonenumbers>=9.0.26",
     "python-dotenv>=1.2.2",
     "python-json-logger>=4.0.0",
@@ -62,7 +65,7 @@ mapping = [
 power-map-client = { path = "clients/python", editable = true }
 # Pinned by release tag, per CannObserv/notifier docs/RELEASING.md; uv does not
 # enforce the floor above against a git source, so the tag is the pin.
-notifier-client = { git = "https://github.com/CannObserv/notifier.git", subdirectory = "clients/python", tag = "v0.3.2" }
+notifier-client = { git = "https://github.com/CannObserv/notifier.git", subdirectory = "clients/python", tag = "v0.4.0" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

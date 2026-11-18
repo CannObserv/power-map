@@ -64,6 +64,10 @@ during an outage, #748). The service then stays down until
 `sudo systemctl reset-failed power-map && bash scripts/pre-restart-check.sh && sudo systemctl start power-map`. The
 stored template's wording is `scripts/notifier/unit-failure.json`.
 
+The handler runs `.venv/bin/python`, not `uv run`, so a `notifier-client` pin
+move reaches it only at the API restart's `ExecStartPre` `uv sync`: pull and
+restart back-to-back, or new code runs on the old SDK in between (#831).
+
 ## Install and prove
 
 The ids are not secrets and live in the units: each `STATUS_MONITOR_ID` from

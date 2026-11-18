@@ -13,10 +13,11 @@ check that the endpoint is production before sending.
 
 import json
 import logging
+import socket
 from pathlib import Path
 from types import SimpleNamespace
 
-import httpx
+import httpx2
 import pytest
 from notifier_client import AuthError
 
@@ -213,14 +214,46 @@ def test_main_dispatches_and_returns_zero(creds):
     "error",
     [
         AuthError("bad key", status_code=401),
-        httpx.ConnectError("refused"),
+        # The SDK's own HTTP library: httpx2 since notifier-client 0.4.0 (#831).
+        httpx2.ConnectError("refused"),
         TimeoutError(),
-        RuntimeError("bug"),
     ],
 )
-def test_main_returns_zero_whatever_goes_wrong(creds, error, caplog):
+def test_main_reports_an_expected_failure_as_one(creds, error, caplog):
+    """A known failure takes the typed clause, not the last resort."""
     assert main([UNIT], _env(creds), client_factory=FakeClient.factory(error=error)) == 0
+    assert f"failed ({type(error).__name__}" in caplog.text
+    assert "unexpectedly" not in caplog.text
     assert "journal line stands" in caplog.text
+    assert KEY not in caplog.text
+
+
+def test_main_returns_zero_on_an_unexpected_error(creds, caplog):
+    error = RuntimeError("bug")
+    assert main([UNIT], _env(creds), client_factory=FakeClient.factory(error=error)) == 0
+    assert "failed unexpectedly" in caplog.text
+    assert "journal line stands" in caplog.text
+    assert KEY not in caplog.text
+
+
+@pytest.fixture
+def refused_url():
+    """A loopback URL nothing listens on: the port was bound, then released."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    return f"http://127.0.0.1:{port}"
+
+
+def test_an_unreachable_notifier_is_an_expected_failure_with_the_real_sdk(
+    creds, refused_url, caplog
+):
+    """The real ``NotifierClient``, not a fake: whatever HTTP library the SDK ships,
+    its exhausted network failure must reach the typed clause (#831). No exception
+    class is named here, so the next library swap under the SDK fails this test."""
+    assert main([UNIT], _env(creds, NOTIFIER_URL=refused_url)) == 0
+    assert "failed unexpectedly" not in caplog.text
+    assert f"notifier dispatch for {UNIT} failed (" in caplog.text
     assert KEY not in caplog.text
 
 
