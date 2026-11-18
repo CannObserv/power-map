@@ -253,7 +253,7 @@ def test_an_unreachable_notifier_is_an_expected_failure_with_the_real_sdk(
     class is named here, so the next library swap under the SDK fails this test."""
     assert main([UNIT], _env(creds, NOTIFIER_URL=refused_url)) == 0
     assert "failed unexpectedly" not in caplog.text
-    assert "notifier dispatch for power-map.service failed (" in caplog.text
+    assert f"notifier dispatch for {UNIT} failed (" in caplog.text
     assert KEY not in caplog.text
 
 
