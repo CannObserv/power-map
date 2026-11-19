@@ -171,6 +171,53 @@ async def test_org_post_empty_returns_error(client, role_id):
     assert b"org-search" in r.content
 
 
+async def test_org_post_rejects_an_archived_org(client, role_id, db):
+    """#835: moving a role onto an archived org is refused on both branches."""
+    old_org = await db.fetchval("SELECT organization_id FROM roles WHERE id=$1", role_id)
+    archived = await _make_org(db, "Archived Org")
+    await db.execute("UPDATE organizations SET archived_at = NOW() WHERE id=$1", archived)
+
+    r = await client.post(
+        f"/admin/roles/{role_id}/inline/org/",
+        data={"organization_id": archived},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "warning"
+    assert "That organization is archived" in trigger["showFlash"]["body"]
+    assert b"org-search" in r.content
+
+    r = await client.post(
+        f"/admin/roles/{role_id}/inline/org/",
+        data={"organization_id": archived},
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/admin/roles/{role_id}/?flash=org_archived"
+    page = await client.get(r.headers["location"], headers=AUTH_HEADERS)
+    assert "That organization is archived" in page.text
+
+    assert await db.fetchval("SELECT organization_id FROM roles WHERE id=$1", role_id) == old_org
+
+
+async def test_org_post_keeps_a_role_on_its_own_archived_org(client, role_id, db):
+    """#835 guards attaching, not the roles an archived org already has: the edit form
+    prefills the current org's id, so an unchanged Save is a no-op, not a warning."""
+    org = await db.fetchval("SELECT organization_id FROM roles WHERE id=$1", role_id)
+    await db.execute("UPDATE organizations SET archived_at = NOW() WHERE id=$1", org)
+    r = await client.post(
+        f"/admin/roles/{role_id}/inline/org/",
+        data={"organization_id": org},
+        headers=HTMX_HEADERS,
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "success"
+    assert await db.fetchval("SELECT organization_id FROM roles WHERE id=$1", role_id) == org
+
+
 # ---------------------------------------------------------------------------
 # Title inline
 # ---------------------------------------------------------------------------

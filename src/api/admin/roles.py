@@ -24,6 +24,7 @@ from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE
 from src.api.admin.roles_assignments_inline import fetch_role_assignments
 from src.api.admin.roles_queries import VALID_STATUSES, query_roles_rows
 from src.api.admin.roles_shared import (
+    ORG_ARCHIVED_ERROR,
     fetch_role_types,
     positioned_at_large_error,
     positionless_seat_error,
@@ -148,14 +149,16 @@ async def role_create(
     notes_c = notes.strip() or None
 
     async def _reload(error: str):
-        # Re-fill the org combobox only for an org that still exists, labelled by
-        # its id when it has no name — never a hidden id behind an empty box.
+        # Re-fill the org combobox only for an org that still exists and is active
+        # (#835: the typeahead can't re-pick an archived one, and a kept hidden id
+        # would resubmit it), labelled by its id when it has no name — never a
+        # hidden id behind an empty box.
         org = None
         if organization_id_c:
             org = await db.fetchrow(
                 "SELECT o.id, dn.display_name FROM organizations o"
                 " LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id"
-                " WHERE o.id=$1",
+                " WHERE o.id=$1 AND o.archived_at IS NULL",
                 organization_id_c,
             )
         jur_name = None
@@ -190,8 +193,13 @@ async def role_create(
     # carry ``required`` — so an unpicked org is reported here, not as a 422.
     if not organization_id_c:
         return await _reload("Organization is required — search for one and pick it from the list.")
-    if not await db.fetchval("SELECT 1 FROM organizations WHERE id=$1", organization_id_c):
+    org_row = await db.fetchrow(
+        "SELECT archived_at FROM organizations WHERE id=$1", organization_id_c
+    )
+    if org_row is None:
         return await _reload("The selected organization no longer exists — pick another.")
+    if org_row["archived_at"] is not None:
+        return await _reload(ORG_ARCHIVED_ERROR)
     # Mirror the DB check-constraints (chk_role_qualifier_needs_jurisdiction,
     # chk_role_jurisdiction_needs_role_type) so the admin sees a clear message
     # rather than a raw IntegrityError.

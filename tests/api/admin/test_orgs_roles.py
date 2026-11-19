@@ -171,6 +171,37 @@ async def test_roles_create_unknown_org_returns_404(client):
     assert r.status_code == 404
 
 
+async def test_roles_create_rejects_an_archived_org(client, org, db):
+    """#835: the Add role button hides on an archived org client-side only; the
+    server refuses too, on both branches (a stale tab, a hand-built POST)."""
+    await db.execute("UPDATE organizations SET archived_at = NOW() WHERE id=$1", org)
+
+    r = await client.post(
+        f"/admin/orgs/{org}/roles/",
+        headers=HTMX_HEADERS,
+        data={"title": "Archived Org Role #835"},
+    )
+    assert r.status_code == 200
+    trigger = json.loads(r.headers["hx-trigger"])
+    assert trigger["showFlash"]["level"] == "warning"
+    assert "This organization is archived" in trigger["showFlash"]["body"]
+    assert r.headers["hx-retarget"] == "#role-row-new"
+    assert "<form" in r.text
+
+    r = await client.post(
+        f"/admin/orgs/{org}/roles/",
+        headers=AUTH_HEADERS,
+        data={"title": "Archived Org Role #835"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/admin/orgs/{org}/?flash=org_archived"
+    page = await client.get(r.headers["location"], headers=AUTH_HEADERS)
+    assert "That organization is archived" in page.text
+
+    assert await db.fetchval("SELECT count(*) FROM roles WHERE organization_id=$1", org) == 0
+
+
 async def test_roles_create_empty_title_returns_error_flash(client, org):
     """Whitespace-only title is rejected server-side."""
     r = await client.post(

@@ -17,6 +17,7 @@ from src.api.admin.deps import (
 )
 from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note, tracked
 from src.api.admin.roles_shared import (
+    ORG_ARCHIVED_ERROR,
     _check_assignment_within_bounds,
     _get_role,
     _parse_date,
@@ -84,8 +85,8 @@ async def role_inline_org_post(
             {"role": role},
             headers=flash_trigger("warning", "Organization is required."),
         )
-    exists = await db.fetchval("SELECT id FROM organizations WHERE id=$1", resolved)
-    if not exists:
+    org_row = await db.fetchrow("SELECT archived_at FROM organizations WHERE id=$1", resolved)
+    if org_row is None:
         if not is_htmx(request):
             return RedirectResponse(
                 with_flash(f"/admin/roles/{role_id}/", "invalid"), status_code=303
@@ -95,6 +96,19 @@ async def role_inline_org_post(
             "admin/roles/partials/_org_form.html",
             {"role": role},
             headers=flash_trigger("warning", "Organization not found."),
+        )
+    # The edit form prefills the role's current org, so an unchanged Save on a role
+    # whose org was archived since is a no-op, not an attach (#835).
+    if org_row["archived_at"] is not None and resolved != role["org_id"]:
+        if not is_htmx(request):
+            return RedirectResponse(
+                with_flash(f"/admin/roles/{role_id}/", "org_archived"), status_code=303
+            )
+        return templates.TemplateResponse(
+            request,
+            "admin/roles/partials/_org_form.html",
+            {"role": role},
+            headers=flash_trigger("warning", ORG_ARCHIVED_ERROR),
         )
     await db.execute("UPDATE roles SET organization_id=$1 WHERE id=$2", resolved, role_id)
     role = await _get_role(role_id, db)

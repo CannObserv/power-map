@@ -44,6 +44,12 @@ async def fetch_role_types(db):
     return await db.fetch("SELECT id, slug, display_name FROM role_types ORDER BY display_name")
 
 
+# An archived org takes no new role, by create or by move (#835). Archiving an
+# org doesn't cascade to its roles, so this guards attaching, not the roles an
+# archived org already has.
+ORG_ARCHIVED_ERROR = "That organization is archived — restore it or pick another."
+
+
 _POSITIONLESS_SEAT_ERROR = (
     "This office needs a position for a districted seat — enter a qualifier (e.g. “Position 1”)."
 )
