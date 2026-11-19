@@ -33,6 +33,30 @@ ICMP answered while TCP is silently dropped on *every* port is the signature.
 A closed port on an allowlisted host answers with an RST; a source-IP gate
 answers with nothing.
 
+### Look up the egress IP by hand
+
+The address the cluster sees is this VM's NAT egress IP. exe.dev documents no
+admin-UI field for it, so ask from the VM:
+
+```bash
+curl -s https://api.ipify.org        # the address to allowlist
+curl -s https://ifconfig.me          # second opinion; must agree
+```
+
+Then ask the guard what it compared against. **Read the whole journal, don't grep
+for one message**: a filter for the OK line hides the DRIFT lines.
+
+```bash
+journalctl -u power-map-egress-ip --since '-3h' -o cat | grep -v -E '^(Starting|Finished)'
+uv run "${env_args[@]}" python -m scripts.check_egress_ip   # one comparison, now
+```
+
+| Journal reads | Meaning |
+|---|---|
+| `in the allowlist (source: the DO API)` | fine |
+| `DRIFT … (source: the DO API)` | real rotation (or our rule was removed) → § Fix |
+| `DO API allowlist lookup failed — falling back`, then `DRIFT … (source: EGRESS_EXPECTED_IPS)` | **probably a false alarm** (#839): the API timed out and the fallback is stale. Confirm with `curl -fsS localhost:8000/ready` (ok = the DB is reachable), then bring `EGRESS_EXPECTED_IPS` up to date (§ Fix step 1) |
+
 ### Fix
 
 ```bash
@@ -48,9 +72,18 @@ curl -fsS localhost:8000/ready       # {"status":"ok"}
 
 Then close the loop so it does not silently recur:
 
-1. Nothing to update for the guard — since #409 `power-map-egress-ip` reads the
-   live Trusted Sources from the DO API, so the console edit *is* what it checks.
-   (`EGRESS_EXPECTED_IPS` is only the no-token fallback.)
+1. Update the guard's fallback, `EGRESS_EXPECTED_IPS` in `/etc/power-map/.env`,
+   to the new address (comma-separate if both stay allowlisted). The guard reads
+   the live Trusted Sources from the DO API (#409) and uses this list only when the
+   API is unreachable, so a stale value stays silent until a DO API outage. Then
+   it raises a false `drift` alert naming an address that is already allowlisted
+   (2026-11-19, #839). No restart: the timer re-reads the file each run.
+   ```bash
+   sudo sed -i 's/^EGRESS_EXPECTED_IPS=.*/EGRESS_EXPECTED_IPS=<new-ip>/' /etc/power-map/.env
+   sudo grep '^EGRESS_EXPECTED_IPS=' /etc/power-map/.env
+   # exercise the fallback path: expect "in the allowlist (source: EGRESS_EXPECTED_IPS)"
+   EGRESS_EXPECTED_IPS=<new-ip> DO_API_TOKEN= uv run python -m scripts.check_egress_ip
+   ```
 2. Re-sync terraform so the next `apply` does not revert the console edit:
    ```bash
    uv run python -m scripts.write_terraform_credentials   # re-reads the live allowlist

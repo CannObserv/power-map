@@ -18,6 +18,7 @@ a test below:
 
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -422,3 +423,34 @@ def test_resolve_allowlist_defaults_to_the_do_api_timeout():
 
     default = inspect.signature(resolve_allowlist).parameters["timeout"].default
     assert default == _do_api.DEFAULT_TIMEOUT
+
+
+TRIAGE = Path(__file__).parents[2] / "docs" / "RUNBOOK_DB_TRIAGE.md"
+
+
+def _triage_section(heading: str) -> str:
+    """Body of one ``###`` section of the DB triage runbook."""
+    text = TRIAGE.read_text()
+    start = text.index(f"### {heading}\n")
+    end = text.find("\n### ", start + 1)
+    return text[start : end if end != -1 else None]
+
+
+def test_runbook_fix_keeps_the_fallback_allowlist_in_sync():
+    """#839: a stale EGRESS_EXPECTED_IPS turned a DO API timeout into a false drift alert.
+
+    The fallback only matters when the API is down, so a rotation that skips it
+    goes unnoticed until then. The rotation checklist must name it.
+    """
+    fix = _triage_section("Fix")
+    assert "EGRESS_EXPECTED_IPS" in fix
+    assert "/etc/power-map/.env" in fix
+    assert "Nothing to update for the guard" not in fix
+
+
+def test_runbook_documents_the_manual_egress_lookup():
+    """#839: the manual lookup, and how to tell a fallback-sourced false alarm."""
+    section = _triage_section("Look up the egress IP by hand")
+    assert "curl -s https://api.ipify.org" in section
+    assert "journalctl -u power-map-egress-ip" in section
+    assert "falling back" in section

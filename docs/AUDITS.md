@@ -410,8 +410,10 @@ the journal WARNING names the **new** address and where to paste it. (Until #566
 an `egress-ip-drift` GitHub issue carried it.)
 
 Reading the allowlist live rather than keeping a hand-maintained copy is what
-catches our rule being *removed* — a copy cannot see that — and since #409 there
-is nothing to keep in sync. Two readings are deliberately not drift: an **empty**
+catches our rule being *removed*, which a copy cannot see (#409). The fallback is
+still a hand-maintained copy, though: on every rotation, update
+`EGRESS_EXPECTED_IPS` alongside Trusted Sources, or the next DO API timeout reads
+as drift (#839; [RUNBOOK_DB_TRIAGE.md § Fix](RUNBOOK_DB_TRIAGE.md#fix)). Two readings are deliberately not drift: an **empty**
 Trusted Sources list means DO is applying no IP restriction at all, which is
 reported rather than alerted; and losing every lookup service is a WARNING at
 exit 0, because "I cannot tell" is not "it changed".
