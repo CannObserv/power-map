@@ -16,8 +16,12 @@ EnvironmentFile=/etc/power-map/.env
 #
 # The API is authoritative, and it also catches our address being removed from
 # the list. EGRESS_EXPECTED_IPS is the fallback when there is no token or the API
-# is briefly unreachable. Update it on every rotation: a stale fallback turns a DO
-# API timeout into a false drift alert (#839; docs/RUNBOOK_DB_TRIAGE.md § Fix).
+# is still unreachable after two retries. With a token present, a fallback
+# mismatch is a WARNING, not drift (#839): the copy goes stale silently, so keep
+# it current on every rotation (docs/RUNBOOK_DB_TRIAGE.md § Fix).
+#
+# Worst case (echo services + 3 DO API attempts + back-off) is ~90s, inside
+# TimeoutStartSec; a test holds that.
 #
 # Exits 3 on drift, so the unit shows in `systemctl --failed` and checks in
 # `drift` below; the journal names the new address, which is the whole of the

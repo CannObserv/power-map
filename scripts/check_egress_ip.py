@@ -19,17 +19,24 @@ old hand-maintained copy could not see: our address being *removed* from the
 list while our egress IP never changed.
 
 ``EGRESS_EXPECTED_IPS`` remains the fallback, for a host with no token or an
-API that is briefly unreachable.
+API that is briefly unreachable. A transient API failure (timeout, connection
+error, 5xx, 429) is retried first, with a short back-off (#839).
 
-Two judgements worth keeping:
+Three judgements worth keeping:
 
 - **Undeterminable is not drift.** If every echo service fails, the run logs a
   WARNING and exits 0. A third-party outage must not open an alert about our
   network — and the real failure would surface through ``/ready`` anyway.
 - **A non-IP body is not an IP.** Echo services have been known to answer 200
   with an HTML error page; parsing that as an address would "drift" every run.
+- **A fallback disagreement is not drift (#839).** With a token present, the
+  fallback is consulted only because the API failed, and it is a hand-kept copy
+  that goes stale silently. On 2026-11-19 a DO API outage plus a stale copy
+  raised a drift alert for 85 minutes about an address already allowlisted. So a
+  mismatch there is a WARNING at exit 0; ``/ready`` catches a real cut-off. On a
+  host with *no* token the env var is the only list, and a mismatch still alerts.
 
-Exit codes: 0 = matches (or nothing to compare against); 3 = drift (systemd
+Exit codes: 0 = matches (or nothing trustworthy to compare against); 3 = drift (systemd
 marks the unit failed, so it shows in ``systemctl --failed``, and the unit's
 co-status check-in alerts as ``drift``; #566). The new address is in the
 journal WARNING, which the alert points at; it never leaves the host.
@@ -46,6 +53,8 @@ import argparse
 import ipaddress
 import os
 import sys
+from time import sleep
+from urllib.error import HTTPError
 from urllib.request import urlopen
 
 from scripts._do_api import DEFAULT_CLUSTER, fetch_allowed_ips
@@ -86,9 +95,51 @@ def parse_expected(raw: str) -> set[str]:
     return {part.strip() for part in raw.replace(",", " ").split() if part.strip()}
 
 
+# DO API retry shape (#839). Worst case must fit the unit's TimeoutStartSec;
+# test_worst_case_run_fits_the_units_start_timeout holds that.
+API_RETRY_DELAYS = (2.0, 5.0)
+API_ATTEMPTS = len(API_RETRY_DELAYS) + 1
+
 # Sentinels for the second element of resolve_allowlist's return.
 UNRESTRICTED = "unrestricted"
 UNKNOWN = ""
+# The env var, consulted because the API failed: a verdict, not an authority.
+API_FALLBACK = "EGRESS_EXPECTED_IPS, DO API unread"
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """True when asking again could plausibly get a different answer.
+
+    ``HTTPError`` is an ``OSError`` too, so it is judged by status first: a 401,
+    403 or 404 answers the same way every time. ``LookupError`` (no such
+    cluster) and ``ValueError`` (a bad cursor or body) are permanent as well.
+    """
+    if isinstance(exc, HTTPError):
+        return exc.code >= 500 or exc.code == 429
+    return isinstance(exc, OSError)
+
+
+def fetch_with_retry(token: str, cluster: str, *, timeout: float) -> list[str]:
+    """``fetch_allowed_ips``, retried with back-off on a transient failure.
+
+    Raises the last exception once the attempts run out, or the first permanent
+    one at once.
+    """
+    for attempt, delay in enumerate((*API_RETRY_DELAYS, None), start=1):
+        try:
+            return fetch_allowed_ips(token, cluster, timeout=timeout)
+        except Exception as exc:
+            if delay is None or not _is_transient(exc):
+                raise
+            logger.info(
+                "DO API attempt %d/%d failed (%s); retrying in %.0fs",
+                attempt,
+                API_ATTEMPTS,
+                exc.__class__.__name__,
+                delay,
+            )
+            sleep(delay)
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def resolve_allowlist(
@@ -107,7 +158,8 @@ def resolve_allowlist(
     never changed.
 
     ``EGRESS_EXPECTED_IPS`` remains the fallback for a host with no token, or
-    for an API that is temporarily unreachable.
+    for an API that is still unreachable after retries; the latter is labelled
+    ``API_FALLBACK`` so the caller can refuse to call a mismatch drift (#839).
 
     An **explicitly passed** ``--expected`` overrides all of that: the operator
     is debugging, and a flag that silently loses to the API lies about what it
@@ -119,11 +171,13 @@ def resolve_allowlist(
             # Asking to compare against nothing is not a verdict.
             return None, UNKNOWN
         return parsed, "--expected"
+    fallback_label = "EGRESS_EXPECTED_IPS"
     if token:
         try:
-            live = fetch_allowed_ips(token, cluster, timeout=timeout)
+            live = fetch_with_retry(token, cluster, timeout=timeout)
         except Exception:
             logger.warning("DO API allowlist lookup failed — falling back", exc_info=True)
+            fallback_label = API_FALLBACK
         else:
             if not live:
                 # DO treats an empty Trusted Sources list as "no IP restriction".
@@ -133,7 +187,7 @@ def resolve_allowlist(
 
     expected = parse_expected(expected_raw)
     if expected:
-        return expected, "EGRESS_EXPECTED_IPS"
+        return expected, fallback_label
     return None, UNKNOWN
 
 
@@ -196,6 +250,18 @@ def main() -> None:
 
     if current in allowed:
         logger.info("egress IP %s is in the allowlist (source: %s)", current, source)
+        return
+
+    if source == API_FALLBACK:
+        # #839: the hand-kept copy disagrees and the authority is unreachable.
+        # Either it is stale or the IP rotated; /ready tells which, so no alert.
+        logger.warning(
+            "cannot verify egress IP %s — the DO API could not be read and the fallback "
+            "EGRESS_EXPECTED_IPS (%s) does not list it. Not drift: if /ready is ok the "
+            "fallback is stale, so update it in /etc/power-map/.env",
+            current,
+            ", ".join(sorted(allowed)),
+        )
         return
 
     logger.warning(
