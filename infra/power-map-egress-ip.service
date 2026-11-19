@@ -14,9 +14,10 @@ EnvironmentFile=/etc/power-map/.env
 # cluster gates on source IP, so a rotation takes every DB-backed route down —
 # 2026-08-09, 67.213.124.9 -> 69.67.149.183, ~35 minutes.
 #
-# The API is authoritative: nothing to keep in sync by hand, and it also catches
-# our address being removed from the list. EGRESS_EXPECTED_IPS is the fallback
-# when there is no token or the API is briefly unreachable.
+# The API is authoritative, and it also catches our address being removed from
+# the list. EGRESS_EXPECTED_IPS is the fallback when there is no token or the API
+# is briefly unreachable. Update it on every rotation: a stale fallback turns a DO
+# API timeout into a false drift alert (#839; docs/RUNBOOK_DB_TRIAGE.md § Fix).
 #
 # Exits 3 on drift, so the unit shows in `systemctl --failed` and checks in
 # `drift` below; the journal names the new address, which is the whole of the
