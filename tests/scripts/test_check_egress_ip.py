@@ -17,17 +17,32 @@ a test below:
 """
 
 import json
+import re
 import sys
+from email.message import Message
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 
 import pytest
 
 from scripts.check_egress_ip import (
+    API_ATTEMPTS,
+    API_RETRY_DELAYS,
     DEFAULT_SERVICES,
+    DEFAULT_TIMEOUT,
+    fetch_with_retry,
     lookup,
     main,
     parse_expected,
 )
+
+
+@pytest.fixture(autouse=True)
+def slept(monkeypatch):
+    """No test waits out a real retry back-off; each records what it would have."""
+    delays: list[float] = []
+    monkeypatch.setattr("scripts.check_egress_ip.sleep", delays.append)
+    return delays
 
 
 class _Response:
@@ -454,3 +469,144 @@ def test_runbook_documents_the_manual_egress_lookup():
     assert "curl -s https://api.ipify.org" in section
     assert "journalctl -u power-map-egress-ip" in section
     assert "falling back" in section
+
+
+# --- #839: retry the DO API; a fallback verdict is not drift ----------------
+
+
+def _http_error(code: int) -> HTTPError:
+    return HTTPError("https://api.digitalocean.com/v2/databases", code, "x", Message(), None)
+
+
+def _flaky(*outcomes):
+    """fetch_allowed_ips stand-in: raise or return each outcome in turn."""
+    calls = []
+
+    def fetch(token, cluster, **kw):
+        calls.append(kw)
+        outcome = outcomes[min(len(calls) - 1, len(outcomes) - 1)]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    fetch.calls = calls
+    return fetch
+
+
+@pytest.mark.parametrize(
+    "transient",
+    [
+        TimeoutError("The read operation timed out"),
+        URLError("reset"),
+        _http_error(503),
+        _http_error(429),
+        ConnectionResetError(),
+    ],
+    ids=["timeout", "urlerror", "503", "429", "reset"],
+)
+def test_a_transient_api_failure_is_retried(monkeypatch, slept, transient):
+    """2026-11-19: 17 one-shot timeouts in a row each fell straight back to a stale list."""
+    fetch = _flaky(transient, ["69.67.149.183"])
+    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", fetch)
+    assert fetch_with_retry("tok", "co-pm-db-1", timeout=5) == ["69.67.149.183"]
+    assert len(fetch.calls) == 2
+    assert slept == [API_RETRY_DELAYS[0]]
+
+
+def test_retries_stop_after_the_last_attempt(monkeypatch, slept):
+    fetch = _flaky(TimeoutError("timed out"))
+    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", fetch)
+    with pytest.raises(TimeoutError):
+        fetch_with_retry("tok", "co-pm-db-1", timeout=5)
+    assert len(fetch.calls) == API_ATTEMPTS
+    assert slept == list(API_RETRY_DELAYS)
+
+
+@pytest.mark.parametrize(
+    "permanent",
+    [
+        _http_error(401),
+        _http_error(403),
+        _http_error(404),
+        LookupError("no cluster"),
+        ValueError("off-host cursor"),
+    ],
+    ids=["401", "403", "404", "no-cluster", "off-host"],
+)
+def test_a_permanent_api_failure_is_not_retried(monkeypatch, slept, permanent):
+    """A bad token or a missing cluster answers the same way every time."""
+    fetch = _flaky(permanent)
+    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", fetch)
+    with pytest.raises(type(permanent)):
+        fetch_with_retry("tok", "co-pm-db-1", timeout=5)
+    assert len(fetch.calls) == 1
+    assert slept == []
+
+
+def test_the_timeout_reaches_every_attempt(monkeypatch):
+    fetch = _flaky(TimeoutError(), ["69.67.149.183"])
+    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", fetch)
+    fetch_with_retry("tok", "co-pm-db-1", timeout=7)
+    assert [c["timeout"] for c in fetch.calls] == [7, 7]
+
+
+def test_main_recovers_from_one_api_timeout_without_touching_the_fallback(monkeypatch, capsys):
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.setenv("EGRESS_EXPECTED_IPS", "1.2.3.4")  # stale: would mismatch
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    monkeypatch.setattr(
+        "scripts.check_egress_ip.fetch_allowed_ips", _flaky(TimeoutError(), ["69.67.149.183"])
+    )
+    main()  # no SystemExit
+    out = capsys.readouterr().out
+    assert "source: the DO API" in out
+    assert "falling back" not in out
+
+
+def test_a_fallback_mismatch_after_an_api_failure_is_not_drift(monkeypatch, capsys):
+    """#839: the fallback is a hand-kept copy; when it disagrees, it is the suspect.
+
+    The 2026-11-19 false alarm, replayed: the API is down, the fallback still
+    names the previous address, the real one is allowlisted.
+    """
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.setenv("EGRESS_EXPECTED_IPS", "69.67.149.183")
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"103.219.170.149"))
+    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", _flaky(TimeoutError()))
+    main()  # no SystemExit: not drift
+    out = capsys.readouterr().out
+    assert "DRIFT" not in out
+    assert "cannot verify" in out.lower()
+    assert "103.219.170.149" in out and "69.67.149.183" in out
+    assert "EGRESS_EXPECTED_IPS" in out
+
+
+def test_a_permanent_api_failure_with_a_stale_fallback_is_not_drift_either(monkeypatch):
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    monkeypatch.setenv("EGRESS_EXPECTED_IPS", "69.67.149.183")
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"103.219.170.149"))
+    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", _flaky(_http_error(401)))
+    main()  # no SystemExit
+
+
+def test_worst_case_run_fits_the_units_start_timeout():
+    """Retries multiply the DO API's share of the run; systemd kills at TimeoutStartSec.
+
+    Worst case: every echo service times out, then every attempt's two DO
+    requests (the cluster list, then its firewall) do too, plus every back-off.
+    A unit killed mid-run reports neither ok nor drift.
+    """
+    unit = (Path(__file__).parents[2] / "infra" / "power-map-egress-ip.service").read_text()
+    limit = int(re.search(r"^TimeoutStartSec=(\d+)$", unit, re.M).group(1))
+    requests_per_attempt = 2
+    worst = (
+        len(DEFAULT_SERVICES) * DEFAULT_TIMEOUT
+        + API_ATTEMPTS * requests_per_attempt * DEFAULT_TIMEOUT
+        + sum(API_RETRY_DELAYS)
+    )
+    headroom = 15  # uv start-up, imports, logging
+    assert worst + headroom <= limit, (worst, limit)
+    assert len(API_RETRY_DELAYS) == API_ATTEMPTS - 1

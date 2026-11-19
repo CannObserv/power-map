@@ -404,10 +404,12 @@ else.
 
 `scripts/check_egress_ip.py` runs every five minutes and compares this host's
 public egress IP against the cluster's **live** Trusted Sources, read from the
-DigitalOcean API (`DO_API_TOKEN`). With no token, or an unreachable API, it
-falls back to `EGRESS_EXPECTED_IPS`. A mismatch is exit 3 and a `drift` check-in;
-the journal WARNING names the **new** address and where to paste it. (Until #566
-an `egress-ip-drift` GitHub issue carried it.)
+DigitalOcean API (`DO_API_TOKEN`). A transient API failure (timeout, connection
+error, 5xx, 429) is retried twice, 2 s then 5 s apart (#839). With no token, or an
+API still unreachable after that, it falls back to `EGRESS_EXPECTED_IPS`. A
+mismatch is exit 3 and a `drift` check-in; the journal WARNING names the **new**
+address and where to paste it. (Until #566 an `egress-ip-drift` GitHub issue
+carried it.)
 
 Reading the allowlist live rather than keeping a hand-maintained copy is what
 catches our rule being *removed*, which a copy cannot see (#409). The fallback is
@@ -416,7 +418,11 @@ still a hand-maintained copy, though: on every rotation, update
 as drift (#839; [RUNBOOK_DB_TRIAGE.md § Fix](RUNBOOK_DB_TRIAGE.md#fix)). Two readings are deliberately not drift: an **empty**
 Trusted Sources list means DO is applying no IP restriction at all, which is
 reported rather than alerted; and losing every lookup service is a WARNING at
-exit 0, because "I cannot tell" is not "it changed".
+exit 0, because "I cannot tell" is not "it changed". A third (#839): with a token
+present, a fallback mismatch after the API failed is a `cannot verify` WARNING at
+exit 0. The hand-kept copy is the likelier suspect, and `power-map-ready` catches
+a real cut-off. With no token the env var is the only list, so there it still
+alerts.
 
 It matters because the DO cluster gates on source IP while the exe.dev egress IP
 is NAT'd and unpinned, so a rotation kills every DB-backed route — the

@@ -55,7 +55,9 @@ uv run "${env_args[@]}" python -m scripts.check_egress_ip   # one comparison, no
 |---|---|
 | `in the allowlist (source: the DO API)` | fine |
 | `DRIFT … (source: the DO API)` | real rotation (or our rule was removed) → § Fix |
-| `DO API allowlist lookup failed — falling back`, then `DRIFT … (source: EGRESS_EXPECTED_IPS)` | **probably a false alarm** (#839): the API timed out and the fallback is stale. Confirm with `curl -fsS localhost:8000/ready` (ok = the DB is reachable), then bring `EGRESS_EXPECTED_IPS` up to date (§ Fix step 1) |
+| `DO API attempt n/3 failed … retrying` | a transient API failure being retried; fine if a later line says `source: the DO API` |
+| `DO API allowlist lookup failed — falling back`, then `cannot verify egress IP …` | **no alert** (#839): the API stayed down and the fallback disagrees. Usually the fallback is stale. Confirm with `curl -fsS localhost:8000/ready` (ok = the DB is reachable), then bring `EGRESS_EXPECTED_IPS` up to date (§ Fix step 1). Before #839 this read as `DRIFT … (source: EGRESS_EXPECTED_IPS)` and alerted |
+| `DRIFT … (source: EGRESS_EXPECTED_IPS)` | a host with no `DO_API_TOKEN`, where the env var is the only list: treat as real → § Fix |
 
 ### Fix
 
