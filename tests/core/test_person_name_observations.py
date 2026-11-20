@@ -424,6 +424,35 @@ async def test_retract_of_a_name_with_readings_is_rejected(db, person_id, key_id
     assert exc.value.detail == NameRejectReason.HAS_READINGS == "name_has_readings"
 
 
+async def test_retracts_run_before_the_heal(db, key_id):
+    """On a person with no displayed name, write_names' heal would promote the
+    very row being retracted, and the retract would refuse it as canonical —
+    about a row every read shows as not canonical, on every attempt (CR 4)."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await _name(db, pid, "Jodi Example", "legal", source_key_id=key_id)  # lower id: the heal's pick
+    await _name(db, pid, "Josephine Example", "legal")
+
+    (result,) = await write_person_names(db, pid, key_id, [_retract("Jodi Example", "legal")])
+
+    assert result.disposition is NameDisposition.RETRACTED
+    assert await db.fetch(
+        "SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid
+    ) == [("Josephine Example", True)]
+
+
+async def test_a_name_added_beside_a_retract_does_not_lift_the_last_name_guard(db, key_id):
+    """Retracts are judged against the person as the request found them (CR 4)."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await _name(db, pid, "Jody Example", source_key_id=key_id)
+
+    with pytest.raises(ObservationRejected) as exc:
+        await write_person_names(db, pid, key_id, [_variant("Jo Example"), _retract()])
+
+    assert exc.value.detail == "name_is_last"
+
+
 async def test_retract_leaves_a_name_a_curator_hid(db, person_id, key_id):
     """Hiding is the curator's durable no (a re-send stays a no-op). Deleting the
     hidden row would forget it, and the next re-send would publish the name."""

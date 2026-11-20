@@ -953,7 +953,7 @@ class PeopleObservationRequest(BaseModel):
 
     @model_validator(mode="after")
     def _no_name_both_observed_and_retracted(self) -> "PeopleObservationRequest":
-        # #845: observes are written before retracts whatever the list order, so
+        # #845: retracts are applied before observes whatever the list order, so
         # one identity in both would be an order the request cannot express.
         def identities(op: str) -> set[tuple]:
             return {(n.name, n.name_type, n.locale, n.script) for n in self.names if n.op == op}

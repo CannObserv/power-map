@@ -95,23 +95,27 @@ async def write_person_names(
     retract or name citation raises ``ObservationRejected`` and the caller's
     transaction rolls the observation back.
 
-    Observes are written first, as one ``write_names`` batch — its canonical
-    pick ranks the whole payload, and its heal runs even when there are none —
-    then retracts. The request model refuses one identity in both, so the order
-    cannot change an outcome.
+    Retracts are applied first, then the observes as one ``write_names`` batch —
+    its canonical pick ranks the whole payload, and its heal runs even when
+    there are none. So a retract is judged against the person as the request
+    found them: the heal cannot promote the row about to be retracted, and a
+    name added alongside does not lift the last-name guard. The request model
+    refuses one identity in both, so list order never matters.
     """
+    retracted = {
+        i: await _retract(conn, person_id, key_id, n)
+        for i, n in enumerate(names)
+        if n.op == "retract"
+    }
     observed = iter(
         await write_names(
             conn, person_id, "person", key_id, [n for n in names if n.op != "retract"]
         )
     )
-    results: list[NameResult] = []
-    for n in names:
-        if n.op == "retract":
-            results.append(await _retract(conn, person_id, key_id, n))
-        else:
-            results.append(await _observed(conn, key_id, n, next(observed)))
-    return results
+    return [
+        retracted[i] if i in retracted else await _observed(conn, key_id, n, next(observed))
+        for i, n in enumerate(names)
+    ]
 
 
 async def _observed(

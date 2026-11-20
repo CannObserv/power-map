@@ -195,6 +195,7 @@ The heal is a read-only probe plus a guarded `UPDATE`. The probe cannot violate 
 - So there is **no anti-resurrection**: a later observe adds the name again.
 - **A public row only.** A row a curator hid is theirs — hiding is the durable "no", since the dedup probe is visibility-blind and a re-send stays a no-op. Deleting the hidden row would forget that. No public row of the identity (a re-emitted retract, a row a curator retyped or hid) is a quiet no-op: `retracted`, null `name_id`.
 - Every field on a retract item but the identity is ignored. One identity both observed and retracted in a request is a 422.
+- **Retracts are applied first**, then the observes and the heal, whatever the list order. A retract is judged against the person as the request found them: the heal cannot promote the row about to go, and a name added alongside does not lift `name_is_last`.
 
 | Reason | When |
 |---|---|
