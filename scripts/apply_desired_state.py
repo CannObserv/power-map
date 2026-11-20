@@ -67,6 +67,7 @@ from src.core.ingestion.crosswalk import PRODUCER_SOURCE
 from src.core.ingestion.mapping import load_manifest
 from src.core.ingestion.mapping.manifest import Thresholds
 from src.core.logging import configure_logging, get_logger
+from src.core.retry import Backoff, connect_with_retry
 
 logger = get_logger(__name__)
 
@@ -291,7 +292,7 @@ def _log_summary(summary: dict, run_dir: Path, ledger_path: Path, streak: int) -
 
 
 async def _run_against(dsn: str, **kw) -> int:
-    conn = await asyncpg.connect(dsn)
+    conn = await connect_with_retry(dsn, backoff=Backoff())
     try:
         return await run(conn, **kw)
     finally:

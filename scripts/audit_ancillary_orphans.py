@@ -35,6 +35,7 @@ from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from scripts.cleanup_role_assignment_ancillary_orphans import ORPHAN_TABLES as CLEANUP_TABLES
 from src.core.ancillary_migrate import count_orphaned_citations, count_orphaned_polymorphic_rows
 from src.core.logging import configure_logging, get_logger
+from src.core.retry import Backoff, connect_with_retry
 
 logger = get_logger(__name__)
 
@@ -74,7 +75,7 @@ async def audit(conn: asyncpg.Connection) -> int:
 
 
 async def _run(database_url: str) -> int:
-    conn = await asyncpg.connect(database_url)
+    conn = await connect_with_retry(database_url, backoff=Backoff())
     try:
         return await audit(conn)
     finally:

@@ -24,11 +24,10 @@ Usage:
 import asyncio
 import sys
 
-import asyncpg
-
 from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.anomaly import HOURLY_REQUEST_THRESHOLD, KeyActivity, key_activity
 from src.core.logging import configure_logging, get_logger
+from src.core.retry import Backoff, connect_with_retry
 
 logger = get_logger(__name__)
 
@@ -69,7 +68,7 @@ async def run(dsn: str, *, threshold: int) -> int:
     ``main`` short-circuits a threshold <= 0 before resolving a target, so this
     is reached only when the check is enabled.
     """
-    conn = await asyncpg.connect(dsn)
+    conn = await connect_with_retry(dsn, backoff=Backoff())
     try:
         activities = await key_activity(conn, window_hours=1)
     finally:

@@ -28,6 +28,10 @@ EnvironmentFile=/etc/power-map/.env
 # fix (#566 retired the issue it used to open). Losing every lookup service is
 # NOT drift: it logs a WARNING and exits 0 rather than alerting about someone
 # else's outage.
+#
+# Exits 5 when the DO API refuses for good (401/403/404, no such cluster): the
+# guard is blind until DO_API_TOKEN is fixed, even if the fallback agrees, so it
+# checks in `unreadable` (#833). A transient API failure stays quiet.
 ExecStart=uv run python -m scripts.check_egress_ip
 TimeoutStartSec=120
 
@@ -39,7 +43,7 @@ TimeoutStartSec=120
 # the unit (243).
 # co-status monitor: co-power-map-egress-ip (CannObserv/status#36)
 Environment=STATUS_MONITOR_ID=01M4RF3TKYG22293FQG8N4QX0Z
-Environment=STATUS_EXIT_KINDS=3:drift
+Environment=STATUS_EXIT_KINDS=3:drift,5:unreadable
 LoadCredential=status-checkin:/etc/power-map/status-api.key
 SetCredential=status-checkin:\n
 ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

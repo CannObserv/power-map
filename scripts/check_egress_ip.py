@@ -40,6 +40,11 @@ Exit codes: 0 = matches (or nothing trustworthy to compare against); 3 = drift (
 marks the unit failed, so it shows in ``systemctl --failed``, and the unit's
 co-status check-in alerts as ``drift``; #566). The new address is in the
 journal WARNING, which the alert points at; it never leaves the host.
+5 = unreadable (#833): the DO API refused for good (401, 403, 404, no such
+cluster, a bad body). Judged by the cause, not by a count of runs: a refusal
+answers the same way every time, so the guard says it is blind in the run that
+finds out, even when the fallback happens to agree. A transient failure stays
+quiet, as above.
 
 Test hatch:
     EGRESS_CHECK_FORCE_FAIL=1 skip lookup and exercise the failure path.
@@ -105,6 +110,12 @@ UNRESTRICTED = "unrestricted"
 UNKNOWN = ""
 # The env var, consulted because the API failed: a verdict, not an authority.
 API_FALLBACK = "EGRESS_EXPECTED_IPS, DO API unread"
+# The API refused for good (a bad token, no such cluster): the guard is blind
+# until someone acts, whatever the fallback says (#833).
+API_REFUSED = "EGRESS_EXPECTED_IPS, DO API refused"
+
+EXIT_DRIFT = 3
+EXIT_UNREADABLE = 5
 
 
 def _is_transient(exc: BaseException) -> bool:
@@ -160,6 +171,8 @@ def resolve_allowlist(
     ``EGRESS_EXPECTED_IPS`` remains the fallback for a host with no token, or
     for an API that is still unreachable after retries; the latter is labelled
     ``API_FALLBACK`` so the caller can refuse to call a mismatch drift (#839).
+    A *permanent* API failure is labelled ``API_REFUSED`` instead, with or
+    without a fallback list, so the caller can report the guard blind (#833).
 
     An **explicitly passed** ``--expected`` overrides all of that: the operator
     is debugging, and a flag that silently loses to the API lies about what it
@@ -175,9 +188,9 @@ def resolve_allowlist(
     if token:
         try:
             live = fetch_with_retry(token, cluster, timeout=timeout)
-        except Exception:
+        except Exception as exc:
             logger.warning("DO API allowlist lookup failed — falling back", exc_info=True)
-            fallback_label = API_FALLBACK
+            fallback_label = API_FALLBACK if _is_transient(exc) else API_REFUSED
         else:
             if not live:
                 # DO treats an empty Trusted Sources list as "no IP restriction".
@@ -188,7 +201,7 @@ def resolve_allowlist(
     expected = parse_expected(expected_raw)
     if expected:
         return expected, fallback_label
-    return None, UNKNOWN
+    return None, API_REFUSED if fallback_label == API_REFUSED else UNKNOWN
 
 
 def main() -> None:
@@ -214,7 +227,7 @@ def main() -> None:
 
     if os.environ.get("EGRESS_CHECK_FORCE_FAIL"):
         logger.warning("EGRESS_CHECK_FORCE_FAIL set — exercising the failure path (synthetic)")
-        sys.exit(3)
+        sys.exit(EXIT_DRIFT)
 
     current = lookup(DEFAULT_SERVICES, timeout=args.timeout, opener=urlopen)
     if current is None:
@@ -229,6 +242,23 @@ def main() -> None:
         explicit=args.expected is not None,
         timeout=args.timeout,
     )
+    if source == API_REFUSED:
+        # #833: a refusal answers the same way every run. Whatever the fallback
+        # says, the guard cannot see a removed rule until the token is fixed.
+        if allowed is None:
+            fallback = "there is no EGRESS_EXPECTED_IPS fallback to compare against"
+        elif current in allowed:
+            fallback = "the fallback EGRESS_EXPECTED_IPS lists it"
+        else:
+            fallback = "the fallback EGRESS_EXPECTED_IPS does not list it"
+        logger.error(
+            "egress guard UNREADABLE — the DO API refused the allowlist lookup (above), and "
+            "asking again will not change that. Egress IP is %s; %s. Fix DO_API_TOKEN or "
+            "--cluster in /etc/power-map/.env",
+            current,
+            fallback,
+        )
+        sys.exit(EXIT_UNREADABLE)
     if source == UNRESTRICTED:
         logger.info(
             "cluster %s has no IP restrictions configured — egress IP %s cannot be blocked",
@@ -275,7 +305,7 @@ def main() -> None:
         "update EGRESS_EXPECTED_IPS and terraform's allowed_external_ips to match",
         current,
     )
-    sys.exit(3)
+    sys.exit(EXIT_DRIFT)
 
 
 if __name__ == "__main__":

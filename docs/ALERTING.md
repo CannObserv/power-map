@@ -47,6 +47,45 @@ Root disk is the one exception (#705): the cohort's canonical sensor,
 No timer opens a GitHub issue: `ready` and `egress-ip` stopped, and #740 retired
 the weekly a11y sweep, whose tiers now gate the ship.
 
+## Transient failures (#833)
+
+On 2026-11-17 a ten-minute network outage cost each daily unit a day: every
+timer failed on its first error. The rule now: **a unit that reads the network
+waits a transient failure out inside the run and checks in once**. A permanent
+failure (a 4xx, bad credentials, a TLS verify failure) still alerts in the same run.
+
+| Unit | Cadence | How it rides out a blip | `TimeoutStartSec` |
+|---|---|---|---|
+| ready, egress-ip | 2 / 5 min | the next tick (ready also probes twice; egress-ip retries the DO API, #839) | 120 |
+| infra-drift | daily | no network but the check-in | 120 |
+| openapi-parity | daily | none: `/openapi.json` is local, and the tag check's skip is #824's accepted limit | 120 |
+| anomaly | hourly | DB connect retried in-process | 900 |
+| ancillary-orphans, assignment-rel-windows, prune, seat-occupancy, schema-parity | daily | DB connect retried in-process | 900 |
+| datasets-pull | daily 09:00 | every request retried in-process | 1260 |
+| desired-state | daily 09:30 | the connect in export **and** in apply | 1800 |
+
+- **In-process, never `Restart=`.** `src/core/retry.py`: one `Backoff` per run,
+  15 → 240 s, 645 s in all, shared by every call in the run. Only the connect
+  or the GET is retried, never a query. Each failure is judged by the library
+  that raised it (httpx and httpx2 share no classes, #831): an `OSError` or
+  a transport error retries, a TLS error anywhere in its chain doesn't, a status by
+  #841's rule (5xx/429 retry; 401, 403, 404 don't). `Restart=` would check in after every
+  attempt (`alert`, then `ok`), retry a real finding, and re-run the whole unit.
+- **What the monitor sees during a retry: nothing.** The hook runs once, after
+  the final verdict. A run that recovered logs one WARNING (`… succeeded after
+  N attempts`), so `journalctl -p warning` still finds the degraded night.
+- **Each budget is a test.** `tests/test_infra_retry.py` gives every timer a
+  row (a new timer without one fails) and holds each in-process unit's worst case
+  (every attempt timing out, the whole budget slept) inside its
+  `TimeoutStartSec`, that inside its monitor's grace, and the pull's inside the
+  gap before desired-state.
+- **The check-in's own budget stays small** (2 attempts, at most 22 s, under the
+  default 90 s `TimeoutStopSec`). The run has already waited, so the network is
+  usually back by the time the hook runs. If an outage outlasts the retry, the alert can
+  be lost too. The monitor then reads `missing` at its grace: about 2 h after a daily
+  run, about 30 min after the hourly one (status#36). No spool: a daily unit's
+  next run is a day away.
+
 ## The API's OnFailure= dispatch
 
 `power-map.service` carries

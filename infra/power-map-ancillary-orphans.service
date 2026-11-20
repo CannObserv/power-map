@@ -16,6 +16,11 @@ EnvironmentFile=/etc/power-map/.env
 # Exits 3 when any orphan exists, so the unit shows as failed in
 # `systemctl --failed` and alerts as `orphans`. Read-only.
 ExecStart=uv run python -m scripts.audit_ancillary_orphans
+# A transient connect failure (DNS, refused, timeout) is retried in-process for
+# up to 645 s, then fails in this run (#833): this bounds the worst case, which
+# tests/test_infra_retry.py holds inside it. No Restart=: the check-in would
+# report every attempt.
+TimeoutStartSec=900
 
 # After every run, ok or alert, a check-in with co-status (#566): a failed run
 # reaches a person through Notifier, and a run that never happens goes `missing`.

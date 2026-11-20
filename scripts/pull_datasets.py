@@ -63,6 +63,7 @@ from src.core.ingestion.datasets import (
     pull,
 )
 from src.core.logging import configure_logging, get_logger
+from src.core.retry import CONNECT_TIMEOUT, Backoff
 
 logger = get_logger(__name__)
 
@@ -70,6 +71,9 @@ DEFAULT_BASE_URL = "https://usa-wa.exe.xyz:8000"
 DEFAULT_ROOT = "data/usa_wa_snapshots"
 DEFAULT_KEEP = 3
 TOKEN_VAR = "USA_WA_TOKEN"
+# Per request; a large file may stream for a while. The connect is bounded
+# tighter (CONNECT_TIMEOUT), which is where an outage shows (#833).
+REQUEST_TIMEOUT = 60.0
 
 
 def build_subscription(datasets: list[str], *, pinned: Subscription) -> Subscription:
@@ -132,9 +136,14 @@ async def run(
 ) -> PullReport:
     """Fetch the catalog, land what is subscribed, prune what is stale."""
     owns_client = client is None
-    client = client or httpx.AsyncClient(timeout=60.0)
+    client = client or httpx.AsyncClient(
+        timeout=httpx.Timeout(REQUEST_TIMEOUT, connect=CONNECT_TIMEOUT)
+    )
+    # One retry budget for the whole run (#833): the catalog and every file draw
+    # on it, so the run's worst case stays inside the unit's TimeoutStartSec.
+    backoff = Backoff()
     try:
-        catalog = await fetch_catalog(base_url, token=token, client=client)
+        catalog = await fetch_catalog(base_url, token=token, client=client, backoff=backoff)
         # The moment the offer was read, not the moment the pull ended (#535 CR
         # 2): a slow landing would otherwise make the record look newer than
         # what it records, off the margin `PULL_MAX_AGE` is set inside.
@@ -147,6 +156,7 @@ async def run(
             token=token,
             client=client,
             subscription=subscription,
+            backoff=backoff,
         )
     finally:
         if owns_client:
@@ -224,6 +234,11 @@ def main(argv: list[str] | None = None) -> int:
                 keep=args.keep,
             )
         )
+    except httpx.TransportError as exc:
+        # The retry budget is spent and the publisher never answered (#833): a
+        # sentence, like the catalog's, not a traceback.
+        logger.error("publisher unreachable at %s: %s (%s)", args.base_url, exc, type(exc).__name__)
+        return 1
     except CatalogError as exc:
         # The catalog is the one failure that stops the whole run, and its message
         # is written to tell the operator whether to look at the token or at the

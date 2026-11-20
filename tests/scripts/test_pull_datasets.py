@@ -5,14 +5,20 @@ which outcomes are allowed to look like success.
 """
 
 import hashlib
+import http.server
+import json
 import logging
+import socket
+import threading
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 
-from scripts.pull_datasets import build_subscription, main, run
+from scripts.pull_datasets import REQUEST_TIMEOUT, build_subscription, main, run
+from src.core import retry
 from src.core.ingestion.datasets import CatalogEntry, CatalogError, Pin, SnapshotStore, Subscription
+from src.core.retry import CONNECT_TIMEOUT, DELAYS
 
 DATA = b"kind,usa_wa_id,pm_id\n"
 DIGEST = hashlib.sha256(DATA).hexdigest()
@@ -437,3 +443,141 @@ def test_an_unwritable_store_is_a_sentence_not_a_traceback(monkeypatch, tmp_path
     assert code == 1
     assert "snapshot store" in logged and "No space left on device" in logged
     assert "Traceback" not in logged
+
+
+# --- transient failures (#833) ----------------------------------------------
+#
+# The real httpx client against a loopback server that answers from a script,
+# or against a port nothing listens on. Sleeping is recorded, never waited.
+
+
+class _Scripted(http.server.BaseHTTPRequestHandler):
+    """Answers each path from its script in turn; the last answer repeats."""
+
+    script: dict[str, list[tuple[int, bytes, str]]] = {}
+    seen: list[str] = []
+
+    def do_GET(self):  # noqa: N802 — http.server's name
+        self.seen.append(self.path)
+        answers = self.script.get(self.path.rsplit("/", 1)[-1], [(404, b"", "text/plain")])
+        status, body, ctype = answers.pop(0) if len(answers) > 1 else answers[0]
+        self.send_response(status)
+        self.send_header("content-type", ctype)
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def publisher():
+    """``(base_url, script, seen)`` for a loopback publisher on its own thread."""
+    _Scripted.script, _Scripted.seen = {}, []
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Scripted)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}", _Scripted.script, _Scripted.seen
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.fixture
+def slept(monkeypatch) -> list[float]:
+    delays: list[float] = []
+
+    async def record(seconds: float) -> None:
+        delays.append(seconds)
+
+    monkeypatch.setattr(retry, "_sleep", record)
+    return delays
+
+
+_CATALOG_OK = (200, json.dumps(CATALOG).encode(), "application/json")
+_DATA_OK = (200, DATA, "text/csv")
+
+
+def _main(monkeypatch, tmp_path, base_url: str) -> int:
+    monkeypatch.setenv("USA_WA_TOKEN", "tok")
+    monkeypatch.setattr("scripts.pull_datasets.load_subscription", lambda: PINNED)
+    return main(["--root", str(tmp_path), "--base-url", base_url])
+
+
+def test_an_outage_that_ends_mid_run_is_one_green_verdict(
+    monkeypatch, tmp_path, capsys, publisher, slept
+):
+    """11-17's 09:03 failure, replayed: the publisher comes back and the night is kept."""
+    base_url, script, _ = publisher
+    script["catalog.json"] = [(503, b"", "text/plain"), (502, b"", "text/plain"), _CATALOG_OK]
+    script["data.csv"] = [(503, b"", "text/plain"), _DATA_OK]
+
+    assert _main(monkeypatch, tmp_path, base_url) == 0
+    assert SnapshotStore(tmp_path).has("persons", "v1-aaa")
+    # One budget for the run: the file's retry takes the delay after the catalog's two.
+    # The datapackage.json 404 is the publisher's answer, not a blip: no sleep for it.
+    assert slept == list(DELAYS[:3])
+    assert "succeeded after" in capsys.readouterr().out
+
+
+def test_an_unreachable_publisher_spends_the_budget_then_fails_once(
+    monkeypatch, tmp_path, capsys, slept
+):
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    assert _main(monkeypatch, tmp_path, f"http://127.0.0.1:{port}") == 1
+    assert slept == list(DELAYS)
+    logged = capsys.readouterr().out
+    assert "unreachable" in logged
+    assert "Traceback" not in logged
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refusal_fails_at_once_without_a_retry(
+    monkeypatch, tmp_path, capsys, publisher, slept, status
+):
+    """A bad token answers the same way in ten minutes: the alert goes out now."""
+    base_url, script, seen = publisher
+    script["catalog.json"] = [(status, b"", "text/plain")]
+
+    assert _main(monkeypatch, tmp_path, base_url) == 1
+    assert slept == []
+    assert len(seen) == 1
+    assert "authentication failed" in capsys.readouterr().out
+
+
+def test_the_login_page_is_not_retried(monkeypatch, tmp_path, publisher, slept):
+    base_url, script, seen = publisher
+    script["catalog.json"] = [(200, b"<html>__exe.dev/login</html>", "text/html")]
+
+    assert _main(monkeypatch, tmp_path, base_url) == 1
+    assert slept == [] and len(seen) == 1
+
+
+def test_a_rate_limit_is_retried(monkeypatch, tmp_path, publisher, slept):
+    base_url, script, _ = publisher
+    script["catalog.json"] = [(429, b"", "text/plain"), _CATALOG_OK]
+    script["data.csv"] = [_DATA_OK]
+
+    assert _main(monkeypatch, tmp_path, base_url) == 0
+    assert slept == [DELAYS[0]]
+
+
+def test_the_client_bounds_the_connect_tighter_than_the_request(monkeypatch, tmp_path):
+    """An outage shows at the connect; the budget counts each failed attempt at REQUEST_TIMEOUT."""
+    made: list[dict] = []
+    stub = _client()
+
+    def client(**kwargs):
+        made.append(kwargs)
+        return stub
+
+    monkeypatch.setattr("scripts.pull_datasets.httpx.AsyncClient", client)
+    assert _main(monkeypatch, tmp_path, "https://usa-wa.example") == 0
+    (timeout,) = [m["timeout"] for m in made]
+    assert timeout.connect == CONNECT_TIMEOUT
+    assert timeout.read == REQUEST_TIMEOUT

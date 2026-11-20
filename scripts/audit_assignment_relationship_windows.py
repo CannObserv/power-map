@@ -34,6 +34,7 @@ import asyncpg
 
 from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.logging import configure_logging, get_logger
+from src.core.retry import Backoff, connect_with_retry
 
 logger = get_logger(__name__)
 
@@ -154,7 +155,7 @@ def _exit_code(findings: dict[str, list[dict]], *, execute: bool) -> int:
 
 
 async def run(dsn: str, *, execute: bool) -> int:
-    conn = await asyncpg.connect(dsn)
+    conn = await connect_with_retry(dsn, backoff=Backoff())
     try:
         if execute:
             async with conn.transaction():

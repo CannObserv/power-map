@@ -52,6 +52,7 @@ import asyncpg
 
 from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.logging import configure_logging, get_logger
+from src.core.retry import Backoff, connect_with_retry
 
 logger = get_logger(__name__)
 
@@ -197,7 +198,7 @@ async def audit(conn: asyncpg.Connection, *, baseline: int = BASELINE) -> int:
 
 
 async def _run(database_url: str, baseline: int) -> int:
-    conn = await asyncpg.connect(database_url)
+    conn = await connect_with_retry(database_url, backoff=Backoff())
     try:
         return await audit(conn, baseline=baseline)
     finally:
