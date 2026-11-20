@@ -609,8 +609,14 @@ def _refused_run(monkeypatch, *, fallback: str | None, current: bytes, error: Ex
 
 @pytest.mark.parametrize(
     "error",
-    [_http_error(401), _http_error(403), _http_error(404), LookupError("no cluster")],
-    ids=["401", "403", "404", "no-cluster"],
+    [
+        _http_error(401),
+        _http_error(403),
+        _http_error(404),
+        LookupError("no cluster"),
+        ValueError("refusing to follow a pagination cursor off-host"),
+    ],
+    ids=["401", "403", "404", "no-cluster", "bad-body"],
 )
 def test_a_permanent_api_failure_is_unreadable(monkeypatch, error):
     assert _refused_run(monkeypatch, fallback=None, current=b"69.67.149.183", error=error) == (
