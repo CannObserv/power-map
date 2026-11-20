@@ -109,6 +109,45 @@ async def test_the_budget_is_one_per_run_and_never_refills(slept):
     assert slept == list(DELAYS)
 
 
+async def test_a_spent_budget_fails_later_calls_without_attempting(slept):
+    """CR 1: once the run gave up on a blip, each later call would still spend a
+    full attempt timeout. Eight datasets later the pull outran its TimeoutStartSec."""
+    backoff = Backoff()
+    down = ConnectionRefusedError("down")
+    first = flaky([down for _ in range(len(DELAYS) + 1)])
+    with pytest.raises(ConnectionRefusedError):
+        await retry_async(first, transient=is_transient_connect, backoff=backoff, label="a")
+    later = flaky([])
+    with pytest.raises(ConnectionRefusedError):
+        await retry_async(later, transient=is_transient_connect, backoff=backoff, label="b")
+    assert later.calls["n"] == 0
+    assert slept == list(DELAYS)
+
+
+async def test_a_budget_spent_by_recoveries_still_allows_one_attempt(slept):
+    """Only giving up trips it: a run whose retries all recovered keeps calling."""
+    backoff = Backoff(DELAYS[:1])
+    await retry_async(
+        flaky([OSError()]), transient=is_transient_connect, backoff=backoff, label="a"
+    )
+    assert (
+        await retry_async(flaky([]), transient=is_transient_connect, backoff=backoff, label="b")
+        == "ok"
+    )
+
+
+async def test_a_permanent_failure_does_not_trip_the_budget(slept):
+    backoff = Backoff()
+    with pytest.raises(ValueError):
+        await retry_async(
+            flaky([ValueError()]), transient=is_transient_connect, backoff=backoff, label="a"
+        )
+    assert (
+        await retry_async(flaky([]), transient=is_transient_connect, backoff=backoff, label="b")
+        == "ok"
+    )
+
+
 async def test_a_recovered_call_logs_one_warning(slept, caplog):
     """A degraded night must show in `journalctl -p warning` even though it ended ok."""
     call = flaky([OSError()])

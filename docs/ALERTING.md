@@ -65,7 +65,8 @@ failure (a 4xx, bad credentials, a TLS verify failure) still alerts in the same 
 | desired-state | daily 09:30 | the connect in export **and** in apply | 1800 |
 
 - **In-process, never `Restart=`.** `src/core/retry.py`: one `Backoff` per run,
-  15 → 240 s, 645 s in all, shared by every call in the run. Only the connect
+  15 → 240 s, 645 s in all, shared by every call in the run; once a call gives
+  up, every later call fails at once, unattempted. Only the connect
   or the GET is retried, never a query. Each failure is judged by the library
   that raised it (httpx and httpx2 share no classes, #831): an `OSError` or
   a transport error retries, a TLS error anywhere in its chain doesn't, a status by

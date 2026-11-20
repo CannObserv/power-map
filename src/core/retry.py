@@ -12,9 +12,12 @@ re-runs the whole unit. The policy, per unit, is in ``docs/ALERTING.md``.
 
 - **One budget per run.** A ``Backoff`` holds ``DELAYS``, and every retried call
   in the run draws from it; a success never refills it. So however many calls a
-  run makes, it waits at most ``sum(DELAYS)``, which is what lets a unit's
-  worst case be computed and held inside its ``TimeoutStartSec``
-  (``tests/test_infra_retry.py``).
+  run makes, it waits at most ``sum(DELAYS)``. **Once a call gives up on a
+  transient failure, the budget is tripped**: every later call in the run fails
+  at once with that failure, unattempted. Without that, each later call would
+  still spend a full attempt timeout (the pull: one per new dataset). With it,
+  a unit's worst case is the budget plus ``len(DELAYS) + 1`` attempt timeouts,
+  computed and held inside its ``TimeoutStartSec`` (``tests/test_infra_retry.py``).
 - **Transience is judged per library.** httpx and httpx2 share no exception
   classes (#831), and asyncpg raises its own. Each call site passes the
   classifier for the library it calls. A TLS failure is permanent wherever it
@@ -60,6 +63,8 @@ class Backoff:
 
     def __init__(self, delays: Iterable[float] = DELAYS) -> None:
         self._delays = list(delays)
+        # The transient failure a call gave up on; set, it fails every later call.
+        self.gave_up: Exception | None = None
 
     def take(self) -> float | None:
         """The next delay, or None once the budget is spent."""
@@ -105,9 +110,17 @@ async def retry_async[T](
     """Await *call*, retrying a *transient* failure while *backoff* has budget.
 
     A permanent failure is raised at once, the last transient one once the
-    budget is spent. A call that needed a retry logs one WARNING when it
+    budget is spent; after that, every later call on *backoff* raises that same
+    failure without being attempted. A call that needed a retry logs one WARNING when it
     succeeds, so a degraded night shows in ``journalctl -p warning``.
     """
+    if backoff.gave_up is not None:
+        logger.info(
+            "%s: not attempted — the run already gave up on %s",
+            label,
+            backoff.gave_up.__class__.__name__,
+        )
+        raise backoff.gave_up
     started = time.monotonic()
     attempt = 0
     while True:
@@ -119,6 +132,7 @@ async def retry_async[T](
                 raise
             delay = backoff.take()
             if delay is None:
+                backoff.gave_up = exc
                 logger.warning(
                     "%s: attempt %d failed (%s); retry budget spent after %d attempts",
                     label,

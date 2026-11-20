@@ -536,6 +536,28 @@ def test_an_unreachable_publisher_spends_the_budget_then_fails_once(
     assert "Traceback" not in logged
 
 
+def test_once_the_budget_is_spent_no_later_dataset_is_attempted(
+    monkeypatch, tmp_path, publisher, slept
+):
+    """CR 1: the pull's worst case is the budget plus one attempt per retry, however
+    many datasets follow; the policy test's arithmetic depends on it."""
+    base_url, script, seen = publisher
+    roles = dict(CATALOG["datasets"][0], name="roles", latest_version="v1-ccc")
+    catalog = {"datasets": [CATALOG["datasets"][0], roles]}
+    script["catalog.json"] = [(200, json.dumps(catalog).encode(), "application/json")]
+    script["data.csv"] = [(503, b"", "text/plain")]
+    monkeypatch.setenv("USA_WA_TOKEN", "tok")
+    monkeypatch.setattr(
+        "scripts.pull_datasets.load_subscription",
+        lambda: Subscription({"persons": Pin(1, CONTRACT), "roles": Pin(1, CONTRACT)}),
+    )
+
+    assert main(["--root", str(tmp_path), "--base-url", base_url]) == 1
+    assert slept == list(DELAYS)
+    assert sum(path.endswith("data.csv") for path in seen) == len(DELAYS) + 1
+    assert not any("/roles/" in path for path in seen)
+
+
 @pytest.mark.parametrize("status", [401, 403])
 def test_a_refusal_fails_at_once_without_a_retry(
     monkeypatch, tmp_path, capsys, publisher, slept, status
