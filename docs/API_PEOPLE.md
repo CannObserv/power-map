@@ -40,7 +40,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 |-------|----------|-------|
 | `identifier_type` | always | Must be a registered person identifier type slug — see **Person identifier types** below |
 | `identifier_value` | always | Value for the identifier |
-| `names` | optional | List of `{name, name_type, is_canonical?}` — `name_type` must be a valid name type (e.g. `legal`, `preferred`); `is_canonical` defaults to `false`. Exact-match dedup: re-submitting the same name is a no-op. Canonical is scoped per `(person, name_type)` slot — a person may have one canonical `legal` and a separate canonical `preferred`. Unlike org names, person names do **not** auto-promote — a name is canonical only if explicitly submitted with `is_canonical: true`. The hint is ignored if a canonical already exists for that name's slot (never displaces). At most one entry per request may carry `is_canonical: true` (422 otherwise). |
+| `names` | optional | List of `{name, name_type?, locale?, script?, sort_as?, parts?, is_canonical?, op?, citations?}`. `name_type` defaults to `legal`; the set is in `docs/NAMES.md` § `name_type` values. **Dedup** is exact on `(name, name_type, locale, script)`, case- and whitespace-sensitive (names are stored verbatim): re-sending a name is a no-op. **Canonical** is the one displayed name per person (#308). `is_canonical: true` claims the slot only when the person has none, never displacing one; at most one entry per request may carry it (422 otherwise). With no hint, PM promotes the payload's best-ranked name when the person has none — never a `variant`, `deadname`, `mrz`, `reading` or `romanization` (#845). **`op: "retract"`** (#845) deletes the public row of that identity which the calling key added. **`citations`** (#845) attaches citation items to the name row in the same call. Each name answers in the response's `names[]` — see **Per-name results** below. |
 | `personal_pronouns` | optional | Free-text pronouns string (e.g. `they/them`). Written only if the field is currently null; ignored if already set. |
 | `role_assignments` | optional | List of `{role_id, start_date?, end_date?}`. An unknown or archived `role_id` rejects the whole observation `role_not_found: '<id>'` (#602), as `POST /assignments/observations` does. An item is a no-op when the person already holds an open (no `end_date`) tenure on that role, or when a retracted twin `(person, role, start_date)` exists (#391 — never resurrected). Otherwise a tenure is created; no per-item results are returned — see `docs/API_ASSIGNMENTS.md`. |
 | `links` | optional | List of `{url, link_type_id XOR link_type_slug}` |
@@ -63,5 +63,16 @@ for them; the catalog carries no value-format column.
 | `new` | Identifier not seen before; person created |
 | `auto-attached` | Identifier already known; existing entity returned |
 | `rejected` | Unknown identifier type; identifier belongs to a non-person entity (`entity_type_mismatch: '<type>'`); identifier belongs to an archived person (`person_archived: '<id>'`, #481); an unknown identifier whose entity type cannot be created (`entity_type_not_creatable: 'role_assignment'`, #604); a `role_assignments` item naming an unknown or archived role (`role_not_found: '<id>'`, #602 — the check `POST /assignments/observations` makes); an internal type in `additional_identifiers`; an `additional_identifiers` type for another entity type (`identifier_type_mismatch: '<slug>'`, #617); a conflicting `additional_identifiers` value (`identifier_conflict: '<slug>'`); a site ULID another person holds (`identifier_taken: '<slug>' held by '<id>'`, #812); a locked type's new value on a usa-wa person (`identifier_locked: '<slug>'`, #710); DB constraint violation. A human-readable `reason` string is always present on rejected responses, and **nothing is written** — see `docs/CONVENTIONS.md` § "Observation atomicity (#456)". |
+
+**Per-name results (#845).** A response to a payload with `names` carries `names: [{disposition, name_id, citations}]`, one per name in request order (`null` when none were sent, and on `rejected`):
+
+| `disposition` | Meaning |
+|---|---|
+| `new` | added; `name_id` is the new row |
+| `auto-attached` | already held; `name_id` is that row |
+| `retracted` | `op="retract"`; `name_id` is the deleted row, or `null` when no public row of that identity was there |
+| `not-public` | accepted, but the name is not public (a `deadname`, or one a curator hid): no `name_id`, no citation results, and no word on whether it was already held |
+
+`name_id` is the `person_name` entity of the citations API (`docs/PUBLIC_API.md`). A name retract rejects the whole observation with `name_provenance_conflict` (another key's row, or one with no recorded key), `name_is_canonical`, `name_is_last` or `name_has_readings`. Rules and rationale → `docs/NAMES.md` § Name observations.
 
 **When to include `display_label`:** Add a label when the contact method serves a specific named function — e.g. `"Scheduler"`, `"Committee Office"`, `"Main Switchboard"`. Omit it for generic personal numbers where the value alone is self-explanatory.

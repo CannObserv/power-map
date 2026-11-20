@@ -17,17 +17,27 @@ from src.core.ancillary_migrate import (
     rehome_entity_events,
 )
 from src.core.merge_signals import record_merge_tombstones
-from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, heal_person_canonical
+from src.core.observation import heal_person_canonical
 
 __all__ = ["PersonNotFoundError", "merge_person_into", "preview_person_merge"]
+
+# Name types a merge never treats as interchangeable with another type: identical
+# text in one is a machine-readable rendering (or a deadname), a distinct claim
+# from a display name. Every other type is an ordinary display type.
+#
+# Deliberately not `NO_AUTO_CANONICAL_NAME_TYPES` (#845): that set answers "may
+# this be promoted unasked?", and `variant` is in it. Here a variant *is* a
+# display type — a loser's `variant` collapses into the winner's same-text
+# `legal`, or the winner holds one string twice.
+_MERGE_DISTINCT_NAME_TYPES = frozenset({"deadname", "mrz", "romanization", "reading"})
 
 # Winner-vs-loser name-identity match, shared verbatim by the #309 reading
 # re-point UPDATE and the dedup DELETE in `merge_person_into` so the two can
 # never drift (CR #309 finding 1). Correlates a loser row `l` against a winner
 # row `w`; every consumer binds the loser filter at $1, the winner at $2, and
-# `NO_AUTO_CANONICAL_NAME_TYPES` as the $3 text[]. Two ordinary display types
+# `_MERGE_DISTINCT_NAME_TYPES` as the $3 text[]. Two ordinary display types
 # sharing (name, locale, script, visibility) collapse; a
-# NO_AUTO_CANONICAL_NAME_TYPES row (mrz/reading/romanization/deadname) only ever
+# _MERGE_DISTINCT_NAME_TYPES row (mrz/reading/romanization/deadname) only ever
 # matches its exact name_type. Rationale for each clause lives on the DELETE.
 _NAME_IDENTITY_MATCH_SQL = (
     " w.name = l.name"
@@ -250,7 +260,7 @@ async def merge_person_into(
         _REPOINT_READING_CHILDREN_SQL,
         loser_id,
         winner_id,
-        list(NO_AUTO_CANONICAL_NAME_TYPES),
+        list(_MERGE_DISTINCT_NAME_TYPES),
     )
     # Dedup on identity, not on the bare string (CR4 #30). Name-only matching
     # deleted the loser's `mrz` row because the winner had a `legal` row with
@@ -263,7 +273,7 @@ async def merge_person_into(
     # locale and script all match a winner row AND either the name_types are
     # equal, or **both** are ordinary display types.
     #
-    # NO_AUTO_CANONICAL_NAME_TYPES (mrz, reading, romanization, deadname) are
+    # _MERGE_DISTINCT_NAME_TYPES (mrz, reading, romanization, deadname) are
     # never treated as interchangeable: identical text in one of those is a
     # machine-readable rendering, a distinct claim from a display name.
     #
@@ -279,7 +289,7 @@ async def merge_person_into(
     # re-point), so a matched-duplicate name's provenance follows the winner name
     # rather than orphaning. Must precede the dedup DELETE.
     name_twins = await db.fetch(
-        _LOSER_NAME_TWINS_SQL, loser_id, winner_id, list(NO_AUTO_CANONICAL_NAME_TYPES)
+        _LOSER_NAME_TWINS_SQL, loser_id, winner_id, list(_MERGE_DISTINCT_NAME_TYPES)
     )
     for pair in name_twins:
         if pair["winner"] is not None:
@@ -289,7 +299,7 @@ async def merge_person_into(
         _DEDUP_LOSER_NAMES_SQL,
         loser_id,
         winner_id,
-        list(NO_AUTO_CANONICAL_NAME_TYPES),
+        list(_MERGE_DISTINCT_NAME_TYPES),
     )
     await db.execute(
         "UPDATE person_names SET person_id=$1 WHERE person_id=$2",
@@ -502,7 +512,7 @@ async def preview_person_merge(db, *, winner_id: str, loser_id: str) -> dict:
         )
 
     twins = await db.fetch(
-        _LOSER_NAME_TWINS_SQL, loser_id, winner_id, list(NO_AUTO_CANONICAL_NAME_TYPES)
+        _LOSER_NAME_TWINS_SQL, loser_id, winner_id, list(_MERGE_DISTINCT_NAME_TYPES)
     )
     conflicts = {
         r["loser_ra"]: r["winner_ra"]

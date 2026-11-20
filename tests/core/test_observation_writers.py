@@ -347,6 +347,101 @@ async def test_write_names_person_machine_readable_not_auto_promoted(db, api_key
     assert row["is_canonical"] is False
 
 
+async def test_write_names_person_variant_never_auto_promoted(db, api_key_id):
+    """#845: a variant is another spelling of a name — never the display slot unasked."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Jody Example", name_type="variant")],
+    )
+    row = await db.fetchrow("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+    assert row["is_canonical"] is False
+    assert (
+        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+        is None
+    )
+
+
+async def test_write_names_person_variant_yields_to_a_lower_ranked_name(db, api_key_id):
+    """#845: beside a variant, the payload's other eligible name takes the slot,
+    even one the ladder ranked below variant before it left the ladder."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [
+            ObservationPersonName(name="Jody Example", name_type="variant"),
+            ObservationPersonName(name="Jodi Formerly", name_type="former"),
+        ],
+    )
+    by_name = {
+        r["name"]: r["is_canonical"]
+        for r in await db.fetch(
+            "SELECT name, is_canonical FROM person_names WHERE person_id=$1", pid
+        )
+    }
+    assert by_name == {"Jody Example": False, "Jodi Formerly": True}
+
+
+async def test_write_names_person_hinted_variant_still_promotes(db, api_key_id):
+    """#845: the exclusion is from *automatic* promotion — an explicit hint on a
+    variant is a deliberate claim and is still honoured."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Jody Example", name_type="variant", is_canonical=True)],
+    )
+    row = await db.fetchrow("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+    assert row["is_canonical"] is True
+
+
+async def test_write_names_person_heal_never_promotes_a_variant(db, api_key_id):
+    """#845: a person left holding only a variant stays blank — the heal that any
+    observation runs must not make another spelling the displayed name."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, 'Jody Example', 'variant', FALSE)",
+        generate_id(),
+        pid,
+    )
+    await write_names(db, pid, "person", api_key_id, [])
+    row = await db.fetchrow("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+    assert row["is_canonical"] is False
+
+
+async def test_heal_passes_over_a_variant_for_a_lower_ranked_name(db):
+    """#845: with a variant and a `former` name, the heal picks the former name."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    for name, name_type in (("Jody Example", "variant"), ("Jodi Formerly", "former")):
+        await db.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+            " VALUES ($1, $2, $3, $4, FALSE)",
+            generate_id(),
+            pid,
+            name,
+            name_type,
+        )
+    await heal_person_canonical(db, pid)
+    canonical = await db.fetchval(
+        "SELECT name FROM person_names WHERE person_id=$1 AND is_canonical", pid
+    )
+    assert canonical == "Jodi Formerly"
+
+
 async def test_write_names_person_hint_wins_over_priority(db, api_key_id):
     """An explicit client hint overrides the name_type priority ordering."""
     pid = generate_id()

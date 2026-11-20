@@ -71,6 +71,7 @@ from .link_types_response import LinkTypesResponse
 from .list_jurisdiction_relationships_direction import (
     ListJurisdictionRelationshipsDirection,
 )
+from .name_observation_result import NameObservationResult
 from .observation_acronym import ObservationAcronym
 from .observation_additional_identifier import ObservationAdditionalIdentifier
 from .observation_address import ObservationAddress
@@ -89,6 +90,7 @@ from .observation_org_name import ObservationOrgName
 from .observation_org_name_name_type import ObservationOrgNameNameType
 from .observation_person_name import ObservationPersonName
 from .observation_person_name_name_type import ObservationPersonNameNameType
+from .observation_person_name_op import ObservationPersonNameOp
 from .observation_person_name_parts import ObservationPersonNameParts
 from .observation_person_name_parts_primary_identifier_type_0 import (
     ObservationPersonNamePartsPrimaryIdentifierType0,
@@ -220,6 +222,7 @@ __all__ = (
     "LinkType",
     "LinkTypesResponse",
     "ListJurisdictionRelationshipsDirection",
+    "NameObservationResult",
     "ObservationAcronym",
     "ObservationAdditionalIdentifier",
     "ObservationAddress",
@@ -236,6 +239,7 @@ __all__ = (
     "ObservationOrgNameNameType",
     "ObservationPersonName",
     "ObservationPersonNameNameType",
+    "ObservationPersonNameOp",
     "ObservationPersonNameParts",
     "ObservationPersonNamePartsPrimaryIdentifierType0",
     "ObservationResponse",

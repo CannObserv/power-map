@@ -14,6 +14,7 @@ from ..types import UNSET, Unset
 if TYPE_CHECKING:
     from ..models.citation_observation_result import CitationObservationResult
     from ..models.event_observation_result import EventObservationResult
+    from ..models.name_observation_result import NameObservationResult
 
 
 T = TypeVar("T", bound="ObservationResponse")
@@ -31,6 +32,7 @@ class ObservationResponse:
         unapplied (list[str] | None | Unset):
         events (list[EventObservationResult] | None | Unset):
         citations (list[CitationObservationResult] | None | Unset):
+        names (list[NameObservationResult] | None | Unset):
         attached_archived (bool | None | Unset):
         provenance_claimed (bool | None | Unset):
     """
@@ -42,6 +44,7 @@ class ObservationResponse:
     unapplied: list[str] | None | Unset = UNSET
     events: list[EventObservationResult] | None | Unset = UNSET
     citations: list[CitationObservationResult] | None | Unset = UNSET
+    names: list[NameObservationResult] | None | Unset = UNSET
     attached_archived: bool | None | Unset = UNSET
     provenance_claimed: bool | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -102,6 +105,18 @@ class ObservationResponse:
         else:
             citations = self.citations
 
+        names: list[dict[str, Any]] | None | Unset
+        if isinstance(self.names, Unset):
+            names = UNSET
+        elif isinstance(self.names, list):
+            names = []
+            for names_type_0_item_data in self.names:
+                names_type_0_item = names_type_0_item_data.to_dict()
+                names.append(names_type_0_item)
+
+        else:
+            names = self.names
+
         attached_archived: bool | None | Unset
         if isinstance(self.attached_archived, Unset):
             attached_archived = UNSET
@@ -133,6 +148,8 @@ class ObservationResponse:
             field_dict["events"] = events
         if citations is not UNSET:
             field_dict["citations"] = citations
+        if names is not UNSET:
+            field_dict["names"] = names
         if attached_archived is not UNSET:
             field_dict["attached_archived"] = attached_archived
         if provenance_claimed is not UNSET:
@@ -144,6 +161,7 @@ class ObservationResponse:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.citation_observation_result import CitationObservationResult  # noqa: PLC0415
         from ..models.event_observation_result import EventObservationResult  # noqa: PLC0415
+        from ..models.name_observation_result import NameObservationResult  # noqa: PLC0415
 
         d = dict(src_dict)
         disposition = d.pop("disposition")
@@ -246,6 +264,28 @@ class ObservationResponse:
 
         citations = _parse_citations(d.pop("citations", UNSET))
 
+        def _parse_names(data: object) -> list[NameObservationResult] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                names_type_0 = []
+                _names_type_0 = data
+                for names_type_0_item_data in _names_type_0:
+                    names_type_0_item = NameObservationResult.from_dict(names_type_0_item_data)
+
+                    names_type_0.append(names_type_0_item)
+
+                return names_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[NameObservationResult] | None | Unset, data)
+
+        names = _parse_names(d.pop("names", UNSET))
+
         def _parse_attached_archived(data: object) -> bool | None | Unset:
             if data is None:
                 return data
@@ -272,6 +312,7 @@ class ObservationResponse:
             unapplied=unapplied,
             events=events,
             citations=citations,
+            names=names,
             attached_archived=attached_archived,
             provenance_claimed=provenance_claimed,
         )

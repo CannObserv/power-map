@@ -47,6 +47,10 @@ ALLOWED_DIRECT_ACCESS = {
     # a person hard delete drops the citations on every one of its names (#605),
     # whatever their visibility. No display is performed.
     "src/core/ancillary_migrate.py",
+    # #845 name retract: the last-name guard counts every row, as the admin
+    # delete's does, and a hidden reading cascades like a public one. The row it
+    # deletes is selected `visibility = 'public'`. No display is performed.
+    "src/core/person_name_observations.py",
     # resolves a name's owning person_id for the non-htmx redirect after a citation
     # write (#319) — no name display is performed.
     "src/api/admin/people_name_citations.py",

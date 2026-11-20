@@ -131,6 +131,12 @@ usa-wa#314 retires its sync stack; the dataset applier owns its assignments (#52
 
 ---
 
+## Person-name observations (#845)
+
+Per-name results, citations on a name, and `op="retract"` → [NAMES.md](NAMES.md) § Name observations. Its retract is **not** one of the four below: identity-addressed, same-key-only, and a delete.
+
+---
+
 ## Anti-resurrection is labelled — `attached_archived` (#477)
 
 
