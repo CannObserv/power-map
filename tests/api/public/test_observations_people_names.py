@@ -246,6 +246,16 @@ async def test_retract_of_another_keys_name_rejects_and_keeps_it(
     )
 
 
+async def test_a_rejected_observation_reports_no_names(client, observo_key, person_id):
+    raw, _ = observo_key
+
+    r = await _post(
+        client, raw, person_id, [{"name": "Jodi Example", "name_type": "legal", "op": "retract"}]
+    )
+
+    assert (r.json()["disposition"], r.json()["names"]) == ("rejected", None)
+
+
 async def test_a_rejected_retract_rolls_back_the_names_beside_it(
     client, observo_key, person_id, db
 ):

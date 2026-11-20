@@ -143,7 +143,9 @@ async def test_a_name_already_held_reports_auto_attached_with_its_id(db, person_
 
 
 async def test_results_come_back_in_request_order(db, person_id, key_id):
-    await _name(db, person_id, "Gone Example", source_key_id=key_id)
+    """Retracts run first, but each result sits where its claim sat — and names
+    its own row, which two `new` dispositions alone would not show."""
+    gone = await _name(db, person_id, "Gone Example", source_key_id=key_id)
 
     results = await write_person_names(
         db,
@@ -152,11 +154,33 @@ async def test_results_come_back_in_request_order(db, person_id, key_id):
         [_variant("First Example"), _retract("Gone Example"), _variant("Third Example")],
     )
 
-    assert [r.disposition for r in results] == [
-        NameDisposition.NEW,
-        NameDisposition.RETRACTED,
-        NameDisposition.NEW,
+    ids = dict(await db.fetch("SELECT name, id FROM person_names WHERE person_id=$1", person_id))
+    assert [(r.disposition, r.name_id) for r in results] == [
+        (NameDisposition.NEW, ids["First Example"]),
+        (NameDisposition.RETRACTED, gone),
+        (NameDisposition.NEW, ids["Third Example"]),
     ]
+
+
+async def test_one_name_sent_twice_is_added_once(db, person_id, key_id):
+    first, second = await write_person_names(db, person_id, key_id, [_variant(), _variant()])
+
+    assert (first.disposition, second.disposition) == (
+        NameDisposition.NEW,
+        NameDisposition.AUTO_ATTACHED,
+    )
+    assert first.name_id == second.name_id
+
+
+async def test_a_claim_attaches_to_the_public_twin_not_the_hidden_one(db, person_id, key_id):
+    """Merge keeps rows identical but for visibility (#121). The claim resolves
+    to the public one, so it reports that row and not `not-public`."""
+    await _name(db, person_id, "Jody Example", visibility="hidden")
+    public = await _name(db, person_id, "Jody Example")
+
+    (result,) = await write_person_names(db, person_id, key_id, [_variant()])
+
+    assert (result.disposition, result.name_id) == (NameDisposition.AUTO_ATTACHED, public)
 
 
 async def test_a_nameless_call_still_heals_the_display_pointer(db, key_id):
@@ -467,6 +491,9 @@ async def test_retract_leaves_a_name_a_curator_hid(db, person_id, key_id):
     assert await db.fetchval("SELECT visibility FROM person_names WHERE id=$1", hidden) == "hidden"
 
 
+_RETRACT_CITE_URL = f"https://hearings.example/retract-{generate_id()}"
+
+
 async def test_retract_ignores_any_payload_on_the_item(db, person_id, key_id):
     await _name(db, person_id, "Jody Example", source_key_id=key_id)
 
@@ -480,13 +507,77 @@ async def test_retract_ignores_any_payload_on_the_item(db, person_id, key_id):
                 name_type="variant",
                 op="retract",
                 is_canonical=True,
-                citations=[_cite()],
+                citations=[_cite(url=_RETRACT_CITE_URL)],
             )
         ],
     )
 
     assert await _names(db, person_id) == {("Jodi Example", "legal")}
-    assert await _name_citations(db, person_id) == 0
+    # By url, not through person_names: the name is gone, so a join would count
+    # nothing whether or not the citation was written.
+    assert await db.fetchval("SELECT count(*) FROM citations WHERE url=$1", _RETRACT_CITE_URL) == 0
+
+
+async def test_a_name_a_curator_hid_keeps_a_citation_but_reports_none(db, person_id, key_id):
+    hidden = await _name(db, person_id, "Jody Example", source_key_id=key_id, visibility="hidden")
+
+    (result,) = await write_person_names(db, person_id, key_id, [_variant(citations=[_cite()])])
+
+    assert (result.disposition, result.citations) == (NameDisposition.NOT_PUBLIC, None)
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM citations WHERE entity_type='person_name' AND entity_id=$1",
+            hidden,
+        )
+        == 1
+    )
+
+
+async def test_retract_twice_in_one_request_deletes_once(db, person_id, key_id):
+    own = await _name(db, person_id, "Jody Example", source_key_id=key_id)
+
+    first, second = await write_person_names(db, person_id, key_id, [_retract(), _retract()])
+
+    assert (first.name_id, second.name_id) == (own, None)
+    assert first.disposition is second.disposition is NameDisposition.RETRACTED
+
+
+async def test_retract_identity_includes_script(db, person_id, key_id):
+    """Same string and type in another script is another name."""
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, script, source_key_id)"
+        " VALUES ($1, $2, 'Jody Example', 'variant', 'Latn', $3)",
+        generate_id(),
+        person_id,
+        key_id,
+    )
+
+    (unscripted,) = await write_person_names(db, person_id, key_id, [_retract()])
+    (scripted,) = await write_person_names(
+        db,
+        person_id,
+        key_id,
+        [
+            ObservationPersonName(
+                name="Jody Example", name_type="variant", script="Latn", op="retract"
+            )
+        ],
+    )
+
+    assert unscripted.name_id is None
+    assert scripted.name_id is not None
+
+
+async def test_retract_sees_only_the_public_twin(db, person_id, key_id):
+    """The caller's own copy is hidden and another key's is public: the hidden
+    one is the curator's, and the public one is not the caller's."""
+    await _name(db, person_id, "Jody Example", source_key_id=key_id, visibility="hidden")
+    await _name(db, person_id, "Jody Example", source_key_id=await _api_key(db))
+
+    with pytest.raises(ObservationRejected) as exc:
+        await write_person_names(db, person_id, key_id, [_retract()])
+
+    assert exc.value.detail == "name_provenance_conflict"
 
 
 # ---------------------------------------------------------------------------
