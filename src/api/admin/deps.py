@@ -155,6 +155,7 @@ def form_row_status(request: Request, errors: dict, status_code: int, row_id: st
 #   exists  — a create/edit hit a uniqueness conflict (nothing changed)
 #   locked  — the write touched a link a dataset owns (#592; nothing changed)
 #   identifier_locked — the edit or delete touched a key a dataset owns (#710; nothing changed)
+#   org_archived — a role create or move named an archived org (#835; nothing changed)
 # and the curation overlay's (#498), all mutations that changed state:
 #   saved_pinned / removed_pinned — the edit moved a producer-owned value and pinned it
 #   pinned / unpinned             — the Pin and Unpin actions
@@ -171,6 +172,10 @@ SHARED_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "exists": ("warning", "That already exists."),
     "locked": ("warning", LINK_LOCKED_MSG),
     "identifier_locked": ("warning", IDENTIFIER_LOCKED_MSG),
+    "org_archived": (
+        "warning",
+        "That organization is archived — restore it before adding roles to it.",
+    ),
     "saved_pinned": ("success", f"Saved. Pinned: PM keeps it over {PRODUCER_LABEL}'s value."),
     "removed_pinned": ("success", f"Removed. Pinned: PM keeps it over {PRODUCER_LABEL}'s value."),
     "pinned": ("success", f"Pinned: PM keeps this value over {PRODUCER_LABEL}'s."),

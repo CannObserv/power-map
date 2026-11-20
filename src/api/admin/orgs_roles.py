@@ -39,10 +39,12 @@ def _parse_roles_list_filters(request: Request) -> dict:
     return parse_list_filters(request, valid_statuses=VALID_STATUSES, extra_text_params=("org_q",))
 
 
-async def _get_org_or_404(org_id: str, db) -> None:
-    row = await db.fetchrow("SELECT id FROM organizations WHERE id = $1", org_id)
+async def _get_org_or_404(org_id: str, db) -> asyncpg.Record:
+    """Return the org's ``archived_at`` row, or 404 when the org doesn't exist."""
+    row = await db.fetchrow("SELECT archived_at FROM organizations WHERE id = $1", org_id)
     if not row:
         raise HTTPException(status_code=404, detail="Organization not found")
+    return row
 
 
 async def fetch_org_roles(org_id: str, db) -> list:
@@ -88,9 +90,30 @@ async def role_create(
     user: AdminUser = Depends(get_admin_user),
     db=Depends(get_db),
 ):
-    """Create a new role for this org (inline HTMX path)."""
-    await _get_org_or_404(org_id, db)
+    """Create a new role for this org (inline HTMX path).
+
+    An archived org takes no new role (#835). The page hides "Add role" on one, but
+    only client-side: a tab opened before the archive still posts here.
+    """
+    org = await _get_org_or_404(org_id, db)
     title = title.strip()
+    if org["archived_at"] is not None:
+        if not is_htmx(request):
+            return RedirectResponse(
+                with_flash(f"/admin/orgs/{org_id}/", "org_archived"), status_code=303
+            )
+        return templates.TemplateResponse(
+            request,
+            "admin/orgs/partials/_role_form_row.html",
+            {"org_id": org_id, "title_input": title},
+            headers={
+                **flash_trigger(
+                    "warning", "This organization is archived — restore it before adding roles."
+                ),
+                "HX-Retarget": "#role-row-new",
+                "HX-Reswap": "outerHTML",
+            },
+        )
     if not title:
         if not is_htmx(request):
             return RedirectResponse(

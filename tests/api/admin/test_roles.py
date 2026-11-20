@@ -1035,6 +1035,26 @@ async def test_create_role_error_reload_drops_an_org_that_no_longer_exists(clien
     assert 'name="organization_id" id="org-id-hidden" value=""' in r.text
 
 
+async def test_create_role_rejects_an_archived_org(client, db, org_id):
+    """#835: a stale pick (org archived since) or a hand-built POST can't attach a role.
+
+    The reload drops the archived org from the combobox, as CR 1 does for a vanished
+    one: the typeahead can't re-pick it, and a kept hidden id would resubmit it.
+    """
+    await db.execute("UPDATE organizations SET archived_at = NOW() WHERE id=$1", org_id)
+    r = await client.post(
+        "/admin/roles/new/",
+        headers=AUTH_HEADERS,
+        follow_redirects=False,
+        data={"organization_id": org_id, "title": "Archived Org Role #835", "notes": ""},
+    )
+    assert r.status_code == 200
+    assert "That organization is archived" in r.text
+    assert 'name="organization_id" id="org-id-hidden" value=""' in r.text
+    assert org_id not in r.text
+    assert await db.fetchval("SELECT count(*) FROM roles WHERE organization_id=$1", org_id) == 0
+
+
 async def test_create_role_error_reload_labels_a_nameless_org_by_id(client, db):
     """CR 1: an org with no name row still shows *something* for its kept id."""
     oid = generate_id()
