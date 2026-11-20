@@ -200,9 +200,9 @@ The heal is a read-only probe plus a guarded `UPDATE`. The probe cannot violate 
 |---|---|
 | `name_provenance_conflict` | the public row was written by another key, or carries no stamp |
 | `name_is_canonical` | it is the displayed name — a curator promoted it, or a hint claimed the slot |
-| `name_is_last` | it is the person's only name (the admin delete's last-name guard) |
+| `name_is_last` | it is the person's only **public** name — the guard answers from what a read shows, so a hidden name neither permits the delete nor is revealed by it |
 | `name_has_foreign_citations` | a citation on it was written by another key or a curator (a retracted one counts): the citations are deleted with the row, and those are not the caller's |
-| `name_has_readings` | a `reading_of_id` child points at it; the `ON DELETE CASCADE` would take rows the key may not have written |
+| `name_has_readings` | a `reading_of_id` child points at it, of any visibility; the `ON DELETE CASCADE` would take rows the key may not have written. This one can reveal that a hidden reading exists — the alternative is deleting a curator's row unseen |
 
 Not built: a retract for org names, and a native (partial-success) transport.
 

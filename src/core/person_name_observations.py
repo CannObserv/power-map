@@ -157,13 +157,22 @@ async def _retract(
         # A curator promoted it, or a hint claimed the slot: the displayed name.
         raise ObservationRejected(NameRejectReason.IS_CANONICAL)
     name_id = own["id"]
-    # Both probes count every row, whatever its visibility: the admin delete's
-    # last-name guard does, and a hidden reading cascades like a public one.
-    if await conn.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", person_id) == 1:
+    # The last *public* name: the guard answers from what a read shows. Counting
+    # hidden rows would tell two people who read alike apart, and let a key take
+    # a person's only public name (CR 2).
+    if (
+        await conn.fetchval(
+            "SELECT count(*) FROM person_names WHERE person_id=$1 AND visibility = 'public'",
+            person_id,
+        )
+        == 1
+    ):
         raise ObservationRejected(NameRejectReason.IS_LAST)
     if await conn.fetchval("SELECT 1 FROM person_names WHERE reading_of_id=$1 LIMIT 1", name_id):
         # reading_of_id is ON DELETE CASCADE: the delete would take rows this
-        # key may not have written.
+        # key may not have written. A child of any visibility counts, so this
+        # answer can reveal that a hidden reading points here — the alternative
+        # is cascading a curator's row away unseen.
         raise ObservationRejected(NameRejectReason.HAS_READINGS)
     if await conn.fetchval(
         "SELECT 1 FROM citations WHERE entity_type='person_name' AND entity_id=$1"

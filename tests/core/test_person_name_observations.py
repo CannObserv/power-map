@@ -397,6 +397,22 @@ async def test_retract_of_a_persons_only_name_is_rejected(db, key_id):
     assert exc.value.detail == NameRejectReason.IS_LAST == "name_is_last"
 
 
+async def test_retract_of_the_only_public_name_is_rejected_whatever_is_hidden(db, key_id):
+    """The guard counts what a read shows (CR 2). Counting a hidden name would
+    answer differently for two people who read the same — telling the caller one
+    of them holds a name no read returns — and would leave the person no public name."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await _name(db, pid, "Jody Example", source_key_id=key_id)
+    await _name(db, pid, "Old Example", "deadname", visibility="legal_only")
+    await _name(db, pid, "Kept Quiet", "alias", visibility="hidden")
+
+    with pytest.raises(ObservationRejected) as exc:
+        await write_person_names(db, pid, key_id, [_retract()])
+
+    assert exc.value.detail == "name_is_last"
+
+
 async def test_retract_of_a_name_with_readings_is_rejected(db, person_id, key_id):
     """reading_of_id is ON DELETE CASCADE: the delete would take a curator's row."""
     own = await _name(db, person_id, "Jody Example", source_key_id=key_id)
