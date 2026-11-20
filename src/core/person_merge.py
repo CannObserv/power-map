@@ -244,6 +244,19 @@ async def merge_person_into(
     # visibility-allowlist (issue #121): merge deduplicates and reassigns
     # ALL name rows regardless of visibility — the merged winner must
     # inherit the loser's deadnames, hidden names, etc.
+    #
+    # A winner with no displayed name takes the loser's (#845 CR 3). The heal
+    # below used to stand in for this, but it re-picks by the ladder — over a
+    # curator's choice — and never picks a variant at all. Read after the curated
+    # drop above, so a displayed name the curator dropped is not carried.
+    carried_name_id = None
+    if not await db.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM person_names WHERE person_id=$1 AND is_canonical)",
+        winner_id,
+    ):
+        carried_name_id = await db.fetchval(
+            "SELECT id FROM person_names WHERE person_id=$1 AND is_canonical", loser_id
+        )
     await db.execute(
         "UPDATE person_names SET is_canonical=FALSE WHERE person_id=$1 AND is_canonical=TRUE",
         loser_id,
@@ -294,6 +307,9 @@ async def merge_person_into(
     for pair in name_twins:
         if pair["winner"] is not None:
             await migrate_citations(db, "person_name", pair["loser"], pair["winner"])
+            if pair["loser"] == carried_name_id:
+                # About to be deduped away: the pointer follows its twin.
+                carried_name_id = pair["winner"]
 
     await db.execute(
         _DEDUP_LOSER_NAMES_SQL,
@@ -317,11 +333,20 @@ async def merge_person_into(
             " AND NOT EXISTS (SELECT 1 FROM person_names pn WHERE pn.id = citations.entity_id)",
             loser_name_ids,
         )
+    if carried_name_id is not None:
+        # The winner had no canonical and the loser's was demoted, so the slot is
+        # free. A twin shares the carried row's visibility, which is public.
+        await db.execute(
+            "UPDATE person_names SET is_canonical=TRUE WHERE id=$1 AND person_id=$2",
+            carried_name_id,
+            winner_id,
+        )
     # The loser's canonical was demoted above, so a winner that had no display
     # pointer would end up blank even though a usable name just arrived (CR4
     # #29). Merge is the only mutation left that can violate the #308 invariant
     # without repairing it — the observation path, the name-delete path and the
-    # backfill all self-heal. No-op when the winner already displays.
+    # backfill all self-heal. No-op when the winner already displays, as it does
+    # whenever a name was carried over just above.
     await heal_person_canonical(db, winner_id)
 
     # role_assignments: delete conflicts (same role+start_date), then reassign.
