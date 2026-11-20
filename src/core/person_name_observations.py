@@ -189,8 +189,22 @@ async def _retract(
         # and evidence someone else put on the name means it is no longer this
         # key's claim alone.
         raise ObservationRejected(NameRejectReason.HAS_FOREIGN_CITATIONS)
-    # person_name is citable with no FK (#319): drop its citations first.
+    # The checks above read a snapshot; a promote, a hide or a delete may commit
+    # before this runs. The WHERE re-checks what must still hold — Postgres
+    # re-evaluates it against the row as committed — so this never deletes a
+    # displayed or hidden name. Not `FOR UPDATE` on the probe: the parent-touch
+    # trigger makes a row lock held across statements deadlock-prone here.
+    deleted = await conn.fetchval(
+        "DELETE FROM person_names"
+        " WHERE id=$1 AND NOT is_canonical AND visibility = 'public'"
+        " RETURNING id",
+        name_id,
+    )
+    if deleted is None:
+        # Promoted, far the likeliest; a hide or a delete lands here too, and a
+        # re-sent retract then finds no public row and answers the quiet no-op.
+        raise ObservationRejected(NameRejectReason.IS_CANONICAL)
+    # person_name is citable with no FK (#319), so nothing orders these two.
     await delete_citations(conn, "person_name", name_id)
-    await conn.execute("DELETE FROM person_names WHERE id=$1", name_id)
     logger.info("Retracted person_name id=%s person=%s key=%s", name_id, person_id, key_id)
     return NameResult(NameDisposition.RETRACTED, name_id)

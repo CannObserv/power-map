@@ -5,9 +5,12 @@ half of ``POST /people/observations``. The wire mapping is covered in
 ``tests/api/public/test_observations_people_names.py``.
 """
 
+import asyncio
+import contextlib
 import hashlib
 import os
 
+import asyncpg
 import pytest
 import pytest_asyncio
 
@@ -484,3 +487,68 @@ async def test_retract_ignores_any_payload_on_the_item(db, person_id, key_id):
 
     assert await _names(db, person_id) == {("Jodi Example", "legal")}
     assert await _name_citations(db, person_id) == 0
+
+
+# ---------------------------------------------------------------------------
+# A promote that commits between the retract's checks and its delete (CR 7)
+# ---------------------------------------------------------------------------
+
+# db_pool is max_size=2 and this test holds both connections; bound the acquire
+# so a third consumer fails instead of hanging the suite.
+_POOL_ACQUIRE_TIMEOUT_S = 10
+
+
+async def test_retract_loses_to_a_promote_that_commits_first(db, db_pool):
+    """The retract checks the row, then deletes it. A curator's promote landing
+    between the two must win: the delete re-checks, and refuses the displayed name.
+
+    Two real connections, as the heal's race test uses — the interleaving cannot
+    be staged on one. Deterministically:
+      1. `other` promotes the variant, uncommitted.
+      2. The retract's probe cannot see that, so every check passes.
+      3. Its DELETE blocks on the promote's row lock.
+      4. `other` commits; the DELETE re-evaluates its WHERE against the new row.
+    Without the re-check in that WHERE it deletes the displayed name.
+    """
+    pid = generate_id()
+    async with db_pool.acquire(timeout=_POOL_ACQUIRE_TIMEOUT_S) as other:
+        # Committed out-of-band so the retract's connection can see the rows.
+        kid = await _api_key(other)
+        uid = await other.fetchval("SELECT user_id FROM api_keys WHERE id=$1", kid)
+        await other.execute("INSERT INTO people (id) VALUES ($1)", pid)
+        legal = await _name(other, pid, "Jodi Example", "legal", is_canonical=True)
+        variant = await _name(other, pid, "Jody Example", source_key_id=kid)
+        promote = other.transaction()
+        await promote.start()
+        # A savepoint, as the route's transaction is: rolling it back releases
+        # the row locks the retract took, so the cleanup below cannot block.
+        attempt = db.transaction()
+        await attempt.start()
+        committed = False
+        task = None
+        try:
+            await other.execute("UPDATE person_names SET is_canonical=FALSE WHERE id=$1", legal)
+            await other.execute("UPDATE person_names SET is_canonical=TRUE WHERE id=$1", variant)
+            task = asyncio.create_task(write_person_names(db, pid, kid, [_retract()]))
+            await asyncio.sleep(0.5)
+            assert not task.done(), "the retract should be blocked on the uncommitted promote"
+            await promote.commit()
+            committed = True
+            with pytest.raises(ObservationRejected) as exc:
+                await asyncio.wait_for(task, timeout=10)
+            assert exc.value.detail == "name_is_canonical"
+        finally:
+            if not committed:
+                with contextlib.suppress(asyncpg.exceptions.InterfaceError):
+                    await promote.rollback()
+            if task is not None and not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+            with contextlib.suppress(asyncpg.exceptions.InterfaceError):
+                await attempt.rollback()
+            # These rows are COMMITTED: clean up outside any transaction.
+            await other.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+            await other.execute("DELETE FROM people WHERE id=$1", pid)
+            await other.execute("DELETE FROM api_keys WHERE id=$1", kid)
+            await other.execute("DELETE FROM app_users WHERE id=$1", uid)
