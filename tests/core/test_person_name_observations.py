@@ -296,6 +296,38 @@ async def test_retract_drops_the_names_citations(db, person_id, key_id):
     )
 
 
+async def test_retract_refuses_a_name_another_key_cited(db, person_id, key_id):
+    """The same-key gate covers the row. Its citations are deleted with it, so a
+    citation someone else wrote is theirs to lose (CR 1)."""
+    other = await _api_key(db)
+    await write_person_names(db, person_id, key_id, [_variant()])
+    await write_person_names(db, person_id, other, [_variant(citations=[_cite()])])
+
+    with pytest.raises(ObservationRejected) as exc:
+        await write_person_names(db, person_id, key_id, [_retract()])
+
+    assert exc.value.detail == NameRejectReason.HAS_FOREIGN_CITATIONS
+    assert exc.value.detail == "name_has_foreign_citations"
+
+
+async def test_retract_refuses_a_name_a_curator_cited(db, person_id, key_id):
+    """A citation added in admin carries no key (CR 1)."""
+    (added,) = await write_person_names(db, person_id, key_id, [_variant()])
+    await db.execute(
+        "INSERT INTO citations (id, entity_type, entity_id, url)"
+        " VALUES ($1, 'person_name', $2, $3)",
+        generate_id(),
+        added.name_id,
+        "https://curator.example/source",
+    )
+
+    with pytest.raises(ObservationRejected) as exc:
+        await write_person_names(db, person_id, key_id, [_retract()])
+
+    assert exc.value.detail == "name_has_foreign_citations"
+    assert ("Jody Example", "variant") in await _names(db, person_id)
+
+
 async def test_retract_then_observe_adds_the_name_again(db, person_id, key_id):
     await write_person_names(db, person_id, key_id, [_variant()])
     await write_person_names(db, person_id, key_id, [_retract()])

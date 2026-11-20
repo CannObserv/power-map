@@ -73,6 +73,6 @@ for them; the catalog carries no value-format column.
 | `retracted` | `op="retract"`; `name_id` is the deleted row, or `null` when no public row of that identity was there |
 | `not-public` | accepted, but the name is not public (a `deadname`, or one a curator hid): no `name_id`, no citation results, and no word on whether it was already held |
 
-`name_id` is the `person_name` entity of the citations API (`docs/PUBLIC_API.md`). A name retract rejects the whole observation with `name_provenance_conflict` (another key's row, or one with no recorded key), `name_is_canonical`, `name_is_last` or `name_has_readings`. Rules and rationale → `docs/NAMES.md` § Name observations.
+`name_id` is the `person_name` entity of the citations API (`docs/PUBLIC_API.md`). A name retract rejects the whole observation with `name_provenance_conflict` (another key's row, or one with no recorded key), `name_is_canonical`, `name_is_last`, `name_has_readings` or `name_has_foreign_citations`. Rules and rationale → `docs/NAMES.md` § Name observations.
 
 **When to include `display_label`:** Add a label when the contact method serves a specific named function — e.g. `"Scheduler"`, `"Committee Office"`, `"Main Switchboard"`. Omit it for generic personal numbers where the value alone is self-explanatory.

@@ -66,6 +66,7 @@ class NameRejectReason(StrEnum):
     IS_CANONICAL = "name_is_canonical"
     IS_LAST = "name_is_last"
     HAS_READINGS = "name_has_readings"
+    HAS_FOREIGN_CITATIONS = "name_has_foreign_citations"
 
 
 @dataclass(frozen=True)
@@ -164,6 +165,17 @@ async def _retract(
         # reading_of_id is ON DELETE CASCADE: the delete would take rows this
         # key may not have written.
         raise ObservationRejected(NameRejectReason.HAS_READINGS)
+    if await conn.fetchval(
+        "SELECT 1 FROM citations WHERE entity_type='person_name' AND entity_id=$1"
+        "   AND source_key_id IS DISTINCT FROM $2 LIMIT 1",
+        name_id,
+        key_id,
+    ):
+        # The gate above covers the row; the citations die with it. One another
+        # key or a curator wrote (a retracted one included) is theirs to lose —
+        # and evidence someone else put on the name means it is no longer this
+        # key's claim alone.
+        raise ObservationRejected(NameRejectReason.HAS_FOREIGN_CITATIONS)
     # person_name is citable with no FK (#319): drop its citations first.
     await delete_citations(conn, "person_name", name_id)
     await conn.execute("DELETE FROM person_names WHERE id=$1", name_id)
