@@ -87,14 +87,14 @@ async def test_run_reports_each_table_against_its_own_window(
     conn = _Conn()
     result = PruneResult(deleted_entities=3, api_request_log=4)
 
-    async def _connect(dsn):
+    async def _connect(dsn, **kwargs):
         return conn
 
     async def _counted(c, retention):
         assert c is conn
         return result
 
-    monkeypatch.setattr(prune.asyncpg, "connect", _connect)
+    monkeypatch.setattr(prune, "connect_with_retry", _connect)
     monkeypatch.setattr(prune, "count_prunable", _counted)
     monkeypatch.setattr(prune, "prune_expired", _counted)
     caplog.set_level(logging.INFO, logger=prune.logger.name)

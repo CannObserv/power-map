@@ -13,6 +13,11 @@ EnvironmentFile=/etc/power-map/.env
 # failed, so anomalies surface in `systemctl --failed` and as an `anomaly`
 # alert check-in. Exit 3 (not 2) stays distinct from argparse usage errors.
 ExecStart=uv run python -m scripts.check_api_anomalies
+# A transient connect failure (DNS, refused, timeout) is retried in-process for
+# up to 645 s, then fails in this run (#833): this bounds the worst case, which
+# tests/test_infra_retry.py holds inside it. No Restart=: the check-in would
+# report every attempt.
+TimeoutStartSec=900
 
 # After every run, ok or alert, a check-in with co-status (#566): a failed run
 # reaches a person through Notifier, and a run that never happens goes `missing`.

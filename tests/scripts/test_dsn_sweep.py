@@ -48,6 +48,8 @@ DSN_MODULE = "_dsn"
 DSN_FUNCTIONS = frozenset({"resolve_dsn", "echo_target"})
 
 CONNECT_FUNCTIONS = frozenset({"connect", "create_pool"})
+# Imported helpers that connect, called by bare name (#833).
+CONNECT_HELPERS = frozenset({"connect_with_retry"})
 
 DSN_ENV_VARS = frozenset({"DATABASE_URL", "TEST_DATABASE_URL", "MIGRATIONS_DATABASE_URL"})
 
@@ -88,8 +90,10 @@ def _docstrings(tree: ast.Module) -> set[int]:
 def opens_a_connection(tree: ast.Module) -> bool:
     return any(
         isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr in CONNECT_FUNCTIONS
+        and (
+            (isinstance(node.func, ast.Attribute) and node.func.attr in CONNECT_FUNCTIONS)
+            or (isinstance(node.func, ast.Name) and node.func.id in CONNECT_HELPERS)
+        )
         for node in ast.walk(tree)
     )
 
@@ -285,6 +289,15 @@ def test_import_with_a_call_satisfies_the_dsn_check():
 
 def test_connection_detector_finds_create_pool():
     assert opens_a_connection(ast.parse("import asyncpg\nasyncpg.create_pool('x')"))
+
+
+def test_connection_detector_finds_connect_with_retry():
+    """#833 routed the timer scripts' connects through a bare-name helper.
+
+    Unseen, every DB timer script would skip the target-echo check above.
+    """
+    source = "from src.core.retry import connect_with_retry\nconnect_with_retry('x', backoff=b)"
+    assert opens_a_connection(ast.parse(source))
 
 
 def test_write_sql_detector_ignores_docstrings():

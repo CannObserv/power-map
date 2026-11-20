@@ -21,6 +21,12 @@ EnvironmentFile=/etc/power-map/.env
 # night. The last two are the ones that look most like one: every dataset then
 # reads `unchanged`.
 ExecStart=uv run python -m scripts.pull_datasets
+# A transient failure of any request (DNS, refused, timeout, 5xx, 429) is
+# retried in-process on one 645 s budget for the run, then fails in this run
+# (#833); a 401/403/404 or the login page fails at once. 1260 s ends the worst
+# case by 09:26, before desired-state can fire at 09:30: tests/test_infra_retry.py
+# holds both. No Restart=: the check-in would report every attempt.
+TimeoutStartSec=1260
 
 # After every run, ok or alert, a check-in with co-status (#566): a failed run
 # reaches a person through Notifier, and a run that never happens goes `missing`.

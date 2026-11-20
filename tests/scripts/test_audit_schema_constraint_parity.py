@@ -9,7 +9,7 @@ misconfiguration guards (empty reference, reference == target) that keep the
 monitor from passing vacuously, the reference-ahead classification against the
 deployed ``schema.sql`` and its per-object run streak (#632), the database
 CONNECT allowlist (#680), and ``main()``'s exit codes (3 failure, 4 reference
-ahead only). No live DB: ``asyncpg.connect`` and the ``snapshot_*`` helpers are
+ahead only). No live DB: ``connect_with_retry`` and the ``snapshot_*`` helpers are
 stubbed so each URL resolves to an injected per-kind snapshot, and the deployed
 schema is SQL text.
 """
@@ -125,7 +125,7 @@ def stub_dbs(monkeypatch):
     majors: dict[str, int] = {}
     calls: list[str] = []  # kinds actually snapshotted, in call order
 
-    async def fake_connect(dsn):
+    async def fake_connect(dsn, **kwargs):
         return _FakeConn(dsn, majors.get(dsn, 16))
 
     def _snapshotter(kind):
@@ -135,7 +135,7 @@ def stub_dbs(monkeypatch):
 
         return fake
 
-    monkeypatch.setattr(audit.asyncpg, "connect", fake_connect)
+    monkeypatch.setattr(audit, "connect_with_retry", fake_connect)
     monkeypatch.setattr(audit, "snapshot_constraints", _snapshotter("constraint"))
     monkeypatch.setattr(audit, "snapshot_functions", _snapshotter("function"))
     monkeypatch.setattr(audit, "snapshot_triggers", _snapshotter("trigger"))

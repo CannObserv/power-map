@@ -58,6 +58,7 @@ uv run "${env_args[@]}" python -m scripts.check_egress_ip   # one comparison, no
 | `DO API attempt n/3 failed … retrying` | a transient API failure being retried; fine if a later line says `source: the DO API` |
 | `DO API allowlist lookup failed — falling back`, then `cannot verify egress IP …` | **no alert** (#839): the API stayed down and the fallback disagrees. Usually the fallback is stale. Confirm with `curl -fsS localhost:8000/ready` (ok = the DB is reachable), then bring `EGRESS_EXPECTED_IPS` up to date (§ Fix step 1). Before #839 this read as `DRIFT … (source: EGRESS_EXPECTED_IPS)` and alerted |
 | `DRIFT … (source: EGRESS_EXPECTED_IPS)` | a host with no `DO_API_TOKEN`, where the env var is the only list: treat as real → § Fix |
+| `egress guard UNREADABLE — the DO API refused …` | exit 5, `unreadable` (#833): a 401/403/404 or no such cluster. The guard is blind, whatever the fallback says; the traceback above names the status. Re-mint `DO_API_TOKEN` (or fix `--cluster`) in `/etc/power-map/.env` |
 
 ### Fix
 

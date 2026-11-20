@@ -40,6 +40,10 @@ EnvironmentFile=/etc/power-map/.env
 ExecStart=uv run --group mapping python -m scripts.export_pm_tables
 ExecStart=uv run --group mapping python -m scripts.build_desired_state
 ExecStart=uv run --group mapping python -m scripts.apply_desired_state
+# export and apply each retry a transient connect failure in-process for up to
+# 645 s (#833); this bounds all three steps together, and tests/test_infra_retry.py
+# holds their worst case inside it. No Restart=: it would start again from export.
+TimeoutStartSec=1800
 
 # After every run, ok or alert, a check-in with co-status (#566): a failed run
 # reaches a person through Notifier, and a run that never happens goes `missing`.

@@ -97,6 +97,7 @@ import asyncpg
 from scripts._dsn import build_parser, default_dsn, echo_target
 from src.core.db import SCHEMA_PATH
 from src.core.logging import configure_logging, get_logger
+from src.core.retry import Backoff, connect_with_retry
 from src.core.schema_parity import (
     VERSION_SENSITIVE_KINDS,
     DeployedSchema,
@@ -386,9 +387,11 @@ async def run(
     # Open both connections up front and read both server majors *before* any
     # snapshot, so a version-sensitive kind that will be skipped (PG-major
     # mismatch) is never snapshotted on either side — no wasted pg_get_*def query.
-    ref_conn = await asyncpg.connect(reference_url)
+    # One retry budget for the run, shared by both connects (#833).
+    backoff = Backoff()
+    ref_conn = await connect_with_retry(reference_url, backoff=backoff)
     try:
-        tgt_conn = await asyncpg.connect(target_url)
+        tgt_conn = await connect_with_retry(target_url, backoff=backoff)
         try:
             ref_major = ref_conn.get_server_version().major
             tgt_major = tgt_conn.get_server_version().major

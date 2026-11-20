@@ -43,6 +43,7 @@ import httpx
 import yaml
 
 from src.core.logging import get_logger
+from src.core.retry import Backoff, is_transient_httpx, retry_async
 
 __all__ = [
     "CATALOG_PATH",
@@ -55,6 +56,7 @@ __all__ = [
     "PULL_FILE",
     "PULL_MAX_AGE",
     "Pin",
+    "PublisherUnavailable",
     "PullReport",
     "SnapshotStore",
     "Subscription",
@@ -132,6 +134,18 @@ class DatasetNotFound(CatalogError):
     Distinct from its parent because that statement is the only failure a caller
     may treat as "there is none", as opposed to "nobody could read it just now".
     """
+
+
+class PublisherUnavailable(CatalogError):
+    """A 5xx or a 429: the publisher, or the exe.dev proxy before it, may answer next time.
+
+    The one ``CatalogError`` that is retried (#833); every other is an answer.
+    """
+
+
+def is_transient_publisher_error(exc: BaseException) -> bool:
+    """For a request to the publisher: a transport blip or a status that may change."""
+    return isinstance(exc, PublisherUnavailable) or is_transient_httpx(exc)
 
 
 @dataclass(frozen=True)
@@ -330,6 +344,8 @@ def _check_response(response: httpx.Response, url: str) -> None:
         )
     if response.status_code == 404:
         raise DatasetNotFound(f"{url}: not found (HTTP 404) — the publisher is not serving this")
+    if response.status_code >= 500 or response.status_code == 429:
+        raise PublisherUnavailable(f"{url}: HTTP {response.status_code}")
     if response.status_code >= 400:
         raise CatalogError(f"{url}: HTTP {response.status_code}")
     if _looks_like_a_login_page(response):
@@ -339,21 +355,39 @@ def _check_response(response: httpx.Response, url: str) -> None:
         )
 
 
-async def _get(url: str, token: str, client: httpx.AsyncClient) -> httpx.Response:
-    # follow_redirects stays off: following turns an auth failure into whatever
-    # the login page happens to return, which is where the silent-empty-catalog
-    # failure comes from.
-    response = await client.get(
-        url, headers={AUTH_HEADER: f"Bearer {token}"}, follow_redirects=False
+async def _get(
+    url: str, token: str, client: httpx.AsyncClient, backoff: Backoff | None = None
+) -> httpx.Response:
+    """GET one publisher document, retried on a transient failure while *backoff* lasts.
+
+    The one door for the catalog and every file (#833): a run's ``Backoff`` is
+    shared by all of them. Without one, a single attempt.
+    """
+
+    async def attempt() -> httpx.Response:
+        # follow_redirects stays off: following turns an auth failure into whatever
+        # the login page happens to return, which is where the silent-empty-catalog
+        # failure comes from.
+        response = await client.get(
+            url, headers={AUTH_HEADER: f"Bearer {token}"}, follow_redirects=False
+        )
+        _check_response(response, url)
+        return response
+
+    return await retry_async(
+        attempt,
+        transient=is_transient_publisher_error,
+        backoff=backoff if backoff is not None else Backoff(()),
+        label=f"GET {url}",
     )
-    _check_response(response, url)
-    return response
 
 
-async def fetch_catalog(base_url: str, *, token: str, client: httpx.AsyncClient) -> Catalog:
+async def fetch_catalog(
+    base_url: str, *, token: str, client: httpx.AsyncClient, backoff: Backoff | None = None
+) -> Catalog:
     """Fetch and validate the dataset catalog from ``base_url``."""
     url = base_url.rstrip("/") + CATALOG_PATH
-    response = await _get(url, token, client)
+    response = await _get(url, token, client, backoff)
 
     content_type = response.headers.get("content-type", "")
     if "json" not in content_type.lower():
@@ -662,9 +696,10 @@ async def _fetch_file(
     filename: str,
     token: str,
     client: httpx.AsyncClient,
+    backoff: Backoff | None = None,
 ) -> bytes:
     url = f"{base_url.rstrip('/')}/datasets/{entry.name}/{entry.latest_version}/{filename}"
-    response = await _get(url, token, client)
+    response = await _get(url, token, client, backoff)
     return response.content
 
 
@@ -676,8 +711,12 @@ async def pull(
     token: str,
     client: httpx.AsyncClient,
     subscription: Subscription,
+    backoff: Backoff | None = None,
 ) -> PullReport:
-    """Fetch every subscribed dataset the store does not already hold."""
+    """Fetch every subscribed dataset the store does not already hold.
+
+    *backoff* is the run's retry budget (#833), shared with the catalog fetch.
+    """
     report = PullReport()
     seen: set[str] = set()
 
@@ -701,10 +740,12 @@ async def pull(
                 report.skipped.append(entry.name)
                 continue
 
-            files = {DATA_FILE: await _fetch_file(base_url, entry, DATA_FILE, token, client)}
+            files = {
+                DATA_FILE: await _fetch_file(base_url, entry, DATA_FILE, token, client, backoff)
+            }
             try:
                 files[PACKAGE_FILE] = await _fetch_file(
-                    base_url, entry, PACKAGE_FILE, token, client
+                    base_url, entry, PACKAGE_FILE, token, client, backoff
                 )
             except DatasetNotFound:
                 # Only a 404 — the publisher stating there is no schema file. The

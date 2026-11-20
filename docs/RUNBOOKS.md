@@ -212,9 +212,16 @@ as authentication — and the script refuses to start with no token at all.
   two unequal hashes.
 - **A snapshot lands without `datapackage.json` only on a 404**, the publisher
   stating there is none (logged at WARNING). Any other failure fetching it — a
-  500, an expired token — fails the dataset instead, because hash-skip would
-  otherwise make a one-second blip a permanently schema-less snapshot for the
-  life of that version.
+  500 that outlasts the retry, an expired token — fails the dataset instead,
+  because hash-skip would otherwise make a one-second blip a permanently
+  schema-less snapshot for the life of that version.
+- **A transient failure is waited out (#833).** Every request (the catalog and
+  each file) retries a connect or DNS failure, a timeout, a 5xx or a 429 on one
+  645 s budget for the whole run, then fails in that run; a 401/403, a 404 or
+  the login page answers at once. A run that recovered logs one WARNING
+  (`GET … succeeded after N attempts`). The unit's `TimeoutStartSec=1260` ends
+  the worst case before desired-state can fire at 09:30
+  ([ALERTING.md § Transient failures](ALERTING.md#transient-failures-833)).
 - **Each version carries `snapshot.json`** — name, version, schema version,
   digest, contract hash, row count, `generated_at`. That is what lets a consumer verify a
   snapshot without a second catalog fetch that may answer with a newer version

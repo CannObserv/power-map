@@ -20,11 +20,10 @@ Usage:
 import argparse
 import asyncio
 
-import asyncpg
-
 from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.logging import configure_logging, get_logger
 from src.core.maintenance import DEFAULT_RETENTION, Retention, count_prunable, prune_expired
+from src.core.retry import Backoff, connect_with_retry
 
 logger = get_logger(__name__)
 
@@ -37,7 +36,7 @@ _WINDOW_FLAGS = {
 
 async def run(dsn: str, *, execute: bool, retention: Retention) -> None:
     """Prune (or, in dry-run mode, count) each table's expired rows."""
-    conn = await asyncpg.connect(dsn)
+    conn = await connect_with_retry(dsn, backoff=Backoff())
     try:
         if not execute:
             eligible = await count_prunable(conn, retention)

@@ -29,6 +29,11 @@ EnvironmentFile=/etc/power-map/.env
 # exits 3; scripts/write-db-secrets.sh restores the set it owns.
 # Read-only on both databases; the state file is its only write.
 ExecStart=uv run python -m scripts.audit_schema_constraint_parity
+# A transient connect failure, either DB, (DNS, refused, timeout) is retried in-process for
+# up to 645 s, then fails in this run (#833): this bounds the worst case, which
+# tests/test_infra_retry.py holds inside it. No Restart=: the check-in would
+# report every attempt.
+TimeoutStartSec=900
 SuccessExitStatus=4
 
 # After every run, ok or alert, a check-in with co-status (#566): a failed run

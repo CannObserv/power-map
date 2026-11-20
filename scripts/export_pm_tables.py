@@ -32,6 +32,7 @@ import asyncpg
 from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core.ingestion.mapping.parquet import PM_EXPORT_DIR, TableSpec, write_parquet
 from src.core.logging import configure_logging, get_logger
+from src.core.retry import Backoff, connect_with_retry
 
 logger = get_logger(__name__)
 
@@ -112,7 +113,7 @@ async def run(fetch: Fetcher, *, root: Path | str) -> dict[str, int]:
 
 
 async def _run_against(dsn: str, root: str) -> dict[str, int]:
-    conn = await asyncpg.connect(dsn)
+    conn = await connect_with_retry(dsn, backoff=Backoff())
     try:
         return await run(partial(fetch_rows, conn), root=root)
     finally:

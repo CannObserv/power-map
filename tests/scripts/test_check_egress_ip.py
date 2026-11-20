@@ -30,11 +30,13 @@ from scripts.check_egress_ip import (
     API_RETRY_DELAYS,
     DEFAULT_SERVICES,
     DEFAULT_TIMEOUT,
+    EXIT_UNREADABLE,
     fetch_with_retry,
     lookup,
     main,
     parse_expected,
 )
+from scripts.status_checkin import parse_exit_kinds
 
 
 @pytest.fixture(autouse=True)
@@ -583,13 +585,81 @@ def test_a_fallback_mismatch_after_an_api_failure_is_not_drift(monkeypatch, caps
     assert "EGRESS_EXPECTED_IPS" in out
 
 
-def test_a_permanent_api_failure_with_a_stale_fallback_is_not_drift_either(monkeypatch):
+# --- a permanent API failure is unreadable, in the same run (#833 Q3) ------
+#
+# #841 left a revoked token quiet: the fallback answered, the guard went blind,
+# and nothing said so. Judged by cause, not by a run count: a refusal answers
+# the same way every run, so it alerts now; a blip stays quiet (the next tick
+# retries, and /ready catches a real cut-off).
+
+
+def _refused_run(monkeypatch, *, fallback: str | None, current: bytes, error: Exception):
+    monkeypatch.setenv("DO_API_TOKEN", "tok")
+    if fallback is None:
+        monkeypatch.delenv("EGRESS_EXPECTED_IPS", raising=False)
+    else:
+        monkeypatch.setenv("EGRESS_EXPECTED_IPS", fallback)
+    monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(current))
+    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", _flaky(error))
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+    return excinfo.value.code
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        _http_error(401),
+        _http_error(403),
+        _http_error(404),
+        LookupError("no cluster"),
+        ValueError("refusing to follow a pagination cursor off-host"),
+    ],
+    ids=["401", "403", "404", "no-cluster", "bad-body"],
+)
+def test_a_permanent_api_failure_is_unreadable(monkeypatch, error):
+    assert _refused_run(monkeypatch, fallback=None, current=b"69.67.149.183", error=error) == (
+        EXIT_UNREADABLE
+    )
+
+
+def test_unreadable_even_when_the_fallback_agrees(monkeypatch, capsys):
+    """The case #841 passed as ok: the address looks fine, but the guard is blind."""
+    code = _refused_run(
+        monkeypatch, fallback="69.67.149.183", current=b"69.67.149.183", error=_http_error(401)
+    )
+    assert code == EXIT_UNREADABLE
+    out = capsys.readouterr().out
+    assert "UNREADABLE" in out and "DO_API_TOKEN" in out
+    assert "lists it" in out
+
+
+def test_a_permanent_api_failure_with_a_stale_fallback_is_unreadable_not_drift(monkeypatch, capsys):
+    code = _refused_run(
+        monkeypatch, fallback="69.67.149.183", current=b"103.219.170.149", error=_http_error(401)
+    )
+    assert code == EXIT_UNREADABLE
+    out = capsys.readouterr().out
+    assert "DRIFT" not in out
+    assert "does not list it" in out
+
+
+def test_a_spent_transient_retry_stays_quiet(monkeypatch, capsys):
+    """Unchanged by #833: DO's own outage is not ours to page on (#841)."""
     monkeypatch.setenv("DO_API_TOKEN", "tok")
     monkeypatch.setenv("EGRESS_EXPECTED_IPS", "69.67.149.183")
     monkeypatch.setattr(sys, "argv", ["check_egress_ip"])
-    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"103.219.170.149"))
-    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", _flaky(_http_error(401)))
+    monkeypatch.setattr("scripts.check_egress_ip.urlopen", _opener(b"69.67.149.183"))
+    monkeypatch.setattr("scripts.check_egress_ip.fetch_allowed_ips", _flaky(_http_error(503)))
     main()  # no SystemExit
+    assert "UNREADABLE" not in capsys.readouterr().out
+
+
+def test_the_unit_names_the_unreadable_exit():
+    unit = (Path(__file__).parents[2] / "infra" / "power-map-egress-ip.service").read_text()
+    (raw,) = re.findall(r"^Environment=STATUS_EXIT_KINDS=(.*)$", unit, re.M)
+    assert parse_exit_kinds(raw) == {"3": "drift", str(EXIT_UNREADABLE): "unreadable"}
 
 
 def test_worst_case_run_fits_the_units_start_timeout():
