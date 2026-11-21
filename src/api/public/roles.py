@@ -26,6 +26,7 @@ from src.core.observation import (
     Disposition,
     IdentifierConflict,
     ObservationRejected,
+    log_replaced_identifiers,
     resolve_role,
     write_additional_identifiers,
     write_addresses,
@@ -250,7 +251,9 @@ async def submit_role_observation(
             await write_links(db, role_id, "role", req.links)
             await write_contact_methods(db, role_id, "role", req.contact_methods)
             await write_addresses(db, role_id, "role", req.addresses)
-            await write_additional_identifiers(db, role_id, "role", req.additional_identifiers)
+            replaced = await write_additional_identifiers(
+                db, role_id, "role", req.additional_identifiers
+            )
     except ObservationRejected as exc:
         return ObservationResponse(disposition="rejected", reason=exc.detail)
     except IdentifierConflict as exc:
@@ -265,6 +268,7 @@ async def submit_role_observation(
     except (asyncpg.CheckViolationError, asyncpg.ForeignKeyViolationError):
         return ObservationResponse(disposition="rejected", reason="db_constraint_violation")
 
+    log_replaced_identifiers("role", role_id, replaced)
     return ObservationResponse(
         disposition=disposition.value,
         entity_id=role_id,

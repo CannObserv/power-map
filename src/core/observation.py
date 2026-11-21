@@ -368,6 +368,15 @@ class ObservationRejected(Exception):
         super().__init__(detail)
 
 
+@dataclass(frozen=True)
+class ReplacedIdentifier:
+    """One applied ``replaces`` swap (#848): the type, the value removed, the value held."""
+
+    slug: str
+    old: str
+    new: str
+
+
 class IdentifierConflict(Exception):
     """Raised when an additional identifier conflicts with an existing one on the entity."""
 
@@ -1513,10 +1522,11 @@ async def lookup_org_parent_by_acronym(conn, acronym: str) -> str:
 
 async def write_additional_identifiers(
     conn, entity_id: str, entity_type: str, additional_identifiers: list
-) -> None:
-    """Write additional identifier claims.
+) -> list[ReplacedIdentifier]:
+    """Write additional identifier claims; return the ``replaces`` swaps applied.
 
-    Each item must expose ``.identifier_type_slug`` and ``.identifier_value``.
+    Each item must expose ``.identifier_type_slug`` and ``.identifier_value``,
+    and may expose ``.replaces``.
 
     Policy:
       - Same type + same value on entity, in any of its rows of the type → no-op
@@ -1528,10 +1538,19 @@ async def write_additional_identifiers(
       - A ``*_cannabis_observer`` value another entity holds, archived or not →
         raise ObservationRejected ``identifier_taken`` naming the holder (#812)
       - New type → insert
+
+    An item naming ``.replaces`` (#848) swaps that value for its own instead of
+    conflicting — :func:`_replace_applies` and :func:`_swap_identifier` hold the
+    rules. The lock and ``identifier_taken`` checks above still run ahead of the
+    swap. The swaps are returned, not logged: this runs inside the route's
+    transaction, which a later write can still roll back, so the route logs
+    them once it has committed (:func:`log_replaced_identifiers`).
     """
+    replaced: list[ReplacedIdentifier] = []
     for item in additional_identifiers:
         slug = item.identifier_type_slug
         value = item.identifier_value
+        replaces = getattr(item, "replaces", None)
         eit = await conn.fetchrow(
             "SELECT id, entity_type, is_internal FROM entity_identifier_types WHERE slug=$1", slug
         )
@@ -1547,23 +1566,17 @@ async def write_additional_identifiers(
             # *type's* table and mislabels the UBI's lookup organization_archived.
             raise ObservationRejected(f"identifier_type_mismatch: {slug!r}")
         eit_id = eit["id"]
-        # Every row of the type, not one: a person may carry several keys of a type
-        # (#710: a returning legislator's two roster keys), and any of them satisfies.
-        held = {
-            r["value"]
-            for r in await conn.fetch(
-                "SELECT value FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",
-                entity_id,
-                eit_id,
-            )
-        }
-        if value in held:
+        held = await _held_identifier_values(conn, entity_id, eit_id)
+        if replaces is None:
+            if value in held:
+                continue
+        elif not _replace_applies(eit_id, slug, value, replaces, held):
             continue
         # #710 decision (a): a type a dataset asserts on this entity comes only
         # from the dataset — an observed key could never be removed here.
         if await dataset_owned_identifier(conn, entity_type, entity_id, eit_id):
             raise ObservationRejected(f"identifier_locked: {slug!r}")
-        if held:
+        if held and replaces is None:
             raise IdentifierConflict(slug)
         # #812: a *_cannabis_observer value names one entity. Name the holder
         # here; one committing after this read meets the index instead, and the
@@ -1572,14 +1585,125 @@ async def write_additional_identifiers(
             holder = await identifier_holder(conn, eit_id, value, other_than=entity_id)
             if holder is not None:
                 raise ObservationRejected(taken_reason(slug, holder))
-        await conn.execute(
-            "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
-            " VALUES ($1, $2, $3, $4)",
-            generate_id(),
+        if replaces is None:
+            await _insert_identifier(conn, entity_id, eit_id, value)
+        elif await _swap_identifier(conn, entity_id, eit_id, slug, value, replaces):
+            replaced.append(ReplacedIdentifier(slug, replaces, value))
+    return replaced
+
+
+async def _insert_identifier(conn, entity_id: str, type_id: str, value: str) -> None:
+    """Add one identifier row to the entity."""
+    await conn.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        entity_id,
+        type_id,
+        value,
+    )
+
+
+def log_replaced_identifiers(
+    entity_type: str, entity_id: str, replaced: list[ReplacedIdentifier]
+) -> None:
+    """One INFO line per applied swap (#848) — call it after the transaction commits.
+
+    ``identifiers`` keeps no history and no writer, so this line and the request
+    log are what record a replace.
+    """
+    for swap in replaced:
+        logger.info(
+            "identifier replaced: %s %s %s %r -> %r",
+            entity_type,
             entity_id,
-            eit_id,
-            value,
+            swap.slug,
+            swap.old,
+            swap.new,
         )
+
+
+async def _held_identifier_values(conn, entity_id: str, type_id: str) -> set[str]:
+    """Every value of the type the entity holds.
+
+    Every row, not one: a person may carry several keys of a type (#710: a
+    returning legislator's two roster keys), and any of them satisfies a claim.
+    """
+    rows = await conn.fetch(
+        "SELECT value FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",
+        entity_id,
+        type_id,
+    )
+    return {r["value"] for r in rows}
+
+
+def _replace_applies(type_id: str, slug: str, value: str, replaces: str, held: set[str]) -> bool:
+    """Whether a replace item has a value to remove; False when it is already done (#848).
+
+    The caller names the value it expects to remove, so a stale picture is
+    rejected rather than acted on:
+
+      - a type outside the four ``*_cannabis_observer`` ones → ``replaces_unsupported``
+        (every other type repeats, is dataset-owned or is history)
+      - ``replaces`` equal to the item's own value → ``invalid``
+      - the old value held → True: remove it (the new one may be held too — a
+        merge moves every identifier onto the survivor)
+      - only the new value held → False: a re-sent replace, nothing to write
+      - neither held → ``replaces_not_held``
+    """
+    if type_id not in UNIQUE_IDENTIFIER_TYPE_IDS:
+        raise ObservationRejected(f"replaces_unsupported: {slug!r}")
+    if replaces == value:
+        raise ObservationRejected("invalid")
+    if replaces in held:
+        return True
+    if value in held:
+        return False
+    raise ObservationRejected(f"replaces_not_held: {slug!r}")
+
+
+async def _swap_identifier(
+    conn, entity_id: str, type_id: str, slug: str, value: str, replaces: str
+) -> bool:
+    """Remove the value a replace names and hold the new one; False when already done.
+
+    Nothing here trusts the read :func:`_replace_applies` judged, which another
+    writer may have overtaken:
+
+      - The delete's own row count says whether the old value was still there.
+        A replace that committed in between took it, and this one must not add a
+        second value: ``replaces_not_held``, or a no-op if that writer made the
+        same swap.
+      - Whether to insert is read again after the delete. Had the new value
+        been held and since removed, skipping the insert would leave the entity
+        with no link.
+
+    The second read needs no lock. The delete's parent-touch trigger takes the
+    entity's row, so another writer changing this entity's identifiers either
+    committed before the delete returned, and is visible, or waits in its own
+    trigger until this transaction ends.
+    """
+    removed = await conn.fetch(
+        "DELETE FROM identifiers"
+        " WHERE entity_id=$1 AND entity_identifier_type_id=$2 AND value=$3 RETURNING id",
+        entity_id,
+        type_id,
+        replaces,
+    )
+    holds_new = await conn.fetchval(
+        "SELECT 1 FROM identifiers"
+        " WHERE entity_id=$1 AND entity_identifier_type_id=$2 AND value=$3",
+        entity_id,
+        type_id,
+        value,
+    )
+    if not removed:
+        if holds_new:
+            return False
+        raise ObservationRejected(f"replaces_not_held: {slug!r}")
+    if not holds_new:
+        await _insert_identifier(conn, entity_id, type_id, value)
+    return True
 
 
 class _EventRejected(Exception):

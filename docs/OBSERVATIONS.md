@@ -86,7 +86,8 @@ Attaching a value another entity holds rejects the observation
 `identifier_taken: '<slug>' held by '<id>'`, or `held by archived '<id>'`: archiving
 keeps identifiers (#481), so the fix is to unarchive or merge the holder, not to send a
 new value. It is distinct from `identifier_conflict` (this entity already holds a
-*different* value of the type), which is checked first. A writer committing the value
+*different* value of the type), which is checked first; to swap that value, send
+`replaces` (#848, `docs/ANCILLARY.md` § Replacing). A writer committing the value
 between that check and the insert loses on the index and gets the same reason (a bare
 `identifier_taken` if the violation can't be read back). The admin panels refuse it
 with a warning naming the holder. So a list filter's `meta.count > 1` can only be a

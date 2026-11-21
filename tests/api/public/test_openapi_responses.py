@@ -309,3 +309,11 @@ def test_every_operation_declares_the_validation_422():
         != ref
     ]
     assert not missing, missing
+
+
+def test_additional_identifier_item_documents_an_optional_replaces():
+    """#848: the generated client takes the field from this schema."""
+    item = app.openapi()["components"]["schemas"]["ObservationAdditionalIdentifier"]
+
+    assert "replaces" in item["properties"]
+    assert "replaces" not in item.get("required", [])
