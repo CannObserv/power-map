@@ -23,11 +23,13 @@ A retract touches only a **public** row. A row a curator hid is theirs: hiding
 is the durable "no" (the dedup probe is visibility-blind, so a re-send stays a
 no-op), and deleting the hidden row would forget it.
 
-**Nothing a read withholds is reported.** A claim can resolve to a row that is
-not public — a deadname (forced ``legal_only`` on insert), or a name a curator
-hid. Such a claim answers ``not-public`` with no id and no citation results,
-whether the row was new or already held: ``new`` versus ``auto-attached`` would
-tell a caller that the person holds a name no read returns.
+**What a non-public row reports.** A claim can resolve to a row that is not
+public — a deadname (forced ``legal_only`` on insert), or a name a curator hid.
+It answers ``not-public`` with no id and no citation results. For a deadname
+that is the answer whether the row was new or already held. For any other type
+a new row lands public, so ``not-public`` does say the person already holds
+that name non-publicly: the dedup probe is visibility-blind, and an observe
+followed by a read always showed as much.
 """
 
 from collections.abc import Sequence

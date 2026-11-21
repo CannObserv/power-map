@@ -1058,9 +1058,9 @@ class NameObservationResult(BaseModel):
 
     ``not-public``: the claim was accepted, but the name is not public — a
     ``deadname`` (always stored ``legal_only``), or a name a curator has hidden,
-    which a re-send does not republish. No id, no citation results, and no word
-    on whether the name was already held: none of that is given for a name a
-    read would not return.
+    which a re-send does not republish. No id and no citation results. For a
+    ``deadname`` it does not say whether the name was already held; for any
+    other type it means the person already holds the name, non-publicly.
     """
 
     disposition: str  # 'new' | 'auto-attached' | 'retracted' | 'not-public'

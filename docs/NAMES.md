@@ -155,7 +155,7 @@ Admin support for the edge: `people_reading_target_search.py` powers the "readin
 - **Client hint present** (`is_canonical=true` on some name) — that name claims the slot, guarded by `NOT EXISTS (… person_id AND is_canonical)`; never displaces an existing canonical. A hint on a `deadname` is ignored (`NEVER_CANONICAL_NAME_TYPES`) rather than raising `CheckViolationError` and failing the whole observation.
 - **No hint** — PM auto-promotes exactly one name per write, picked by `_PERSON_NAME_TYPE_PRIORITY` (`preferred` > `legal` > `alias` > …). `NO_AUTO_CANONICAL_NAME_TYPES` (`deadname`, `mrz`, `romanization`, `reading`, `variant`) is never auto-promoted, on insert or by the heal.
 
-**A `variant` is never promoted unasked (#845).** It is another spelling of a name the person already holds, and producers add them from machine transcripts; which spelling a person displays under is a curator's decision. Before #845 a variant could take the slot two ways once a person had no canonical: on insert, where only the *payload* is ranked (so a lone variant won even beside an unpromoted `legal` row), and by the heal after a curator deleted the canonical name. A person whose only public names are variants now shows no display name until a curator promotes one, or a client sends `is_canonical: true`. The usa-wa applier relies on this: the only row it may rewrite is the canonical row of the type it asserts, so a variant that is never canonical is never overwritten.
+**A `variant` is never promoted unasked (#845).** It is another spelling of a name the person already holds, and producers add them from machine transcripts; which spelling a person displays under is a curator's decision. Before #845 a variant could take the slot two ways once a person had no canonical: on insert, where only the *payload* is ranked (so a lone variant won even beside an unpromoted `legal` row), and by the heal after a curator deleted the canonical name. A person whose only public names are variants now shows no display name until a curator promotes one. A client's `is_canonical: true` promotes a variant only in the claim that adds it: the hint acts on insert, never on a name already held. The usa-wa applier relies on this: the only row it may rewrite is the canonical row of the type it asserts, so a variant that is never canonical is never overwritten.
 
 Eligibility is by **identity, not name string**: the promotion target is an index into the payload, and the append-dedup key is `(name, name_type, locale, script)`. Matching on the bare string let an `mrz` row claim the display slot ahead of a `legal` one purely by list order, and silently discarded the second claim.
 
@@ -167,45 +167,9 @@ The heal is a read-only probe plus a guarded `UPDATE`. The probe cannot violate 
 
 `scripts/backfill_person_canonical_names.py` repairs people who predate this, selecting with the **same ladder** so both repair paths choose the same row (`test_backfill_matches_heal_choice`).
 
-### Name observations — results, citations, retract (#845)
+### Name observations (#845)
 
-`src/core/person_name_observations.py` is the person-name half of `POST /people/observations`. `write_names` still decides what a claim inserts and promotes; this module reports each claim, attaches a claim's own citations, and lets a key take back a name it added. Embedded only, so **all-or-nothing**: a rejected retract or name citation rejects the whole observation.
-
-**Per-name results.** `ObservationResponse.names[]`, in request order:
-
-| `disposition` | Meaning | `name_id` |
-|---|---|---|
-| `new` | the name was added | the new row |
-| `auto-attached` | the person already held it | the held row |
-| `retracted` | `op="retract"` | the deleted row; null when no public row of that identity was there (nothing removed) |
-| `not-public` | accepted, but the row is not public | null |
-
-**Nothing a read withholds is reported.** A claim can resolve to a non-public row: a `deadname` (forced `legal_only` on insert), or a name a curator hid. It answers `not-public` — no id, no citation results, and the same answer whether the row was new or already held. `new` versus `auto-attached` would tell a caller that the person holds a name no read returns.
-
-**Citations on a name.** `names[].citations` takes the usual citation items (`field_name`: `name` or omitted) and applies them to the row the claim resolved to — new, already held, or not public — under `observations:write`, as an observation's own `citations[]` are. A rejected one (`citable_field_unknown`, …) rejects the observation.
-
-**Retract** deletes one row. It follows the other retractable paths (`docs/OBSERVATIONS.md`) where a name allows, and differs in three places:
-
-| | Assignments, events, citations, relationships | Names |
-|---|---|---|
-| Addressed by | the row's `pm_*_id` | the identity `(name, name_type, locale, script)` on the addressed person — the dedup key, and exact |
-| Provenance gate | same key, or a NULL `source_key_id` | **same key only**: every curated, imported and dataset-applied name has a NULL stamp, so same-or-NULL would let any `observations:write` key delete them |
-| Effect | archive (`archived_at`) | **delete** the row and its citations, as the admin delete does — `person_names` has no archive state |
-
-- So there is **no anti-resurrection**: a later observe adds the name again.
-- **A public row only.** A row a curator hid is theirs — hiding is the durable "no", since the dedup probe is visibility-blind and a re-send stays a no-op. Deleting the hidden row would forget that. No public row of the identity (a re-emitted retract, a row a curator retyped or hid) is a quiet no-op: `retracted`, null `name_id`.
-- Every field on a retract item but the identity is ignored. One identity both observed and retracted in a request is a 422.
-- **Retracts are applied first**, then the observes and the heal, whatever the list order. A retract is judged against the person as the request found them: the heal cannot promote the row about to go, and a name added alongside does not lift `name_is_last`.
-
-| Reason | When |
-|---|---|
-| `name_provenance_conflict` | the public row was written by another key, or carries no stamp |
-| `name_is_canonical` | it is the displayed name — a curator promoted it, or a hint claimed the slot |
-| `name_is_last` | it is the person's only **public** name — the guard answers from what a read shows, so a hidden name neither permits the delete nor is revealed by it |
-| `name_has_foreign_citations` | a citation on it was written by another key or a curator (a retracted one counts): the citations are deleted with the row, and those are not the caller's |
-| `name_has_readings` | a `reading_of_id` child points at it, of any visibility; the `ON DELETE CASCADE` would take rows the key may not have written. This one can reveal that a hidden reading exists — the alternative is deleting a curator's row unseen |
-
-Not built: a retract for org names, and a native (partial-success) transport.
+What `POST /people/observations` does with `names[]` beyond inserting — per-name results, citations on a name, `op="retract"` — is in [API_PEOPLE.md](API_PEOPLE.md#name-observations--results-citations-retract-845). Code: `src/core/person_name_observations.py`. Two rules bear on this file: a retract deletes only a **public, non-canonical** row the calling key wrote, and a non-public row is never deleted, and never reported beyond `not-public`.
 
 ### BCP 47 / ISO 15924 lookup tables (issue #123, Phase 2-prep)
 
