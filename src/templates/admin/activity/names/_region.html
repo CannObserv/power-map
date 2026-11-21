@@ -22,7 +22,7 @@
         <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
         <td>
           {% if r.is_public %}{{ r.name }}
-          {% else %}<em>Not public — review on the person page</em>{% endif %}
+          {% else %}<em>Not public — on the person page, use Show legal/historical names</em>{% endif %}
         </td>
         <td>{{ r.name_type or "—" }}</td>
         <td>

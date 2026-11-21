@@ -228,6 +228,8 @@ async def test_non_public_name_withholds_text_and_type(client, seeded):
     assert "legal_only" not in table
     row = _row_html(r.text, seeded["deadname"])
     assert "Not public" in row
+    # The person page hides the name until its disclosure toggle is used: say so.
+    assert "Show legal/historical names" in row
     assert f'href="/admin/people/{seeded["p1"]}/"' in row
 
 
