@@ -1,0 +1,45 @@
+{% extends "admin/base.html" %}
+{% block title %}Key-written names{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span>
+  <a href="/admin/activity/">Activity</a><span class="breadcrumb__sep">›</span><span>Key-written names</span>
+{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Key-written names</h1></div>
+<p>Person names added through the public API, newest first, with the key that wrote each one. A name is listed while it is held: a retracted name is gone, and a deleted key's names lose their key. A name that is not public shows no text here; open the person to review it.</p>
+<div class="filter-card">
+  <div class="filter-card__controls">
+    <div class="filter-card__field">
+      <label for="key-names-key-filter">Key</label>
+      <select id="key-names-key-filter" name="key"
+              hx-get="/admin/activity/names/" hx-trigger="change"
+              hx-target="#key-names-list-region"
+              hx-include="[name='page_size']"
+              hx-vals='{"page": 1}' hx-push-url="true">
+        <option value="" {% if not key %}selected{% endif %}>All keys</option>
+        {% for k in keys %}
+        <option value="{{ k.id }}" {% if key == k.id %}selected{% endif %}>{{ k.label }}</option>
+        {% endfor %}
+        {% if key and not key_known %}
+        <option value="{{ key }}" selected>(a key that holds no names)</option>
+        {% endif %}
+      </select>
+    </div>
+    <div class="filter-card__field">
+      <label for="key-names-page-size">Per page</label>
+      <select id="key-names-page-size" name="page_size"
+              hx-get="/admin/activity/names/" hx-trigger="change"
+              hx-target="#key-names-list-region"
+              hx-include="[name='key']"
+              hx-vals='{"page": 1}' hx-push-url="true">
+        {% for n in [25, 50, 100, 250] %}
+        <option value="{{ n }}" {% if page_size == n %}selected{% endif %}>{{ n }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+</div>
+<div id="key-names-list-region" aria-live="polite" aria-atomic="false">
+  {% include "admin/activity/names/_region.html" %}
+</div>
+{% endblock %}

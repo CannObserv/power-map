@@ -1,0 +1,44 @@
+{# admin/activity/names/_region.html — the key-written names table (#847),
+   swapped on each filter change. A non-public row arrives with name and
+   name_type NULL (the SQL withholds them) and says so instead. #}
+{% from "admin/macros/pagination.html" import controls as pagination %}
+{% set _qs = "key=" ~ key|urlencode ~ "&page_size=" ~ page_size %}
+<div class="table-wrapper">
+  <table class="data-table" id="key-names-table">
+    <caption>Key-written names — {{ total }} name{{ "s" if total != 1 else "" }}</caption>
+    <thead>
+      <tr>
+        <th scope="col" class="col--date">Added (UTC)</th>
+        <th scope="col">Name</th>
+        <th scope="col">Type</th>
+        <th scope="col">Person</th>
+        <th scope="col">Key</th>
+        <th scope="col">Citations</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr data-name-id="{{ r.id }}">
+        <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>
+          {% if r.is_public %}{{ r.name }}
+          {% else %}<em>Not public — review on the person page</em>{% endif %}
+        </td>
+        <td>{{ r.name_type or "—" }}</td>
+        <td>
+          <a href="/admin/people/{{ r.person_id }}/">{{ r.person_name or "(unnamed)" }}</a>
+          {% if r.person_archived_at %}<span class="badge badge--archived">Archived</span>{% endif %}
+        </td>
+        <td><a href="/admin/activity/names/?key={{ r.source_key_id }}">{{ r.key_label }}</a></td>
+        <td data-citation-count="{{ r.citation_count }}">{{ r.citation_count }}</td>
+      </tr>
+      {% else %}
+      <tr data-empty-row><td colspan="6" style="text-align:center;color:var(--color-text-muted)">No key-written names</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="pagination--sticky">
+  {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
+               "/admin/activity/names/", "#key-names-list-region", _qs) }}
+</div>
