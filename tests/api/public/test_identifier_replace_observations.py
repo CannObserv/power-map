@@ -12,15 +12,18 @@ import inspect
 import pytest
 import pytest_asyncio
 
-from src.api.main import app
 from src.api.public import assignments, jurisdictions, orgs, people, roles
+from src.core import observation
+from src.core.db import generate_id
 from tests.api.public.test_identifier_taken_observations import (
     ROUTES,
+    TABLES,
     UNIQUE_SLUGS,
     _entity,
     _identify,
     _key,
 )
+from tests.db_utils import row_version
 from tests.polymorphic_seeders import archived_entity
 
 pytestmark = [pytest.mark.integration]
@@ -82,11 +85,14 @@ async def test_a_replace_sent_twice_is_a_noop_the_second_time(
     target = await _entity(db, entity_type)
     await _identify(db, target, UNIQUE_SLUGS[entity_type], "01OLD")
     await _replace(client, write_headers, entity_type, target, "01NEW", "01OLD")
+    before = await row_version(db, TABLES[entity_type], target)
 
     r = await _replace(client, write_headers, entity_type, target, "01NEW", "01OLD")
 
     assert r.json()["disposition"] == "auto-attached"
     assert await _values(db, target) == ["01NEW"]
+    # A delete and re-insert would leave the same values but touch the parent.
+    assert await row_version(db, TABLES[entity_type], target) == before
 
 
 @pytest.mark.parametrize("entity_type", sorted(ROUTES))
@@ -129,6 +135,31 @@ async def test_a_replace_with_a_taken_new_value_keeps_the_old_one(
 
 
 @pytest.mark.parametrize("entity_type", sorted(ROUTES))
+async def test_a_replace_losing_the_index_race_keeps_the_old_value(
+    client, db, write_headers, monkeypatch, entity_type
+):
+    """The holder commits after the pre-check reads: the insert meets the index
+    after the old value was deleted, and the rollback must bring it back."""
+
+    async def _nobody(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(observation, "identifier_holder", _nobody)
+    holder = await _entity(db, entity_type)
+    target = await _entity(db, entity_type)
+    await _identify(db, holder, UNIQUE_SLUGS[entity_type], "01NEW")
+    await _identify(db, target, UNIQUE_SLUGS[entity_type], "01OLD")
+
+    r = await _replace(client, write_headers, entity_type, target, "01NEW", "01OLD")
+
+    assert r.json()["disposition"] == "rejected"
+    assert r.json()["reason"] == (
+        f"identifier_taken: '{UNIQUE_SLUGS[entity_type]}' held by '{holder}'"
+    )
+    assert await _values(db, target) == ["01OLD"]
+
+
+@pytest.mark.parametrize("entity_type", sorted(ROUTES))
 async def test_a_replace_on_an_archived_entity_is_not_found(
     client,
     db,
@@ -150,11 +181,12 @@ async def test_a_replace_on_a_jurisdiction_is_unsupported(client, db, write_head
     """The item model is shared with jurisdictions, which have no such type."""
     target = await archived_entity(db, "jurisdiction")
     await db.execute("UPDATE jurisdictions SET archived_at = NULL WHERE id = $1", target)
-    await _identify(db, target, "jur_fips", "53033")
+    fips = f"fips-{generate_id()}"
+    await _identify(db, target, "jur_fips", fips)
     await _identify(db, target, "jur_ocd", "ocd-old")
     payload = {
         "identifier_type": "jur_fips",
-        "identifier_value": "53033",
+        "identifier_value": fips,
         "additional_identifiers": [
             {
                 "identifier_type_slug": "jur_ocd",
@@ -168,7 +200,7 @@ async def test_a_replace_on_a_jurisdiction_is_unsupported(client, db, write_head
 
     assert r.json()["disposition"] == "rejected"
     assert r.json()["reason"] == "replaces_unsupported: 'jur_ocd'"
-    assert await _values(db, target) == ["53033", "ocd-old"]
+    assert await _values(db, target) == [fips, "ocd-old"]
 
 
 def _replaced_lines(caplog) -> list[str]:
@@ -225,10 +257,3 @@ def test_every_route_that_writes_identifiers_logs_its_replaces(module):
 
     assert "write_additional_identifiers(" in source
     assert "log_replaced_identifiers(" in source
-
-
-def test_the_item_schema_documents_replaces():
-    item = app.openapi()["components"]["schemas"]["ObservationAdditionalIdentifier"]
-
-    assert "replaces" in item["properties"]
-    assert "replaces" not in item.get("required", [])

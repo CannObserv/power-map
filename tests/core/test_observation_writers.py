@@ -2373,6 +2373,25 @@ async def test_replace_is_refused_on_a_type_outside_the_four(db, person_id):
     assert await db.fetchval("SELECT value FROM identifiers WHERE entity_id=$1", person_id) == "1"
 
 
+async def test_replace_on_a_dataset_owned_type_is_unsupported_not_locked(db, person_id):
+    """#710's types are outside the four, so scope answers before the lock."""
+    await write_additional_identifiers(db, person_id, "person", _roster("smith:1933"))
+    await _anchor(db, person_id)
+
+    with pytest.raises(ObservationRejected) as exc:
+        await write_additional_identifiers(
+            db,
+            person_id,
+            "person",
+            _swap("smith:1941", "smith:1933", "person_wa_legislature_roster"),
+        )
+
+    assert exc.value.detail == "replaces_unsupported: 'person_wa_legislature_roster'"
+    assert await db.fetchval("SELECT value FROM identifiers WHERE entity_id=$1", person_id) == (
+        "smith:1933"
+    )
+
+
 async def test_replace_naming_its_own_value_is_invalid(db, person_id):
     await _hold(db, person_id, "01SAME")
 
