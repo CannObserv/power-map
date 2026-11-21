@@ -23,6 +23,7 @@ from src.api.public.schemas import (
     ObservationPersonNameParts,
     ObservationRoleAssignment,
 )
+from src.core import observation
 from src.core.db import generate_id
 from src.core.normalizers.address import AddressNormalizerConfig, FallbackAddressNormalizer
 from src.core.observation import (
@@ -2262,6 +2263,175 @@ async def test_write_additional_identifiers_any_held_row_of_the_value_is_a_noop(
         await write_additional_identifiers(db, person_id, "person", _roster(value))
 
     assert await db.fetchval("SELECT count(*) FROM identifiers WHERE entity_id=$1", person_id) == 2
+
+
+# --- #848: replace a *_cannabis_observer value, naming the value expected ----
+
+
+def _swap(new: str, old: str, slug: str = "person_cannabis_observer") -> list:
+    return [
+        ObservationAdditionalIdentifier(
+            identifier_type_slug=slug, identifier_value=new, replaces=old
+        )
+    ]
+
+
+async def _site_values(db, entity_id: str) -> list[str]:
+    rows = await db.fetch(
+        "SELECT i.value FROM identifiers i"
+        " JOIN entity_identifier_types t ON t.id = i.entity_identifier_type_id"
+        " WHERE i.entity_id = $1 AND t.slug = 'person_cannabis_observer' ORDER BY i.value",
+        entity_id,
+    )
+    return [r["value"] for r in rows]
+
+
+async def _hold(db, person_id: str, *values: str) -> None:
+    """Put site values on the person directly, as a merge can leave two (#848)."""
+    for value in values:
+        await db.execute(
+            "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+            " SELECT $1, $2, id, $3 FROM entity_identifier_types"
+            " WHERE slug = 'person_cannabis_observer'",
+            generate_id(),
+            person_id,
+            value,
+        )
+
+
+async def test_replace_swaps_the_held_old_value_for_the_new_one(db, person_id):
+    await _hold(db, person_id, "01OLD")
+
+    await write_additional_identifiers(db, person_id, "person", _swap("01NEW", "01OLD"))
+
+    assert await _site_values(db, person_id) == ["01NEW"]
+
+
+async def test_replace_repeated_is_a_noop(db, person_id):
+    """The new value held and the old one gone: a re-sent replace writes nothing."""
+    await _hold(db, person_id, "01NEW")
+    before = await row_version(db, "people", person_id)
+
+    await write_additional_identifiers(db, person_id, "person", _swap("01NEW", "01OLD"))
+
+    assert await _site_values(db, person_id) == ["01NEW"]
+    assert await row_version(db, "people", person_id) == before
+
+
+async def test_replace_removes_the_old_value_when_both_are_held(db, person_id):
+    """A merge moves every identifier onto the survivor, so both can be held."""
+    await _hold(db, person_id, "01NEW", "01OLD")
+
+    await write_additional_identifiers(db, person_id, "person", _swap("01NEW", "01OLD"))
+
+    assert await _site_values(db, person_id) == ["01NEW"]
+
+
+@pytest.mark.parametrize("held", [(), ("01SOMEONE-ELSES",)], ids=["nothing", "another-value"])
+async def test_replace_rejects_when_neither_value_is_held(db, person_id, held):
+    """The caller's picture is stale: never remove a value it did not name."""
+    await _hold(db, person_id, *held)
+
+    with pytest.raises(ObservationRejected) as exc:
+        await write_additional_identifiers(db, person_id, "person", _swap("01NEW", "01OLD"))
+
+    assert exc.value.detail == "replaces_not_held: 'person_cannabis_observer'"
+    assert await _site_values(db, person_id) == list(held)
+
+
+@pytest.mark.parametrize("archived", [False, True])
+async def test_replace_with_a_new_value_another_entity_holds_is_taken(db, person_id, archived):
+    """#812 still holds: the old value stays, and the holder is named."""
+    holder = await _person_holding(db, "01NEW", archived=archived)
+    await _hold(db, person_id, "01OLD")
+
+    with pytest.raises(ObservationRejected) as exc:
+        await write_additional_identifiers(db, person_id, "person", _swap("01NEW", "01OLD"))
+
+    state = "archived " if archived else ""
+    assert exc.value.detail == (
+        f"identifier_taken: 'person_cannabis_observer' held by {state}'{holder}'"
+    )
+    assert await _site_values(db, person_id) == ["01OLD"]
+
+
+async def test_replace_is_refused_on_a_type_outside_the_four(db, person_id):
+    """Other types repeat, are dataset-owned or are history: nothing to swap safely."""
+    await write_additional_identifiers(
+        db,
+        person_id,
+        "person",
+        [ObservationAdditionalIdentifier(identifier_type_slug="person_ssn", identifier_value="1")],
+    )
+
+    with pytest.raises(ObservationRejected) as exc:
+        await write_additional_identifiers(db, person_id, "person", _swap("2", "1", "person_ssn"))
+
+    assert exc.value.detail == "replaces_unsupported: 'person_ssn'"
+    assert await db.fetchval("SELECT value FROM identifiers WHERE entity_id=$1", person_id) == "1"
+
+
+async def test_replace_naming_its_own_value_is_invalid(db, person_id):
+    await _hold(db, person_id, "01SAME")
+
+    with pytest.raises(ObservationRejected) as exc:
+        await write_additional_identifiers(db, person_id, "person", _swap("01SAME", "01SAME"))
+
+    assert exc.value.detail == "invalid"
+    assert await _site_values(db, person_id) == ["01SAME"]
+
+
+async def test_replace_whose_old_value_went_after_the_read_is_rejected(db, person_id, monkeypatch):
+    """A replace committing between the read and the removal: the removal's own
+    row count decides, so two racing replaces cannot both land a value."""
+
+    async def _stale(*_args, **_kwargs):
+        return {"01OLD"}
+
+    await _hold(db, person_id, "01THEIRS")
+    monkeypatch.setattr(observation, "_held_identifier_values", _stale)
+
+    with pytest.raises(ObservationRejected) as exc:
+        await write_additional_identifiers(db, person_id, "person", _swap("01NEW", "01OLD"))
+
+    assert exc.value.detail == "replaces_not_held: 'person_cannabis_observer'"
+    assert await _site_values(db, person_id) == ["01THEIRS"]
+
+
+async def test_replace_that_lost_to_the_same_replace_is_a_noop(db, person_id, monkeypatch):
+    """The racing writer made the same swap: the end state asked for already holds."""
+
+    async def _stale(*_args, **_kwargs):
+        return {"01OLD"}
+
+    await _hold(db, person_id, "01NEW")
+    monkeypatch.setattr(observation, "_held_identifier_values", _stale)
+
+    await write_additional_identifiers(db, person_id, "person", _swap("01NEW", "01OLD"))
+
+    assert await _site_values(db, person_id) == ["01NEW"]
+
+
+async def test_replace_is_logged_with_both_values(db, person_id, caplog):
+    """No audit table (#848 decision 6): the applied swap leaves one log line."""
+    await _hold(db, person_id, "01OLD")
+
+    with caplog.at_level("INFO", logger="src.core.observation"):
+        await write_additional_identifiers(db, person_id, "person", _swap("01NEW", "01OLD"))
+
+    lines = [r.getMessage() for r in caplog.records if "identifier replaced" in r.getMessage()]
+    assert len(lines) == 1
+    assert person_id in lines[0] and "'01OLD'" in lines[0] and "'01NEW'" in lines[0]
+
+
+async def test_an_item_without_replaces_still_conflicts(db, person_id):
+    """Only an item naming the value it expects may swap one."""
+    await _hold(db, person_id, "01OLD")
+
+    with pytest.raises(IdentifierConflict):
+        await write_additional_identifiers(db, person_id, "person", _site("01NEW"))
+
+    assert await _site_values(db, person_id) == ["01OLD"]
 
 
 # --- CR round 3: identity-based eligibility + display-aware promotion --------

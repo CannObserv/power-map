@@ -8,7 +8,8 @@ a hard delete must drop them by hand (#605), and only a DB trigger can turn an e
 into a bump of the parent's `updated_at`, hence its detail ETag.
 
 Observation write semantics per kind are in `docs/OBSERVATIONS.md` — assignments
-in `docs/API_ASSIGNMENTS.md` — and the tables themselves in `docs/SCHEMA.md`.
+in `docs/API_ASSIGNMENTS.md` — and the tables themselves in `docs/SCHEMA.md`. One
+write rule lives here: replacing a `*_cannabis_observer` identifier (#848).
 
 ---
 
@@ -36,6 +37,50 @@ An admin hard delete (people, orgs, jurisdictions, roles, role-assignments) has 
 **Identifiers restrict the delete (#630).** The identifier half of the same pair: `trg_identifiers_entity` (#622) refuses a write naming a missing entity, and `trg_people_identifiers` / `trg_organizations_identifiers` / `trg_roles_identifiers` (#808) / `trg_role_assignments_identifiers` / `trg_jurisdictions_identifiers` (shared `refuse_delete_while_identified(type)`) refuse a `DELETE` while an identifier still names the row through its type's `entity_type`, raising `foreign_key_violation` with the trigger as constraint. Restrict, not cascade: every path drops (`delete_entity_ancillary`) or re-homes (merges, `rehome_conflicting_assignment_ancillary` / `rehome_role_ancillary`) first, and one that forgets fails loudly instead of losing identifiers. `delete_entity_ancillary` locks the entity row `FOR UPDATE` first, so an identifier written mid-delete commits before its reads and goes with the rest; no admin delete reaches the trigger, and no route maps it to a 409.
 
 **Guards:** `tests/api/admin/test_hard_delete_inbound_links.py` (the 409, its race), `tests/core/test_schema_event_linked_entity.py` and `tests/core/test_schema_entity_inbound_links.py` (the two triggers), `tests/core/test_schema_entity_identifiers.py` (#630); `tests/api/admin/test_hard_delete_ancillary.py` drives every route with a row in every polymorphic table and fails when a new `entity_id` table appears with neither a seeder nor a reason to survive; `test_hard_delete_sweep.py` fails an admin module (merge modules aside) with more entity `DELETE`s than helper calls. The helper raises `ValueError` on a type outside `HARD_DELETABLE_TYPES`.
+
+---
+
+## Replacing a `*_cannabis_observer` identifier (#848)
+
+An `additional_identifiers` item may carry `replaces`: the value the producer expects
+to remove. The entity's `replaces` value goes and `identifier_value` is held instead,
+inside the observation's one transaction, so the entity is never left without a link.
+It serves one case: the site record a value names was deleted for good, and its
+replacement has a new ULID (CannObserv/cli#1341). Without `replaces`, a second value
+still answers `identifier_conflict`.
+
+| The entity holds, of that type | Result |
+|---|---|
+| the old value | Old removed, new held. Reads as an attach (`auto-attached`). |
+| the new value, not the old | Nothing written: a re-sent replace is a no-op. |
+| both (a merge moves every identifier onto the survivor) | Old removed. |
+| neither | `rejected`, `replaces_not_held: '<slug>'`. |
+| the old value, while another entity holds the new one | `rejected`, `identifier_taken: '<slug>' held by [archived ]'<id>'` (#812). The old value stays. |
+
+- **Four types only**, the set `uq_identifiers_cannabis_observer` covers
+  (`UNIQUE_IDENTIFIER_TYPE_IDS`). Any other type answers `replaces_unsupported: '<slug>'`:
+  it repeats across entities, is dataset-owned (#710) or is history. The item model is
+  shared with jurisdiction observations, which have no such type, so `replaces` is
+  always refused there.
+- **`replaces` equal to `identifier_value`** answers `invalid`.
+- **The guard is the expected value, not provenance.** `identifiers` has no
+  `source_key_id`, so nothing ties a row to the key that wrote it. Naming the old
+  value stops a producer acting on a stale picture; it does not authorize. The delete's
+  own row count decides (`_remove_replaced`), so two replaces racing on one entity
+  cannot both add a value. The loser gets `replaces_not_held`, or a no-op if both asked
+  for the same swap.
+- **Order.** The #710 lock and the `identifier_taken` check run before the removal, as
+  for an attach. A lost race on the index rolls the whole observation back.
+- **Archived entities** are refused by resolution before any identifier is read:
+  `pm_id_not_found` for a `pm_*`-addressed one. An assignment matched to a retracted
+  twin withholds the item and names `additional_identifiers` in `unapplied` (#391).
+- **No per-item result and no audit row.** The response's disposition is the entity's.
+  What records a replace: `api_request_log` (key, request and response bodies, 90
+  days) and one INFO line, `identifier replaced: <type> <id> <slug> '<old>' -> '<new>'`.
+  The admin panel's edit and delete record nothing.
+- **A server before v0.75.0 ignores `replaces`** and answers `identifier_conflict`.
+- **The old value is unknown afterwards.** An observation addressed *by* it creates,
+  as for any unknown external value (`docs/OBSERVATIONS.md` § Identifier types).
 
 ---
 

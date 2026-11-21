@@ -1528,10 +1528,15 @@ async def write_additional_identifiers(
       - A ``*_cannabis_observer`` value another entity holds, archived or not →
         raise ObservationRejected ``identifier_taken`` naming the holder (#812)
       - New type → insert
+
+    An item naming ``.replaces`` (#848) swaps that value for its own instead of
+    conflicting — :func:`_replace_identifier` holds the rules. The lock and
+    ``identifier_taken`` checks above still run ahead of the swap.
     """
     for item in additional_identifiers:
         slug = item.identifier_type_slug
         value = item.identifier_value
+        replaces = getattr(item, "replaces", None)
         eit = await conn.fetchrow(
             "SELECT id, entity_type, is_internal FROM entity_identifier_types WHERE slug=$1", slug
         )
@@ -1547,23 +1552,17 @@ async def write_additional_identifiers(
             # *type's* table and mislabels the UBI's lookup organization_archived.
             raise ObservationRejected(f"identifier_type_mismatch: {slug!r}")
         eit_id = eit["id"]
-        # Every row of the type, not one: a person may carry several keys of a type
-        # (#710: a returning legislator's two roster keys), and any of them satisfies.
-        held = {
-            r["value"]
-            for r in await conn.fetch(
-                "SELECT value FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",
-                entity_id,
-                eit_id,
-            )
-        }
-        if value in held:
+        held = await _held_identifier_values(conn, entity_id, eit_id)
+        if replaces is None:
+            if value in held:
+                continue
+        elif not _replace_applies(eit_id, slug, value, replaces, held):
             continue
         # #710 decision (a): a type a dataset asserts on this entity comes only
         # from the dataset — an observed key could never be removed here.
         if await dataset_owned_identifier(conn, entity_type, entity_id, eit_id):
             raise ObservationRejected(f"identifier_locked: {slug!r}")
-        if held:
+        if held and replaces is None:
             raise IdentifierConflict(slug)
         # #812: a *_cannabis_observer value names one entity. Name the holder
         # here; one committing after this read meets the index instead, and the
@@ -1572,14 +1571,97 @@ async def write_additional_identifiers(
             holder = await identifier_holder(conn, eit_id, value, other_than=entity_id)
             if holder is not None:
                 raise ObservationRejected(taken_reason(slug, holder))
-        await conn.execute(
-            "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
-            " VALUES ($1, $2, $3, $4)",
-            generate_id(),
-            entity_id,
-            eit_id,
-            value,
-        )
+        if replaces is not None and not await _remove_replaced(
+            conn, entity_id, eit_id, slug, value, replaces
+        ):
+            continue
+        if value not in held:
+            await conn.execute(
+                "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+                " VALUES ($1, $2, $3, $4)",
+                generate_id(),
+                entity_id,
+                eit_id,
+                value,
+            )
+        if replaces is not None:
+            logger.info(
+                "identifier replaced: %s %s %s %r -> %r",
+                entity_type,
+                entity_id,
+                slug,
+                replaces,
+                value,
+            )
+
+
+async def _held_identifier_values(conn, entity_id: str, type_id: str) -> set[str]:
+    """Every value of the type the entity holds.
+
+    Every row, not one: a person may carry several keys of a type (#710: a
+    returning legislator's two roster keys), and any of them satisfies a claim.
+    """
+    rows = await conn.fetch(
+        "SELECT value FROM identifiers WHERE entity_id=$1 AND entity_identifier_type_id=$2",
+        entity_id,
+        type_id,
+    )
+    return {r["value"] for r in rows}
+
+
+def _replace_applies(type_id: str, slug: str, value: str, replaces: str, held: set[str]) -> bool:
+    """Whether a replace item has a value to remove; False when it is already done (#848).
+
+    The caller names the value it expects to remove, so a stale picture is
+    rejected rather than acted on:
+
+      - a type outside the four ``*_cannabis_observer`` ones → ``replaces_unsupported``
+        (every other type repeats, is dataset-owned or is history)
+      - ``replaces`` equal to the item's own value → ``invalid``
+      - the old value held → True: remove it (the new one may be held too — a
+        merge moves every identifier onto the survivor)
+      - only the new value held → False: a re-sent replace, nothing to write
+      - neither held → ``replaces_not_held``
+    """
+    if type_id not in UNIQUE_IDENTIFIER_TYPE_IDS:
+        raise ObservationRejected(f"replaces_unsupported: {slug!r}")
+    if replaces == value:
+        raise ObservationRejected("invalid")
+    if replaces in held:
+        return True
+    if value in held:
+        return False
+    raise ObservationRejected(f"replaces_not_held: {slug!r}")
+
+
+async def _remove_replaced(
+    conn, entity_id: str, type_id: str, slug: str, value: str, replaces: str
+) -> bool:
+    """Delete the value a replace names; False when the same replace already landed.
+
+    The delete's own row count decides, not the earlier read: a replace that
+    committed in between has taken the old value, and this one must not add a
+    second. If that writer made the same swap, the state asked for holds and
+    nothing is written; otherwise ``replaces_not_held``.
+    """
+    removed = await conn.fetch(
+        "DELETE FROM identifiers"
+        " WHERE entity_id=$1 AND entity_identifier_type_id=$2 AND value=$3 RETURNING id",
+        entity_id,
+        type_id,
+        replaces,
+    )
+    if removed:
+        return True
+    if await conn.fetchval(
+        "SELECT 1 FROM identifiers"
+        " WHERE entity_id=$1 AND entity_identifier_type_id=$2 AND value=$3",
+        entity_id,
+        type_id,
+        value,
+    ):
+        return False
+    raise ObservationRejected(f"replaces_not_held: {slug!r}")
 
 
 class _EventRejected(Exception):
