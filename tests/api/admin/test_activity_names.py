@@ -174,8 +174,16 @@ async def test_created_at_ties_break_on_id_descending(client, db):
     assert _row_ids(r.text) == [hi, lo]
 
 
-async def test_all_keys_lists_every_stamped_name_and_no_unstamped_one(client, seeded):
-    r = await client.get(_BASE, params={"page_size": 500}, headers=AUTH_HEADERS)
+async def test_all_keys_lists_every_stamped_name_and_no_unstamped_one(client, db, seeded):
+    # The test DB is shared: stamps another suite committed (dated now) sort
+    # ahead of this module's 2026-11-01 rows and could push them off page 1.
+    # Clear every other stamp inside this rolled-back transaction (#819).
+    await db.execute(
+        "UPDATE person_names SET source_key_id = NULL"
+        " WHERE source_key_id IS NOT NULL AND NOT (source_key_id = ANY($1::text[]))",
+        [seeded["k1"], seeded["k2"]],
+    )
+    r = await client.get(_BASE, headers=AUTH_HEADERS)
     assert r.status_code == 200
     ids = _row_ids(r.text)
     for k in ("new", "old", "archived_person_name", "other_key", "deadname"):
