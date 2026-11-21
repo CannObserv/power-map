@@ -48,7 +48,8 @@ and filters by `?key=`. The new page follows that pattern.
   linked to `/admin/people/<id>/`, with an Archived badge), Key, Citations
   (count).
 - `ORDER BY pn.created_at DESC, pn.id DESC`, which ends on a unique column
-  (#297). Page size 50, using `pagination_context`.
+  (#297). Page size 50 by default, with the pins page's per-page
+  selector (25 to 250), using `pagination_context`.
 - **No status axis (#306).** Names are not archived. A filter on the person's
   status would be exactly the #306 trap of hiding matches by default. The
   person's archived state shows as a badge, so nothing is hidden.
