@@ -60,27 +60,42 @@ still answers `identifier_conflict`.
 - **Four types only**, the set `uq_identifiers_cannabis_observer` covers
   (`UNIQUE_IDENTIFIER_TYPE_IDS`). Any other type answers `replaces_unsupported: '<slug>'`:
   it repeats across entities, is dataset-owned (#710) or is history. The item model is
-  shared with jurisdiction observations, which have no such type, so `replaces` is
-  always refused there.
+  shared with jurisdiction observations, which have no such type, so a `replaces` there
+  never applies: `replaces_unsupported` for a jurisdiction type, or the item's own type
+  error first (unknown, internal, another entity's type).
 - **`replaces` equal to `identifier_value`** answers `invalid`.
+- **For `pm_*`-addressed observations, one replace per type per request.** That shape
+  re-sends cleanly. A chain in one request (`A→B`, then `B→C`) applies once and is
+  rejected when re-sent. Addressing the observation *by* a `*_cannabis_observer` value
+  stays unsafe, as for any attach (`docs/OBSERVATIONS.md` § Identifier types): an
+  unknown value creates an entity before the replace is judged.
 - **The guard is the expected value, not provenance.** `identifiers` has no
   `source_key_id`, so nothing ties a row to the key that wrote it. Naming the old
-  value stops a producer acting on a stale picture; it does not authorize. The delete's
-  own row count decides (`_swap_identifier`), so two replaces racing on one entity
-  cannot both add a value. The loser gets `replaces_not_held`, or a no-op if both asked
-  for the same swap.
-- **Order.** The #710 lock and the `identifier_taken` check run before the removal, as
-  for an attach. A lost race on the index rolls the whole observation back.
+  value stops a producer acting on a stale picture; it does not authorize. Neither
+  step trusts the first read (`_swap_identifier`): the delete's own row count says
+  whether the old value was still there, and the new value is read again before the
+  insert. So two replaces racing on one entity cannot both add a value: the loser gets
+  `replaces_not_held`, or a no-op if both asked for the same swap.
+- **A replace racing a merge of the same entity can deadlock.** Postgres aborts one
+  side, which answers 500 and changes nothing; re-send it. The replace locks the
+  identifier row and then the parent (the touch trigger), as the admin panel's edit and
+  delete do. A merge locks the parent first. No order suits both, and no route maps
+  the abort to a rejection.
+- **Order.** The `identifier_taken` check runs before the removal, as for an attach,
+  and a lost race on the index rolls the whole observation back, the removal included.
+  The #710 lock check runs too, but none of the four types is dataset-owned.
 - **Archived entities** are refused by resolution before any identifier is read:
   `pm_id_not_found` for a `pm_*`-addressed one. An assignment matched to a retracted
   twin withholds the item and names `additional_identifiers` in `unapplied` (#391).
 - **No per-item result and no audit row.** The response's disposition is the entity's.
-  What records a replace: `api_request_log` (key, request and response bodies, 90
-  days) and one INFO line, `identifier replaced: <type> <id> <slug> '<old>' -> '<new>'`.
-  The admin panel's edit and delete record nothing.
-- **A server before v0.75.0 ignores `replaces`** and answers `identifier_conflict`.
-- **The old value is unknown afterwards.** An observation addressed *by* it creates,
-  as for any unknown external value (`docs/OBSERVATIONS.md` § Identifier types).
+  Two things record a replace. Each route writes one INFO line after its transaction
+  commits: `identifier replaced: <type> <id> <slug> '<old>' -> '<new>'`. And
+  `api_request_log` keeps the key and both bodies for 90 days, but it is best-effort:
+  it sheds writes under load (`docs/CONVENTIONS.md` § API request log). The admin
+  panel's edit and delete record nothing.
+- **A server before v0.75.0 ignores `replaces`** and treats the item as a plain attach:
+  `identifier_conflict` when the entity holds another value, and a silent attach of the
+  new value when it holds none, where v0.75.0 answers `replaces_not_held`.
 
 ---
 
