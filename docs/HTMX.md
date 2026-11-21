@@ -513,16 +513,3 @@ Observability of public API traffic, under the **Activity** section
   three routes so the sidebar Activity link stays highlighted.
 - **PII** — the list shows metadata only; raw bodies live on the detail view
   (admin-authed). No live auto-refresh — reload to refresh.
-
-## Activity › Key-written names (#847)
-
-Review after the fact of the person names an API key wrote
-(`src/api/admin/activity_names.py`, `src/templates/admin/activity/names/`).
-`/admin/activity/names/`: every `person_names` row with a `source_key_id`, newest
-first (`created_at DESC, id DESC`), `?key=` filter over keys from **any owner**
-(Settings › API keys is owner-scoped, so the filter lives here), pins-style HTMX
-region + shared pagination macro. No #306 status axis: names are not archived, and
-an archived person is badged rather than filtered out. An unknown `key` lists
-nothing, never every key. Non-public rows withhold text and type in the SQL
-(`docs/NAMES.md` § Visibility rule, #847 exception). Name rows on the person and
-org panels carry a "via ‹key›" badge → `docs/ADMIN_PANELS.md`.

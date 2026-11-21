@@ -61,6 +61,8 @@ Rows whose entity carries active citations surface a compact count so sub-entity
 - **Scope:** citable sub-entities shown as rows. Top-level entity lists (orgs / people / jurisdictions) are out — those surface citations on their own detail panel. `org_name` is **not** a citable type; org name rows never get a count.
 - **Tests:** indicator renders with count ≥ 1, absent at 0, archived citations excluded, and the single-row re-render path keeps the indicator (the regression the SQL-embedding rule exists to prevent).
 
-### Writing-key badge on name rows (#847)
+### Key-written names: name-row badge and review page (#847)
 
 A name row whose `source_key_id` is set shows `via ‹key label›` (`data-source-key`); a NULL stamp — admin, importer, applier, or a deleted key — shows nothing. Same rule as #341: the label comes from the row-fetch SQL, `source_key_label_lateral(stamp_expr)` (`src.api.admin._key_provenance`), in all four name queries (people and org detail, the names factory's tbody fetch and `name_read_row`). A person row's badge links to Activity › Key-written names filtered to that key; an org row's is plain text (the review page lists person names only).
+
+**Review page** — `/admin/activity/names/` (`src/api/admin/activity_names.py`, templates under `admin/activity/names/`): every `person_names` row with a `source_key_id`, newest first (`created_at DESC, id DESC`, #297), `?key=` over keys of **any owner** (Settings › API keys is owner-scoped, so the filter lives under Activity), pins-style HTMX region + shared pagination macro. No #306 status axis: names are not archived, so an archived person is badged rather than filtered out. An unknown `key` lists nothing, never every key. Non-public rows withhold text and type in the SQL (`docs/NAMES.md` § Visibility rule, #847 exception).
