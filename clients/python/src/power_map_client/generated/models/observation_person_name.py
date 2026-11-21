@@ -7,9 +7,11 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..models.observation_person_name_name_type import ObservationPersonNameNameType
+from ..models.observation_person_name_op import ObservationPersonNameOp
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.citation_observation_item import CitationObservationItem
     from ..models.observation_person_name_parts import ObservationPersonNameParts
 
 
@@ -20,14 +22,29 @@ T = TypeVar("T", bound="ObservationPersonName")
 class ObservationPersonName:
     """A name claim included in a person observation.
 
-    Attributes:
-        name (str):
-        name_type (ObservationPersonNameNameType | Unset):  Default: ObservationPersonNameNameType.LEGAL.
-        locale (None | str | Unset):
-        script (None | str | Unset):
-        sort_as (None | str | Unset):
-        parts (None | ObservationPersonNameParts | Unset):
-        is_canonical (bool | Unset):  Default: False.
+    Identity = ``(name, name_type, locale, script)`` on the addressed person: an
+    exact re-send is a no-op. ``sort_as`` and ``parts`` are payload, written once.
+
+    ``op`` (#845): ``observe`` (default) adds the name if the person does not
+    hold it; ``retract`` deletes the public row of this identity **that the
+    calling key added** — another key's, or one with no recorded key, rejects
+    the observation ``name_provenance_conflict``. On a retract every field but
+    the identity is ignored.
+
+    ``citations`` (#845): evidence for this name, attached to the name row —
+    new or already held — in the same transaction. ``field_name`` is ``name``
+    or omitted.
+
+        Attributes:
+            name (str):
+            name_type (ObservationPersonNameNameType | Unset):  Default: ObservationPersonNameNameType.LEGAL.
+            locale (None | str | Unset):
+            script (None | str | Unset):
+            sort_as (None | str | Unset):
+            parts (None | ObservationPersonNameParts | Unset):
+            is_canonical (bool | Unset):  Default: False.
+            op (ObservationPersonNameOp | Unset):  Default: ObservationPersonNameOp.OBSERVE.
+            citations (list[CitationObservationItem] | Unset):
     """
 
     name: str
@@ -37,6 +54,8 @@ class ObservationPersonName:
     sort_as: None | str | Unset = UNSET
     parts: None | ObservationPersonNameParts | Unset = UNSET
     is_canonical: bool | Unset = False
+    op: ObservationPersonNameOp | Unset = ObservationPersonNameOp.OBSERVE
+    citations: list[CitationObservationItem] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -76,6 +95,17 @@ class ObservationPersonName:
 
         is_canonical = self.is_canonical
 
+        op: str | Unset = UNSET
+        if not isinstance(self.op, Unset):
+            op = self.op.value
+
+        citations: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.citations, Unset):
+            citations = []
+            for citations_item_data in self.citations:
+                citations_item = citations_item_data.to_dict()
+                citations.append(citations_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -95,11 +125,16 @@ class ObservationPersonName:
             field_dict["parts"] = parts
         if is_canonical is not UNSET:
             field_dict["is_canonical"] = is_canonical
+        if op is not UNSET:
+            field_dict["op"] = op
+        if citations is not UNSET:
+            field_dict["citations"] = citations
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.citation_observation_item import CitationObservationItem  # noqa: PLC0415
         from ..models.observation_person_name_parts import ObservationPersonNameParts  # noqa: PLC0415
 
         d = dict(src_dict)
@@ -158,6 +193,22 @@ class ObservationPersonName:
 
         is_canonical = d.pop("is_canonical", UNSET)
 
+        _op = d.pop("op", UNSET)
+        op: ObservationPersonNameOp | Unset
+        if isinstance(_op, Unset):
+            op = UNSET
+        else:
+            op = ObservationPersonNameOp(_op)
+
+        _citations = d.pop("citations", UNSET)
+        citations: list[CitationObservationItem] | Unset = UNSET
+        if _citations is not UNSET:
+            citations = []
+            for citations_item_data in _citations:
+                citations_item = CitationObservationItem.from_dict(citations_item_data)
+
+                citations.append(citations_item)
+
         observation_person_name = cls(
             name=name,
             name_type=name_type,
@@ -166,6 +217,8 @@ class ObservationPersonName:
             sort_as=sort_as,
             parts=parts,
             is_canonical=is_canonical,
+            op=op,
+            citations=citations,
         )
 
         observation_person_name.additional_properties = d

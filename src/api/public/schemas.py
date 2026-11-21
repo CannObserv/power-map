@@ -641,7 +641,21 @@ ObservationNameParts = ObservationPersonNameParts
 
 
 class ObservationPersonName(BaseModel):
-    """A name claim included in a person observation."""
+    """A name claim included in a person observation.
+
+    Identity = ``(name, name_type, locale, script)`` on the addressed person: an
+    exact re-send is a no-op. ``sort_as`` and ``parts`` are payload, written once.
+
+    ``op`` (#845): ``observe`` (default) adds the name if the person does not
+    hold it; ``retract`` deletes the public row of this identity **that the
+    calling key added** — another key's, or one with no recorded key, rejects
+    the observation ``name_provenance_conflict``. On a retract every field but
+    the identity is ignored.
+
+    ``citations`` (#845): evidence for this name, attached to the name row —
+    new or already held — in the same transaction. ``field_name`` is ``name``
+    or omitted.
+    """
 
     name: str
     name_type: Literal[
@@ -664,6 +678,8 @@ class ObservationPersonName(BaseModel):
     sort_as: str | None = None
     parts: ObservationPersonNameParts | None = None  # upstream-supplied structure only
     is_canonical: bool = False
+    op: Literal["observe", "retract"] = "observe"
+    citations: list["CitationObservationItem"] = Field(default_factory=list)
 
 
 # Backwards-compatible alias.
@@ -930,8 +946,20 @@ class PeopleObservationRequest(BaseModel):
 
     @model_validator(mode="after")
     def _single_canonical_name(self) -> "PeopleObservationRequest":
-        if sum(1 for n in self.names if n.is_canonical) > 1:
+        # A retract's payload is ignored (#845), its is_canonical included.
+        if sum(1 for n in self.names if n.is_canonical and n.op == "observe") > 1:
             raise ValueError("At most one name per request may have is_canonical=True")
+        return self
+
+    @model_validator(mode="after")
+    def _no_name_both_observed_and_retracted(self) -> "PeopleObservationRequest":
+        # #845: retracts are applied before observes whatever the list order, so
+        # one identity in both would be an order the request cannot express.
+        def identities(op: str) -> set[tuple]:
+            return {(n.name, n.name_type, n.locale, n.script) for n in self.names if n.op == op}
+
+        if identities("observe") & identities("retract"):
+            raise ValueError("A name cannot be both observed and retracted in one request")
         return self
 
 
@@ -1018,6 +1046,29 @@ class EventObservationsResponse(BaseModel):
     results: list[EventObservationResult] = Field(default_factory=list)
 
 
+class NameObservationResult(BaseModel):
+    """Per-name outcome on a people observation (#845), in ``names`` request order.
+
+    ``disposition``: ``new`` (the name was added), ``auto-attached`` (the person
+    already held it), ``retracted`` (``op="retract"``), or ``not-public``.
+
+    ``name_id`` addresses the name row — the ``person_name`` entity of the
+    citations API. It is null on ``not-public``, and on a ``retracted`` that
+    found no public row of that identity to delete (nothing was removed).
+
+    ``not-public``: the claim was accepted, but the name is not public — a
+    ``deadname`` (always stored ``legal_only``), or a name a curator has hidden,
+    which a re-send does not republish. No id and no citation results. For a
+    ``deadname`` it does not say whether the name was already held; for any
+    other type it means the person already holds the name, non-publicly.
+    """
+
+    disposition: str  # 'new' | 'auto-attached' | 'retracted' | 'not-public'
+    name_id: str | None = None
+    # Per-citation results when the name carried citations[]; None otherwise.
+    citations: list["CitationObservationResult"] | None = None
+
+
 class ObservationResponse(BaseModel):
     """Response returned by POST /api/v1/observations."""
 
@@ -1037,6 +1088,9 @@ class ObservationResponse(BaseModel):
     # #319: per-citation dispositions when the payload carried citations[]. None
     # when none submitted; present only on full success (all-or-nothing embedded).
     citations: list["CitationObservationResult"] | None = None
+    # #845: per-name outcomes on a people observation that carried names[]. None
+    # when none were submitted; present only on full success (all-or-nothing).
+    names: list[NameObservationResult] | None = None
     # #477: True when an `auto-attached` disposition addressed a *retracted* row
     # rather than a live one — the #391 anti-resurrection attach, or a re-emitted
     # `op="retract"`. Additive and optional: None (absent) on every other

@@ -20,7 +20,8 @@ Selection rule
 A person is a candidate when they have **no** public canonical name and
 **exactly one** eligible public name — eligible meaning a name_type that is a
 plausible display name (``NO_AUTO_CANONICAL_NAME_TYPES`` from
-``core.observation`` is excluded: deadnames and machine-readable renderings).
+``core.observation`` is excluded: deadnames, machine-readable renderings and,
+since #845, variants).
 
 The "exactly one" bound is deliberate. Where several eligible names compete, the
 right pick is a curation decision, not a script's — those people are counted and

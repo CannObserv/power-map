@@ -283,6 +283,78 @@ def test_people_request_multiple_canonical_names_raises():
         )
 
 
+# ── Person-name op + citations (#845) ─────────────────────────────────────────
+
+
+def _people_request(names: list[dict]) -> PeopleObservationRequest:
+    return PeopleObservationRequest.model_validate(
+        {"identifier_type": "pm_person_id", "identifier_value": "01H", "names": names}
+    )
+
+
+def test_person_name_observes_by_default_and_carries_no_citations():
+    name = ObservationPersonName(name="Jody Example", name_type="variant")
+
+    assert (name.op, name.citations) == ("observe", [])
+
+
+def test_person_name_rejects_an_unknown_op():
+    with pytest.raises(ValidationError):
+        ObservationPersonName(name="Jody Example", op="archive")
+
+
+def test_person_name_citations_parse_as_citation_items():
+    req = _people_request(
+        [{"name": "Jody Example", "name_type": "variant", "citations": [{"url": "https://h/1"}]}]
+    )
+
+    assert req.names[0].citations[0].url == "https://h/1"
+
+
+def test_people_request_refuses_one_name_observed_and_retracted():
+    variant = {"name": "Jody Example", "name_type": "variant"}
+
+    with pytest.raises(ValidationError, match="both observed and retracted"):
+        _people_request([variant, {**variant, "op": "retract"}])
+
+
+def test_people_request_allows_retracting_one_name_and_observing_another():
+    req = _people_request(
+        [
+            {"name": "Jody Example", "name_type": "variant", "op": "retract"},
+            {"name": "Jodie Example", "name_type": "variant"},
+            # Same string, another type: a different identity.
+            {"name": "Jody Example", "name_type": "preferred"},
+        ]
+    )
+
+    assert [n.op for n in req.names] == ["retract", "observe", "observe"]
+
+
+def test_people_request_ignores_is_canonical_on_a_retract():
+    """A retract's payload is ignored, so it cannot trip the one-canonical rule."""
+    req = _people_request(
+        [
+            {"name": "Jodi Example", "name_type": "legal", "is_canonical": True},
+            {"name": "Jody Example", "name_type": "variant", "is_canonical": True, "op": "retract"},
+        ]
+    )
+
+    assert len(req.names) == 2
+
+
+def test_observation_response_names_is_additive_and_optional():
+    assert ObservationResponse(disposition="auto-attached").names is None
+
+    resp = ObservationResponse(
+        disposition="auto-attached", names=[{"disposition": "new", "name_id": "01N"}]
+    )
+
+    assert resp.model_dump()["names"] == [
+        {"disposition": "new", "name_id": "01N", "citations": None}
+    ]
+
+
 # ---------------------------------------------------------------------------
 # OrganizationObservationRequest
 # ---------------------------------------------------------------------------

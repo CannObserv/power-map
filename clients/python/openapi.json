@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "power-map",
-    "version": "0.73.3"
+    "version": "0.74.0"
   },
   "paths": {
     "/health": {
@@ -6986,6 +6986,45 @@
         "title": "LinkTypesResponse",
         "description": "Unpaginated list of all link types.\n\nIntentionally omits ``meta`` pagination — link_types is a small, stable\nlookup table returned in full. No limit/offset parameters are accepted."
       },
+      "NameObservationResult": {
+        "properties": {
+          "disposition": {
+            "type": "string",
+            "title": "Disposition"
+          },
+          "name_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name Id"
+          },
+          "citations": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CitationObservationResult"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Citations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "disposition"
+        ],
+        "title": "NameObservationResult",
+        "description": "Per-name outcome on a people observation (#845), in ``names`` request order.\n\n``disposition``: ``new`` (the name was added), ``auto-attached`` (the person\nalready held it), ``retracted`` (``op=\"retract\"``), or ``not-public``.\n\n``name_id`` addresses the name row — the ``person_name`` entity of the\ncitations API. It is null on ``not-public``, and on a ``retracted`` that\nfound no public row of that identity to delete (nothing was removed).\n\n``not-public``: the claim was accepted, but the name is not public — a\n``deadname`` (always stored ``legal_only``), or a name a curator has hidden,\nwhich a re-send does not republish. No id and no citation results. For a\n``deadname`` it does not say whether the name was already held; for any\nother type it means the person already holds the name, non-publicly."
+      },
       "ObservationAcronym": {
         "properties": {
           "acronym": {
@@ -7482,6 +7521,22 @@
             "type": "boolean",
             "title": "Is Canonical",
             "default": false
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "observe",
+              "retract"
+            ],
+            "title": "Op",
+            "default": "observe"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/CitationObservationItem"
+            },
+            "type": "array",
+            "title": "Citations"
           }
         },
         "type": "object",
@@ -7489,7 +7544,7 @@
           "name"
         ],
         "title": "ObservationPersonName",
-        "description": "A name claim included in a person observation."
+        "description": "A name claim included in a person observation.\n\nIdentity = ``(name, name_type, locale, script)`` on the addressed person: an\nexact re-send is a no-op. ``sort_as`` and ``parts`` are payload, written once.\n\n``op`` (#845): ``observe`` (default) adds the name if the person does not\nhold it; ``retract`` deletes the public row of this identity **that the\ncalling key added** — another key's, or one with no recorded key, rejects\nthe observation ``name_provenance_conflict``. On a retract every field but\nthe identity is ignored.\n\n``citations`` (#845): evidence for this name, attached to the name row —\nnew or already held — in the same transaction. ``field_name`` is ``name``\nor omitted."
       },
       "ObservationPersonNameParts": {
         "properties": {
@@ -7646,6 +7701,20 @@
               }
             ],
             "title": "Citations"
+          },
+          "names": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/NameObservationResult"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Names"
           },
           "attached_archived": {
             "anyOf": [

@@ -30,8 +30,14 @@ _phone_normalizer = PhoneNormalizer()
 # Person name_types that must never be auto-promoted into the display slot (#308b).
 # `deadname` is forced to visibility='legal_only' by trg_deadname_visibility, and
 # mrz/romanization/reading are machine-readable renderings, not display names.
+# `variant` (#845) is another spelling of a name the person already holds, often
+# from a machine transcript: which spelling a person displays under is a
+# curator's decision, so one is never picked unasked — on insert or by the heal.
 # A client may still promote one explicitly via the is_canonical hint.
-NO_AUTO_CANONICAL_NAME_TYPES = frozenset({"deadname", "mrz", "romanization", "reading"})
+#
+# This is the promotion rule only. Which name_types a *merge* may collapse as
+# duplicates is person_merge's own set, where a variant stays a display type.
+NO_AUTO_CANONICAL_NAME_TYPES = frozenset({"deadname", "mrz", "romanization", "reading", "variant"})
 
 # Subset that can never be canonical *at all*, hint or not: trg_deadname_visibility
 # forces these to visibility='legal_only', which chk_person_canonical_is_public
@@ -50,9 +56,8 @@ _PERSON_NAME_TYPE_PRIORITY = {
     "stage": 4,
     "religious": 5,
     "maiden": 6,
-    "variant": 7,
-    "former": 8,
-    "initials": 9,
+    "former": 7,
+    "initials": 8,
 }
 
 
@@ -135,6 +140,9 @@ def _person_name_insert_sql(canonical_expr: str) -> str:
     chk_person_canonical_is_public a canonical row is always visible, so the flag
     alone is a sufficient answer — before that constraint it was not, because a
     hinted deadname came back canonical but legal_only.
+
+    Returns ``visibility`` as it landed (#845): the literal is 'public', but
+    trg_deadname_visibility rewrites a deadname to legal_only before the insert.
     """
     return (
         "INSERT INTO person_names"
@@ -142,7 +150,7 @@ def _person_name_insert_sql(canonical_expr: str) -> str:
         "  visibility, source_key_id, is_canonical)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7, 'public', $8,"
         f"   {canonical_expr})"
-        " RETURNING is_canonical"
+        " RETURNING is_canonical, visibility"
     )
 
 
@@ -246,6 +254,20 @@ async def heal_person_canonical(conn, person_id: str) -> None:
             type(exc).__name__,
             exc,
         )
+
+
+@dataclass(frozen=True)
+class PersonNameWrite:
+    """What ``write_names`` did with one person-name claim (#845).
+
+    ``public`` is the row's visibility after the write. The dedup probe is
+    visibility-blind, so a claim can match a row no read returns; a caller that
+    reports back must not reveal such a row's id or whether it was already there.
+    """
+
+    name_id: str
+    is_new: bool
+    public: bool
 
 
 class Disposition(StrEnum):
@@ -586,8 +608,11 @@ async def write_names(
     entity_type: str,
     api_key_id: str,
     names: "Sequence[ObservationPersonName] | Sequence[ObservationOrgName]",
-) -> None:
+) -> list[PersonNameWrite]:
     """Write name claims to person_names or organization_names.
+
+    Returns one ``PersonNameWrite`` per person-name claim, in order (#845); an
+    empty list for every other entity type.
 
     Policy:
       - Append if no exact (entity_id, name) match
@@ -610,6 +635,7 @@ async def write_names(
         # heal pass below can be skipped — it is a guaranteed no-op in that case,
         # and costs a round trip against a remote DB (#308, CR2 #11).
         displays = False
+        writes: list[PersonNameWrite] = []
         for idx, n in enumerate(names):
             # Dedup on the full identity, not the bare name (#308, CR3 #22): a
             # `legal` name and an `mrz` rendering can share a string while being
@@ -621,7 +647,7 @@ async def write_names(
             # heap offered first — so a `parts` payload could attach to the
             # hidden copy. Prefer the public twin, tie-break on id.
             existing = await conn.fetchrow(
-                "SELECT id FROM person_names"
+                "SELECT id, visibility FROM person_names"
                 " WHERE person_id=$1 AND name=$2 AND name_type=$3"
                 "   AND locale IS NOT DISTINCT FROM $4"
                 "   AND script IS NOT DISTINCT FROM $5"
@@ -636,6 +662,7 @@ async def write_names(
             if existing:
                 name_id = existing["id"]
                 is_new = False
+                visibility = existing["visibility"]
             else:
                 is_new = True
                 name_id = generate_id()
@@ -652,11 +679,11 @@ async def write_names(
                 )
                 try:
                     async with conn.transaction():
-                        claimed = await conn.fetchval(guarded_sql, *base_args, eligible)
+                        inserted = await conn.fetchrow(guarded_sql, *base_args, eligible)
                         # chk_person_canonical_is_public makes a canonical row
                         # necessarily visible, so the flag alone answers "does
                         # this person now display?".
-                        displays = displays or bool(claimed)
+                        displays = displays or inserted["is_canonical"]
                         if n.parts is not None:
                             await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
                 except asyncpg.exceptions.UniqueViolationError:
@@ -667,17 +694,20 @@ async def write_names(
                     # outside the failed savepoint; reusing it would hit
                     # "current transaction is aborted".
                     async with conn.transaction():
-                        await conn.execute(unpromoted_sql, *base_args)
+                        inserted = await conn.fetchrow(unpromoted_sql, *base_args)
                         if n.parts is not None:
                             await _write_person_name_parts(conn, name_id, n.parts, is_new=True)
+                visibility = inserted["visibility"]
             if n.parts is not None and not is_new:
                 await _write_person_name_parts(conn, name_id, n.parts, is_new=False)
+            writes.append(PersonNameWrite(name_id, is_new, visibility == "public"))
         # Names that already existed are skipped above, so a person who was
         # already canonical-less stays blank without this pass (#308, CR1).
         # Skipped only when an insert above left the person actually displaying —
         # the heal would be a no-op and costs a round trip (#308, CR2 #11).
         if not displays:
             await heal_person_canonical(conn, entity_id)
+        return writes
     elif entity_type == "organization":
         # If any name carries the canonical hint, only that name is eligible for promotion.
         # Otherwise fall through to first-wins auto-promotion (NOT EXISTS guard).
@@ -731,6 +761,7 @@ async def write_names(
         pass  # jurisdiction name lives on the row; no names table
     else:
         raise ValueError(f"write_names: unsupported entity_type {entity_type!r}")
+    return []
 
 
 async def _write_person_name_parts(conn, name_id: str, parts, *, is_new: bool) -> None:

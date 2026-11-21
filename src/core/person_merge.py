@@ -17,17 +17,27 @@ from src.core.ancillary_migrate import (
     rehome_entity_events,
 )
 from src.core.merge_signals import record_merge_tombstones
-from src.core.observation import NO_AUTO_CANONICAL_NAME_TYPES, heal_person_canonical
+from src.core.observation import heal_person_canonical
 
 __all__ = ["PersonNotFoundError", "merge_person_into", "preview_person_merge"]
+
+# Name types a merge never treats as interchangeable with another type: identical
+# text in one is a machine-readable rendering (or a deadname), a distinct claim
+# from a display name. Every other type is an ordinary display type.
+#
+# Deliberately not `NO_AUTO_CANONICAL_NAME_TYPES` (#845): that set answers "may
+# this be promoted unasked?", and `variant` is in it. Here a variant *is* a
+# display type — a loser's `variant` collapses into the winner's same-text
+# `legal`, or the winner holds one string twice.
+_MERGE_DISTINCT_NAME_TYPES = frozenset({"deadname", "mrz", "romanization", "reading"})
 
 # Winner-vs-loser name-identity match, shared verbatim by the #309 reading
 # re-point UPDATE and the dedup DELETE in `merge_person_into` so the two can
 # never drift (CR #309 finding 1). Correlates a loser row `l` against a winner
 # row `w`; every consumer binds the loser filter at $1, the winner at $2, and
-# `NO_AUTO_CANONICAL_NAME_TYPES` as the $3 text[]. Two ordinary display types
+# `_MERGE_DISTINCT_NAME_TYPES` as the $3 text[]. Two ordinary display types
 # sharing (name, locale, script, visibility) collapse; a
-# NO_AUTO_CANONICAL_NAME_TYPES row (mrz/reading/romanization/deadname) only ever
+# _MERGE_DISTINCT_NAME_TYPES row (mrz/reading/romanization/deadname) only ever
 # matches its exact name_type. Rationale for each clause lives on the DELETE.
 _NAME_IDENTITY_MATCH_SQL = (
     " w.name = l.name"
@@ -234,6 +244,19 @@ async def merge_person_into(
     # visibility-allowlist (issue #121): merge deduplicates and reassigns
     # ALL name rows regardless of visibility — the merged winner must
     # inherit the loser's deadnames, hidden names, etc.
+    #
+    # A winner with no displayed name takes the loser's (#845 CR 3). The heal
+    # below used to stand in for this, but it re-picks by the ladder — over a
+    # curator's choice — and never picks a variant at all. Read after the curated
+    # drop above, so a displayed name the curator dropped is not carried.
+    carried_name_id = None
+    if not await db.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM person_names WHERE person_id=$1 AND is_canonical)",
+        winner_id,
+    ):
+        carried_name_id = await db.fetchval(
+            "SELECT id FROM person_names WHERE person_id=$1 AND is_canonical", loser_id
+        )
     await db.execute(
         "UPDATE person_names SET is_canonical=FALSE WHERE person_id=$1 AND is_canonical=TRUE",
         loser_id,
@@ -250,7 +273,7 @@ async def merge_person_into(
         _REPOINT_READING_CHILDREN_SQL,
         loser_id,
         winner_id,
-        list(NO_AUTO_CANONICAL_NAME_TYPES),
+        list(_MERGE_DISTINCT_NAME_TYPES),
     )
     # Dedup on identity, not on the bare string (CR4 #30). Name-only matching
     # deleted the loser's `mrz` row because the winner had a `legal` row with
@@ -263,7 +286,7 @@ async def merge_person_into(
     # locale and script all match a winner row AND either the name_types are
     # equal, or **both** are ordinary display types.
     #
-    # NO_AUTO_CANONICAL_NAME_TYPES (mrz, reading, romanization, deadname) are
+    # _MERGE_DISTINCT_NAME_TYPES (mrz, reading, romanization, deadname) are
     # never treated as interchangeable: identical text in one of those is a
     # machine-readable rendering, a distinct claim from a display name.
     #
@@ -279,17 +302,20 @@ async def merge_person_into(
     # re-point), so a matched-duplicate name's provenance follows the winner name
     # rather than orphaning. Must precede the dedup DELETE.
     name_twins = await db.fetch(
-        _LOSER_NAME_TWINS_SQL, loser_id, winner_id, list(NO_AUTO_CANONICAL_NAME_TYPES)
+        _LOSER_NAME_TWINS_SQL, loser_id, winner_id, list(_MERGE_DISTINCT_NAME_TYPES)
     )
     for pair in name_twins:
         if pair["winner"] is not None:
             await migrate_citations(db, "person_name", pair["loser"], pair["winner"])
+            if pair["loser"] == carried_name_id:
+                # About to be deduped away: the pointer follows its twin.
+                carried_name_id = pair["winner"]
 
     await db.execute(
         _DEDUP_LOSER_NAMES_SQL,
         loser_id,
         winner_id,
-        list(NO_AUTO_CANONICAL_NAME_TYPES),
+        list(_MERGE_DISTINCT_NAME_TYPES),
     )
     await db.execute(
         "UPDATE person_names SET person_id=$1 WHERE person_id=$2",
@@ -307,11 +333,20 @@ async def merge_person_into(
             " AND NOT EXISTS (SELECT 1 FROM person_names pn WHERE pn.id = citations.entity_id)",
             loser_name_ids,
         )
+    if carried_name_id is not None:
+        # The winner had no canonical and the loser's was demoted, so the slot is
+        # free. A twin shares the carried row's visibility, which is public.
+        await db.execute(
+            "UPDATE person_names SET is_canonical=TRUE WHERE id=$1 AND person_id=$2",
+            carried_name_id,
+            winner_id,
+        )
     # The loser's canonical was demoted above, so a winner that had no display
     # pointer would end up blank even though a usable name just arrived (CR4
     # #29). Merge is the only mutation left that can violate the #308 invariant
     # without repairing it — the observation path, the name-delete path and the
-    # backfill all self-heal. No-op when the winner already displays.
+    # backfill all self-heal. No-op when the winner already displays, as it does
+    # whenever a name was carried over just above.
     await heal_person_canonical(db, winner_id)
 
     # role_assignments: delete conflicts (same role+start_date), then reassign.
@@ -502,7 +537,7 @@ async def preview_person_merge(db, *, winner_id: str, loser_id: str) -> dict:
         )
 
     twins = await db.fetch(
-        _LOSER_NAME_TWINS_SQL, loser_id, winner_id, list(NO_AUTO_CANONICAL_NAME_TYPES)
+        _LOSER_NAME_TWINS_SQL, loser_id, winner_id, list(_MERGE_DISTINCT_NAME_TYPES)
     )
     conflicts = {
         r["loser_ra"]: r["winner_ra"]

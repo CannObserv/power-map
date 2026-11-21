@@ -25,6 +25,7 @@ on a parent observation); :func:`apply_citation_observations` is partial-success
 (the citation-native surface — per-claim savepoint + disposition + reason slug).
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -129,6 +130,28 @@ class CitationClaim:
     accessed_at: datetime | None = None
     op: str = "observe"
     pm_citation_id: str | None = None
+
+
+def claims_from(items: Iterable) -> list[CitationClaim]:
+    """Map wire citation items onto claims, field for field.
+
+    ``items`` is anything carrying a claim's attributes — the API's
+    ``CitationObservationItem``, which core never imports. One mapping for every
+    transport: the native endpoint, an observation's ``citations[]``, and a
+    person name's own (#845).
+    """
+    return [
+        CitationClaim(
+            field_name=c.field_name,
+            url=c.url,
+            title=c.title,
+            excerpt=c.excerpt,
+            accessed_at=c.accessed_at,
+            op=c.op,
+            pm_citation_id=c.pm_citation_id,
+        )
+        for c in items
+    ]
 
 
 class _CitationRejected(Exception):

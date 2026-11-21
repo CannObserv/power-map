@@ -128,6 +128,56 @@ async def test_merge_leaves_deadname_only_winner_blank(conn):
     )
 
 
+# --- #845 CR 3: the loser's displayed name carries onto a blank winner -----
+
+
+async def _display(conn, pid):
+    return await conn.fetchval(
+        "SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid
+    )
+
+
+async def test_merge_carries_a_displayed_variant_onto_a_blank_winner(conn):
+    """The heal never promotes a variant (#845), so it cannot restore this one:
+    a curator chose it, and the merge must not unchoose it."""
+    winner, loser = await _person(conn), await _person(conn)
+    await _name(conn, loser, "Jody Example", name_type="variant", is_canonical=True)
+    await _merge(conn, winner, loser)
+    assert await _display(conn, winner) == "Jody Example"
+
+
+async def test_merge_carries_the_losers_choice_not_the_ladders(conn):
+    """The loser displayed its legal name over a preferred one — a curator's
+    call. Re-picking by the ladder on the way in would override it."""
+    winner, loser = await _person(conn), await _person(conn)
+    await _name(conn, loser, "Josephine Example", name_type="legal", is_canonical=True)
+    await _name(conn, loser, "Jo Example", name_type="preferred")
+    await _merge(conn, winner, loser)
+    assert await _display(conn, winner) == "Josephine Example"
+
+
+async def test_merge_carries_the_display_onto_the_winners_twin(conn):
+    """The loser's displayed row is deduped into the winner's same-text row,
+    so the pointer moves to the row that survives."""
+    winner, loser = await _person(conn), await _person(conn)
+    twin = await _name(conn, winner, "Jody Example", name_type="variant")
+    await _name(conn, loser, "Jody Example", name_type="variant", is_canonical=True)
+    await _merge(conn, winner, loser)
+    rows = await conn.fetch("SELECT id, is_canonical FROM person_names WHERE person_id=$1", winner)
+    assert [(r["id"], r["is_canonical"]) for r in rows] == [(twin, True)]
+
+
+async def test_merge_does_not_carry_a_display_the_curator_dropped(conn):
+    """keep_name_ids without the loser's canonical: it is gone, so the heal picks."""
+    winner, loser = await _person(conn), await _person(conn)
+    await _name(conn, loser, "Jody Example", name_type="variant", is_canonical=True)
+    kept = await _name(conn, loser, "Josephine Example", name_type="legal")
+    await merge_person_into(
+        conn, winner_id=winner, loser_id=loser, actor_email="admin@test.com", keep_name_ids=[kept]
+    )
+    assert await _display(conn, winner) == "Josephine Example"
+
+
 # --- #30: dedup is by identity, not by name string ------------------------
 
 

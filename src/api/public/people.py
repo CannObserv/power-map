@@ -6,7 +6,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from src.api.deps import get_db
-from src.api.public.citations import to_citation_claims
+from src.api.public.citations import to_citation_claims, to_citation_results
 from src.api.public.deps import (
     AuthedKey,
     identifier_filter,
@@ -22,9 +22,9 @@ from src.api.public.gone import DETAIL_RESPONSES, not_found_or_gone
 from src.api.public.identifier_reads import identifier_holders
 from src.api.public.responses import NOT_MODIFIED_OR_NOT_FOUND
 from src.api.public.schemas import (
-    CitationObservationResult,
     EntityEventsResponse,
     EventObservationResult,
+    NameObservationResult,
     ObservationResponse,
     PeopleObservationRequest,
     PersonDetail,
@@ -44,10 +44,10 @@ from src.core.observation import (
     write_contact_methods,
     write_entity_events,
     write_links,
-    write_names,
     write_pronouns,
     write_role_assignments,
 )
+from src.core.person_name_observations import write_person_names
 
 router = APIRouter(prefix="/people", tags=["public-api"])
 
@@ -86,7 +86,7 @@ async def submit_people_observation(
             if entity_type != "person":
                 raise ObservationRejected(f"entity_type_mismatch: {entity_type!r}")
 
-            await write_names(db, entity_id, entity_type, auth.key_id, request.names)
+            name_results = await write_person_names(db, entity_id, auth.key_id, request.names)
             await write_links(db, entity_id, entity_type, request.links)
             await write_contact_methods(db, entity_id, entity_type, request.contact_methods)
             await write_addresses(db, entity_id, entity_type, request.addresses)
@@ -130,14 +130,14 @@ async def submit_people_observation(
             for r in event_results
         ]
         or None,
-        citations=[
-            CitationObservationResult(
+        citations=to_citation_results(citation_results),
+        names=[
+            NameObservationResult(
                 disposition=r.disposition.value,
-                citation_id=r.citation_id,
-                reason=r.reason,
-                attached_archived=r.attached_archived or None,
+                name_id=r.name_id,
+                citations=to_citation_results(r.citations),
             )
-            for r in citation_results
+            for r in name_results
         ]
         or None,
     )

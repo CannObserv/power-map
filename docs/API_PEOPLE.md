@@ -40,7 +40,7 @@ Upserts a person by identifier using the same match-or-create semantics as the o
 |-------|----------|-------|
 | `identifier_type` | always | Must be a registered person identifier type slug — see **Person identifier types** below |
 | `identifier_value` | always | Value for the identifier |
-| `names` | optional | List of `{name, name_type, is_canonical?}` — `name_type` must be a valid name type (e.g. `legal`, `preferred`); `is_canonical` defaults to `false`. Exact-match dedup: re-submitting the same name is a no-op. Canonical is scoped per `(person, name_type)` slot — a person may have one canonical `legal` and a separate canonical `preferred`. Unlike org names, person names do **not** auto-promote — a name is canonical only if explicitly submitted with `is_canonical: true`. The hint is ignored if a canonical already exists for that name's slot (never displaces). At most one entry per request may carry `is_canonical: true` (422 otherwise). |
+| `names` | optional | List of `{name, name_type?, locale?, script?, sort_as?, parts?, is_canonical?, op?, citations?}`. `name_type` defaults to `legal`; the set is in `docs/NAMES.md` § `name_type` values. **Dedup** is exact on `(name, name_type, locale, script)`, case- and whitespace-sensitive (names are stored verbatim): re-sending a name is a no-op. **Canonical** is the one displayed name per person (#308). `is_canonical: true` claims the slot only when the person has none, never displacing one; at most one entry per request may carry it (422 otherwise). With no hint, PM promotes the payload's best-ranked name when the person has none — never a `variant`, `deadname`, `mrz`, `reading` or `romanization` (#845). **`op: "retract"`** (#845) deletes the public row of that identity which the calling key added. **`citations`** (#845) attaches citation items to the name row in the same call. Each name answers in the response's `names[]` — see **Name observations** below. |
 | `personal_pronouns` | optional | Free-text pronouns string (e.g. `they/them`). Written only if the field is currently null; ignored if already set. |
 | `role_assignments` | optional | List of `{role_id, start_date?, end_date?}`. An unknown or archived `role_id` rejects the whole observation `role_not_found: '<id>'` (#602), as `POST /assignments/observations` does. An item is a no-op when the person already holds an open (no `end_date`) tenure on that role, or when a retracted twin `(person, role, start_date)` exists (#391 — never resurrected). Otherwise a tenure is created; no per-item results are returned — see `docs/API_ASSIGNMENTS.md`. |
 | `links` | optional | List of `{url, link_type_id XOR link_type_slug}` |
@@ -63,5 +63,48 @@ for them; the catalog carries no value-format column.
 | `new` | Identifier not seen before; person created |
 | `auto-attached` | Identifier already known; existing entity returned |
 | `rejected` | Unknown identifier type; identifier belongs to a non-person entity (`entity_type_mismatch: '<type>'`); identifier belongs to an archived person (`person_archived: '<id>'`, #481); an unknown identifier whose entity type cannot be created (`entity_type_not_creatable: 'role_assignment'`, #604); a `role_assignments` item naming an unknown or archived role (`role_not_found: '<id>'`, #602 — the check `POST /assignments/observations` makes); an internal type in `additional_identifiers`; an `additional_identifiers` type for another entity type (`identifier_type_mismatch: '<slug>'`, #617); a conflicting `additional_identifiers` value (`identifier_conflict: '<slug>'`); a site ULID another person holds (`identifier_taken: '<slug>' held by '<id>'`, #812); a locked type's new value on a usa-wa person (`identifier_locked: '<slug>'`, #710); DB constraint violation. A human-readable `reason` string is always present on rejected responses, and **nothing is written** — see `docs/CONVENTIONS.md` § "Observation atomicity (#456)". |
+
+#### Name observations — results, citations, retract (#845)
+
+`src/core/person_name_observations.py` is the person-name half of `POST /people/observations`. `write_names` still decides what a claim inserts and promotes; this module reports each claim, attaches a claim's own citations, and lets a key take back a name it added. Embedded only, so **all-or-nothing**: a rejected retract or name citation rejects the whole observation.
+
+**Per-name results.** `ObservationResponse.names[]`, one per name in request order (`null` when none were sent, and on `rejected`). `name_id` is the `person_name` entity of the citations API (`docs/PUBLIC_API.md`):
+
+| `disposition` | Meaning | `name_id` |
+|---|---|---|
+| `new` | the name was added | the new row |
+| `auto-attached` | the person already held it | the held row |
+| `retracted` | `op="retract"` | the deleted row; null when no public row of that identity was there (nothing removed) |
+| `not-public` | accepted, but the row is not public | null |
+
+**What a non-public row reports.** A claim can resolve to a non-public row: a `deadname` (forced `legal_only` on insert), or a name a curator hid. It answers `not-public`: no id, no citation results. For a `deadname` that is the answer whether the row was new or already held, so the response does not say which. For any other type a new row lands public, so `not-public` **does** tell the caller that the person already holds that exact name, non-publicly. The dedup probe is visibility-blind, so that inference predates #845 (observe, then see whether the name appears in a read); it is now one call. It takes `observations:write` and a correct guess of name and type.
+
+**Citations on a name.** `names[].citations` takes the usual citation items (`field_name`: `name` or omitted) and applies them to the row the claim resolved to — new, already held, or not public — under `observations:write`, as an observation's own `citations[]` are. A rejected one (`citable_field_unknown`, …) rejects the observation.
+
+**Retract** deletes one row. It follows the other retractable paths (`docs/OBSERVATIONS.md`) where a name allows, and differs in three places:
+
+| | Assignments, events, citations, relationships | Names |
+|---|---|---|
+| Addressed by | the row's `pm_*_id` | the identity `(name, name_type, locale, script)` on the addressed person — the dedup key, and exact |
+| Provenance gate | same key, or a NULL `source_key_id` | **same key only**: every curated, imported and dataset-applied name has a NULL stamp, so same-or-NULL would let any `observations:write` key delete them |
+| Effect | archive (`archived_at`) | **delete** the row and its citations, as the admin delete does — `person_names` has no archive state |
+
+- So there is **no anti-resurrection**: a later observe adds the name again.
+- **A public row only.** A row a curator hid is theirs — hiding is the durable "no", since the dedup probe is visibility-blind and a re-send stays a no-op. Deleting the hidden row would forget that. No public row of the identity (a re-emitted retract, a row a curator retyped or hid) is a quiet no-op: `retracted`, null `name_id`.
+- Every field on a retract item but the identity is ignored. One identity both observed and retracted in a request is a 422.
+- **Retracts are applied first**, then the observes and the heal, whatever the list order. A retract is judged against the person as the request found them: the heal cannot promote the row about to go, and a name added alongside does not lift `name_is_last`.
+
+| Reason | When |
+|---|---|
+| `name_provenance_conflict` | the public row was written by another key, or carries no stamp |
+| `name_is_canonical` | it is the displayed name, however it became so: a curator promoted it, a hint claimed the slot, or PM auto-promoted a name the key added to a person who had none. Also the answer when a promote commits while the retract runs |
+| `name_is_last` | it is the person's only **public** name — the guard answers from what a read shows, so a hidden name neither permits the delete nor is revealed by it |
+| `name_has_foreign_citations` | a citation on it was written by another key or a curator (a retracted one counts): the citations are deleted with the row, and those are not the caller's |
+| `name_has_readings` | a `reading_of_id` child points at it, of any visibility; the `ON DELETE CASCADE` would take rows the key may not have written. This one can reveal that a hidden reading exists — the alternative is deleting a curator's row unseen |
+
+- **The very key that added it.** A replacement key cannot retract its predecessor's names, and `source_key_id` is `ON DELETE SET NULL`, so deleting a key leaves its names unretractable through the API.
+- Two public rows of one identity can exist (no unique index; a merge or a race). A retract deletes the caller's; the name still reads, and a re-sent retract answers `name_provenance_conflict`, because what remains is another writer's.
+
+Not built: a retract for org names, and a native (partial-success) transport.
 
 **When to include `display_label`:** Add a label when the contact method serves a specific named function — e.g. `"Scheduler"`, `"Committee Office"`, `"Main Switchboard"`. Omit it for generic personal numbers where the value alone is self-explanatory.

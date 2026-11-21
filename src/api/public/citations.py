@@ -28,6 +28,7 @@ from src.core.citations import (
     CITABLE_ENTITY_TYPES,
     CitationClaim,
     apply_citation_observations,
+    claims_from,
 )
 
 router = APIRouter(prefix="/citations", tags=["public-api"])
@@ -39,18 +40,24 @@ def to_citation_claims(items) -> list[CitationClaim]:
     Shared by the native endpoint and the embedded transport (citations[] on an
     org/person observation payload).
     """
+    return claims_from(items)
+
+
+def to_citation_results(results) -> list[CitationObservationResult] | None:
+    """Map core per-claim results onto the wire; ``None`` when there are none.
+
+    The mapping an embedded transport reports under — a people observation's
+    ``citations`` and each of its names' own (#845).
+    """
     return [
-        CitationClaim(
-            field_name=c.field_name,
-            url=c.url,
-            title=c.title,
-            excerpt=c.excerpt,
-            accessed_at=c.accessed_at,
-            op=c.op,
-            pm_citation_id=c.pm_citation_id,
+        CitationObservationResult(
+            disposition=r.disposition.value,
+            citation_id=r.citation_id,
+            reason=r.reason,
+            attached_archived=r.attached_archived or None,
         )
-        for c in items
-    ]
+        for r in results or []
+    ] or None
 
 
 def _validate_entity_type(entity_type: str) -> None:
