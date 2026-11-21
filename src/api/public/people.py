@@ -38,6 +38,7 @@ from src.core.observation import (
     Disposition,
     IdentifierConflict,
     ObservationRejected,
+    log_replaced_identifiers,
     resolve_entity,
     write_additional_identifiers,
     write_addresses,
@@ -93,7 +94,7 @@ async def submit_people_observation(
             await write_role_assignments(db, entity_id, auth.key_id, request.role_assignments)
             if request.personal_pronouns:
                 await write_pronouns(db, entity_id, request.personal_pronouns)
-            await write_additional_identifiers(
+            replaced = await write_additional_identifiers(
                 db, entity_id, entity_type, request.additional_identifiers
             )
             event_results = await write_entity_events(
@@ -116,6 +117,7 @@ async def submit_people_observation(
     except (asyncpg.CheckViolationError, asyncpg.ForeignKeyViolationError):
         return ObservationResponse(disposition="rejected", reason="db_constraint_violation")
 
+    log_replaced_identifiers(entity_type, entity_id, replaced)
     return ObservationResponse(
         disposition=disposition.value,
         entity_id=entity_id,

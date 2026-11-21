@@ -49,6 +49,7 @@ from src.core.observation import (
     IdentifierConflict,
     ObservationRejected,
     apply_event_observations,
+    log_replaced_identifiers,
     lookup_org_parent_by_acronym,
     lookup_org_parent_by_name,
     resolve_entity,
@@ -125,7 +126,7 @@ async def submit_org_observation(
                     authoritative=request.identifier_type == "pm_org_id",
                 )
 
-            await write_additional_identifiers(
+            replaced = await write_additional_identifiers(
                 db, entity_id, entity_type, request.additional_identifiers
             )
             event_results = await write_entity_events(
@@ -151,6 +152,7 @@ async def submit_org_observation(
     except (asyncpg.CheckViolationError, asyncpg.ForeignKeyViolationError):
         return ObservationResponse(disposition="rejected", reason="db_constraint_violation")
 
+    log_replaced_identifiers(entity_type, entity_id, replaced)
     return ObservationResponse(
         disposition=disposition.value,
         entity_id=entity_id,

@@ -33,6 +33,7 @@ from src.core.observation import (
     Disposition,
     IdentifierConflict,
     ObservationRejected,
+    log_replaced_identifiers,
     resolve_entity,
     write_additional_identifiers,
     write_addresses,
@@ -453,7 +454,7 @@ async def submit_jurisdiction_observation(
             await write_links(db, entity_id, entity_type, request.links)
             await write_contact_methods(db, entity_id, entity_type, request.contact_methods)
             await write_addresses(db, entity_id, entity_type, request.addresses)
-            await write_additional_identifiers(
+            replaced = await write_additional_identifiers(
                 db, entity_id, entity_type, request.additional_identifiers
             )
     except ObservationRejected as exc:
@@ -470,6 +471,7 @@ async def submit_jurisdiction_observation(
     except (asyncpg.CheckViolationError, asyncpg.ForeignKeyViolationError):
         return ObservationResponse(disposition="rejected", reason="db_constraint_violation")
 
+    log_replaced_identifiers(entity_type, entity_id, replaced)
     return ObservationResponse(
         disposition=disposition.value,
         entity_id=entity_id,

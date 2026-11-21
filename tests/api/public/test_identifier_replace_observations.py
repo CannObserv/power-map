@@ -7,10 +7,13 @@ holds each case); these cross the seam: the field survives each route's request
 model, and each route answers the swap and its rejections alike.
 """
 
+import inspect
+
 import pytest
 import pytest_asyncio
 
 from src.api.main import app
+from src.api.public import assignments, jurisdictions, orgs, people, roles
 from tests.api.public.test_identifier_taken_observations import (
     ROUTES,
     UNIQUE_SLUGS,
@@ -166,6 +169,62 @@ async def test_a_replace_on_a_jurisdiction_is_unsupported(client, db, write_head
     assert r.json()["disposition"] == "rejected"
     assert r.json()["reason"] == "replaces_unsupported: 'jur_ocd'"
     assert await _values(db, target) == ["53033", "ocd-old"]
+
+
+def _replaced_lines(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if "identifier replaced" in r.getMessage()]
+
+
+@pytest.mark.parametrize("entity_type", sorted(ROUTES))
+async def test_an_applied_replace_is_logged_once(client, db, write_headers, caplog, entity_type):
+    target = await _entity(db, entity_type)
+    slug = UNIQUE_SLUGS[entity_type]
+    await _identify(db, target, slug, "01OLD")
+
+    with caplog.at_level("INFO", logger="src.core.observation"):
+        await _replace(client, write_headers, entity_type, target, "01NEW", "01OLD")
+
+    assert _replaced_lines(caplog) == [
+        f"identifier replaced: {entity_type} {target} {slug} '01OLD' -> '01NEW'"
+    ]
+
+
+@pytest.mark.parametrize("entity_type", sorted(ROUTES))
+async def test_a_replace_rolled_back_by_a_later_item_is_not_logged(
+    client, db, write_headers, caplog, entity_type
+):
+    """CR 1: the swap runs, a later item rejects, the observation rolls back —
+    a log line then would record a replace that never happened."""
+    target = await _entity(db, entity_type)
+    slug = UNIQUE_SLUGS[entity_type]
+    await _identify(db, target, slug, "01OLD")
+    path, pm_type = ROUTES[entity_type]
+    payload = {
+        "identifier_type": pm_type,
+        "identifier_value": target,
+        "additional_identifiers": [
+            {"identifier_type_slug": slug, "identifier_value": "01NEW", "replaces": "01OLD"},
+            {"identifier_type_slug": "no_such_type", "identifier_value": "x"},
+        ],
+    }
+
+    with caplog.at_level("INFO", logger="src.core.observation"):
+        r = await client.post(path, json=payload, headers=write_headers)
+
+    assert r.json()["disposition"] == "rejected"
+    assert await _values(db, target) == ["01OLD"]
+    assert _replaced_lines(caplog) == []
+
+
+@pytest.mark.parametrize(
+    "module", [people, orgs, roles, assignments, jurisdictions], ids=lambda m: m.__name__
+)
+def test_every_route_that_writes_identifiers_logs_its_replaces(module):
+    """The writer cannot log (it runs before the commit), so each route must."""
+    source = inspect.getsource(module)
+
+    assert "write_additional_identifiers(" in source
+    assert "log_replaced_identifiers(" in source
 
 
 def test_the_item_schema_documents_replaces():

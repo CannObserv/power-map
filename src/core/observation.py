@@ -368,6 +368,15 @@ class ObservationRejected(Exception):
         super().__init__(detail)
 
 
+@dataclass(frozen=True)
+class ReplacedIdentifier:
+    """One applied ``replaces`` swap (#848): the type, the value removed, the value held."""
+
+    slug: str
+    old: str
+    new: str
+
+
 class IdentifierConflict(Exception):
     """Raised when an additional identifier conflicts with an existing one on the entity."""
 
@@ -1513,10 +1522,11 @@ async def lookup_org_parent_by_acronym(conn, acronym: str) -> str:
 
 async def write_additional_identifiers(
     conn, entity_id: str, entity_type: str, additional_identifiers: list
-) -> None:
-    """Write additional identifier claims.
+) -> list[ReplacedIdentifier]:
+    """Write additional identifier claims; return the ``replaces`` swaps applied.
 
-    Each item must expose ``.identifier_type_slug`` and ``.identifier_value``.
+    Each item must expose ``.identifier_type_slug`` and ``.identifier_value``,
+    and may expose ``.replaces``.
 
     Policy:
       - Same type + same value on entity, in any of its rows of the type → no-op
@@ -1530,9 +1540,13 @@ async def write_additional_identifiers(
       - New type → insert
 
     An item naming ``.replaces`` (#848) swaps that value for its own instead of
-    conflicting — :func:`_replace_identifier` holds the rules. The lock and
-    ``identifier_taken`` checks above still run ahead of the swap.
+    conflicting — :func:`_replace_applies` and :func:`_remove_replaced` hold the
+    rules. The lock and ``identifier_taken`` checks above still run ahead of the
+    swap. The swaps are returned, not logged: this runs inside the route's
+    transaction, which a later write can still roll back, so the route logs
+    them once it has committed (:func:`log_replaced_identifiers`).
     """
+    replaced: list[ReplacedIdentifier] = []
     for item in additional_identifiers:
         slug = item.identifier_type_slug
         value = item.identifier_value
@@ -1585,14 +1599,27 @@ async def write_additional_identifiers(
                 value,
             )
         if replaces is not None:
-            logger.info(
-                "identifier replaced: %s %s %s %r -> %r",
-                entity_type,
-                entity_id,
-                slug,
-                replaces,
-                value,
-            )
+            replaced.append(ReplacedIdentifier(slug, replaces, value))
+    return replaced
+
+
+def log_replaced_identifiers(
+    entity_type: str, entity_id: str, replaced: list[ReplacedIdentifier]
+) -> None:
+    """One INFO line per applied swap (#848) — call it after the transaction commits.
+
+    ``identifiers`` keeps no history and no writer, so this line and the request
+    log are what record a replace.
+    """
+    for swap in replaced:
+        logger.info(
+            "identifier replaced: %s %s %s %r -> %r",
+            entity_type,
+            entity_id,
+            swap.slug,
+            swap.old,
+            swap.new,
+        )
 
 
 async def _held_identifier_values(conn, entity_id: str, type_id: str) -> set[str]:

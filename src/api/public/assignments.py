@@ -26,6 +26,8 @@ from src.core.observation import (
     Disposition,
     IdentifierConflict,
     ObservationRejected,
+    ReplacedIdentifier,
+    log_replaced_identifiers,
     resolve_assignment,
     resolve_entity,
     retract_assignment,
@@ -239,6 +241,7 @@ async def submit_assignment_observation(
     unapplied: list[str] = []
     attached_archived = False
     provenance_claimed = False
+    replaced: list[ReplacedIdentifier] = []
     try:
         if req.op == "retract":
             if not is_pm_native:
@@ -321,7 +324,7 @@ async def submit_assignment_observation(
                     db, assignment_id, "role_assignment", req.contact_methods
                 )
                 await write_addresses(db, assignment_id, "role_assignment", req.addresses)
-                await write_additional_identifiers(
+                replaced = await write_additional_identifiers(
                     db, assignment_id, "role_assignment", req.additional_identifiers
                 )
     except ObservationRejected as exc:
@@ -338,6 +341,7 @@ async def submit_assignment_observation(
     except (asyncpg.CheckViolationError, asyncpg.ForeignKeyViolationError):
         return ObservationResponse(disposition="rejected", reason="db_constraint_violation")
 
+    log_replaced_identifiers("role_assignment", assignment_id, replaced)
     return ObservationResponse(
         disposition=disposition.value,
         entity_id=assignment_id,

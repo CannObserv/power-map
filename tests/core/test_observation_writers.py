@@ -30,7 +30,9 @@ from src.core.observation import (
     Disposition,
     IdentifierConflict,
     ObservationRejected,
+    ReplacedIdentifier,
     heal_person_canonical,
+    log_replaced_identifiers,
     resolve_assignment,
     update_assignment_fields,
     write_additional_identifiers,
@@ -2412,16 +2414,40 @@ async def test_replace_that_lost_to_the_same_replace_is_a_noop(db, person_id, mo
     assert await _site_values(db, person_id) == ["01NEW"]
 
 
-async def test_replace_is_logged_with_both_values(db, person_id, caplog):
-    """No audit table (#848 decision 6): the applied swap leaves one log line."""
+async def test_replace_returns_the_applied_swap_and_logs_nothing_itself(db, person_id, caplog):
+    """CR 1: the writer runs inside the route's transaction, which may still roll
+    back, so it reports the swap and leaves the log line to the route."""
     await _hold(db, person_id, "01OLD")
 
     with caplog.at_level("INFO", logger="src.core.observation"):
-        await write_additional_identifiers(db, person_id, "person", _swap("01NEW", "01OLD"))
+        replaced = await write_additional_identifiers(
+            db, person_id, "person", _swap("01NEW", "01OLD")
+        )
 
-    lines = [r.getMessage() for r in caplog.records if "identifier replaced" in r.getMessage()]
-    assert len(lines) == 1
-    assert person_id in lines[0] and "'01OLD'" in lines[0] and "'01NEW'" in lines[0]
+    assert replaced == [ReplacedIdentifier("person_cannabis_observer", "01OLD", "01NEW")]
+    assert not [r for r in caplog.records if "identifier replaced" in r.getMessage()]
+
+
+async def test_a_noop_replace_and_a_plain_attach_report_no_swap(db, person_id):
+    await _hold(db, person_id, "01NEW")
+
+    assert (
+        await write_additional_identifiers(db, person_id, "person", _swap("01NEW", "01OLD")) == []
+    )
+    assert await write_additional_identifiers(db, person_id, "person", _site("01NEW")) == []
+
+
+def test_log_replaced_identifiers_writes_one_line_per_swap_with_both_values(caplog):
+    """No audit table (#848 decision 6): an applied swap leaves one log line."""
+    swaps = [ReplacedIdentifier("person_cannabis_observer", "01OLD", "01NEW")]
+
+    with caplog.at_level("INFO", logger="src.core.observation"):
+        log_replaced_identifiers("person", "01PERSON", swaps)
+
+    lines = [r.getMessage() for r in caplog.records]
+    assert lines == [
+        "identifier replaced: person 01PERSON person_cannabis_observer '01OLD' -> '01NEW'"
+    ]
 
 
 async def test_an_item_without_replaces_still_conflicts(db, person_id):
