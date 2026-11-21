@@ -2414,6 +2414,32 @@ async def test_replace_that_lost_to_the_same_replace_is_a_noop(db, person_id, mo
     assert await _site_values(db, person_id) == ["01NEW"]
 
 
+async def test_replace_adds_the_new_value_when_it_went_after_the_read(db, person_id, monkeypatch):
+    """CR 2: both values were held when the replace read them, and the new one
+    was removed before the swap. Trusting the read would delete the old value,
+    skip the insert, and leave the person with no link at all."""
+
+    async def _stale(*_args, **_kwargs):
+        return {"01OLD", "01NEW"}
+
+    await _hold(db, person_id, "01OLD")
+    monkeypatch.setattr(observation, "_held_identifier_values", _stale)
+
+    replaced = await write_additional_identifiers(db, person_id, "person", _swap("01NEW", "01OLD"))
+
+    assert await _site_values(db, person_id) == ["01NEW"]
+    assert replaced == [ReplacedIdentifier("person_cannabis_observer", "01OLD", "01NEW")]
+
+
+async def test_replace_leaves_a_third_held_value_alone(db, person_id):
+    """Only the value named goes: a merge can leave an unrelated one beside it."""
+    await _hold(db, person_id, "01OLD", "01THIRD")
+
+    await write_additional_identifiers(db, person_id, "person", _swap("01NEW", "01OLD"))
+
+    assert await _site_values(db, person_id) == ["01NEW", "01THIRD"]
+
+
 async def test_replace_returns_the_applied_swap_and_logs_nothing_itself(db, person_id, caplog):
     """CR 1: the writer runs inside the route's transaction, which may still roll
     back, so it reports the swap and leaves the log line to the route."""

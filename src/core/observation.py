@@ -1540,7 +1540,7 @@ async def write_additional_identifiers(
       - New type → insert
 
     An item naming ``.replaces`` (#848) swaps that value for its own instead of
-    conflicting — :func:`_replace_applies` and :func:`_remove_replaced` hold the
+    conflicting — :func:`_replace_applies` and :func:`_swap_identifier` hold the
     rules. The lock and ``identifier_taken`` checks above still run ahead of the
     swap. The swaps are returned, not logged: this runs inside the route's
     transaction, which a later write can still roll back, so the route logs
@@ -1585,22 +1585,23 @@ async def write_additional_identifiers(
             holder = await identifier_holder(conn, eit_id, value, other_than=entity_id)
             if holder is not None:
                 raise ObservationRejected(taken_reason(slug, holder))
-        if replaces is not None and not await _remove_replaced(
-            conn, entity_id, eit_id, slug, value, replaces
-        ):
-            continue
-        if value not in held:
-            await conn.execute(
-                "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
-                " VALUES ($1, $2, $3, $4)",
-                generate_id(),
-                entity_id,
-                eit_id,
-                value,
-            )
-        if replaces is not None:
+        if replaces is None:
+            await _insert_identifier(conn, entity_id, eit_id, value)
+        elif await _swap_identifier(conn, entity_id, eit_id, slug, value, replaces):
             replaced.append(ReplacedIdentifier(slug, replaces, value))
     return replaced
+
+
+async def _insert_identifier(conn, entity_id: str, type_id: str, value: str) -> None:
+    """Add one identifier row to the entity."""
+    await conn.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1, $2, $3, $4)",
+        generate_id(),
+        entity_id,
+        type_id,
+        value,
+    )
 
 
 def log_replaced_identifiers(
@@ -1661,15 +1662,26 @@ def _replace_applies(type_id: str, slug: str, value: str, replaces: str, held: s
     raise ObservationRejected(f"replaces_not_held: {slug!r}")
 
 
-async def _remove_replaced(
+async def _swap_identifier(
     conn, entity_id: str, type_id: str, slug: str, value: str, replaces: str
 ) -> bool:
-    """Delete the value a replace names; False when the same replace already landed.
+    """Remove the value a replace names and hold the new one; False when already done.
 
-    The delete's own row count decides, not the earlier read: a replace that
-    committed in between has taken the old value, and this one must not add a
-    second. If that writer made the same swap, the state asked for holds and
-    nothing is written; otherwise ``replaces_not_held``.
+    Nothing here trusts the read :func:`_replace_applies` judged, which another
+    writer may have overtaken:
+
+      - The delete's own row count says whether the old value was still there.
+        A replace that committed in between took it, and this one must not add a
+        second value: ``replaces_not_held``, or a no-op if that writer made the
+        same swap.
+      - Whether to insert is read again after the delete. Had the new value
+        been held and since removed, skipping the insert would leave the entity
+        with no link.
+
+    The second read needs no lock. The delete's parent-touch trigger takes the
+    entity's row, so another writer changing this entity's identifiers either
+    committed before the delete returned, and is visible, or waits in its own
+    trigger until this transaction ends.
     """
     removed = await conn.fetch(
         "DELETE FROM identifiers"
@@ -1678,17 +1690,20 @@ async def _remove_replaced(
         type_id,
         replaces,
     )
-    if removed:
-        return True
-    if await conn.fetchval(
+    holds_new = await conn.fetchval(
         "SELECT 1 FROM identifiers"
         " WHERE entity_id=$1 AND entity_identifier_type_id=$2 AND value=$3",
         entity_id,
         type_id,
         value,
-    ):
-        return False
-    raise ObservationRejected(f"replaces_not_held: {slug!r}")
+    )
+    if not removed:
+        if holds_new:
+            return False
+        raise ObservationRejected(f"replaces_not_held: {slug!r}")
+    if not holds_new:
+        await _insert_identifier(conn, entity_id, type_id, value)
+    return True
 
 
 class _EventRejected(Exception):

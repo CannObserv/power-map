@@ -66,7 +66,7 @@ still answers `identifier_conflict`.
 - **The guard is the expected value, not provenance.** `identifiers` has no
   `source_key_id`, so nothing ties a row to the key that wrote it. Naming the old
   value stops a producer acting on a stale picture; it does not authorize. The delete's
-  own row count decides (`_remove_replaced`), so two replaces racing on one entity
+  own row count decides (`_swap_identifier`), so two replaces racing on one entity
   cannot both add a value. The loser gets `replaces_not_held`, or a no-op if both asked
   for the same swap.
 - **Order.** The #710 lock and the `identifier_taken` check run before the removal, as
