@@ -51,6 +51,11 @@ ALLOWED_DIRECT_ACCESS = {
     # readings probe reads children of any visibility, because a hidden reading
     # cascades with its parent like a public one. No display is performed.
     "src/core/person_name_observations.py",
+    # #847 key-written names review: lists every key-stamped row, non-public
+    # included, but the SQL withholds a non-public row's text and type (CASE on
+    # visibility), so only "a hidden name exists here" reaches the page -- the
+    # exception docs/NAMES.md records. The landing-card count displays nothing.
+    "src/api/admin/activity_names.py",
     # resolves a name's owning person_id for the non-htmx redirect after a citation
     # write (#319) — no name display is performed.
     "src/api/admin/people_name_citations.py",

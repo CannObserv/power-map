@@ -10,6 +10,7 @@ from src.api.admin._citations_shared import fetch_citations
 from src.api.admin._contacts_shared import fetch_contact_tables
 from src.api.admin._events_shared import fetch_entity_events
 from src.api.admin._identifiers_shared import fetch_identifiers
+from src.api.admin._key_provenance import source_key_label_lateral
 from src.api.admin._links_shared import fetch_links
 from src.api.admin.deps import (
     AdminUser,
@@ -422,8 +423,10 @@ async def org_detail(
         raise HTTPException(status_code=404, detail="Organization not found")
 
     names = await db.fetch(
-        "SELECT * FROM organization_names WHERE organization_id = $1"
-        " ORDER BY is_canonical DESC, name_type, name",
+        "SELECT * FROM organization_names n"
+        f"{source_key_label_lateral('n.source_key_id')}"
+        " WHERE n.organization_id = $1"
+        " ORDER BY n.is_canonical DESC, n.name_type, n.name",
         org_id,
     )
     acronyms = await db.fetch(

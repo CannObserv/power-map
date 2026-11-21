@@ -1,6 +1,11 @@
 {# admin/orgs/partials/_name_row.html — inline name read row #}
 <tr id="name-row-{{ n.id }}">
-  <td>{{ n.name }}</td>
+  <td>{{ n.name }}
+    {% if n.source_key_label %}
+    {# Which API key wrote this name (#847); the review list covers person names only. #}
+    <span class="badge badge--neutral" data-source-key>via <span class="sr-only">API key </span>{{ n.source_key_label }}</span>
+    {% endif %}
+  </td>
   <td style="text-align:right">{{ n.name_type }}</td>
   <td style="text-align:right;white-space:nowrap;color:var(--color-text-muted)">{% if n.effective_start or n.effective_end %}{{ n.effective_start or "?" }} – {{ n.effective_end or "present" }}{% else %}—{% endif %}</td>
   <td style="text-align:right">{% if n.is_canonical %}<span class="badge badge--active">Yes</span>{% else %}—{% endif %}</td>

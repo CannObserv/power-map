@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import escape
 
 from src.api.admin._citations_shared import citation_count_lateral
+from src.api.admin._key_provenance import source_key_label_lateral
 from src.api.admin.deps import (
     AdminUser,
     build_parts_summary,
@@ -450,8 +451,10 @@ def make_names_router(
         """
         if not supports_person_metadata:
             rows = await db.fetch(
-                f"SELECT * FROM {names_table} WHERE {entity_fk}=$1"
-                " ORDER BY is_canonical DESC, name_type, name",
+                f"SELECT * FROM {names_table} n"
+                f"{source_key_label_lateral('n.source_key_id')}"
+                f" WHERE n.{entity_fk}=$1"
+                " ORDER BY n.is_canonical DESC, n.name_type, n.name",
                 entity_id,
             )
             return [dict(r) for r in rows]
@@ -460,6 +463,7 @@ def make_names_router(
             "  parent.name AS reading_of_name,"
             "  COALESCE(c.cnt, 0) AS reading_child_count,"
             "  cc_j.citation_count,"
+            "  sk_j.source_key_label,"
             "  pnp.given_names      AS pnp_given_names,"
             "  pnp.family_names     AS pnp_family_names,"
             "  pnp.additional_names AS pnp_additional_names"
@@ -471,6 +475,7 @@ def make_names_router(
             "   WHERE ch.reading_of_id = pn.id"
             " ) c ON TRUE"
             f"{citation_count_lateral('person_name', 'pn.id')}"
+            f"{source_key_label_lateral('pn.source_key_id')}"
             f" WHERE pn.{entity_fk}=$1"
             " ORDER BY pn.is_canonical DESC, pn.name_type, pn.name",
             entity_id,
@@ -694,7 +699,9 @@ def make_names_router(
     ):
         """Return read-only name row (used by Cancel on edit form)."""
         name_row = await db.fetchrow(
-            f"SELECT * FROM {names_table} WHERE id=$1 AND {entity_fk}=$2",
+            f"SELECT * FROM {names_table} n"
+            f"{source_key_label_lateral('n.source_key_id')}"
+            f" WHERE n.id=$1 AND n.{entity_fk}=$2",
             name_id,
             entity_id,
         )

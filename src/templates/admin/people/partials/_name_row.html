@@ -2,13 +2,20 @@
    `n` carries the row plus two derived fields populated by the handler:
      reading_of_name      — display name of the linked parent row (or None)
      reading_child_count  — how many reading/romanization/mrz children
-                            this row would cascade-delete (or 0). #}
+                            this row would cascade-delete (or 0).
+   It also carries source_key_label (#847), the label of the API key that
+   wrote the row, from source_key_label_lateral in every name query. #}
 <tr id="name-row-{{ n.id }}"{% if n.reading_of_id %} class="name-row--child"{% endif %}>
   <td{% if n.reading_of_id %} style="padding-left:1.5rem"{% endif %}>
     {{ n.name }}
     {% if n.visibility and n.visibility != 'public' %}
     <span class="badge badge--inactive"
           aria-label="Visibility: {{ n.visibility }}">{{ n.visibility }}</span>
+    {% endif %}
+    {% if n.source_key_label %}
+    {# Which API key wrote this name (#847); links to that key's review list. #}
+    <a class="badge badge--neutral" data-source-key
+       href="/admin/activity/names/?key={{ n.source_key_id }}">via <span class="sr-only">API key </span>{{ n.source_key_label }}</a>
     {% endif %}
     {% if n.locale or n.script or n.sort_as %}
     <div style="font-size:0.75rem;color:var(--color-text-muted);margin-top:0.125rem">

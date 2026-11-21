@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, Request
 from fastapi.templating import Jinja2Templates
 
+from src.api.admin.activity_names import count_key_written_names
 from src.api.admin.deps import AdminUser, get_admin_user, get_db
 
 templates = Jinja2Templates(directory="src/templates")
@@ -50,5 +51,6 @@ async def activity_index(
             "user": user,
             "active_section": "activity",
             "counts": counts,
+            "key_names": await count_key_written_names(db),
         },
     )

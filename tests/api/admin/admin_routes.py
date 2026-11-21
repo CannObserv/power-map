@@ -405,6 +405,24 @@ async def seed_admin_fixtures(db) -> dict:
         raw[:8],
         hashlib.sha256(raw.encode()).hexdigest(),
     )
+    # Key-written names (#847): the seeded alias and org alias carry the key, so
+    # every names panel renders its "via ‹key›" badge, and a key-sent deadname
+    # (legal_only by trigger) gives the review page its withheld-text row.
+    await db.execute(
+        "UPDATE person_names SET source_key_id = $1 WHERE id = $2", s["key_id"], s["person_name_id"]
+    )
+    await db.execute(
+        "UPDATE organization_names SET source_key_id = $1 WHERE id = $2",
+        s["key_id"],
+        s["org_name_id"],
+    )
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, is_canonical, source_key_id)"
+        " VALUES ($1, $2, 'A11y Keyed Deadname', 'deadname', FALSE, $3)",
+        generate_id(),
+        s["person_id"],
+        s["key_id"],
+    )
     s["link_type_item_id"] = await db.fetchval(
         "SELECT id FROM link_types WHERE is_social = FALSE LIMIT 1"
     )

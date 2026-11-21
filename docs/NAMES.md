@@ -32,6 +32,8 @@ It surfaces **only** on the person-detail admin page, behind an explicit "Show l
 
 **Exception — the applier's create hint (#533).** It matches a create's asserted names against every PM name, whatever its visibility: a twin whose only matching name is a `deadname` or `hidden` row would otherwise be minted as a new, publicly displayed person — the worse disclosure. The hint quotes no PM text; it names the parent and the tier, in a run directory only operators read. An `exact` hint does still tell that operator the parent holds the asserted text.
 
+**Exception — the key-written names review (#847).** Activity › Key-written names (`src/api/admin/activity_names.py`) lists every key-stamped name, non-public included, because a key that sends a `deadname` is the case the review exists for. The SQL withholds a non-public row's text and type (`CASE WHEN visibility = 'public'`), so the page shows only that the person holds a non-public name from that key, and links to the person page, where the disclosure toggle shows it.
+
 Enforcement layers:
 
 - `v_person_display_names` filters by `visibility='public'` — use the view for all display.
