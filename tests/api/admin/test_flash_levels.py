@@ -74,17 +74,24 @@ class FlashCall:
 
 
 def _walk_calls(node: ast.AST, file: str, func: str, def_line: int) -> Iterator[FlashCall]:
+    """Yield the calls under *node*, which sits in def *func* (at *def_line*)."""
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        # Decorators, defaults and annotations are evaluated in the enclosing
+        # scope; only the body belongs to the def itself.
+        outer = [*node.decorator_list, node.args, *([node.returns] if node.returns else [])]
+        for part in outer:
+            yield from _walk_calls(part, file, func, def_line)
+        for stmt in node.body:
+            yield from _walk_calls(stmt, file, node.name, node.lineno)
+        return
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "flash_trigger"
+        and node.args
+    ):
+        yield FlashCall(file, func, def_line, node.lineno, node.args[0])
     for child in ast.iter_child_nodes(node):
-        if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
-            yield from _walk_calls(child, file, child.name, child.lineno)
-            continue
-        if (
-            isinstance(child, ast.Call)
-            and isinstance(child.func, ast.Name)
-            and child.func.id == "flash_trigger"
-            and child.args
-        ):
-            yield FlashCall(file, func, def_line, child.lineno, child.args[0])
         yield from _walk_calls(child, file, func, def_line)
 
 
@@ -268,6 +275,22 @@ def make_router():
         ("m.py::<module>", 2),
         ("m.py::inner", 6),
         ("m.py::make_router", 7),
+    ]
+
+
+def test_decorator_and_default_calls_belong_to_the_enclosing_scope():
+    """Decorators, defaults and annotations run in the outer scope, not the def's body."""
+    src = """
+def outer():
+    @deco(flash_trigger("success", "d"))
+    def inner(h=flash_trigger("success", "x")) -> flash_trigger("success", "r"):
+        return flash_trigger("success", "body")
+"""
+    assert [c.key for c in _calls_in_source("m.py", src)] == [
+        "m.py::outer",
+        "m.py::outer",
+        "m.py::outer",
+        "m.py::inner",
     ]
 
 
