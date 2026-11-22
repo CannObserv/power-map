@@ -118,8 +118,22 @@ async def test_the_assignment_page_hosts_the_membership_slot_line(client, db):
 async def test_pinning_keeps_the_current_membership(client, db):
     a = await _assignment(db, "substitute")
 
-    r = await client.post(f"/admin/_overlay/assignment/{a['ra']}/membership_type/pin/", headers=HX)
+    r = await client.post(
+        f"/admin/_overlay/assignment/{a['ra']}/membership_type/pin/",
+        data={"expected": "substitute"},
+        headers=HX,
+    )
 
     assert r.status_code == 200
     pin = await active_pin(db, "assignment", a["ra"], "membership_type")
     assert pin is not None and pin.value == "substitute"
+
+
+async def test_the_membership_line_reads_the_label_and_never_says_editing_pins(client, db):
+    """#838: no admin editor moves membership, so only its Pin pins it."""
+    a = await _assignment(db, "ex_officio")
+
+    r = await client.get(f"/admin/_overlay/assignment/{a['ra']}/membership_type/", headers=AUTH)
+
+    assert "Membership: <strong>Ex officio</strong>." in r.text
+    assert "Editing it" not in r.text and ">Pin membership</button>" in r.text

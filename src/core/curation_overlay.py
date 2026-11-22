@@ -35,6 +35,7 @@ __all__ = [
     "in_scope",
     "pin",
     "pin_changed",
+    "pin_text",
     "unpin_pin",
 ]
 
@@ -87,8 +88,10 @@ def _pin(row: asyncpg.Record) -> Pin:
     return Pin(**dict(row))
 
 
-def _text(value: object) -> str | None:
-    """`curation_overlay.value` is TEXT: a year arrives as 2018 and is held as '2018'."""
+def pin_text(value: object) -> str | None:
+    """A value as a pin holds it: `curation_overlay.value` is TEXT, so a year
+    arrives as 2018 and is held as '2018'. The admin compares a slot's live value
+    to a pin, and to the value its line showed, in this form (#838)."""
     return None if value is None else str(value)
 
 
@@ -133,7 +136,7 @@ async def pin(
             f"{entity_type} {entity_id} is outside the producer's row scope;"
             " a pin there would be applied nowhere"
         )
-    text = _text(value)
+    text = pin_text(value)
     current = await active_pin(conn, entity_type, entity_id, field)
     if current is not None and current.value == text:
         return current

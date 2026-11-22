@@ -87,7 +87,7 @@ async def test_an_anchored_roles_slot_line_offers_a_pin(client, db):
     r = await client.get(f"/admin/_overlay/role/{role}/title/", headers=AUTH)
 
     assert r.status_code == 200
-    assert "Pin current title" in r.text
+    assert ">Pin title</button>" in r.text and "Title: <strong>Member</strong>" in r.text
 
 
 async def test_a_role_outside_the_crosswalk_has_no_slot_line(client, db):
@@ -108,7 +108,9 @@ async def test_an_unknown_role_is_404(client, db):
 async def test_pinning_keeps_the_current_title(client, db):
     role = await _role(db, title="Chair")
 
-    r = await client.post(f"/admin/_overlay/role/{role}/title/pin/", headers=HX)
+    r = await client.post(
+        f"/admin/_overlay/role/{role}/title/pin/", data={"expected": "Chair"}, headers=HX
+    )
 
     assert r.status_code == 200
     held = await active_pin(db, "role", role, "title")

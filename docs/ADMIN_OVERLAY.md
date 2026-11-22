@@ -7,7 +7,7 @@ as `COALESCE(overlay, mapped)`, so the applier needs no per-row gate and a
 curator's correction is never silently reverted (design:
 `docs/plans/2026-09-11-curation-overlay-design.md`).
 
-## The nine slots
+## The ten slots
 
 A slot is a producer-owned field on an entity in the producer's row scope — a
 `live` or `merged` `producer_crosswalk` row. Outside that scope nothing here
@@ -23,7 +23,7 @@ applies: editing is direct curation, as before.
 | `assignment.start_date` | `role_assignments.start_date` | `role_assignments.py` dates form; the person- and role-page edit rows |
 | `assignment.end_date` | `role_assignments.end_date` | as `start_date` |
 | `assignment.is_current` | `role_assignments.is_current` (a pin stores `True`/`False`) | `role_assignments.py` currency toggle; both edit rows |
-| `assignment.membership_type` | `role_assignments.membership_type` (#671) | none: no admin editor moves it, so only "Pin current" pins it |
+| `assignment.membership_type` | `role_assignments.membership_type` (#671) | none: no admin editor moves it, so only the line's **Pin** pins it |
 | `role.title` | `roles.title` | `roles_detail.py` title editor (its structural editor writes the title back unchanged, #497) |
 
 The four assignment slots (#527, #671) show on the assignment page. The model keeps
@@ -103,10 +103,20 @@ re-pointed to the survivor, as the live `parent_id` is (`docs/MERGE.md`).
 
 - **The slot line** — `GET /admin/_overlay/{type}/{id}/{field}/`, a
   self-loading fragment in the dup-badge pattern (`hx-trigger="load,
-  refreshOverlay from:body"`) under each slot's panel header. Unpinned:
-  *Maintained by usa-wa* and a **Pin** that keeps the current value. Pinned: a
-  `badge--pinned`, the value as a curator reads it (a parent's name, *kept
-  empty* for NULL), who, when, the note, and an **Unpin**. Empty outside scope.
+  refreshOverlay from:body"`) under the header of the panel that edits the
+  slot. It always shows the value it governs, as a curator reads it
+  (`read_as` / `display_value`: a parent by name, **Current** / **Former**, a
+  membership's label; the pins page reads values the same way). Unpinned and
+  filled: *‹Label›: **value**. Maintained by usa-wa*, and *Editing it pins your
+  value* where an editor exists, plus **Pin ‹label›**. Unpinned and **empty**:
+  *‹Label›: none* and **no Pin** (#838), because pinning nothing would keep the
+  field empty, which no one chose. Keeping a field empty stays possible by
+  editing the value away, which pins NULL. Pinned: a `badge--pinned`, the value
+  (*none, kept empty* for NULL), who, when, the note, and **Unpin ‹label›**.
+  When PM's record no longer holds the pinned value (a write outside
+  `tracked()`), the line says what it reads until the next apply. No
+  confirmation on either control. Empty outside scope. Design:
+  `docs/plans/2026-11-22-overlay-slot-line-design.md`.
 - **The edit note** — the same route with `?variant=note`, hosted in the name,
   acronym, parent, org event, role title and assignment dates forms: *Saving a
   change pins your value*. The host loads into itself (`hx-target="this"`), never
@@ -114,8 +124,10 @@ re-pointed to the survivor, as the live `parent_id` is (`docs/MERGE.md`).
 - **Pin / Unpin** — `POST …/pin/` and `…/unpin/`: HTMX partial plus the
   `with_flash` fallback to the entity page (`?flash=pinned|unpinned`). Each acts
   only on what the line showed: Pin only while no pin is live (else
-  `already_pinned`), Unpin only while the `pin_id` it posts is still the slot's
-  live pin (else `pin_stale`) — a warning, and the line as it stands.
+  `already_pinned`) and only the value it posts as `expected`, never an empty
+  slot (else `slot_changed`, #838); Unpin only while the `pin_id` it posts is
+  still the slot's live pin (else `pin_stale`) — a warning, and the line as it
+  stands.
 - **`/admin/pins/`** — every pin, filtered by the #306 status axis (`active`
   by default, `archived`, `all`) and entity type, and paged like every list. Unpin on a row archives *that*
   pin only while it is still live (`unpin_pin`), for the same reason.

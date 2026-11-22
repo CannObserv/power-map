@@ -10,7 +10,10 @@ Pin keeps PM's current value for the slot over every later snapshot; Unpin
 archives the pin so the producer's value returns on the next apply. Each acts
 only on what the line showed: Pin only while no pin is live, Unpin only while
 the pin it names is still the slot's live one — a line older than the slot must
-not replace or archive a pin the curator never saw.
+not replace or archive a pin the curator never saw. Pin also posts the value its
+line showed (``expected``) and pins only that one (#838): never a value changed
+since, and never an empty slot, since pinning one keeps it empty and the line
+offers no Pin there.
 """
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -36,7 +39,14 @@ from src.api.admin.overlay_slots import (
     read_slots,
     slot_state,
 )
-from src.core.curation_overlay import OverlayError, active_pin, pin, unpin_pin
+from src.core.curation_overlay import (
+    OverlayError,
+    active_pin,
+    in_scope,
+    pin,
+    pin_text,
+    unpin_pin,
+)
 
 templates = Jinja2Templates(directory="src/templates")
 router = APIRouter(prefix="/_overlay", tags=["admin-overlay"])
@@ -111,24 +121,33 @@ async def overlay_pin(
     entity_id: str,
     field: str,
     request: Request,
+    expected: str | None = Form(None),
     user: AdminUser = Depends(provision_app_user),
     db=Depends(get_db),
 ):
-    """Pin the slot's current value: PM keeps it over every later snapshot.
+    """Pin the value the line showed: PM keeps it over every later snapshot.
 
     Only while no pin is live — the line offers Pin on an unpinned slot alone. A
     pin live now arrived after the page loaded (a merge carried it here, another
     curator pinned) and may hold another value; it is not this Pin's to replace,
-    so a warning and the line as it stands.
+    so a warning and the line as it stands. Likewise when the slot no longer
+    holds ``expected``, the value the line showed, or is empty (#838).
     """
     slot = _slot_or_404(entity_type, field)
     await _entity_or_404(db, entity_type, entity_id)
+    refusal = None
     try:
         async with db.transaction():
-            already = await active_pin(db, entity_type, entity_id, field) is not None
-            if not already:
+            if not await in_scope(db, entity_type, entity_id):
+                raise OverlayError(f"{entity_type} {entity_id} is outside the row scope")
+            if await active_pin(db, entity_type, entity_id, field) is not None:
+                refusal = "already_pinned"
+            else:
                 value = (await read_slots(db, entity_type, entity_id, (field,)))[field]
-                await pin(db, entity_type, entity_id, field, value, user_id=user.id)
+                if value is None or pin_text(value) != expected:
+                    refusal = "slot_changed"
+                else:
+                    await pin(db, entity_type, entity_id, field, value, user_id=user.id)
     except OverlayError:
         # The Pin control renders only in scope; a stale page is the way here.
         if not is_htmx(request):
@@ -136,10 +155,10 @@ async def overlay_pin(
                 with_flash(_detail_url(entity_type, entity_id), "invalid"), status_code=303
             )
         return htmx_refusal(f"{PRODUCER_LABEL} does not maintain this record: nothing to pin.")
-    if already:
+    if refusal is not None:
         if not is_htmx(request):
             return RedirectResponse(
-                with_flash(_detail_url(entity_type, entity_id), "already_pinned"), status_code=303
+                with_flash(_detail_url(entity_type, entity_id), refusal), status_code=303
             )
         return await _render(
             request,
@@ -148,7 +167,7 @@ async def overlay_pin(
             entity_id,
             field,
             variant="status",
-            headers=flash_trigger("warning", SHARED_FLASH_MESSAGES["already_pinned"][1]),
+            headers=flash_trigger("warning", SHARED_FLASH_MESSAGES[refusal][1]),
         )
     if not is_htmx(request):
         return RedirectResponse(

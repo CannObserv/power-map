@@ -1,6 +1,6 @@
 # Overlay slot line: value, empty slots, placement, wording (#838)
 
-**Status:** proposed, awaiting approval. Part of epic #818.
+**Status:** approved 2026-11-22 as recommended, `slot_changed` guard included. Part of epic #818.
 
 ## Goal
 

@@ -2,29 +2,47 @@
    Loaded into a self-refreshing host (`hx-trigger="load, refreshOverlay from:body"`);
    empty when the entity is outside the producer's row scope. `variant == "note"`
    is the edit form's one-line warning; `status` is the panel's line, with Pin or
-   Unpin. `base` is the slot's /admin/_overlay/<type>/<id>/<field>/ URL. #}
+   Unpin. `base` is the slot's /admin/_overlay/<type>/<id>/<field>/ URL.
+   #838: the line shows the value it governs, pinned or not. An empty slot reads
+   *none* and offers no Pin, which would keep it empty; Pin posts the value shown
+   as `expected`, so a value changed since the page loaded is not what it pins. #}
 {% if state %}
+{% set label = state.slot.label %}
 {% if variant == "note" %}
-<p class="overlay-note">{{ producer }} maintains the {{ state.slot.label | lower }}. Saving a change pins your value: PM keeps it over future snapshots until you unpin it.</p>
+<p class="overlay-note">{{ producer }} maintains the {{ label | lower }}. Saving a change pins your value: PM keeps it over future snapshots until you unpin it.</p>
 {% elif state.pin %}
 <p class="overlay-slot">
   <span class="badge badge--pinned">Pinned</span>
-  <span class="overlay-slot__text">{{ state.slot.label }}
-    {% if state.pin.value is none %}<em>kept empty</em>{% else %}<strong>{{ state.display }}</strong>{% endif %}:
-    PM keeps it over {{ producer }}'s value. Pinned {{ state.pin.created_at.strftime('%Y-%m-%d') }}{% if state.pinned_by %} by {{ state.pinned_by }}{% endif %}{% if state.pin.note %} ({{ state.pin.note }}){% endif %}.</span>
+  <span class="overlay-slot__text">
+    {%- if state.pin.value is none -%}
+    {{ label }}: <em>none, kept empty</em>. PM keeps it empty over {{ producer }}'s value.
+    {%- else -%}
+    {{ label }}: <strong>{{ state.display }}</strong>. PM keeps it over {{ producer }}'s value.
+    {%- endif %} Pinned {{ state.pin.created_at.strftime('%Y-%m-%d') }}{% if state.pinned_by %} by {{ state.pinned_by }}{% endif %}{% if state.pin.note %} ({{ state.pin.note }}){% endif %}.
+    {%- if state.differs %} PM's record reads {% if state.live is none %}<em>none</em>{% else %}<strong>{{ state.live_display }}</strong>{% endif %} until the next apply restores the pin.{% endif -%}
+  </span>
   <button type="button" class="btn btn--sm btn--secondary"
           hx-post="{{ base }}unpin/"
           hx-vals='{"pin_id": "{{ state.pin.id }}"}'
           hx-target="closest .overlay-slot-host"
-          hx-swap="innerHTML">Unpin {{ state.slot.label | lower }}</button>
+          hx-swap="innerHTML">Unpin {{ label | lower }}</button>
 </p>
 {% else %}
 <p class="overlay-slot">
-  <span class="overlay-slot__text">{{ state.slot.label }}: Maintained by {{ producer }}. Editing it pins your value.</span>
+  <span class="overlay-slot__text">
+    {%- if state.live is none -%}
+    {{ label }}: <em>none</em>. Maintained by {{ producer }}.
+    {%- else -%}
+    {{ label }}: <strong>{{ state.live_display }}</strong>. Maintained by {{ producer }}.
+    {%- endif %}{% if state.slot.editable %} Editing it pins your value.{% endif -%}
+  </span>
+  {% if state.live is not none %}
   <button type="button" class="btn btn--sm btn--secondary"
           hx-post="{{ base }}pin/"
+          hx-vals='{{ {"expected": state.live} | tojson }}'
           hx-target="closest .overlay-slot-host"
-          hx-swap="innerHTML">Pin current {{ state.slot.label | lower }}</button>
+          hx-swap="innerHTML">Pin {{ label | lower }}</button>
+  {% endif %}
 </p>
 {% endif %}
 {% endif %}
