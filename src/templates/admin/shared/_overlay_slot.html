@@ -19,7 +19,7 @@
     {%- else -%}
     {{ label }}: <strong>{{ state.display }}</strong>. PM keeps it over {{ producer }}'s value.
     {%- endif %} Pinned {{ state.pin.created_at.strftime('%Y-%m-%d') }}{% if state.pinned_by %} by {{ state.pinned_by }}{% endif %}{% if state.pin.note %} ({{ state.pin.note }}){% endif %}.
-    {%- if state.differs %} PM's record reads {% if state.live is none %}<em>none</em>{% else %}<strong>{{ state.live_display }}</strong>{% endif %} until the next apply restores the pin.{% endif -%}
+    {%- if state.differs %} PM's record now reads {% if state.live is none %}<em>none</em>{% else %}<strong>{{ state.live_display }}</strong>{% endif %}, not the pinned value.{% endif -%}
   </span>
   <button type="button" class="btn btn--sm btn--secondary"
           hx-post="{{ base }}unpin/"

@@ -124,13 +124,13 @@ def test_a_null_pin_reads_none_kept_empty():
 def test_a_pin_that_differs_from_the_live_value_says_so():
     html = _line(live="2020", held="2019")
 
-    assert "PM's record reads <strong>2020</strong> until the next apply restores the pin." in html
+    assert "PM's record now reads <strong>2020</strong>, not the pinned value." in html
 
 
 def test_a_pinned_value_over_an_emptied_slot_says_none():
     html = _line(live=None, held="2019")
 
-    assert "PM's record reads <em>none</em> until the next apply restores the pin." in html
+    assert "PM's record now reads <em>none</em>, not the pinned value." in html
 
 
 def test_the_expected_value_is_attribute_safe():

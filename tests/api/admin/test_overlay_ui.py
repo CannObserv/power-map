@@ -329,7 +329,7 @@ async def test_a_pin_that_differs_from_the_live_value_says_what_pm_reads(client,
     r = await client.get(_slot(oid), headers=AUTH)
 
     assert "Acronym: <strong>EN</strong>." in r.text
-    assert "PM's record reads <strong>ETT</strong> until the next apply restores the pin." in r.text
+    assert "PM's record now reads <strong>ETT</strong>, not the pinned value." in r.text
 
 
 async def test_pin_on_an_empty_slot_is_refused_and_pins_nothing(client, db):

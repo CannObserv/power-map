@@ -114,7 +114,8 @@ re-pointed to the survivor, as the live `parent_id` is (`docs/MERGE.md`).
   editing the value away, which pins NULL. Pinned: a `badge--pinned`, the value
   (*none, kept empty* for NULL), who, when, the note, and **Unpin ‹label›**.
   When PM's record no longer holds the pinned value (a write outside
-  `tracked()`), the line says what it reads until the next apply. No
+  `tracked()`), the line says what the record now reads. It promises no
+  apply outcome, since a name or acronym pin is applied by presence. No
   confirmation on either control. Empty outside scope. Design:
   `docs/plans/2026-11-22-overlay-slot-line-design.md`.
 - **The edit note** — the same route with `?variant=note`, hosted in the name,

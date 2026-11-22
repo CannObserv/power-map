@@ -42,7 +42,7 @@ value, read with the slot's own SQL (one more query per line).
 - **Unpinned, empty:** Dissolved year: *none*. Maintained by usa-wa. Editing it pins your value. *(no button)*
 - **Pinned:** **[Pinned]** Dissolved year: **2019**. PM keeps it over usa-wa's value. Pinned 2026-09-30 by ‹email› (‹note›). **[Unpin dissolved year]**
 - **Pinned NULL:** **[Pinned]** Dissolved year: *none, kept empty*. PM keeps it empty over usa-wa's value. … **[Unpin dissolved year]**
-- **Pinned, live value differs** (a write outside `tracked()`, e.g. the public API, moved it): the pinned line adds *PM's record reads **2020** until the next apply restores the pin.*
+- **Pinned, live value differs** (a write outside `tracked()`, e.g. the public API, moved it): the pinned line adds *PM's record now reads **2020**, not the pinned value.* It promises no apply outcome: a name or acronym pin is applied by presence, so a pinned value present but not canonical is an applier no-op (CR 1).
 - **No editor** (`membership_type`): drop "Editing it pins your value."
 
 ### 2. An empty slot offers nothing
