@@ -55,6 +55,12 @@ def test_only_the_membership_slot_has_no_editor():
     assert [k for k, s in SLOTS.items() if not s.editable] == [("assignment", "membership_type")]
 
 
+def test_a_slot_state_cannot_omit_the_live_value():
+    """CR 3: a default None would render a filled slot as empty, with no Pin."""
+    with pytest.raises(TypeError):
+        SlotState(slot=SLOTS[("role", "title")], pin=None, display=None, pinned_by=None)
+
+
 # --- the line, rendered --------------------------------------------------------------
 
 

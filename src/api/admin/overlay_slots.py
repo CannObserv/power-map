@@ -220,8 +220,8 @@ class SlotState:
     pin: Pin | None
     display: str | None  # the pinned value as a curator reads it
     pinned_by: str | None  # the pinner's email
-    live: str | None = None  # the live value as a pin holds it; Pin posts it back
-    live_display: str | None = None  # the live value as a curator reads it
+    live: str | None  # the live value as a pin holds it; Pin posts it back
+    live_display: str | None  # the live value as a curator reads it
 
     @property
     def differs(self) -> bool:
