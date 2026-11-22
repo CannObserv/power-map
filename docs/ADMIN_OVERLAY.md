@@ -105,8 +105,9 @@ re-pointed to the survivor, as the live `parent_id` is (`docs/MERGE.md`).
   self-loading fragment in the dup-badge pattern (`hx-trigger="load,
   refreshOverlay from:body"`) under the header of the panel that edits the
   slot. It always shows the value it governs, as a curator reads it
-  (`read_as` / `display_value`: a parent by name, **Current** / **Former**, a
-  membership's label; the pins page reads values the same way). Unpinned and
+  (`read_as` / `display_value`: a parent by name, `is_current` as *Status:*
+  **Current** / **Former**, a membership's label; the pins page reads values
+  the same way). Unpinned and
   filled: *‹Label›: **value**. Maintained by usa-wa*, and *Editing it pins your
   value* where an editor exists, plus **Pin ‹label›**. Unpinned and **empty**:
   *‹Label›: none* and **no Pin** (#838), because pinning nothing would keep the

@@ -22,7 +22,7 @@ hook) do not change. Only what the admin offers and says does.
 | `organization.parent_id` | yes: a top-level org | the parent's display name (`display_sql`) |
 | `organization.dissolved_year` | yes: any undissolved org | the year |
 | `assignment.start_date`, `.end_date` | yes: an unknown start, an open span | `YYYY-MM-DD` |
-| `assignment.is_current` | no: `NOT NULL` | **Current** / **Former**, not `True` / `False` |
+| `assignment.is_current` | no: `NOT NULL` | **Current** / **Former**, not `True` / `False`; labelled *Status* (CR 2), since "Current" made the button "Pin current" |
 | `assignment.membership_type` | no: `NOT NULL DEFAULT 'principal'` | **Principal** / **Substitute** / **Ex officio** / **Acting**, not `ex_officio` |
 | `role.title` | no: `NOT NULL` | the title |
 

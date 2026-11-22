@@ -139,7 +139,8 @@ async def test_currency_reads_as_a_word_not_a_bool(client, db, current, reads):
 
     r = await client.get(f"/admin/_overlay/assignment/{a['ra']}/is_current/", headers=AUTH)
 
-    assert f"Current: <strong>{reads}</strong>." in r.text
+    # CR 2: labelled as the page's Status group, so the button is never "Pin current"
+    assert f"Status: <strong>{reads}</strong>." in r.text and ">Pin status</button>" in r.text
     assert f"""hx-vals='{{"expected": "{current}"}}'""" in r.text
 
 

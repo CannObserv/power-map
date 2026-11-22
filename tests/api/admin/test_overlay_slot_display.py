@@ -45,6 +45,12 @@ def test_a_live_bool_and_a_pinned_bool_read_alike():
     assert read_as(slot, pin_text(False)) == read_as(slot, "False") == "Former"
 
 
+def test_no_slot_label_makes_a_pin_current_button():
+    """CR 2: "Pin current ‹label›" is the wording #838 retired; a label "Current"
+    would bring it back as "Pin current"."""
+    assert all(s.label.lower() != "current" for s in SLOTS.values())
+
+
 def test_only_the_membership_slot_has_no_editor():
     assert [k for k, s in SLOTS.items() if not s.editable] == [("assignment", "membership_type")]
 

@@ -137,7 +137,7 @@ _SLOTS = (
     Slot(
         "assignment",
         "is_current",
-        "Current",
+        "Status",  # the page's group label; "Current" made the button "Pin current"
         _ASSIGNMENT_COLUMN.format("is_current"),
         labels={"True": "Current", "False": "Former"},
     ),
