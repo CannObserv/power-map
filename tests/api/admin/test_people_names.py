@@ -549,6 +549,65 @@ async def test_create_canonical_deadname_rejected(client, person_only, db):
     assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid) == 0
 
 
+async def test_create_canonical_misspelling_rejected_with_its_own_reason(client, person_only, db):
+    """#857: a misspelling lands public, so the visibility check cannot catch it,
+    and the deadname wording ("recorded privately") would be false for it."""
+    pid = person_only["pid"]
+    resp = await client.post(
+        f"/admin/people/{pid}/names/",
+        data={
+            "name": "Caitlin Ryan",
+            "name_type": "misspelling",
+            "is_canonical": "true",
+            "visibility": "public",
+        },
+        headers=HTMX_HEADERS,
+    )
+    assert resp.status_code == 200
+    trigger = resp.headers.get("HX-Trigger", "")
+    assert "kept only so search finds this person" in trigger
+    assert "privately" not in trigger
+    assert resp.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
+    assert await db.fetchval("SELECT count(*) FROM person_names WHERE person_id=$1", pid) == 0
+
+
+async def test_create_canonical_deadname_keeps_its_private_reason(client, person_only, db):
+    pid = person_only["pid"]
+    resp = await client.post(
+        f"/admin/people/{pid}/names/",
+        data={
+            "name": "Old Name",
+            "name_type": "deadname",
+            "is_canonical": "true",
+            "visibility": "public",
+        },
+        headers=HTMX_HEADERS,
+    )
+    assert "recorded privately" in resp.headers.get("HX-Trigger", "")
+
+
+async def test_edit_canonical_name_to_misspelling_rejected(client, person_only, db):
+    """#857: retyping the displayed name as a misspelling is refused, not a 500."""
+    pid = person_only["pid"]
+    nid = await _add_raw_name(db, pid, "Kaitlyn Ryan", "legal", "public")
+    await db.execute("UPDATE person_names SET is_canonical=TRUE WHERE id=$1", nid)
+    resp = await client.post(
+        f"/admin/people/{pid}/names/{nid}/edit-row/",
+        data={
+            "name": "Kaitlyn Ryan",
+            "name_type": "misspelling",
+            "is_canonical": "true",
+            "visibility": "public",
+        },
+        headers=HTMX_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert "kept only so search finds this person" in resp.headers.get("HX-Trigger", "")
+    row = await db.fetchrow("SELECT is_canonical, name_type FROM person_names WHERE id=$1", nid)
+    assert row["is_canonical"]
+    assert row["name_type"] == "legal"
+
+
 async def test_edit_canonical_with_omitted_visibility_rejected(client, person_only, db):
     """#308 CR4: an omitted visibility must validate against the stored value.
 

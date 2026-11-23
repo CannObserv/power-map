@@ -19,7 +19,7 @@ from pydantic import (
 # `role_assignment_relationship`. Imported rather than re-declared so the
 # published contract inherits the schema-parity guard in tests/core/test_types.py.
 from src.core.types import EntityType as IdentifierEntityType
-from src.core.types import MembershipType
+from src.core.types import MembershipType, PersonNameType
 
 EntityType = Literal[
     "person",
@@ -593,6 +593,55 @@ class EntityEventTypesResponse(BaseModel):
     data: list[EntityEventType]
 
 
+class OrganizationNameTypeEntry(BaseModel):
+    """An organization name type's reference entry (#857)."""
+
+    slug: str
+    label: str
+    meaning: str
+    use_when: str
+    not_for: str
+    example: str
+
+
+class PersonNameTypeEntry(OrganizationNameTypeEntry):
+    """A person name type's reference entry, with how PM treats it (#857).
+
+    Read ``presentable`` before showing a name: a ``misspelling`` is ``false`` —
+    a search key, never an "also known as". ``display_rank`` is the place on the
+    display ladder (lower wins; ``null`` = never displayed unasked);
+    ``auto_promote`` = may become the displayed name with no hint;
+    ``never_canonical`` = an ``is_canonical`` hint on it is ignored;
+    ``landing_visibility`` = what the row is stored as when sent ``public``;
+    ``renders_row`` = a rendering of another name row (``reading_of_id``);
+    ``merge_distinct`` = a merge keeps it beside same-text names of other types;
+    ``decomposable`` = structured parts apply.
+    """
+
+    display_rank: int | None
+    auto_promote: bool
+    never_canonical: bool
+    # A string, not an enum, on purpose: the generated client parses a read-side
+    # enum with Enum(value), which raises on a value added later (#857).
+    landing_visibility: str
+    renders_row: bool
+    merge_distinct: bool
+    decomposable: bool
+    presentable: bool
+
+
+class PersonNameTypesResponse(BaseModel):
+    """Unpaginated list of every person name type, in dropdown order (#857)."""
+
+    data: list[PersonNameTypeEntry]
+
+
+class OrganizationNameTypesResponse(BaseModel):
+    """Unpaginated list of every organization name type (#857)."""
+
+    data: list[OrganizationNameTypeEntry]
+
+
 class EntityIdentifierType(BaseModel):
     """An identifier type — the vocabulary a producer addresses entities by (#459).
 
@@ -658,21 +707,9 @@ class ObservationPersonName(BaseModel):
     """
 
     name: str
-    name_type: Literal[
-        "legal",
-        "preferred",
-        "alias",
-        "former",
-        "initials",
-        "maiden",
-        "religious",
-        "stage",
-        "deadname",
-        "reading",
-        "romanization",
-        "mrz",
-        "variant",
-    ] = "legal"
+    # The person name-type vocabulary itself (#857): each type's meaning and how
+    # PM treats it are served by GET /api/v1/person-name-types.
+    name_type: PersonNameType = "legal"
     locale: str | None = None  # BCP 47
     script: str | None = None  # ISO 15924
     sort_as: str | None = None

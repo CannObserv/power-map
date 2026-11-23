@@ -42,31 +42,13 @@ Enforcement layers:
 
 ### `name_type` values
 
-| Value | Meaning |
-|---|---|
-| `legal` | Government-recognized legal name |
-| `preferred` | What the person asks to be called publicly |
-| `alias` | Alternate identifier (pen name, handle) |
-| `former` | Previous name (marriage change, divorce, voluntary change) |
-| `initials` | Initialism (`JFK`, `MLK`) |
-| `maiden` | Birth surname |
-| `religious` | Religious / monastic name |
-| `stage` | Performer / artist name |
-| `deadname` | Pre-transition or pre-disclosure name; auto-`legal_only` |
-| `reading` | Phonetic reading of another row (e.g. furigana) — link via `reading_of_id` |
-| `romanization` | Latin-script rendering of another row (pinyin, romaji) — link via `reading_of_id` |
-| `mrz` | ICAO 9303 Machine-Readable Zone form — link via `reading_of_id` |
-| `variant` | Alt-spelling / nickname of an existing name on the same person (e.g. `Jodi`/`Jody`, `Kip`/`Kristopher`) — see below |
-
-### `variant` vs neighbouring types
-
-| | `variant` | `alias` | `preferred` | `reading`/`romanization`/`mrz` |
-|---|---|---|---|---|
-| Same identity? | yes | usually no (pen name, handle) | yes | yes |
-| Linked via `reading_of_id`? | no | no | no | yes |
-| Typical case | `Jody`/`Jodi` (uncertain spelling), `Kip`/`Kristopher` (short form) | "Mark Twain" for Samuel Clemens | What they go by | Phonetic / latin-script / passport form |
-
-A `variant` row sits next to its `legal` row on the same person; both share `person_id`. `is_canonical=FALSE` on the variant; the legal row stays canonical, and PM never promotes a variant unasked (#845, below). Use `variant` (not `alias`) when collation against the canonical name matters — e.g. to surface `Jody`-typed search input alongside `Jodi`-keyed records without conflating with truly separate identities.
+Each person and org name type — its meaning, when to use it and when not to, an
+example, and how PM treats it (ladder, promotion, canonical, landing visibility,
+merge, parts, whether a consumer may show it) — is in
+[NAME_TYPES.md](NAME_TYPES.md), including where `variant` ends and `misspelling`
+begins (#857). Source of truth: the registry `src/core/name_types.py`; connecting
+projects read it served, `GET /api/v1/person-name-types` and
+`/organization-name-types`.
 
 ### MRZ derivation
 
@@ -105,6 +87,7 @@ The admin UI surfaces this section as **Details** (issue #127); the DB / route n
 |---|---|
 | `uq_person_canonical_name` — `UNIQUE (person_id) WHERE is_canonical` | at most one canonical row per person |
 | `chk_person_canonical_is_public` — `CHECK (NOT is_canonical OR visibility = 'public')` | the canonical row is always displayable |
+| `chk_person_canonical_name_type` — `CHECK (NOT is_canonical OR name_type NOT IN ('deadname','misspelling'))` (#857) | a never-canonical type is never the display pointer — the only DB stop for a `misspelling`, which lands public |
 
 This mirrors `uq_org_canonical_name`, which was itself narrowed from `(organization_id, name_type)` to `(organization_id)`. Person and org names now use the same model.
 
@@ -116,7 +99,7 @@ This mirrors `uq_org_canonical_name`, which was itself narrowed from `(organizat
 
 Nothing consumed the per-family meaning: every read is `ORDER BY is_canonical DESC` (show the main name first) or a wholesale demote on merge, and the admin promote path has always demoted person-wide. At the time of the change production held zero people with more than one canonical row and zero non-public canonical rows.
 
-**Consequences for writers.** A `deadname` can never be canonical — `NEVER_CANONICAL_NAME_TYPES` in `src.core.observation` filters client hints for it, so an observation asserting one is ignored rather than failing the whole request on a `CheckViolationError`. Setting a new canonical in admin must demote the current one in the same transaction (`_names_shared` already does).
+**Consequences for writers.** A `deadname` or a `misspelling` (#857) can never be canonical — `NEVER_CANONICAL_NAME_TYPES` (derived in `src.core.name_types`) filters client hints for them, so an observation asserting one is ignored rather than failing the whole request on a `CheckViolationError`. Setting a new canonical in admin must demote the current one in the same transaction (`_names_shared` already does).
 
 **Validate against the visibility that will land, not the one submitted.** `trg_deadname_visibility` rewrites a `deadname` row to `legal_only` *before* the write, so `name_type='deadname'` + `visibility='public'` + `is_canonical` passes any check that only inspects the submitted value and then violates `chk_person_canonical_is_public`. Admin's `_validate_canonical_visibility` therefore checks **`name_type` as well as `visibility`**, and callers pass the *effective* visibility — the stored value when a form omits the field, since `_update_name` leaves the column untouched rather than resetting it. Both name routes also map the constraint to a flash as a backstop.
 
@@ -128,7 +111,7 @@ The heal is best-effort and never aborts its caller: it runs in a savepoint and 
 
 **Dedup person names on identity, not on the string.** A `legal` row and an `mrz` rendering can carry identical text while being different claims, as can a Latn and a Jpan row; matching on `name` alone silently destroys the second. `write_names` uses the full `(name, name_type, locale, script)` key.
 
-`merge_person_into` uses a deliberately looser variant: text + **visibility** + locale + script must match, and then **either** the `name_type`s are equal **or** both are ordinary display types. Consolidating two records that were each split into `legal` + `variant` would otherwise leave the winner holding the same string as both — redundant rather than two claims. `_MERGE_DISTINCT_NAME_TYPES` (`mrz`, `reading`, `romanization`, `deadname`) are never interchangeable: identical text in one of those is a machine-readable rendering, a distinct claim from a display name. It is merge's own set, not `NO_AUTO_CANONICAL_NAME_TYPES` (#845): that one answers "may this be promoted unasked?" and holds `variant`, which here must stay a display type.
+`merge_person_into` uses a deliberately looser variant: text + **visibility** + locale + script must match, and then **either** the `name_type`s are equal **or** both are ordinary display types. Consolidating two records that were each split into `legal` + `variant` would otherwise leave the winner holding the same string as both — redundant rather than two claims. `_MERGE_DISTINCT_NAME_TYPES` (`mrz`, `reading`, `romanization`, `deadname`, `misspelling`) are never interchangeable: identical text in one of those is a rendering, a private name or a search key, a distinct claim from a display name. A `misspelling` must be distinct (#857): the dedup deletes the loser's row, so a winner's `misspelling` "X" would otherwise delete the loser's `legal` "X". It is merge's own set, not `NO_AUTO_CANONICAL_NAME_TYPES` (#845): that one answers "may this be promoted unasked?" and holds `variant`, which here must stay a display type.
 
 `visibility` is compared on **both** branches, and that is load-bearing twice over. Without it a `hidden` winner row absorbed a `public` loser row carrying the same text; since the loser's canonical is demoted immediately beforehand, that deleted the only promotable name and left the merged person blank — defeating the heal that runs a few lines later. It also silently destroyed `legal_only` claims, breaking the #121 guarantee that the winner inherits the loser's restricted names.
 
@@ -154,10 +137,10 @@ Admin support for the edge: `people_reading_target_search.py` powers the "readin
 
 `write_names` guarantees that a person with an eligible name ends up displayable, symmetric with the long-standing org behaviour:
 
-- **Client hint present** (`is_canonical=true` on some name) — that name claims the slot, guarded by `NOT EXISTS (… person_id AND is_canonical)`; never displaces an existing canonical. A hint on a `deadname` is ignored (`NEVER_CANONICAL_NAME_TYPES`) rather than raising `CheckViolationError` and failing the whole observation.
-- **No hint** — PM auto-promotes exactly one name per write, picked by `_PERSON_NAME_TYPE_PRIORITY` (`preferred` > `legal` > `alias` > …). `NO_AUTO_CANONICAL_NAME_TYPES` (`deadname`, `mrz`, `romanization`, `reading`, `variant`) is never auto-promoted, on insert or by the heal.
+- **Client hint present** (`is_canonical=true` on some name) — that name claims the slot, guarded by `NOT EXISTS (… person_id AND is_canonical)`; never displaces an existing canonical. A hint on a `deadname` or a `misspelling` is ignored (`NEVER_CANONICAL_NAME_TYPES`) rather than raising `CheckViolationError` and failing the whole observation.
+- **No hint** — PM auto-promotes exactly one name per write, picked by `_PERSON_NAME_TYPE_PRIORITY` (`preferred` > `legal` > `alias` > …). `NO_AUTO_CANONICAL_NAME_TYPES` (`deadname`, `mrz`, `romanization`, `reading`, `variant`, `misspelling`) is never auto-promoted, on insert or by the heal.
 
-**A `variant` is never promoted unasked (#845).** It is another spelling of a name the person already holds, and producers add them from machine transcripts; which spelling a person displays under is a curator's decision. Before #845 a variant could take the slot two ways once a person had no canonical: on insert, where only the *payload* is ranked (so a lone variant won even beside an unpromoted `legal` row), and by the heal after a curator deleted the canonical name. A person whose only public names are variants now shows no display name until a curator promotes one. A client's `is_canonical: true` promotes a variant only in the claim that adds it: the hint acts on insert, never on a name already held. The usa-wa applier relies on this: the only row it may rewrite is the canonical row of the type it asserts, so a variant that is never canonical is never overwritten.
+**A `variant` is never promoted unasked (#845).** It is another form of a name the person already holds; which form a person displays under is a curator's decision. (A transcript's spelling the person does not use is a `misspelling` since #857, never promotable even with a hint.) Before #845 a variant could take the slot two ways once a person had no canonical: on insert, where only the *payload* is ranked (so a lone variant won even beside an unpromoted `legal` row), and by the heal after a curator deleted the canonical name. A person whose only public names are variants now shows no display name until a curator promotes one. A client's `is_canonical: true` promotes a variant only in the claim that adds it: the hint acts on insert, never on a name already held. The usa-wa applier relies on this: the only row it may rewrite is the canonical row of the type it asserts, so a variant that is never canonical is never overwritten.
 
 Eligibility is by **identity, not name string**: the promotion target is an index into the payload, and the append-dedup key is `(name, name_type, locale, script)`. Matching on the bare string let an `mrz` row claim the display slot ahead of a `legal` one purely by list order, and silently discarded the second claim.
 

@@ -14,6 +14,7 @@ import pytest
 import pytest_asyncio
 
 from src.core.db import generate_id
+from src.core.name_types import PERSON_NAME_TYPE_SPECS
 
 pytestmark = [
     pytest.mark.integration,
@@ -128,6 +129,37 @@ async def test_canonical_deadname_rejected(conn):
     pid = await _person(conn)
     with pytest.raises(asyncpg.exceptions.CheckViolationError):
         await _add(conn, pid, "Old Name", name_type="deadname", is_canonical=True)
+
+
+async def test_canonical_misspelling_rejected(conn):
+    """A misspelling lands public, so only chk_person_canonical_name_type stops it (#857)."""
+    pid = await _person(conn)
+    with pytest.raises(asyncpg.exceptions.CheckViolationError):
+        await _add(conn, pid, "Caitlin Ryan", name_type="misspelling", is_canonical=True)
+
+
+async def test_promoting_a_misspelling_by_update_rejected(conn):
+    """The path the code gates cannot reach: a hand UPDATE, a merge carry."""
+    pid = await _person(conn)
+    nid = await _add(conn, pid, "Caitlin Ryan", name_type="misspelling")
+    with pytest.raises(asyncpg.exceptions.CheckViolationError):
+        await conn.execute("UPDATE person_names SET is_canonical = TRUE WHERE id = $1", nid)
+
+
+async def test_retyping_the_canonical_name_to_misspelling_rejected(conn):
+    pid = await _person(conn)
+    nid = await _add(conn, pid, "Kaitlyn Ryan", is_canonical=True)
+    with pytest.raises(asyncpg.exceptions.CheckViolationError):
+        await conn.execute("UPDATE person_names SET name_type = 'misspelling' WHERE id = $1", nid)
+
+
+@pytest.mark.parametrize("spec", PERSON_NAME_TYPE_SPECS, ids=lambda s: s.slug)
+async def test_each_type_lands_with_the_registry_visibility(conn, spec):
+    """trg_deadname_visibility is held to the registry's landing_visibility (#857)."""
+    pid = await _person(conn)
+    nid = await _add(conn, pid, "Some Name", name_type=spec.slug, visibility="public")
+    landed = await conn.fetchval("SELECT visibility FROM person_names WHERE id = $1", nid)
+    assert landed == spec.landing_visibility
 
 
 async def test_demoting_then_hiding_is_allowed(conn):

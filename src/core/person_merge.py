@@ -17,19 +17,25 @@ from src.core.ancillary_migrate import (
     rehome_entity_events,
 )
 from src.core.merge_signals import record_merge_tombstones
+from src.core.name_types import MERGE_DISTINCT_NAME_TYPES
 from src.core.observation import heal_person_canonical
 
 __all__ = ["PersonNotFoundError", "merge_person_into", "preview_person_merge"]
 
 # Name types a merge never treats as interchangeable with another type: identical
-# text in one is a machine-readable rendering (or a deadname), a distinct claim
-# from a display name. Every other type is an ordinary display type.
+# text in one is a machine-readable rendering, a deadname, or a misspelling (#857)
+# — a distinct claim from a display name. Every other type is an ordinary display
+# type. Derived from the registry (`src.core.name_types`, `merge_distinct`).
+#
+# A misspelling must be distinct: the dedup deletes the *loser's* row, so a
+# winner's `misspelling` "X" would otherwise delete the loser's `legal` "X" —
+# the real name lost, the error kept.
 #
 # Deliberately not `NO_AUTO_CANONICAL_NAME_TYPES` (#845): that set answers "may
 # this be promoted unasked?", and `variant` is in it. Here a variant *is* a
 # display type — a loser's `variant` collapses into the winner's same-text
 # `legal`, or the winner holds one string twice.
-_MERGE_DISTINCT_NAME_TYPES = frozenset({"deadname", "mrz", "romanization", "reading"})
+_MERGE_DISTINCT_NAME_TYPES = MERGE_DISTINCT_NAME_TYPES
 
 # Winner-vs-loser name-identity match, shared verbatim by the #309 reading
 # re-point UPDATE and the dedup DELETE in `merge_person_into` so the two can

@@ -8,6 +8,7 @@ class ObservationPersonNameNameType(StrEnum):
     INITIALS = "initials"
     LEGAL = "legal"
     MAIDEN = "maiden"
+    MISSPELLING = "misspelling"
     MRZ = "mrz"
     PREFERRED = "preferred"
     READING = "reading"

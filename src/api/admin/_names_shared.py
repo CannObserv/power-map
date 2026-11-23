@@ -26,7 +26,7 @@ from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note,
 from src.api.admin.people_name_parts import upsert_or_delete_parts
 from src.core.ancillary_migrate import delete_citations
 from src.core.db import generate_id
-from src.core.observation import NEVER_CANONICAL_NAME_TYPES
+from src.core.name_types import NEVER_CANONICAL_NAME_TYPES, person_name_type_spec
 from src.core.types import OrgNameType, PersonNameType, PersonNameVisibility
 
 # Either-side `name_type` value. The factory is shared between people
@@ -288,10 +288,12 @@ def make_names_router(
         if is_canonical != "true":
             return None
         if name_type in NEVER_CANONICAL_NAME_TYPES:
+            # The reason is per type (#857): a deadname is private, a
+            # misspelling is public but only a search key.
+            reason = person_name_type_spec(name_type).never_canonical_reason
             return (
-                f"A {name_type} cannot be the canonical name — it is recorded"
-                f" privately and is never displayed. Uncheck canonical, or choose"
-                f" a different name type."
+                f"A {name_type} cannot be the canonical name — {reason}."
+                f" Uncheck canonical, or choose a different name type."
             )
         if vis is not None and vis != "public":
             return (

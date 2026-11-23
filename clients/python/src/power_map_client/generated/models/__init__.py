@@ -116,12 +116,16 @@ from .org_lifespan import OrgLifespan
 from .org_name import OrgName
 from .org_search_response import OrgSearchResponse
 from .org_search_result import OrgSearchResult
+from .organization_name_type_entry import OrganizationNameTypeEntry
+from .organization_name_types_response import OrganizationNameTypesResponse
 from .organization_observation_request import OrganizationObservationRequest
 from .partial_date import PartialDate
 from .people_observation_request import PeopleObservationRequest
 from .person_detail import PersonDetail
 from .person_identifier import PersonIdentifier
 from .person_name import PersonName
+from .person_name_type_entry import PersonNameTypeEntry
+from .person_name_types_response import PersonNameTypesResponse
 from .person_search_response import PersonSearchResponse
 from .person_search_result import PersonSearchResult
 from .relationship_list_response import RelationshipListResponse
@@ -247,6 +251,8 @@ __all__ = (
     "ObservationRoleAssignment",
     "OrgAcronym",
     "OrgAffiliationType",
+    "OrganizationNameTypeEntry",
+    "OrganizationNameTypesResponse",
     "OrganizationObservationRequest",
     "OrgBatchGetRequest",
     "OrgBatchGetRequestEtags",
@@ -269,6 +275,8 @@ __all__ = (
     "PersonDetail",
     "PersonIdentifier",
     "PersonName",
+    "PersonNameTypeEntry",
+    "PersonNameTypesResponse",
     "PersonSearchResponse",
     "PersonSearchResult",
     "RelationshipListResponse",

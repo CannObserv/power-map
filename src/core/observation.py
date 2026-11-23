@@ -12,6 +12,7 @@ import asyncpg
 if TYPE_CHECKING:
     from src.api.public.schemas import ObservationAcronym, ObservationOrgName, ObservationPersonName
 
+from src.core import name_types
 from src.core.dataset_ownership import dataset_owned_identifier, dataset_owned_link
 from src.core.db import generate_id, linked_entity_vanished
 from src.core.identifier_taken import UNIQUE_IDENTIFIER_TYPE_IDS, identifier_holder, taken_reason
@@ -27,38 +28,25 @@ logger = get_logger(__name__)
 _email_normalizer = EmailNormalizer()
 _phone_normalizer = PhoneNormalizer()
 
-# Person name_types that must never be auto-promoted into the display slot (#308b).
-# `deadname` is forced to visibility='legal_only' by trg_deadname_visibility, and
-# mrz/romanization/reading are machine-readable renderings, not display names.
-# `variant` (#845) is another spelling of a name the person already holds, often
-# from a machine transcript: which spelling a person displays under is a
-# curator's decision, so one is never picked unasked — on insert or by the heal.
-# A client may still promote one explicitly via the is_canonical hint.
+# Person name_type behaviour sets, derived from the registry (#857) — see
+# `src.core.name_types` for each type's flags and the reasons behind them.
 #
-# This is the promotion rule only. Which name_types a *merge* may collapse as
+# NO_AUTO_CANONICAL_NAME_TYPES: never promoted into the display slot unasked —
+# on insert or by the heal (#308b, #845). A client may still promote one
+# explicitly via the is_canonical hint, unless it is also never-canonical.
+# This is the promotion rule only; which name_types a *merge* may collapse as
 # duplicates is person_merge's own set, where a variant stays a display type.
-NO_AUTO_CANONICAL_NAME_TYPES = frozenset({"deadname", "mrz", "romanization", "reading", "variant"})
-
-# Subset that can never be canonical *at all*, hint or not: trg_deadname_visibility
-# forces these to visibility='legal_only', which chk_person_canonical_is_public
-# then rejects (#308). A client hint on one is ignored rather than allowed to
-# raise CheckViolationError and fail the entire observation.
-NEVER_CANONICAL_NAME_TYPES = frozenset({"deadname"})
-
-# Display preference when a single observation carries several eligible names and
-# the client gave no hint. Mirrors the name_type ordering in v_person_display_names
-# (#308a) so PM promotes the same row the view would have picked. Lower sorts first;
-# unlisted types fall to the end via the .get() default.
-_PERSON_NAME_TYPE_PRIORITY = {
-    "preferred": 1,
-    "legal": 2,
-    "alias": 3,
-    "stage": 4,
-    "religious": 5,
-    "maiden": 6,
-    "former": 7,
-    "initials": 8,
-}
+#
+# NEVER_CANONICAL_NAME_TYPES: never canonical at all, hint or not (`deadname`,
+# `misspelling`). A client hint on one is ignored rather than allowed to raise
+# CheckViolationError (chk_person_canonical_name_type) and fail the observation.
+#
+# _PERSON_NAME_TYPE_PRIORITY: display preference when an observation carries
+# several eligible names and no hint, and the heal's pick order. Lower sorts
+# first; unlisted types fall to the end via the .get() default.
+NO_AUTO_CANONICAL_NAME_TYPES = name_types.NO_AUTO_CANONICAL_NAME_TYPES
+NEVER_CANONICAL_NAME_TYPES = name_types.NEVER_CANONICAL_NAME_TYPES
+_PERSON_NAME_TYPE_PRIORITY = name_types.PERSON_NAME_TYPE_PRIORITY
 
 
 def name_type_priority_sql(col: str = "name_type") -> str:

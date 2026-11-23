@@ -1,6 +1,6 @@
 # Name types: one reference per type, and a `misspelling` type (#857)
 
-**Status:** proposed 2026-11-23, awaiting operator approval. Part of epic #818.
+**Status:** approved 2026-11-23 as recommended; Observo owns the row's reclassification (decision 8). Part of epic #818.
 Operator decision 2026-11-22 (issue comment 7084754512): option B, a separate
 `misspelling` type. Verified against `origin/main` @ `fb002950`.
 
@@ -171,7 +171,8 @@ out would hide data a curator or the cli may need, and break the symmetry with
 (`schemas.py:216`, `:131`) are not retyped as an enum: the generated client
 parses enums with `Enum(value)`, which raises on an unknown value, so every
 future type would break older clients reading a person. The catalog (decision 6)
-serves the vocabulary instead.
+serves the vocabulary instead. The catalog's own `landing_visibility` is a string for the
+same reason (found at the first client regen).
 
 Search needs no change: `misspelling` is public, so `search_tsv` indexes it and
 the result carries the display name.
@@ -207,21 +208,17 @@ The cost is small because the registry exists either way.
 
 ### 8. The existing row: Observo reclassifies it
 
-Name identity is `(name, name_type, locale, script)`. Options for Observo's
-`variant` "Caitlin Ryan" (the only one):
+Name identity is `(name, name_type, locale, script)`, so a curator retype in
+admin would strand Observo's later `op: "retract"` of its `variant`, and a
+re-send of the `variant` would create a second row. Observo owns the change.
 
-- **Curator retypes it in admin** — `source_key_id` survives, but Observo's later
-  `op: "retract"` of its `variant` finds nothing, and a re-send of the `variant`
-  creates a second row.
-- **Observo, in one observation:** `{op: "retract", name_type: "variant"}` plus
-  `{name_type: "misspelling"}` for the same text. **Recommended.** Both items in
-  one request means no window without the row; the key stamp and Observo's undo
-  stay intact; citations are re-sent on the new item (a retract deletes the row,
-  and its citations with it).
-
-Pre-relay check on the host (read-only): the row has no other key's citations
-(`name_has_foreign_citations` would refuse the retract), is not canonical, and
-is not the person's last name.
+**As it happened:** Observo retracted the `variant` "Caitlin Ryan" at
+2026-11-23 03:11:05Z (disposition `retracted`, confirmed read-only from
+`api_request_log` and `person_names`), before `misspelling` existed. Its
+citation went with the row. After 0.76.0 deploys, Observo re-sends it as one
+`misspelling` item with the citation; until then "Caitlin" does not find the
+person. (Had the row still been live, the recipe was one observation carrying
+the retract and the `misspelling` together.)
 
 ### 9. Observo's contract
 
@@ -229,7 +226,7 @@ is not the person's last name.
 on #857 and posted only with operator consent, says: the new type and version;
 the narrowed `variant`; the boundary table (decision 4), including that `Becky`
 → `variant` is in bounds; the catalog route; the reclassification recipe
-(decision 8). Dispositions and retract guards are unchanged.
+(decision 8): re-send as `misspelling`. Dispositions and retract guards are unchanged.
 
 ### 10. Surfaces that pick it up unchanged
 
