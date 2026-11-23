@@ -19,7 +19,7 @@ implicit rules this collection follows. Auth, pagination and conditional request
 | `POST` | `/api/v1/orgs/batch-get` | API key | Many detail reads in one call and **one read-bucket token** (#654): one `getOrg` outcome per distinct id. See § Batch read. |
 | `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. ETag caching — see the events response-shape section. |
 | `POST` | `/api/v1/orgs/observations` | `observations:write` scope | Submit an organization identity observation. |
-| `GET` | `/api/v1/organization-name-types` | API key | The org name-type reference (#857): per type, `meaning`, `use_when`, `not_for`, `example` (`docs/NAME_TYPES.md`). Unpaginated; ETag (content hash). |
+| `GET` | `/api/v1/organization-name-types` | API key | The org name-type reference (#857): per type, `meaning`, `use_when`, `not_for`, `example` (`docs/NAME_TYPES.md`). Unpaginated; ETag (content hash, [Conditional requests](PUBLIC_API.md#conditional-requests)). |
 
 ### Detail — `GET /api/v1/orgs/{id}`
 
