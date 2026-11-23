@@ -105,6 +105,20 @@ def test_a_given_name_nameparser_once_read_otherwise_meets_its_initial(producer,
 
 
 @pytest.mark.parametrize(
+    ("producer", "pm", "tier"),
+    [
+        ("J.B. Pritzker", "J. R. Pritzker", None),  # the middle guard holds: B is not R
+        ("J.B. Pritzker", "J. B. Pritzker", "given"),
+        ("A.A. Smith", "Adam Smith", "initial"),
+    ],
+)
+def test_a_dotted_run_of_initials_reads_as_spaced_initials(producer, pm, tier):
+    """3.1 reads ``J.B.`` as given ``J.`` and middle ``B.``, where 3.0 read one given
+    name ``J.B.``: the run then met any J. at ``initial``, past the middle guard (#868)."""
+    assert person_match(producer, pm) == tier
+
+
+@pytest.mark.parametrize(
     ("producer", "pm"), [("Rev. Smith", "R. Smith"), ("Judge Smith", "J. Smith")]
 )
 def test_a_title_before_a_bare_surname_is_no_initial_twin(producer, pm):

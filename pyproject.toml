@@ -15,8 +15,9 @@ dependencies = [
     "httpx2>=2.16.2,<3",
     "jinja2>=3.1.6",
     # 3.x parse(); 2.x HumanName is gone (#782). The person tiers' readings
-    # are pinned in tests/core/normalizers/test_name_match.py (#777).
-    "nameparser>=3.0.1",
+    # are pinned in tests/core/normalizers/test_name_match.py (#777); 3.1 reads
+    # a dotted run of initials (J.B.) as given + middle (#868).
+    "nameparser>=3.1.0",
     "nicknames>=1.0.1",
     # power-map.service's OnFailure= dispatch (#566). A main dependency, not a
     # group: the API's own `uv sync` prunes groups from the checkout the handler runs in.
