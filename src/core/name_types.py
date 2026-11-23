@@ -8,10 +8,12 @@ landing visibility — are derived here, so no type's behaviour is listed twice.
 The values themselves stay in ``src.core.types`` (``PersonNameType`` /
 ``PERSON_NAME_TYPES``), mirrored by the schema ``CHECK``; ``tests/core/
 test_name_types.py`` holds this registry to that order, and to each derived
-set's value. The public catalog (``GET /api/v1/person-name-types``) and
-``docs/NAME_TYPES.md`` both read from here.
+set's value. The public catalog (``GET /api/v1/person-name-types``) serves
+it as is; ``docs/NAME_TYPES.md`` is hand-written and held to it by the same
+test module.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -304,7 +306,8 @@ def person_name_type_spec(slug: PersonNameType | str) -> PersonNameTypeSpec:
     return _PERSON_SPECS_BY_SLUG[slug]
 
 
-def _slugs(pred) -> frozenset[str]:
+def _slugs(pred: Callable[[PersonNameTypeSpec], bool]) -> frozenset[str]:
+    """The person type slugs whose spec satisfies *pred*."""
     return frozenset(s.slug for s in PERSON_NAME_TYPE_SPECS if pred(s))
 
 
