@@ -137,12 +137,9 @@ An id that was **merged away or hard-deleted** answers `410` on the same five de
 |---|---|
 | `GET /orgs/{id}`, `/people/{id}`, `/roles/{id}`, `/assignments/{id}`, `/jurisdictions/{id}` | `"<id>-<updated_at_ms>"` |
 | `POST /orgs/batch-get` — per id, in the body's `etags` map | `"<id>-<updated_at_ms>"`, shared with `GET /orgs/{id}` |
-| `GET /people/{id}/events`, `/orgs/{id}/events` | watermark |
-| `GET /citations/{entity_type}/{entity_id}` | watermark |
-| `GET /assignments/{pm_assignment_id}/relationships` | watermark |
-| `GET /jurisdictions/{id}/relationships` | watermark |
+| `GET /people/{id}/events`, `/orgs/{id}/events`, `/citations/{entity_type}/{entity_id}`, `/assignments/{pm_assignment_id}/relationships`, `/jurisdictions/{id}/relationships` | watermark |
 | `GET /jurisdictions/{id}/lineage` | content hash |
-| `GET /role-types`, `/link-types`, `/entity-event-types`, `/entity-identifier-types` | content hash |
+| `GET /role-types`, `/link-types`, `/entity-event-types`, `/entity-identifier-types`, `/person-name-types`, `/organization-name-types` | content hash |
 
 **Watermark** = `count(*)` + `max(updated_at)` over the *visible* set, with every filter and the `limit`/`offset` window baked into the tag. Count catches a row entering or leaving the filtered set — a retract archives rather than deletes, so the row's own `updated_at` bump is invisible once the default (active-only) filter excludes it — and `max` catches an in-place edit. A tag from one filter/window never revalidates against another's.
 
