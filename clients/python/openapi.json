@@ -9185,7 +9185,7 @@
           "presentable"
         ],
         "title": "PersonNameTypeEntry",
-        "description": "A person name type's reference entry, with how PM treats it (#857).\n\nRead ``presentable`` before showing a name: a ``misspelling`` is ``false`` —\na search key, never an \"also known as\". ``display_rank`` is the place on the\ndisplay ladder (lower wins; ``null`` = never displayed unasked);\n``auto_promote`` = may become the displayed name with no hint;\n``never_canonical`` = an ``is_canonical`` hint on it is ignored;\n``landing_visibility`` = what the row is stored as when sent ``public``;\n``renders_row`` = a rendering of another name row (``reading_of_id``);\n``merge_distinct`` = a merge keeps it beside same-text names of other types;\n``decomposable`` = structured parts apply."
+        "description": "A person name type's reference entry, with how PM treats it (#857).\n\nRead ``presentable`` before showing a name: a ``misspelling`` is ``false`` —\na search key, never an \"also known as\". ``display_rank`` is the place on the\ndisplay ladder (lower wins; ``null`` = never displayed unasked);\n``auto_promote`` = may become the displayed name with no hint;\n``never_canonical`` = an ``is_canonical`` hint on it is ignored;\n``landing_visibility`` = what the row is stored as when sent ``public``;\n``renders_row`` = a rendering of another name row (``reading_of_id``);\n``merge_distinct`` = a merge keeps it beside same-text names of other types;\n``decomposable`` = PM suggests a structured-parts decomposition (parts may\nstill be sent for any type)."
       },
       "PersonNameTypesResponse": {
         "properties": {

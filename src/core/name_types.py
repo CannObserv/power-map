@@ -44,7 +44,8 @@ class PersonNameTypeSpec(OrgNameTypeSpec):
     - ``landing_visibility``: what ``trg_deadname_visibility`` forces on insert.
     - ``renders_row``: a rendering of another row, linked by ``reading_of_id``.
     - ``merge_distinct``: merge collapses it only against the same type.
-    - ``decomposable``: admin offers structured parts for it.
+    - ``decomposable``: the parts normalizer suggests a decomposition for it
+      (admin's Suggest). Parts can still be entered or sent for any type.
     - ``presentable``: a consumer may show it as a name the person goes by.
     """
 

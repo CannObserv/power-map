@@ -62,7 +62,8 @@ a row in each table here, and a minor version bump with a client regen.
 - **Renders row:** a rendering of another name row, linked by `reading_of_id`.
 - **Merge-distinct:** a merge collapses it only against the same type
   (`_NAME_IDENTITY_MATCH_SQL`), so a same-text name of another type survives.
-- **Parts:** admin offers structured parts (`person_name_parts`).
+- **Parts:** the parts normalizer suggests a decomposition (admin's Suggest). Parts
+  can still be entered, or sent on the wire, for any type.
 - **Presentable:** a consumer may show it as a name the person goes by.
 
 ### `variant` or `misspelling`

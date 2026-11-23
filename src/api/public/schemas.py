@@ -615,7 +615,8 @@ class PersonNameTypeEntry(OrganizationNameTypeEntry):
     ``landing_visibility`` = what the row is stored as when sent ``public``;
     ``renders_row`` = a rendering of another name row (``reading_of_id``);
     ``merge_distinct`` = a merge keeps it beside same-text names of other types;
-    ``decomposable`` = structured parts apply.
+    ``decomposable`` = PM suggests a structured-parts decomposition (parts may
+    still be sent for any type).
     """
 
     display_rank: int | None

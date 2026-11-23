@@ -53,7 +53,7 @@ NameTypeSpec(
     landing_visibility: "public"|"legal_only", # what the trigger forces
     renders_row: bool,                         # links via reading_of_id
     merge_distinct: bool,
-    decomposable: bool,                        # parts offered
+    decomposable: bool,                        # parts suggestion offered
     presentable: bool,                         # a consumer may show it as a name
 )                                              #   the person goes by
 ```
@@ -83,7 +83,7 @@ Parity tests:
 | never canonical | yes | in `NEVER_CANONICAL_NAME_TYPES`: a hint is ignored on the wire, as for `deadname`; the admin form refuses |
 | `reading_of_id` | no | it is a spelling, not a rendering of a row |
 | merge-distinct | **yes** | see below |
-| decomposable | no | added to `NON_DECOMPOSABLE_TYPES`: no parts suggestion or editor |
+| decomposable | no | added to `NON_DECOMPOSABLE_TYPES`: no parts suggestion (the editor and the wire's `parts` stay open, as for every type) |
 | presentable | no | consumers use it as a search key only, never as "also known as" |
 
 **Merge-distinct, confirmed against `_NAME_IDENTITY_MATCH_SQL`.** Two
