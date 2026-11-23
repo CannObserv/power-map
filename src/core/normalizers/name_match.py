@@ -29,8 +29,11 @@ one look and silence costs a duplicate, so recall wins — but only inside the
 middle-and-suffix guard above. Without it, a given name plus surname collides
 42 groups on the producer's corpus; with it, the four person tiers match 102
 pairs of distinct people among PM's 4,893 live ones, 66 of those pairs only on
-an initial (measured 2026-09-24). Anything softer belongs to the duplicate audit, not a per-create
-hint.
+an initial (measured 2026-09-24, under nameparser 2.x). nameparser 3.1 reads a
+dotted run of initials like spaced ones (``A.A.`` → ``A.`` + middle ``A.``), so
+``A.A. Smith`` now meets ``Adam Smith`` at ``initial`` and ``J.B.`` no longer meets
+``J. R.``; the figure predates that (#868). Anything softer belongs to the
+duplicate audit, not a per-create hint.
 
 Known gaps:
 

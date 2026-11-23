@@ -150,6 +150,24 @@ def test_initials_chain_treated_as_given_plus_additional():
     assert s.family_names == ["Tolkien"]
 
 
+def test_a_dotted_initials_run_is_given_plus_one_additional():
+    """nameparser 3.1 splits a dotted run after its first initial (3.0 kept ``J.R.R.``
+    whole as the given name). The rest stays one entry, unlike the spaced chain
+    above: ``_split_middle`` splits on whitespace (#868)."""
+    s = _suggest("J.R.R. Tolkien")
+    assert s.given_names == ["J."]
+    assert s.additional_names == ["R.R."]
+    assert s.family_names == ["Tolkien"]
+
+
+def test_md_opening_a_name_is_the_given_name_not_an_honorific():
+    """Md. is Muhammad written short: a given name from nameparser 3.1, a title in 3.0 (#868)."""
+    s = _suggest("Md. Rahman")
+    assert s.honorific_prefix is None
+    assert s.given_names == ["Md."]
+    assert s.family_names == ["Rahman"]
+
+
 def test_lastname_first_comma_form():
     s = _suggest("Doe, Jane")
     assert s.confidence == "trivial"
