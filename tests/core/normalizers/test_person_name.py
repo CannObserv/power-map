@@ -10,6 +10,7 @@ import warnings
 import pytest
 
 from src.core.normalizers.person_name import (
+    _INITIAL_RE,
     PartsSuggestion,
     _split_middle,
     suggest_locale_script,
@@ -195,6 +196,25 @@ def test_a_dotted_initials_run_beside_a_word_stays_ambiguous():
 )
 def test_split_middle_splits_only_a_dotted_initials_run(middle, expected):
     assert _split_middle(middle) == expected
+
+
+def test_every_initial_split_from_a_run_is_an_initial():
+    """CR 1 (#870): the run rule and ``_INITIAL_RE`` move together. Every run
+    ``_split_middle`` splits must yield elements ``_INITIAL_RE`` matches, or the
+    confidence rule reads the split initials as words. Widening one regex and
+    not the other fails here, over the whole Latin range, not a list of rows."""
+    split = 0
+    for cp in range(0x20, 0x250):
+        letter = chr(cp)
+        if not letter.isalpha():
+            continue
+        run = f"{letter}.{letter}."
+        parts = _split_middle(run)
+        if parts == [run]:
+            continue
+        split += 1
+        assert all(_INITIAL_RE.match(part) for part in parts), (run, parts)
+    assert split == 26  # A–Z today; update with the regexes if they widen
 
 
 def test_md_opening_a_name_is_the_given_name_not_an_honorific():
