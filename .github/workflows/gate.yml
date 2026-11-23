@@ -54,7 +54,7 @@ jobs:
           fetch-depth: 0
 
       # setup-uv stopped floating major tags after v7, so pin the release.
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           enable-cache: true
 
