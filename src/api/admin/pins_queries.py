@@ -4,10 +4,11 @@ Every pin in one place, so no override is invisible. The status axis follows
 the admin list convention (#306): ``active`` (a pin in force) first and the
 default, ``archived`` (unpinned or displaced), and the first-class ``all``.
 There is no search box, so no status can hide a match. A value is shown as a
-curator reads it — the slot's ``display_sql`` turns a parent's id into its name.
+curator reads it, as the slot line does (``display_value``): a parent by name,
+a currency as Current / Former (#838).
 """
 
-from src.api.admin.overlay_slots import SLOTS
+from src.api.admin.overlay_slots import SLOTS, display_value
 from src.api.admin.pagination import pagination_context
 
 __all__ = ["ENTITY_TYPES", "STATUS_PREDICATES", "VALID_STATUSES", "pin_row", "query_pins"]
@@ -41,9 +42,7 @@ async def _as_read(db, row) -> dict:
     out = dict(row)
     slot = SLOTS.get((out["entity_type"], out["field"]))
     out["label"] = slot.label if slot else out["field"]
-    out["display"] = out["value"]
-    if slot and slot.display_sql and out["value"] is not None:
-        out["display"] = await db.fetchval(slot.display_sql, out["value"]) or out["value"]
+    out["display"] = await display_value(db, slot, out["value"]) if slot else out["value"]
     return out
 
 

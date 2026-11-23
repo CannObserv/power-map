@@ -161,6 +161,8 @@ def form_row_status(request: Request, errors: dict, status_code: int, row_id: st
 #   pinned / unpinned             — the Pin and Unpin actions
 #   pin_stale      — an Unpin naming a pin since replaced or unpinned (nothing changed)
 #   already_pinned — a Pin on a slot pinned since the page loaded (nothing changed)
+#   slot_changed   — a Pin whose slot no longer holds the value its line showed, or
+#                    is empty (#838; nothing changed)
 SHARED_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "saved": ("success", "Saved."),
     "saved_unstandardized": (
@@ -182,6 +184,7 @@ SHARED_FLASH_MESSAGES: dict[str, tuple[str, str]] = {
     "unpinned": ("success", f"Unpinned: {PRODUCER_LABEL}'s value returns on the next apply."),
     "pin_stale": ("warning", "That pin was already replaced or unpinned; nothing changed."),
     "already_pinned": ("warning", "That field was pinned since the page loaded; nothing changed."),
+    "slot_changed": ("warning", "That field changed since the page loaded; nothing was pinned."),
 }
 
 

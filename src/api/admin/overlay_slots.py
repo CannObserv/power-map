@@ -13,6 +13,11 @@ This registry, ``manifest.yml``'s ``overlay:`` keys and the dbt vocabulary test
 cannot read the manifest itself: the mapping package imports dbt, which the
 service's environment does not install.
 
+A slot's value reads to a curator through :func:`read_as` / :func:`display_value`:
+a parent by name, ``is_current`` as Current / Former, a membership by its label
+(#838). The slot line shows it whether pinned or not, so Pin visibly keeps
+something; an empty slot reads *none* and offers no Pin.
+
 A multi-row slot (names, acronyms) reads the canonical row, else the earliest.
 Either way the value is one PM holds, so a pin of it is a noop for the applier,
 never a re-insert. ``person_names`` is read directly (allow-listed in
@@ -20,13 +25,13 @@ never a re-insert. ``person_names`` is read directly (allow-listed in
 matches every legal row whatever its visibility, and curators see every name.
 """
 
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Iterable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
 import asyncpg
 
-from src.core.curation_overlay import Pin, active_pin, in_scope, pin_changed
+from src.core.curation_overlay import Pin, active_pin, in_scope, pin_changed, pin_text
 
 __all__ = [
     "IDENTIFIER_LOCKED_MSG",
@@ -36,9 +41,11 @@ __all__ = [
     "Slot",
     "SlotState",
     "TrackedEdit",
+    "display_value",
     "flash_key",
     "overlay_refresh",
     "pinned_note",
+    "read_as",
     "read_slots",
     "slot_state",
     "slots_for",
@@ -73,9 +80,13 @@ class Slot:
     field: str
     label: str
     sql: str
-    # How a pinned value reads to a curator, when the raw value is an id — a
-    # parent's display name, not its ULID. Takes the pinned value as ``$1``.
+    # How a value reads to a curator, when the raw value is an id — a parent's
+    # display name, not its ULID. Takes the value as ``$1``.
     display_sql: str | None = None
+    # How a value reads, when the stored text is a code: 'False' → Former (#838)
+    labels: Mapping[str, str] | None = None
+    # Whether an admin editor moves the slot, so the line can say editing pins
+    editable: bool = True
 
 
 _ASSIGNMENT_COLUMN = "SELECT {} FROM role_assignments WHERE id = $1"
@@ -123,13 +134,26 @@ _SLOTS = (
     # curator can hold a start and let the producer's end through, or the reverse
     Slot("assignment", "start_date", "Start date", _ASSIGNMENT_COLUMN.format("start_date")),
     Slot("assignment", "end_date", "End date", _ASSIGNMENT_COLUMN.format("end_date")),
-    Slot("assignment", "is_current", "Current", _ASSIGNMENT_COLUMN.format("is_current")),
+    Slot(
+        "assignment",
+        "is_current",
+        "Status",  # the page's group label; "Current" made the button "Pin current"
+        _ASSIGNMENT_COLUMN.format("is_current"),
+        labels={"True": "Current", "False": "Former"},
+    ),
     # #671: usa-wa says who holds a seat in their own right; a pin keeps PM's value
     Slot(
         "assignment",
         "membership_type",
         "Membership",
         _ASSIGNMENT_COLUMN.format("membership_type"),
+        labels={
+            "principal": "Principal",
+            "substitute": "Substitute",
+            "ex_officio": "Ex officio",
+            "acting": "Acting",
+        },
+        editable=False,  # no admin editor: only the line's Pin pins it
     ),
     # #529: usa-wa owns a role's title; its structure is identity and PM may move it
     Slot("role", "title", "Title", "SELECT title FROM roles WHERE id = $1"),
@@ -144,6 +168,23 @@ def slots_for(entity_type: str, fields: Iterable[str] | None = None) -> list[Slo
     return [
         s for s in _SLOTS if s.entity_type == entity_type and (wanted is None or s.field in wanted)
     ]
+
+
+def read_as(slot: Slot, text: str | None) -> str | None:
+    """A slot value, as a pin stores it, the way a curator reads it — None stays None.
+
+    The id lookup (``display_sql``) needs a connection: :func:`display_value`.
+    """
+    if text is None:
+        return None
+    return (slot.labels or {}).get(text, text)
+
+
+async def display_value(conn: asyncpg.Connection, slot: Slot, text: str | None) -> str | None:
+    """:func:`read_as`, after turning an id into its name (a parent's display name)."""
+    if text is not None and slot.display_sql:
+        text = await conn.fetchval(slot.display_sql, text) or text
+    return read_as(slot, text)
 
 
 async def read_slots(
@@ -173,12 +214,19 @@ def overlay_refresh(pinned: list[str]) -> dict:
 
 @dataclass(frozen=True)
 class SlotState:
-    """What one in-scope entity's slot line shows: the live pin, if any, as read."""
+    """What one in-scope entity's slot line shows: the live value and pin, as read."""
 
     slot: Slot
     pin: Pin | None
     display: str | None  # the pinned value as a curator reads it
     pinned_by: str | None  # the pinner's email
+    live: str | None  # the live value as a pin holds it; Pin posts it back
+    live_display: str | None  # the live value as a curator reads it
+
+    @property
+    def differs(self) -> bool:
+        """A pin whose value PM's record no longer holds (a write outside ``tracked()``)."""
+        return self.pin is not None and self.pin.value != self.live
 
 
 async def slot_state(
@@ -189,16 +237,15 @@ async def slot_state(
     if not await in_scope(conn, entity_type, entity_id):
         return None
     held = await active_pin(conn, entity_type, entity_id, field)
+    live = pin_text(await conn.fetchval(slot.sql, entity_id))
     display = pinned_by = None
     if held is not None:
-        display = held.value
-        if slot.display_sql and held.value is not None:
-            display = await conn.fetchval(slot.display_sql, held.value) or held.value
+        display = await display_value(conn, slot, held.value)
         if held.created_by:
             pinned_by = await conn.fetchval(
                 "SELECT email FROM app_users WHERE id = $1", held.created_by
             )
-    return SlotState(slot, held, display, pinned_by)
+    return SlotState(slot, held, display, pinned_by, live, await display_value(conn, slot, live))
 
 
 @dataclass

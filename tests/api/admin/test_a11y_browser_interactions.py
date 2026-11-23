@@ -91,12 +91,14 @@ async def test_org_contact_edit_row_axe_clean(live_server, seeded_ids, page):
 
 async def test_org_overlay_slot_lines_axe_clean(live_server, seeded_ids, page):
     """#498: the seeded org is in the producer's scope with its acronym pinned, so
-    once the lines load the page carries both states — a Pinned badge with its
-    value, pinner and Unpin, and the unpinned slots' Pin controls. The full-page
-    sweep cannot see them (it runs before HTMX loads anything); this waits."""
+    once the lines load the page carries every state — a Pinned badge with its
+    value, pinner and Unpin; a filled slot's value and Pin (the legal name); and,
+    #838, an empty slot's *none* with no control (parent, dissolved year). The
+    full-page sweep cannot see them (it runs before HTMX loads anything); this waits."""
     page, _ = await goto_with_retry(page, live_server + f"/admin/orgs/{seeded_ids['org_id']}/")
     await page.wait_for_selector(".overlay-slot .badge--pinned", timeout=_WAIT_MS)
-    await page.wait_for_selector('.overlay-slot button:has-text("Pin current")', timeout=_WAIT_MS)
+    await page.wait_for_selector('.overlay-slot button[hx-post$="/pin/"]', timeout=_WAIT_MS)
+    await page.wait_for_selector('.overlay-slot__text em:text-is("none")', timeout=_WAIT_MS)
     await axe_check(page, "org detail — curation overlay slot lines loaded")
 
 

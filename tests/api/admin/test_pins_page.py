@@ -130,6 +130,30 @@ async def test_the_page_lists_live_pins_as_a_curator_reads_them(client, db, cura
     assert 'aria-current="page"' in page and 'href="/admin/pins/"' in page
 
 
+async def test_a_coded_value_reads_as_its_slot_line_does(client, db, curator):
+    """#838: the page and the slot line share one reading — Former, not False."""
+    person, org, role, ra = (generate_id() for _ in range(4))
+    await db.execute("INSERT INTO people (id) VALUES ($1)", person)
+    await db.execute("INSERT INTO organizations (id) VALUES ($1)", org)
+    await db.execute(
+        "INSERT INTO roles (id, organization_id, title) VALUES ($1, $2, 'M')", role, org
+    )
+    await db.execute(
+        "INSERT INTO role_assignments (id, person_id, role_id) VALUES ($1, $2, $3)",
+        ra,
+        person,
+        role,
+    )
+    await _anchor(db, "assignment", ra)
+    await pin(db, "assignment", ra, "is_current", False, user_id=curator)
+    await pin(db, "assignment", ra, "membership_type", "ex_officio", user_id=curator)
+
+    page = (await client.get("/admin/pins/?type=assignment", headers=AUTH)).text
+
+    assert "<td>Former</td>" in page and "<td>Ex officio</td>" in page
+    assert "<td>False</td>" not in page and "ex_officio</td>" not in page
+
+
 async def test_the_default_status_hides_unpinned_rows_and_all_shows_them(client, db, curator):
     org = await _org(db, "Energy Committee")
     held = await pin(db, "organization", org, "acronym", "OLD", user_id=curator)

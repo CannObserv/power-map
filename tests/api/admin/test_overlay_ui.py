@@ -2,10 +2,11 @@
 
 Every producer-owned slot on an in-scope entity says so where it is shown and
 where it is edited; a pinned slot carries a badge with the value, who pinned it
-and when, and an Unpin; an unpinned one carries a Pin that keeps PM's current
-value. An entity outside the producer's row scope shows none of it. The slot
-line is a self-loading fragment (the dup-badge pattern), so every panel stays a
-static host and refreshes on `refreshOverlay` when an edit pins.
+and when, and an Unpin; an unpinned one shows its value and a Pin that keeps
+it, or *none* and no Pin when it is empty (#838). An entity outside the
+producer's row scope shows none of it. The slot line is a self-loading fragment
+(the dup-badge pattern), so every panel stays a static host and refreshes on
+`refreshOverlay` when an edit pins.
 """
 
 import json
@@ -19,6 +20,8 @@ from src.api.main import app
 from src.core.curation_overlay import active_pin, pin
 from src.core.db import generate_id
 from src.core.ingestion.crosswalk import PRODUCER_SOURCE
+
+DISSOLVED = "01KV0000000000000000000007"  # seeded entity_event_types.dissolved
 
 pytestmark = pytest.mark.integration
 
@@ -86,6 +89,17 @@ async def _org(db, *, anchored: bool = True, acronym: str | None = "ETT") -> str
             oid,
         )
     return oid
+
+
+async def _dissolve(db, oid: str, year: int) -> None:
+    await db.execute(
+        "INSERT INTO entity_events (id, entity_type, entity_id, event_type_id, event_year)"
+        " VALUES ($1, 'organization', $2, $3, $4)",
+        generate_id(),
+        oid,
+        DISSOLVED,
+        year,
+    )
 
 
 def _slot(oid: str, field: str = "acronym") -> str:
@@ -173,7 +187,7 @@ async def test_a_slot_the_registry_does_not_hold_is_not_found(client, db, path):
 async def test_pin_keeps_the_current_value_and_returns_the_pinned_slot(client, db):
     oid = await _org(db)
 
-    r = await client.post(_slot(oid) + "pin/", headers=HX)
+    r = await client.post(_slot(oid) + "pin/", data={"expected": "ETT"}, headers=HX)
 
     assert r.status_code == 200
     assert (await active_pin(db, "organization", oid, "acronym")).value == "ETT"
@@ -197,7 +211,7 @@ async def test_unpin_archives_and_returns_the_unpinned_slot(client, db, curator)
 @pytest.mark.parametrize(("action", "key"), [("pin", "pinned"), ("unpin", "unpinned")])
 async def test_the_non_htmx_fallback_returns_to_the_entity(client, db, curator, action, key):
     oid = await _org(db)
-    data = {}
+    data = {"expected": "ETT"}
     if action == "unpin":  # Pin is offered only on an unpinned slot, Unpin only on a pinned one
         held = await pin(db, "organization", oid, "acronym", "EN", user_id=curator)
         data = {"pin_id": held.id}
@@ -245,8 +259,8 @@ async def test_pin_on_a_slot_pinned_since_the_page_loaded_keeps_that_pin(client,
     oid = await _org(db)  # the live acronym is ETT
     held = await pin(db, "organization", oid, "acronym", "EN", user_id=curator)
 
-    r = await client.post(_slot(oid) + "pin/", headers=HX)
-    fallback = await client.post(_slot(oid) + "pin/", headers=AUTH)
+    r = await client.post(_slot(oid) + "pin/", data={"expected": "ETT"}, headers=HX)
+    fallback = await client.post(_slot(oid) + "pin/", data={"expected": "ETT"}, headers=AUTH)
 
     assert json.loads(r.headers["HX-Trigger"])["showFlash"]["level"] == "warning"
     assert (await active_pin(db, "organization", oid, "acronym")).id == held.id
@@ -257,11 +271,93 @@ async def test_pin_on_a_slot_pinned_since_the_page_loaded_keeps_that_pin(client,
 async def test_pinning_an_entity_outside_the_crosswalk_is_refused_not_a_500(client, db):
     oid = await _org(db, anchored=False)
 
-    r = await client.post(_slot(oid) + "pin/", headers=HX)
+    r = await client.post(_slot(oid) + "pin/", data={"expected": "ETT"}, headers=HX)
 
     assert r.status_code == 200
     assert json.loads(r.headers["HX-Trigger"])["showFlash"]["level"] == "warning"
     assert r.headers.get("hx-reswap") == "none", "a refusal must not swap (#684)"
+    assert await active_pin(db, "organization", oid, "acronym") is None
+
+
+# --- #838: the value the line governs, and what an empty slot offers ----------------
+
+
+async def test_an_empty_dissolved_year_reads_none_and_offers_no_pin(client, db):
+    oid = await _org(db)
+
+    r = await client.get(_slot(oid, "dissolved_year"), headers=AUTH)
+
+    assert "Dissolved year: <em>none</em>. Maintained by usa-wa." in r.text
+    assert "pin/" not in r.text and "Pin current" not in r.text
+
+
+async def test_a_filled_dissolved_year_shows_the_year_and_pins_it(client, db):
+    oid = await _org(db)
+    await _dissolve(db, oid, 2019)
+
+    r = await client.get(_slot(oid, "dissolved_year"), headers=AUTH)
+
+    assert "Dissolved year: <strong>2019</strong>. Maintained by usa-wa." in r.text
+    assert ">Pin dissolved year</button>" in r.text
+    assert """hx-vals='{"expected": "2019"}'""" in r.text
+
+
+async def test_an_empty_parent_reads_none_and_offers_no_pin(client, db):
+    oid = await _org(db)
+
+    r = await client.get(_slot(oid, "parent_id"), headers=AUTH)
+
+    assert "Parent organization: <em>none</em>. Maintained by usa-wa." in r.text
+    assert "pin/" not in r.text
+
+
+async def test_a_filled_parent_shows_its_name_and_posts_its_id(client, db):
+    parent, oid = await _org(db, acronym=None), await _org(db)
+    await db.execute("UPDATE organizations SET parent_id = $1 WHERE id = $2", parent, oid)
+
+    r = await client.get(_slot(oid, "parent_id"), headers=AUTH)
+
+    assert "Parent organization: <strong>Energy and Telecommunications</strong>." in r.text
+    assert f"""hx-vals='{{"expected": "{parent}"}}'""" in r.text
+    assert ">Pin parent organization</button>" in r.text
+
+
+async def test_a_pin_that_differs_from_the_live_value_says_what_pm_reads(client, db, curator):
+    oid = await _org(db)  # the live acronym is ETT
+    await pin(db, "organization", oid, "acronym", "EN", user_id=curator)
+
+    r = await client.get(_slot(oid), headers=AUTH)
+
+    assert "Acronym: <strong>EN</strong>." in r.text
+    assert "PM's record now reads <strong>ETT</strong>, not the pinned value." in r.text
+
+
+async def test_pin_on_an_empty_slot_is_refused_and_pins_nothing(client, db):
+    """The line offers no Pin over an empty slot; a stale page that still has one
+    (the value since gone) must not pin NULL, a *keep empty* nobody chose."""
+    oid = await _org(db)
+
+    url, data = _slot(oid, "dissolved_year") + "pin/", {"expected": "2019"}
+
+    r = await client.post(url, data=data, headers=HX)
+    fallback = await client.post(url, data=data, headers=AUTH)
+
+    flash = json.loads(r.headers["HX-Trigger"])["showFlash"]
+    assert flash["level"] == "warning" and "changed since the page loaded" in flash["body"]
+    assert "Dissolved year: <em>none</em>" in r.text  # the line as it now stands
+    assert fallback.status_code == 303
+    assert fallback.headers["location"] == f"/admin/orgs/{oid}/?flash=slot_changed"
+    assert await active_pin(db, "organization", oid, "dissolved_year") is None
+
+
+@pytest.mark.parametrize("data", [{"expected": "EN"}, {}], ids=["another value", "none posted"])
+async def test_pin_of_a_value_the_line_did_not_show_is_refused(client, db, data):
+    oid = await _org(db)  # the live acronym is ETT
+
+    r = await client.post(_slot(oid) + "pin/", data=data, headers=HX)
+
+    assert json.loads(r.headers["HX-Trigger"])["showFlash"]["level"] == "warning"
+    assert "Acronym: <strong>ETT</strong>" in r.text
     assert await active_pin(db, "organization", oid, "acronym") is None
 
 

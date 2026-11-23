@@ -119,7 +119,29 @@ async def test_an_anchored_assignments_slot_line_offers_a_pin(client, db):
     r = await client.get(f"/admin/_overlay/assignment/{a['ra']}/end_date/", headers=AUTH)
 
     assert r.status_code == 200
-    assert "Pin current end date" in r.text
+    assert ">Pin end date</button>" in r.text
+    assert "End date: <strong>2022-12-31</strong>." in r.text
+
+
+async def test_an_open_span_reads_no_end_date_and_offers_no_pin(client, db):
+    """#838: a current span has no end date; Pin there would keep it open over usa-wa."""
+    a = await _assignment(db, end=None, current=True)
+
+    r = await client.get(f"/admin/_overlay/assignment/{a['ra']}/end_date/", headers=AUTH)
+
+    assert "End date: <em>none</em>. Maintained by usa-wa." in r.text
+    assert "pin/" not in r.text
+
+
+@pytest.mark.parametrize(("current", "reads"), [(True, "Current"), (False, "Former")])
+async def test_currency_reads_as_a_word_not_a_bool(client, db, current, reads):
+    a = await _assignment(db, end=None if current else END, current=current)
+
+    r = await client.get(f"/admin/_overlay/assignment/{a['ra']}/is_current/", headers=AUTH)
+
+    # CR 2: labelled as the page's Status group, so the button is never "Pin current"
+    assert f"Status: <strong>{reads}</strong>." in r.text and ">Pin status</button>" in r.text
+    assert f"""hx-vals='{{"expected": "{current}"}}'""" in r.text
 
 
 async def test_an_assignment_outside_the_crosswalk_has_no_slot_line(client, db):
@@ -140,7 +162,11 @@ async def test_an_unknown_assignment_is_404(client, db):
 async def test_pinning_keeps_the_current_value(client, db):
     a = await _assignment(db)
 
-    r = await client.post(f"/admin/_overlay/assignment/{a['ra']}/end_date/pin/", headers=HX)
+    r = await client.post(
+        f"/admin/_overlay/assignment/{a['ra']}/end_date/pin/",
+        data={"expected": "2022-12-31"},
+        headers=HX,
+    )
 
     assert r.status_code == 200
     assert await _pinned(db, a["ra"], "end_date") == "2022-12-31"
