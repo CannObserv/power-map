@@ -74,6 +74,13 @@ WHERE conrelid = $1::regclass AND conname = $2
             "chk_ra_membership_type",
             ("principal", "substitute", "ex_officio", "acting"),
         ),
+        # #857 — the misspelling name type, and its never-canonical backstop.
+        ("person_names", "person_names_name_type_check", ("'variant'", "'misspelling'")),
+        (
+            "person_names",
+            "chk_person_canonical_name_type",
+            ("is_canonical", "'deadname'", "'misspelling'"),
+        ),
         # #595 — address standardization provenance, the full value set.
         (
             "addresses",

@@ -250,3 +250,36 @@ async def test_preview_of_a_missing_person_raises(db):
     winner = await _person(db, "Preview Missing")
     with pytest.raises(PersonNotFoundError):
         await preview_person_merge(db, winner_id=winner, loser_id=generate_id())
+
+
+async def test_a_winners_misspelling_does_not_absorb_the_losers_real_name(db):
+    """#857: misspelling is merge-distinct. The dedup deletes the *loser's* row,
+    so as a display-class type a winner's misspelling "X" would delete the
+    loser's legal "X" — the real name lost and the error kept."""
+    winner = await _person(db, "Kaitlyn Ryan")
+    await _name(db, winner, "Caitlin Ryan", "misspelling")
+    loser = await _person(db, "Caitlin Ryan")
+    await merge_person_into(db, winner_id=winner, loser_id=loser, actor_email=ACTOR)
+    held = {
+        (r["name"], r["name_type"])
+        for r in await db.fetch(
+            "SELECT name, name_type FROM person_names WHERE person_id=$1", winner
+        )
+    }
+    assert held == {
+        ("Kaitlyn Ryan", "legal"),
+        ("Caitlin Ryan", "misspelling"),
+        ("Caitlin Ryan", "legal"),
+    }
+
+
+async def test_two_identical_misspellings_collapse(db):
+    winner = await _person(db, "Kaitlyn Ryan")
+    await _name(db, winner, "Caitlin Ryan", "misspelling")
+    loser = await _person(db, "Kaitlyn Ryan")
+    await _name(db, loser, "Caitlin Ryan", "misspelling")
+    await merge_person_into(db, winner_id=winner, loser_id=loser, actor_email=ACTOR)
+    count = await db.fetchval(
+        "SELECT count(*) FROM person_names WHERE person_id=$1 AND name_type='misspelling'", winner
+    )
+    assert count == 1

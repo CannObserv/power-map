@@ -372,9 +372,12 @@ CREATE TABLE IF NOT EXISTS person_names (
                                  'maiden','religious','stage',
                                  'deadname',
                                  'reading','romanization','mrz',
-                                 -- Issue #135: alt-spelling / nickname variant
-                                 -- of an existing name on the same person.
-                                 'variant'
+                                 -- Issue #135: a form of the person's own name
+                                 -- they use or are known by (#857 narrowed it).
+                                 'variant',
+                                 -- Issue #857: a spelling the person does not
+                                 -- use, kept only so search finds them.
+                                 'misspelling'
                              )),
     is_canonical BOOLEAN     NOT NULL DEFAULT FALSE,
 
@@ -1243,9 +1246,12 @@ DO $$ BEGIN
             'maiden','religious','stage',
             'deadname',
             'reading','romanization','mrz',
-            -- Issue #135: alt-spelling / nickname variant of an existing
-            -- name on the same person. Sits next to its legal row.
-            'variant'
+            -- Issue #135: a form of the person's own name they use or are
+            -- known by (#857 narrowed it). Sits next to its legal row.
+            'variant',
+            -- Issue #857: a spelling the person does not use, kept only so
+            -- search finds them. Never canonical (chk_person_canonical_name_type).
+            'misspelling'
         )
     );
 END $$;
@@ -1346,6 +1352,37 @@ BEGIN
         END IF;
         ALTER TABLE person_names ADD CONSTRAINT chk_person_canonical_is_public
             CHECK (NOT is_canonical OR visibility = 'public');
+    END IF;
+END $$;
+
+-- Never-canonical name types (#857): `misspelling` and `deadname` are never the
+-- display pointer. A deadname is already stopped indirectly (the trigger makes
+-- it legal_only, which chk_person_canonical_is_public rejects), but a misspelling
+-- lands public, so without this a merge carry or a hand UPDATE could display one.
+-- The list is `NEVER_CANONICAL_NAME_TYPES` in src/core/name_types.py;
+-- tests/core/test_name_types.py holds the two together. Add-when-absent, with
+-- any violating row demoted first (expected zero).
+DO $$
+DECLARE
+    demoted INTEGER;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'chk_person_canonical_name_type'
+          AND conrelid = 'person_names'::regclass
+    ) THEN
+        -- The negation of the CHECK below, spelled the same way, so the two
+        -- lists cannot drift. Not a positive IN-list: tests/core/test_types.py
+        -- reads every positive name_type list near person_names as a copy of
+        -- the type CHECK.
+        UPDATE person_names SET is_canonical = FALSE
+        WHERE NOT (NOT is_canonical OR name_type NOT IN ('deadname','misspelling'));
+        GET DIAGNOSTICS demoted = ROW_COUNT;
+        IF demoted > 0 THEN
+            RAISE NOTICE 'chk_person_canonical_name_type: demoted % never-canonical row(s)', demoted;
+        END IF;
+        ALTER TABLE person_names ADD CONSTRAINT chk_person_canonical_name_type
+            CHECK (NOT is_canonical OR name_type NOT IN ('deadname','misspelling'));
     END IF;
 END $$;
 

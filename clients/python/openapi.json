@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "power-map",
-    "version": "0.75.0"
+    "version": "0.76.0"
   },
   "paths": {
     "/health": {
@@ -2864,6 +2864,168 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LinkTypesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No X-API-Key header, or the key lacks the route's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded — back off for Retry-After seconds. See PUBLIC_API.md § Rate Limits.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified — the If-None-Match ETag still matches."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "An ETag from an earlier response. When it still matches, the answer is 304 with no body."
+          }
+        ]
+      }
+    },
+    "/api/v1/person-name-types": {
+      "get": {
+        "tags": [
+          "public-api"
+        ],
+        "summary": "List Person Name Types",
+        "description": "Return every person name type: meaning, use, and how PM treats it.",
+        "operationId": "list_person_name_types",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonNameTypesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No X-API-Key header, or the key lacks the route's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded — back off for Retry-After seconds. See PUBLIC_API.md § Rate Limits.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified — the If-None-Match ETag still matches."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "An ETag from an earlier response. When it still matches, the answer is 304 with no body."
+          }
+        ]
+      }
+    },
+    "/api/v1/organization-name-types": {
+      "get": {
+        "tags": [
+          "public-api"
+        ],
+        "summary": "List Organization Name Types",
+        "description": "Return every organization name type: meaning and use.",
+        "operationId": "list_organization_name_types",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationNameTypesResponse"
                 }
               }
             }
@@ -7480,7 +7642,8 @@
               "reading",
               "romanization",
               "mrz",
-              "variant"
+              "variant",
+              "misspelling"
             ],
             "title": "Name Type",
             "default": "legal"
@@ -8448,6 +8611,62 @@
         "title": "OrgSearchResult",
         "description": "Single item in a search response."
       },
+      "OrganizationNameTypeEntry": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "meaning": {
+            "type": "string",
+            "title": "Meaning"
+          },
+          "use_when": {
+            "type": "string",
+            "title": "Use When"
+          },
+          "not_for": {
+            "type": "string",
+            "title": "Not For"
+          },
+          "example": {
+            "type": "string",
+            "title": "Example"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "label",
+          "meaning",
+          "use_when",
+          "not_for",
+          "example"
+        ],
+        "title": "OrganizationNameTypeEntry",
+        "description": "An organization name type's reference entry (#857)."
+      },
+      "OrganizationNameTypesResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/OrganizationNameTypeEntry"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "OrganizationNameTypesResponse",
+        "description": "Unpaginated list of every organization name type (#857)."
+      },
       "OrganizationObservationRequest": {
         "properties": {
           "identifier_type": {
@@ -8881,6 +9100,109 @@
         ],
         "title": "PersonName",
         "description": "A single public name variant for a person."
+      },
+      "PersonNameTypeEntry": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "meaning": {
+            "type": "string",
+            "title": "Meaning"
+          },
+          "use_when": {
+            "type": "string",
+            "title": "Use When"
+          },
+          "not_for": {
+            "type": "string",
+            "title": "Not For"
+          },
+          "example": {
+            "type": "string",
+            "title": "Example"
+          },
+          "display_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Rank"
+          },
+          "auto_promote": {
+            "type": "boolean",
+            "title": "Auto Promote"
+          },
+          "never_canonical": {
+            "type": "boolean",
+            "title": "Never Canonical"
+          },
+          "landing_visibility": {
+            "type": "string",
+            "title": "Landing Visibility"
+          },
+          "renders_row": {
+            "type": "boolean",
+            "title": "Renders Row"
+          },
+          "merge_distinct": {
+            "type": "boolean",
+            "title": "Merge Distinct"
+          },
+          "decomposable": {
+            "type": "boolean",
+            "title": "Decomposable"
+          },
+          "presentable": {
+            "type": "boolean",
+            "title": "Presentable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "label",
+          "meaning",
+          "use_when",
+          "not_for",
+          "example",
+          "display_rank",
+          "auto_promote",
+          "never_canonical",
+          "landing_visibility",
+          "renders_row",
+          "merge_distinct",
+          "decomposable",
+          "presentable"
+        ],
+        "title": "PersonNameTypeEntry",
+        "description": "A person name type's reference entry, with how PM treats it (#857).\n\nRead ``presentable`` before showing a name: a ``misspelling`` is ``false`` —\na search key, never an \"also known as\". ``display_rank`` is the place on the\ndisplay ladder (lower wins; ``null`` = never displayed unasked);\n``auto_promote`` = may become the displayed name with no hint;\n``never_canonical`` = an ``is_canonical`` hint on it is ignored;\n``landing_visibility`` = what the row is stored as when sent ``public``;\n``renders_row`` = a rendering of another name row (``reading_of_id``);\n``merge_distinct`` = a merge keeps it beside same-text names of other types;\n``decomposable`` = PM suggests a structured-parts decomposition (parts may\nstill be sent for any type)."
+      },
+      "PersonNameTypesResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PersonNameTypeEntry"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "PersonNameTypesResponse",
+        "description": "Unpaginated list of every person name type, in dropdown order (#857)."
       },
       "PersonSearchResponse": {
         "properties": {

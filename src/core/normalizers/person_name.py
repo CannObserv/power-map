@@ -20,7 +20,8 @@ Strategy:
         Latn (issue #135 audit). Hant/Hans/Cyrl support plugs in here when
         we have data — see e.g. the `chinese-names` package for Hant/Hans.
 
-`name_type` ∈ {initials, mrz, reading, romanization} returns 'skip' — these
+`name_type` in NON_DECOMPOSABLE_TYPES (initials, mrz, reading, romanization,
+misspelling) returns 'skip' — these
 rows have no semantically meaningful decomposition.
 """
 
@@ -31,6 +32,8 @@ from typing import Literal
 
 from nameparser import parse
 
+from src.core.name_types import NON_DECOMPOSABLE_NAME_TYPES
+
 # A bare initial: optionally periodized single uppercase letter ('A', 'A.').
 _INITIAL_RE = re.compile(r"^[A-Z]\.?$")
 
@@ -38,11 +41,11 @@ _INITIAL_RE = re.compile(r"^[A-Z]\.?$")
 PrimaryIdentifier = Literal["family", "given", "patronymic", "mononym"]
 Confidence = Literal["trivial", "ambiguous", "skip"]
 
-# name_types whose `name` value is not a free human-name string. The parts
-# editor on these rows is meaningless (per docs/NAMES.md §"Storage
-# rules" — `initials` is e.g. "JFK", `mrz` is "GARCIA<LOPEZ<<JOSE",
-# `reading` / `romanization` are phonetic transcriptions of another row).
-NON_DECOMPOSABLE_TYPES: frozenset[str] = frozenset({"initials", "mrz", "reading", "romanization"})
+# name_types whose parts editor is meaningless: `initials` is e.g. "JFK", `mrz`
+# is "GARCIA<LOPEZ<<JOSE", `reading` / `romanization` are transcriptions of
+# another row, and a `misspelling` (#857) is a search key, not a name to
+# structure. Derived from the registry (`src.core.name_types`, `decomposable`).
+NON_DECOMPOSABLE_TYPES: frozenset[str] = NON_DECOMPOSABLE_NAME_TYPES
 
 
 @dataclass(frozen=True)

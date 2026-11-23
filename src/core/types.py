@@ -29,10 +29,12 @@ PersonNameType = Literal[
     "romanization",
     "mrz",
     "variant",
+    "misspelling",
 ]
 # Order is the dropdown render order — semantic groupings (legal /
 # common variants / cultural-awareness / phonetic decompositions /
-# alt-spelling). Issue #135 added 'variant'.
+# alt-spelling). Issue #135 added 'variant', #857 'misspelling'. Each type's
+# meaning and behaviour live in `src.core.name_types`.
 PERSON_NAME_TYPES: tuple[PersonNameType, ...] = (
     "legal",
     "preferred",
@@ -47,6 +49,7 @@ PERSON_NAME_TYPES: tuple[PersonNameType, ...] = (
     "romanization",
     "mrz",
     "variant",
+    "misspelling",
 )
 
 # organization_names CHECK (src/core/schema.sql).

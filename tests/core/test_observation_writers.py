@@ -27,6 +27,8 @@ from src.core import observation
 from src.core.db import generate_id
 from src.core.normalizers.address import AddressNormalizerConfig, FallbackAddressNormalizer
 from src.core.observation import (
+    _HEAL_PERSON_SELECT_SQL,
+    NO_AUTO_CANONICAL_NAME_TYPES,
     Disposition,
     IdentifierConflict,
     ObservationRejected,
@@ -391,6 +393,102 @@ async def test_write_names_person_variant_yields_to_a_lower_ranked_name(db, api_
         )
     }
     assert by_name == {"Jody Example": False, "Jodi Formerly": True}
+
+
+async def test_write_names_person_misspelling_never_auto_promoted(db, api_key_id):
+    """#857: a misspelling is a search key — never the display slot unasked."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Caitlin Ryan", name_type="misspelling")],
+    )
+    row = await db.fetchrow(
+        "SELECT is_canonical, visibility FROM person_names WHERE person_id=$1", pid
+    )
+    assert row["is_canonical"] is False
+    assert row["visibility"] == "public"
+
+
+async def test_write_names_person_hinted_misspelling_is_ignored(db, api_key_id):
+    """#857: unlike a variant, a hint on a misspelling is ignored (as for a
+    deadname), and the payload's real name takes the slot."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [
+            ObservationPersonName(name="Caitlin Ryan", name_type="misspelling", is_canonical=True),
+            ObservationPersonName(name="Kaitlyn Ryan", name_type="legal"),
+        ],
+    )
+    assert (
+        await db.fetchval("SELECT display_name FROM v_person_display_names WHERE person_id=$1", pid)
+        == "Kaitlyn Ryan"
+    )
+
+
+async def test_write_names_person_hinted_misspelling_alone_stays_blank(db, api_key_id):
+    """#857: the hint is dropped, not raised as a CheckViolation that fails the
+    whole observation; the person simply has no display name yet."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await write_names(
+        db,
+        pid,
+        "person",
+        api_key_id,
+        [ObservationPersonName(name="Caitlin Ryan", name_type="misspelling", is_canonical=True)],
+    )
+    row = await db.fetchrow("SELECT is_canonical FROM person_names WHERE person_id=$1", pid)
+    assert row["is_canonical"] is False
+
+
+async def test_heal_never_promotes_a_misspelling(db):
+    """#857: deleting a canonical name must not leave a misspelling displayed."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    for name, name_type in (("Caitlin Ryan", "misspelling"), ("K. Ryan", "initials")):
+        await db.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+            " VALUES ($1, $2, $3, $4, FALSE)",
+            generate_id(),
+            pid,
+            name,
+            name_type,
+        )
+    await heal_person_canonical(db, pid)
+    canonical = await db.fetchval(
+        "SELECT name FROM person_names WHERE person_id=$1 AND is_canonical", pid
+    )
+    assert canonical == "K. Ryan"
+
+
+async def test_heal_probe_offers_no_misspelling(db):
+    """#857: the heal's own exclusion, isolated from the DB backstop.
+
+    Through `heal_person_canonical` a promoted misspelling would only meet
+    chk_person_canonical_name_type, which the heal's savepoint swallows — so the
+    outcome test above passes whether or not the code excludes the type. The
+    probe answers the question directly: no candidate.
+    """
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, 'Caitlin Ryan', 'misspelling', FALSE)",
+        generate_id(),
+        pid,
+    )
+    row = await db.fetchrow(_HEAL_PERSON_SELECT_SQL, pid, list(NO_AUTO_CANONICAL_NAME_TYPES))
+    assert row["displays"] is False
+    assert row["candidate_id"] is None
 
 
 async def test_write_names_person_hinted_variant_still_promotes(db, api_key_id):

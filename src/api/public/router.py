@@ -13,6 +13,7 @@ from src.api.public.entity_identifier_types import (
 )
 from src.api.public.jurisdictions import router as jurisdictions_router
 from src.api.public.link_types import router as link_types_router
+from src.api.public.name_types import router as name_types_router
 from src.api.public.orgs import router as orgs_router
 from src.api.public.people import router as people_router
 from src.api.public.responses import AUTH_RESPONSES
@@ -34,6 +35,7 @@ router.include_router(entity_event_types_router)
 router.include_router(entity_identifier_types_router)
 router.include_router(jurisdictions_router)
 router.include_router(link_types_router)
+router.include_router(name_types_router)
 router.include_router(orgs_router)
 router.include_router(people_router)
 router.include_router(role_types_router)
