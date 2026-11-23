@@ -27,6 +27,8 @@ from src.core import observation
 from src.core.db import generate_id
 from src.core.normalizers.address import AddressNormalizerConfig, FallbackAddressNormalizer
 from src.core.observation import (
+    _HEAL_PERSON_SELECT_SQL,
+    NO_AUTO_CANONICAL_NAME_TYPES,
     Disposition,
     IdentifierConflict,
     ObservationRejected,
@@ -466,6 +468,27 @@ async def test_heal_never_promotes_a_misspelling(db):
         "SELECT name FROM person_names WHERE person_id=$1 AND is_canonical", pid
     )
     assert canonical == "K. Ryan"
+
+
+async def test_heal_probe_offers_no_misspelling(db):
+    """#857: the heal's own exclusion, isolated from the DB backstop.
+
+    Through `heal_person_canonical` a promoted misspelling would only meet
+    chk_person_canonical_name_type, which the heal's savepoint swallows — so the
+    outcome test above passes whether or not the code excludes the type. The
+    probe answers the question directly: no candidate.
+    """
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    await db.execute(
+        "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+        " VALUES ($1, $2, 'Caitlin Ryan', 'misspelling', FALSE)",
+        generate_id(),
+        pid,
+    )
+    row = await db.fetchrow(_HEAL_PERSON_SELECT_SQL, pid, list(NO_AUTO_CANONICAL_NAME_TYPES))
+    assert row["displays"] is False
+    assert row["candidate_id"] is None
 
 
 async def test_write_names_person_hinted_variant_still_promotes(db, api_key_id):
