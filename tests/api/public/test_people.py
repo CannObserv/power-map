@@ -229,6 +229,63 @@ async def test_search_by_name_variant(client, api_key, person_fixture):
     assert person_fixture["person_id"] in ids
 
 
+@pytest_asyncio.fixture(loop_scope="session")
+async def misspelled_person(db):
+    """A person whose canonical "Caitlein Quorvaltine" also holds the misspelling
+    "Caitlin Quorvaltine" (#857). The surname is improbable on purpose: the DB is
+    committing and shared, so the search must match only this person."""
+    pid = generate_id()
+    await db.execute("INSERT INTO people (id) VALUES ($1)", pid)
+    for name, name_type, canonical in (
+        ("Caitlein Quorvaltine", "legal", True),
+        ("Caitlin Quorvaltine", "misspelling", False),
+    ):
+        await db.execute(
+            "INSERT INTO person_names (id, person_id, name, name_type, is_canonical)"
+            " VALUES ($1,$2,$3,$4,$5)",
+            generate_id(),
+            pid,
+            name,
+            name_type,
+            canonical,
+        )
+    yield pid
+    await db.execute("DELETE FROM person_names WHERE person_id=$1", pid)
+    await db.execute("DELETE FROM people WHERE id=$1", pid)
+
+
+@pytest.mark.integration
+async def test_search_by_misspelling_leads_to_the_canonical_name(
+    client, api_key, db, misspelled_person
+):
+    """#857: the type exists so a misspelling finds the person — and the hit
+    carries the canonical spelling, never the misspelling."""
+    r = await _search(client, api_key, "Caitlin Quorvaltine")
+    assert r.status_code == 200
+    hits = [p for p in r.json()["data"] if p["id"] == misspelled_person]
+    assert len(hits) == 1
+    assert hits[0]["display_name"] == "Caitlein Quorvaltine"
+
+    # Control: the hit came from the misspelling row, not from a prefix of the
+    # canonical spelling — without the row, the same query finds nobody.
+    await db.execute(
+        "DELETE FROM person_names WHERE person_id=$1 AND name_type='misspelling'",
+        misspelled_person,
+    )
+    r = await _search(client, api_key, "Caitlin Quorvaltine")
+    assert misspelled_person not in [p["id"] for p in r.json()["data"]]
+
+
+@pytest.mark.integration
+async def test_detail_returns_the_misspelling_typed(client, api_key, misspelled_person):
+    """#857: reads keep misspellings, typed, so a consumer can filter them out."""
+    r = await client.get(f"/api/v1/people/{misspelled_person}", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    names = {(n["name"], n["name_type"], n["is_canonical"]) for n in r.json()["names"]}
+    assert ("Caitlin Quorvaltine", "misspelling", False) in names
+    assert ("Caitlein Quorvaltine", "legal", True) in names
+
+
 @pytest.mark.integration
 async def test_search_matches_partial_last_token(client, api_key, person_fixture):
     """#316: a prefix on the final token matches ('Jane Eliz' -> 'Jane Elizabeth Smith').
