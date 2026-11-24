@@ -1,10 +1,23 @@
 ---
 title: Organization role-type vocabulary (org_* prefix) + backlog classification (#303)
 date: 2026-11-24
-status: proposed
+status: accepted (D1–D3, D6, D7); D4–D5 revised 2026-11-24, detail follows the org-kind design
 ---
 
 # Organization role-type vocabulary (#303)
+
+> **Revision, 2026-11-24 (operator).**
+> - The seven `org_*` slugs are confirmed.
+> - Compound titles will be split, not typed once by precedence (#876).
+> - Classification is **suggestion-based**, following the WSLCB Licensing Tracker's Jev pattern (Approach B): rules and TypeSafe Jev *suggest*, and only an operator's acceptance sets `role_type_id`.
+> - Suggestions are requested **when a role is created**.
+> - **Org kind is classified first** (Approach C, #877), so role suggestions can use a settled org kind.
+>
+> D4 and D5 below are rewritten to match. Order of work:
+> 1. seed the vocabulary (this PR);
+> 2. org kinds and the shared suggestion machinery (#877);
+> 3. role suggestions and the backlog (the rest of #303);
+> 4. #876, the compound-title split.
 
 ## Intent
 
@@ -122,48 +135,60 @@ A new sweep test checks that every seeded non-jurisdictional slug starts with a 
 
 A row's type is what aggregates, so variants don't need collapsing. `Chairman`, `Co-Owner` and `Co-Founder` keep their titles: they are the org's own labels (rule 3).
 
-The classifier fixes only clear errors, on the rows it types:
+The bulk-accept script (D4) fixes only clear errors, and only on the rows it accepts:
 - `Board Memeber` → `Board Member`
 - `Principle Officer` → `Principal Officer`
 - lowercase `owner` / `lobbyist` / `Co-owner` → `Owner` / `Lobbyist` / `Co-Owner`
 
 These rows are PM-native, so PM owns their titles. A case-only change can't collide, because `uq_role_org_title` keys on `lower(title)`. A spelling fix that would collide with an existing same-org title skips **the whole row**: it stays untyped and is reported as `title_collision`. Typing it under the misspelled title would count one seat twice. Merging is a human's admin role merge, never the script's.
 
-### D4. The backlog: one script, dry run by default, auto tier plus reviewed decisions
+### D4. The backlog: suggestions, then operator acceptance (revised)
 
-`scripts/classify_org_role_types.py` follows `scripts/classify_legislative_roles.py`: `add_dsn_args` / `resolve_dsn`, target echo, dry run unless `--execute`, idempotent.
+**Principle: suggestive, never definitive.** No automated source writes `roles.role_type_id`. Three sources each record an answer per role, kept as append-only history in a shared suggestion store that step 2 (#877) designs for orgs and roles alike:
+- **rules:** the exact-title auto tier below;
+- **jev:** TypeSafe Jev, with its confidence, per-option probabilities, model and tokens;
+- **manual:** an operator's decision, which always wins.
 
-**Candidates:** active, untyped, non-jurisdictional roles. The script skips, with a reported reason:
-- a role on an archived org (`org_archived`; none today);
-- a role on a legislature or party org (`legislative_or_party_org`, D2);
-- a role named by a `producer_crosswalk` row (`dataset_owned`; none today). A dataset role is typed by its producer through usa-wa, never by PM's script.
+The type changes only when an operator acts: Accept, Set other, or Dismiss on one role, or a **bulk accept** of a slice that the gold set has shown to be accurate. Every bulk accept goes through a script that runs dry by default and needs `--execute`, and it only ever fills a NULL `role_type_id`. Nothing overwrites a manual decision. This is the tracker's #1 anti-goal.
 
-**Auto tier:** an exact case-folded, trimmed title in D1's table. It needs no review.
+**Rules source.** Kept from the first draft:
+- An exact case-folded, trimmed title in D1's table suggests that slug.
+- The domain-ambiguous titles (D2) get no rules suggestion.
+- A role on a legislature or party org, an archived org, or one named in `producer_crosswalk` gets no suggestion from any source.
+- The estimated split stands: ~382 rules suggestions, ~193 ambiguous-title rows, ~83 compound rows (split under #876, never typed by precedence), and ~1,150 rows in the long tail.
 
-**Review tier:** the D2 ambiguous titles and every compound title that contains an auto-tier title.
-- The dry run writes `--review-out <path>` as a CSV with these columns: `role_id`, `org_display_name`, org identifier kind, `title`, `suggested_slug`, `reason`.
-- For a compound title, the suggested slug follows the precedence `org_lobbyist` > `org_owner` > `org_executive` > `org_board_member` > `org_founder` > `org_officer`. The rarer, more power-relevant signal wins, and the title keeps the rest.
-- The operator fills a `decision` column: an `org_*` slug, or blank to skip. The script accepts only the seven `org_*` slugs. A row a reviewer judges to be a party, committee or public-office role stays untyped and is reported as `not_org_domain`. This script never writes `party_*` or `committee_*`, so rule 2 holds by construction, and those rows feed the follow-ups below.
-- The reviewed file is committed as `scripts/data/303_org_role_decisions.csv` and read with `--decisions`.
-- A row whose current title or `role_type_id` no longer matches what the file recorded is skipped (`drifted`).
+**Jev source.**
+- **One Choice question per role.** The options are the seven `org_*` slugs plus `none`. `none` covers a party, committee or public-office role, plain staff, and anything the vocabulary doesn't name.
+- **State:** the role title, the org's display name, the org's kind once settled (step 2), and the org's identifier kinds. **No person names are sent.**
+- Batched, with criteria per question, following the tracker's `jev_client.py` and its research notes.
+- The model version is pinned, and each role is classified once. A re-query happens only by explicit refresh.
+- An `org_*` answer on an org whose settled kind is a legislature, party or public body is recorded but never offered for acceptance.
 
-**Writes:** `UPDATE roles SET role_type_id=$1 [, title=$2] WHERE id=$3 AND role_type_id IS NULL`. It only fills a NULL and never reclassifies, the same rule as `resolve_role`'s upgrade-on-match. It touches no assignment.
+**Gold set and evaluation (before any bulk accept).**
+- About 300 roles, sampled by stratum: the auto tier, the ambiguous titles, and the long tail.
+- I draft the labels from the vocabulary's definitions *before* any Jev call. The operator reviews the unsure rows plus a seeded random sample. Then the labels are committed.
+- The scoring harness refuses to send while the label file has uncommitted changes, and it caps spend.
+- Both sources are scored: rules against the gold set, and Jev per slug at its threshold.
+- **Go-live bar per slug** (the tracker's, from #210): **≥ 90 % precision at the threshold, on ≥ 20 answers.** A slug short of answers fails closed. A slug that misses the bar is never bulk-accepted from Jev; its rows go to individual review.
+- The vendored `typesafe-eval` tooling (`skills-vendor/gregoryfoster-skills/scripts/typesafe-eval.py`) is the starting point for the harness.
+- The report answers the operator's question directly. Measured against the gold set:
+  - how often Jev agrees with the rules tier;
+  - how much of the ambiguous tier it decides correctly;
+  - how many correct suggestions it finds in the long tail.
+- Measured spend is pennies: 1,816 roles at a few hundred tokens each is about 1 M tokens, at $0.042/Mtok.
 
-**Expected yield (estimated by exact title):**
-- auto ≈ 382: executive 104, owner 102, founder 60, lobbyist 51, board 42, officer 23;
-- review ≈ 193 ambiguous-title rows plus ≈ 83 compound rows;
-- about 1,150 rows stay free text by design.
+**Who runs it:** the operator, as supervised steps. Score the gold set, bulk-accept the slices that clear the bar (`--execute`), then work the review queue.
 
-The dry run reports the real figures.
+### D5. Ingest: suggestions at creation time (revised)
 
-**Who runs it:** the operator. Run the dry run, review the CSV, commit the decisions, then run `--execute` under supervision. That is three supervised steps after the seed deploys, each in its own operator-approved run.
+- **No path ever sets a type from a suggestion.** Typed producers keep setting `role_type` themselves: observations through `resolve_role`, including upgrade-on-match, and usa-wa through its mapping. Those paths don't change.
+- **When an untyped, non-jurisdictional role is created,** by an admin door, an observation's `NEW` disposition, or the importer, PM requests suggestions **after the transaction commits**. That is a background task, so the write never waits on Jev or fails because of it. The rules suggestion is computed inline; it's free.
+- **A sweep timer** catches anything the background task missed (a restart, Jev unreachable, a dataset or import path) under the same classify-once rule. It also checks in to co-status, and it is the dead-man signal, as in the tracker.
+- **An enable flag gates Jev calls only.** Suggestions already stored are still shown when it's off.
+- **Volume:** 6 roles and 6 orgs were created in the last 90 days, so the ongoing cost is negligible. The backlog is where the value is.
+- **The admin role page** shows each source's suggestion with Accept / Set other / Dismiss. A review queue lists open suggestions that no operator has acted on.
 
-### D5. Ingest: no change, because the existing paths already self-classify
-
-- **Observations:** `resolve_role` takes any seeded slug. A typed observation that lands on an untyped role fills its type in place (upgrade-on-match, #266). A producer that emits `org_lobbyist` self-classifies with no code change.
-- **Admin:** the role-type `<select>` reads the catalog, so the new slugs appear in it. The `Organization …` display names keep them grouped in its `ORDER BY display_name`.
-- **Importer:** dormant (one batch, 2026-03-17), with no type column. It is not taught the title map, which would be a second copy of D1. If a new CSV ever arrives, a `Role Type` column is a follow-up.
-- **usa-wa:** legislative only. Its mapping looks slugs up in PM's catalog, so the new rows are inert for it.
+The detailed design — the table shape, the queue, health and spend, the enable flag — is shared with org kinds and lands in step 2's design doc. This section is updated to point at it.
 
 ### D6. Archived orgs (#835)
 
@@ -188,46 +213,47 @@ This design adds **no** path that creates roles.
 - There is no `name_type IN (` list, so the #857 CHECK-parity window doesn't apply.
 - Work in a worktree. Use `apply-schema.sh --test` only. Run the integration tier alone. No closing keywords in any PR body. Pause before shipping.
 
-## Steps (TDD)
+## Steps
 
-1. **Seed.** Red: a catalog test on `GET /api/v1/role-types` asserts the seven slugs with D1's flags, and the prefix sweep test (D2) runs over the seed. Green: append to `_seed_role_types`.
-2. **Rubric docs.**
-   - `docs/SCHEMA_INDEXES.md`: rule 2 gets the `org_*` scope. Reserved-not-seeded gains `org_board_chair` and `org_staff`. Update the current-catalog line.
-   - Update the `schema.sql` seed comment and the vocabulary list in `docs/API_ROLES.md`.
-3. **Classifier (integration tests, run alone).** Test cases:
-   - auto tier;
-   - never reclassifies;
-   - skips jurisdictional roles, legislative or party orgs, archived orgs and crosswalk-owned roles;
-   - title fixes, with a collision skip;
-   - a dry run writes nothing;
-   - the review CSV's shape and compound precedence;
-   - `--decisions` applies, and skips a drifted row;
-   - a second run is a no-op.
-4. **Version, client and tag.** Minor bump, `regenerate_client`. The tag goes on at deploy.
-5. **Ship gate, PR, code review, then pause** for merge, deploy and restart authorization (the sentence that names all three).
-6. **After deploy, supervised:** dry run, then the review CSV goes to the operator, then a follow-up PR commits `scripts/data/303_org_role_decisions.csv`, then `--execute`. Re-take the counts.
+**Step 1 — this PR (TDD).**
+- Seed the seven slugs: the catalog test on `GET /api/v1/role-types`, plus a `resolve_role` test showing an observation's `org_lobbyist` fills an untyped role in place.
+- Add the prefix sweep, `tests/core/test_role_type_prefix_sweep.py`.
+- Update the docs (`SCHEMA_INDEXES.md` rule 2, the reserved list, the catalog; `API_ROLES.md`).
+- Bump to `0.77.0` and regenerate the client (a version-only diff).
+- Ship gate, PR, code review, then **pause** for authorization to merge, deploy and restart. At deploy, push the annotated `v0.77.0` tag on the deployed `main`.
 
-## Calls I made (correct any)
+**Step 2 — #877:** its own design doc. It covers the list of org kinds (the operator's decision), the shared suggestion store, Jev with an org gold set, suggestions at creation time, review screens, health and spend.
 
-- Seven slugs (Approach A), including `org_officer` and `org_member`; `org_board_chair` and `org_staff` reserved.
-- `Employee` stays untyped.
-- Precedence for compound titles; no role splitting.
-- An agency head is `org_executive`, but elected and public seats stay out.
-- The decisions file is committed and keyed by role id. It accepts `org_*` slugs only.
-- A title collision skips the whole row rather than typing a duplicate.
-- A minor bump.
-- A relay to Observo only.
+**Step 3 — the rest of #303,** per D4 and D5: the Jev role question, the role gold set and its scoring, the rules source, the bulk-accept script, creation-time hooks on roles, and the review queue.
+
+**Step 4 — #876:** split compound titles.
+
+## Calls I made (confirmed or still open)
+
+- **Confirmed by the operator:**
+  - the seven slugs;
+  - suggestion-based classification (B), with suggestions at creation time;
+  - org kind first (C);
+  - compound titles split (#876).
+- **Mine, still open to correction:**
+  - `Employee` stays untyped;
+  - an agency head counts as `org_executive`, while elected and public seats stay out of `org_*`;
+  - Jev's options include `none`;
+  - no person names are sent to Jev;
+  - the go-live bar is ≥ 90 % precision on ≥ 20 answers;
+  - the minor bump;
+  - a relay to Observo only.
 
 ## Left to the builder
 
-- The exact auto-tier title list beyond D1's core, as long as it adds no D2-ambiguous title.
-- The CSV column order and the CLI flag spelling.
-- Whether the prefix sweep lives in the existing seed-reconciliation sweep or in a new test file.
+- The exact rules-tier title list beyond D1's core, as long as it adds no D2-ambiguous title.
+- The CLI flag spelling of the bulk-accept script.
+- Settled in step 1: the prefix sweep lives in its own file, `tests/core/test_role_type_prefix_sweep.py`.
 
 ## Out of scope / follow-ups
 
 - **Government and elected-office vocabulary:** Governor, Mayor, Council Member, Commissioner, tribal Chair, Attorney General. These are seats, possibly jurisdictional. Propose a new issue.
 - **Federal legislative roles on US House committees.** Deferred by #266 already.
-- **Splitting compound roles into two roles.**
+- **Splitting compound roles into separate roles:** #876.
 - **#304:** embedded-newline titles and the typo sweep beyond D3.
 - **#835:** the importer's archived-org match (D6).
