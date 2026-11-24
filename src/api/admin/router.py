@@ -26,6 +26,7 @@ from src.api.admin import orgs_citations as orgs_citations_module
 from src.api.admin import orgs_contacts as orgs_contacts_module
 from src.api.admin import orgs_events as orgs_events_module
 from src.api.admin import orgs_identifiers as orgs_identifiers_module
+from src.api.admin import orgs_kind as orgs_kind_module
 from src.api.admin import orgs_links as orgs_links_module
 from src.api.admin import orgs_merge as orgs_merge_module
 from src.api.admin import orgs_names as orgs_names_module
@@ -99,6 +100,7 @@ admin_router.include_router(orgs_links_module.router)
 admin_router.include_router(orgs_identifiers_module.router)
 admin_router.include_router(orgs_events_module.router)
 admin_router.include_router(orgs_roles_module.router)
+admin_router.include_router(orgs_kind_module.router)
 # Same ordering constraint as orgs above.
 admin_router.include_router(people_merge_module.router)
 # Locale/script typeahead must mount BEFORE people_module so its

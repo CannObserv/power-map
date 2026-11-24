@@ -74,6 +74,8 @@
       </table>
     </div>
 
+    <div class="kind-panel-host" style="margin-top:var(--space-5)" hx-get="/admin/orgs/{{ org.id }}/kind/" hx-trigger="load" hx-target="this" hx-swap="innerHTML" hx-disinherit="hx-target hx-swap"></div>
+
     {% include "admin/orgs/partials/_notes_read.html" %}
 
   </div>
