@@ -27,13 +27,14 @@ instead, and names the tier each match rests on:
 The ceiling is deliberate. A hint that names a probable twin costs an operator
 one look and silence costs a duplicate, so recall wins — but only inside the
 middle-and-suffix guard above. Without it, a given name plus surname collides
-42 groups on the producer's corpus; with it, the four person tiers match 102
-pairs of distinct people among PM's 4,893 live ones, 66 of those pairs only on
-an initial (measured 2026-09-24, under nameparser 2.x). nameparser 3.1 reads a
-dotted run of initials like spaced ones (``A.A.`` → ``A.`` + middle ``A.``), so
-``A.A. Smith`` now meets ``Adam Smith`` at ``initial`` and ``J.B.`` no longer meets
-``J. R.``; the figure predates that (#868). Anything softer belongs to the
-duplicate audit, not a per-create hint.
+42 groups on the producer's corpus; with it, the person tiers match 104 pairs of
+distinct people among PM's 4,901 live ones — 6 ``exact``, 20 ``given``, 12
+``nickname``, 66 ``initial`` — on display names (measured 2026-11-24 under
+nameparser 3.1, before and after #872: the same 104 pairs). nameparser 3.1 reads
+a dotted run's first initial as the given name (``A.A.`` → ``A.`` + middle ``A.``,
+#868) but leaves the rest of a longer run whole (``J.R.R.`` → middle ``R.R.``), and
+``_middle`` splits that remainder, so ``J.R.R.`` meets ``J. R. Q.`` at no tier
+(#872). Anything softer belongs to the duplicate audit, not a per-create hint.
 
 Known gaps:
 
@@ -75,6 +76,12 @@ _PUNCT = str.maketrans(
 )
 _TRAILING_NOTE = re.compile(r"\s*\([^()]*\)\s*$")
 _SPACE = re.compile(r"\s+")
+# A dotted run of initials in folded text (``r.r.``, ``b.c.``). Wider than
+# `person_name._split_middle`'s ``[A-Z]`` rule, which reads the typed name: this one
+# reads text `fold` has already lowercased, so it also splits a run typed lowercase
+# or one that folds from a diacritic (``É.É.`` → ``e.e.``). Both sides of a comparison
+# fold alike, so that costs nothing here (#872).
+_INITIALS_RUN = re.compile(r"^(?:[a-z]\.){2,}$")
 
 
 def fold(text: str) -> str:
@@ -100,6 +107,15 @@ def _bare(token: str) -> str:
     return token.replace(".", "").replace(",", "").strip().strip("\"'")
 
 
+def _middle(middle: str) -> tuple[str, ...]:
+    """The middle's tokens, bare, a dotted run of initials read one per initial: the
+    guard then compares ``R.R.`` initial by initial, as it compares ``R. R.`` (#872)."""
+    tokens: list[str] = []
+    for tok in middle.split():
+        tokens.extend(list(_bare(tok)) if _INITIALS_RUN.match(tok) else [_bare(tok)])
+    return tuple(tokens)
+
+
 @functools.lru_cache(maxsize=16384)
 def _person(folded: str) -> _Person:
     """The parts of a person name, a trailing note dropped — ``(2)``, a service note —
@@ -108,7 +124,7 @@ def _person(folded: str) -> _Person:
     return _Person(
         surname=name.family,
         given=frozenset(t for t in (_bare(name.given), _bare(name.nickname)) if t),
-        middle=tuple(_bare(m) for m in name.middle.split()),
+        middle=_middle(name.middle),
         suffix=_bare(name.suffix),
     )
 
