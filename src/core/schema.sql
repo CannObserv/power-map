@@ -4713,7 +4713,9 @@ CREATE TABLE IF NOT EXISTS classification_suggestions (
     input_tokens   INTEGER,
     note           TEXT,
     created_by     TEXT        REFERENCES app_users(id) ON DELETE SET NULL,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- clock_timestamp(), not NOW(): "latest" orders by it, and NOW() is the
+    -- transaction's start, so rows written in one transaction would tie.
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     ignored_at     TIMESTAMPTZ,
     -- Named <table>_entity_type_check: the polymorphic seeders (tests) read that
     -- name, and only it, as "type not admitted"; CHECKs run in name order.
@@ -4736,6 +4738,9 @@ CREATE TABLE IF NOT EXISTS classification_suggestions (
     CONSTRAINT chk_suggestion_confidence CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 1),
     CONSTRAINT chk_suggestion_input_tokens CHECK (input_tokens IS NULL OR input_tokens >= 0)
 );
+
+-- Reconciles a table created with the first-draft NOW() default (idempotent).
+ALTER TABLE classification_suggestions ALTER COLUMN created_at SET DEFAULT clock_timestamp();
 
 -- Classify once (#877 D3): one live Jev answer per entity, field and model. A
 -- re-ask marks the current row ignored_at first, in the same transaction.

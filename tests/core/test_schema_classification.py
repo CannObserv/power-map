@@ -161,3 +161,13 @@ async def test_rules_rows_are_not_limited_to_one(db):
 async def test_role_type_field_is_accepted_for_roles(db):
     """The store is shared with #303's role-type suggestions."""
     await _suggest(db, entity_type="role", field="role_type", value="org_lobbyist")
+
+
+async def test_created_at_is_per_statement_clock(db):
+    """CR 1: NOW() is the transaction's start, so rows written in one transaction would
+    tie and fall back to a non-monotonic ULID; clock_timestamp() orders them by write."""
+    default = await db.fetchval(
+        "SELECT column_default FROM information_schema.columns"
+        " WHERE table_name='classification_suggestions' AND column_name='created_at'"
+    )
+    assert default == "clock_timestamp()"
