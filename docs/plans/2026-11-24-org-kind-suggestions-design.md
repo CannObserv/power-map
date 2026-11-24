@@ -1,7 +1,7 @@
 ---
 title: Org-kind classification with Jev suggestions + a shared suggestion store (#877)
 date: 2026-11-24
-status: proposed
+status: accepted (operator, 2026-11-24)
 ---
 
 # Org kinds, suggested by rules and Jev, decided by an operator (#877)
@@ -51,7 +51,7 @@ I labeled them against the draft list of kinds below (the structural strata labe
 
 **The errors, and what each means for the design:**
 - **A PAC that shares its name with a trade guild** (Jev said `association` at 0.93). Its PDC-committee identifier gets it right. So identifier rules sit beside Jev, and **a disagreement between them goes to review**.
-- **A state "commission" that is an executive agency** (`public_body` at 0.62–0.66). The line between `government_agency` and `public_body` is fuzzy. **The operator decides where it falls** (Q2).
+- **A state "commission" that is an executive agency** (`public_body` at 0.62–0.66). The line between `government_agency` and `public_body` is fuzzy, **so the two are merged into `government`** (D1).
 - **A brand-like business name** (`nonprofit` at 0.37–0.43). It's genuinely ambiguous and lands below the threshold, so it goes to review.
 - **A think tank** (`coalition` at 0.75 from the name alone) is fixed once role titles are sent. **So the state includes role titles.**
 
@@ -73,11 +73,11 @@ I labeled them against the draft list of kinds below (the structural strata labe
 
 ## Decisions
 
-### D1. The list of kinds: a seeded `org_kinds` lookup (operator decides the list)
+### D1. The list of kinds: a seeded `org_kinds` lookup (11 kinds, decided 2026-11-24)
 
 `org_kinds(id, slug UNIQUE, display_name, description, created_at)`. It is seeded through `_seed_org_kinds` and `reconcile_seeded_slugs()` (#458), and the slugs are flat.
 
-**Draft list, as used in the spike, for the operator to approve or edit:**
+**The list (operator, 2026-11-24).** `association` and `coalition` stay separate. The spike's `government_agency` and `public_body` are merged into **`government`**: the two overlap too much to label consistently (an executive department whose head is appointed, a commission that runs programs). Telling a public seat from staff is settled at the role, not the org: a commission's "Member" is a public seat, and an agency's "Director" is `org_executive` (#303). **One kind per org.** When kinds overlap, **choose the most specific**: an association organized as a nonprofit is `association`, and a coalition run by a nonprofit is `coalition`.
 
 | slug | covers |
 |---|---|
@@ -86,15 +86,14 @@ I labeled them against the draft list of kinds below (the structural strata labe
 | `association` | trade, industry or professional association; members are businesses or practitioners |
 | `coalition` | coalition, alliance, network or campaign of several organizations or community members |
 | `labor_union` | union or union local |
-| `government_agency` | executive department, agency, office, regulator, public utility, prosecutor, military unit |
-| `public_body` | appointed or elected board, commission, council, task force, advisory committee; a city or county council and its committees |
+| `government` | any government entity other than a legislature: an executive department, agency, office, regulator, public utility, prosecutor or military unit, and an appointed or elected board, commission, council, task force or advisory committee, including a city or county council and its committees |
 | `legislature` | a state or national legislature, its chambers, committees and caucuses |
 | `political_party` | a party or its state, county or district organization |
 | `campaign_committee` | a PAC, or a candidate or ballot-measure committee |
 | `tribe` | a tribal nation, band or government, or a tribal agency |
 | `academic` | a university, college, school, or academic research center or lab |
 
-There is no `unknown` slug: a NULL kind means "not decided". The Jev criteria text is the `description` column. Any change to it means re-scoring the gold set (D6).
+There is no `unknown` slug: a NULL kind means "not decided". The Jev criteria state the most-specific rule. The Jev criteria text is the `description` column. Any change to it means re-scoring the gold set (D6).
 
 ### D2. Resolved value: `organizations.org_kind_id`
 
@@ -176,7 +175,7 @@ One append-only table for every classified field, organizations first and roles 
   - drafted by me from D1's definitions **before any Jev call on these orgs**;
   - the operator reviews the unsure rows plus a seeded random 30, against public sources;
   - then the labels are committed.
-- **Storage:** because the repo is **public**, only `(org_id, kind)` is committed, at `docs/research/org-kind/gold.csv` (operator to confirm, Q3). A builder script joins names and state at run time into a set file **outside any checkout**, and the vendored `typesafe-eval` harness scores it. Sending uses `TYPESAFE_OPT_IN=on` per run, which is the operator's standing consent. No repo opt-in file is committed.
+- **Storage:** because the repo is **public**, only `(org_id, kind)` is committed, at `docs/research/org-kind/gold.csv` (operator-confirmed 2026-11-24). A builder script joins names and state at run time into a set file **outside any checkout**, and the vendored `typesafe-eval` harness scores it. Sending uses `TYPESAFE_OPT_IN=on` per run, which is the operator's standing consent. No repo opt-in file is committed.
 - **Bar, per kind (the tracker's #210 rule):** ≥ 90 % precision at the threshold, on ≥ 20 answers. Fewer than 20 answers means insufficient evidence, and the kind fails closed. A failed kind is never bulk-accepted from Jev; its orgs go to individual review.
 - **Rules are scored too.** A rule that misses the bar is dropped.
 - **The result:** a committed trust set (`JEV_TRUSTED_ORG_KINDS`), plus the report on #877.
@@ -213,7 +212,7 @@ The same script serves `--field role_type` under #303.
   - With the flag on and no key, the health panel shows a failure and the timer alerts.
 - **Volume:** 6 orgs created in the last 90 days. The backlog of 1,670 orgs is ~1.3 M tokens unbatched (less batched), **≈ $0.05**.
 
-### D9. Public API: phase 3, additive
+### D9. Public API: phase 3, additive (operator-confirmed 2026-11-24)
 
 - `org_kind_slug: str | None` (a `str`, never a `Literal`, per #857's note) and `org_kind_source` on the org list and detail responses.
 - `GET /api/v1/org-kinds`, the catalog, with conditional GET. That means `API_ROUTE_COUNT` +1, the conditional-GET pin +1, and an entry in `_CONDITIONAL_GETS`.
@@ -235,12 +234,12 @@ The same script serves `--field role_type` under #303.
 
 Each phase pauses for merge/deploy authorization. A phase that bumps the version tags at the deployed `main`.
 
-## Questions for the operator
+## Decided by the operator (2026-11-24)
 
-1. **The list of kinds (D1):** approve or edit the 12. In particular, keep `association` and `coalition` separate? (One sample row each way.)
-2. **`government_agency` vs `public_body`:** is a state agency named "Commission" or "Board" (WTSC, CRAB) an agency or a public body? Proposed rule: *executive staff and a budget* → agency; *appointed or elected members who meet* → public body.
-3. **Gold-set storage:** is it OK to commit `(org_id, kind)` to the public repo, with names never committed?
-4. **Public API (D9):** expose org kinds publicly at all? If yes, in phase 3?
+1. **List of kinds:** 11. `association` and `coalition` stay separate.
+2. **`government_agency` and `public_body` are merged into `government`.** There's one kind per org, and the most specific kind wins (D1). Several kinds per org was considered and rejected: it needs a join table, a yes/no question per kind, and gold labels as sets, and it gives up a single answer for routing roles.
+3. **Gold set:** only `(org_id, kind)` is committed to the public repo, and names never are.
+4. **Public API:** org kinds are exposed in phase 3 (D9).
 
 ## Calls I made (correct any)
 
