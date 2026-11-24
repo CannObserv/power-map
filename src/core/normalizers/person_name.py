@@ -37,6 +37,12 @@ from src.core.name_types import NON_DECOMPOSABLE_NAME_TYPES
 # A bare initial: optionally periodized single uppercase letter ('A', 'A.').
 _INITIAL_RE = re.compile(r"^[A-Z]\.?$")
 
+# A dotted run of initials ('R.R.', 'A.B.C.'): `_INITIAL_RE`'s letter, dotted,
+# two or more times. Keep the two in step: each element split from a run must
+# match `_INITIAL_RE`, so widen both together (#870).
+_INITIALS_RUN_RE = re.compile(r"^(?:[A-Z]\.){2,}$")
+_DOTTED_INITIAL_RE = re.compile(r"[A-Z]\.")
+
 # Mirror person_name_parts.primary_identifier CHECK constraint.
 PrimaryIdentifier = Literal["family", "given", "patronymic", "mononym"]
 Confidence = Literal["trivial", "ambiguous", "skip"]
@@ -113,12 +119,21 @@ _PARTICLE_TOKENS: frozenset[str] = frozenset(
 
 
 def _split_middle(middle: str) -> list[str]:
-    """Split nameparser's `.middle` ('R. R.', 'Mary Anne', 'A.') into a list.
+    """Split nameparser's `.middle` ('R. R.', 'R.R.', 'Mary Anne', 'A.') into a list.
 
-    Whitespace-tokenize but preserve dotted initials as single elements.
+    Whitespace-tokenize, then split a dotted run of initials into one element
+    per initial ('R.R.' → 'R.', 'R.'), so a run reads as the spaced chain does
+    (#870). Only a run of `_INITIAL_RE`'s shape splits: any other dotted token
+    ('St.', 'Jr.', 'Ph.D.', 'r.r.', 'É.É.', 'R.R') stays whole.
     Empty input → empty list.
     """
-    return [tok for tok in middle.split() if tok]
+    tokens: list[str] = []
+    for tok in middle.split():
+        if _INITIALS_RUN_RE.match(tok):
+            tokens.extend(_DOTTED_INITIAL_RE.findall(tok))
+        else:
+            tokens.append(tok)
+    return tokens
 
 
 def _is_pure_ascii_letters(s: str) -> bool:

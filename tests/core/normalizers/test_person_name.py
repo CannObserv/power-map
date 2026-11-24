@@ -10,7 +10,9 @@ import warnings
 import pytest
 
 from src.core.normalizers.person_name import (
+    _INITIAL_RE,
     PartsSuggestion,
+    _split_middle,
     suggest_locale_script,
     suggest_parts,
 )
@@ -150,14 +152,69 @@ def test_initials_chain_treated_as_given_plus_additional():
     assert s.family_names == ["Tolkien"]
 
 
-def test_a_dotted_initials_run_is_given_plus_one_additional():
+def test_a_dotted_initials_run_reads_like_the_spaced_chain():
     """nameparser 3.1 splits a dotted run after its first initial (3.0 kept ``J.R.R.``
-    whole as the given name). The rest stays one entry, unlike the spaced chain
-    above: ``_split_middle`` splits on whitespace (#868)."""
+    whole as the given name, #868). ``_split_middle`` splits the rest of the run
+    into one additional name per initial, so the run reads as the spaced chain
+    above does (#870)."""
     s = _suggest("J.R.R. Tolkien")
+    assert s == _suggest("J. R. R. Tolkien")
+    assert s.confidence == "trivial"
     assert s.given_names == ["J."]
-    assert s.additional_names == ["R.R."]
+    assert s.additional_names == ["R.", "R."]
     assert s.family_names == ["Tolkien"]
+
+
+def test_a_dotted_initials_run_beside_a_word_stays_ambiguous():
+    """Confidence pin (#870): splitting the run turns ``R.R.`` into two initials,
+    but a non-initial beside them still makes the middle ambiguous."""
+    s = _suggest("J.R.R. Mary Smith")
+    assert s.additional_names == ["R.", "R.", "Mary"]
+    assert s.confidence == "ambiguous"
+    assert "multi-token-middle" in s.reasons
+
+
+@pytest.mark.parametrize(
+    ("middle", "expected"),
+    [
+        ("R.R.", ["R.", "R."]),
+        ("B.C.D.", ["B.", "C.", "D."]),
+        ("R.R. Mary", ["R.", "R.", "Mary"]),
+        ("R. R.", ["R.", "R."]),
+        ("Mary Anne", ["Mary", "Anne"]),
+        ("", []),
+        # Left whole: only a run of `_INITIAL_RE`'s shape (an uppercase ASCII
+        # letter plus a dot, two or more times) is split.
+        ("St.", ["St."]),
+        ("Jr.", ["Jr."]),
+        ("Ph.D.", ["Ph.D."]),
+        ("r.r.", ["r.r."]),
+        ("É.É.", ["É.É."]),
+        ("R.R", ["R.R"]),
+        ("RR.", ["RR."]),
+    ],
+)
+def test_split_middle_splits_only_a_dotted_initials_run(middle, expected):
+    assert _split_middle(middle) == expected
+
+
+def test_every_initial_split_from_a_run_is_an_initial():
+    """CR 1 (#870): the run rule and ``_INITIAL_RE`` move together. Every run
+    ``_split_middle`` splits must yield elements ``_INITIAL_RE`` matches, or the
+    confidence rule reads the split initials as words. Widening one regex and
+    not the other fails here, over the whole Latin range, not a list of rows."""
+    split = 0
+    for cp in range(0x20, 0x250):
+        letter = chr(cp)
+        if not letter.isalpha():
+            continue
+        run = f"{letter}.{letter}."
+        parts = _split_middle(run)
+        if parts == [run]:
+            continue
+        split += 1
+        assert all(_INITIAL_RE.match(part) for part in parts), (run, parts)
+    assert split == 26  # A–Z today; update with the regexes if they widen
 
 
 def test_md_opening_a_name_is_the_given_name_not_an_honorific():
