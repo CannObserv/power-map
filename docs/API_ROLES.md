@@ -73,6 +73,8 @@ An empty or whitespace-only `qualifier` counts as **absent** on both paths — i
 
 The coarse `member` classifier (#269) was **retired** by #266 — it conflated committee with party membership, so "all members" mixed the two. It is split into `committee_member` and `party_member`, both jurisdiction-less classifiers: a role tagged with either still matches by `(organization_id, lower(title))` (send a `title` like `"Member"`), and the type is stored on the role so memberships aggregate without relying on the free-text title.
 
+The organization vocabulary (#303) is seven coarse, jurisdiction-less functions: `org_owner`, `org_founder`, `org_executive`, `org_officer`, `org_board_member`, `org_lobbyist`, `org_member`. Send the org's own label as the `title` (`"CEO"`, `"Executive Director"`, `"Co-Owner"`) and the function as `role_type`; a typed observation that matches an untyped role of the same title fills its type in place. A slug the catalog doesn't list is rejected (`role_type_not_found`), so read this endpoint rather than hardcoding the list.
+
 ### Detail — `GET /api/v1/roles/{id}`
 
 Returns all list item fields plus:

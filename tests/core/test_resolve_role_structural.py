@@ -400,6 +400,25 @@ async def test_typed_member_attaches_to_preexisting_untyped_title(db):
     assert rt_id == expected
 
 
+async def test_org_role_type_observation_upgrades_untyped_match(db):
+    """A producer emitting a #303 `org_*` slug self-classifies a legacy role.
+
+    The vocabulary is seeded, so resolve_role finds the slug (no
+    `role_type_not_found`) and upgrade-on-match fills the free-text row's NULL
+    role_type_id: ingest needs no code change for the new vocabulary.
+    """
+    org = await _org(db)
+    untyped_id, _, _ = await resolve_role(db, org, "Lobbyist")
+    matched_id, disp, reason = await resolve_role(db, org, "Lobbyist", role_type="org_lobbyist")
+    assert reason is None
+    assert disp is Disposition.AUTO_ATTACHED
+    assert matched_id == untyped_id
+    rt_id = await db.fetchval("SELECT role_type_id FROM roles WHERE id=$1", untyped_id)
+    expected = await db.fetchval("SELECT id FROM role_types WHERE slug='org_lobbyist'")
+    assert expected is not None
+    assert rt_id == expected
+
+
 # ---------------------------------------------------------------------------
 # requires_qualifier guard — reject positionless districted seats (#273)
 # ---------------------------------------------------------------------------

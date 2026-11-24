@@ -159,6 +159,39 @@ async def test_role_types_legislative_vocab_seeded(client, api_key):
         assert by_slug[slug]["requires_qualifier"] is False
 
 
+# The #303 organization vocabulary: (slug, display_name). Coarse functions, the
+# org's own label carried by the free-text title (#266 rule 3).
+_ORG_VOCAB = {
+    "org_owner": "Organization Owner",
+    "org_founder": "Organization Founder",
+    "org_executive": "Organization Executive",
+    "org_officer": "Organization Officer",
+    "org_board_member": "Organization Board Member",
+    "org_lobbyist": "Organization Lobbyist",
+    "org_member": "Organization Member",
+}
+
+
+@pytest.mark.integration
+async def test_role_types_org_vocab_seeded(client, api_key):
+    """The #303 `org_*` vocabulary is discoverable before any producer emits it.
+
+    role_types has no remote write path, so a producer learns these slugs only
+    from this catalog. All seven are non-jurisdictional, take no qualifier
+    policy, and make no single-holder claim (co-owners, co-CEOs, boards).
+    """
+    response = await client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
+    by_slug = {r["slug"]: r for r in response.json()["data"]}
+    assert set(_ORG_VOCAB) <= set(by_slug)
+    for slug, display_name in _ORG_VOCAB.items():
+        row = by_slug[slug]
+        assert row["display_name"] == display_name
+        assert row["expects_jurisdiction"] is False
+        assert row["requires_qualifier"] is False
+        assert row["forbids_qualifier"] is False
+        assert row["occupancy"] == "shared"
+
+
 @pytest.mark.integration
 async def test_role_types_requires_qualifier_seeded(client, api_key):
     """requires_qualifier (#273) is True only for per-position offices.
