@@ -119,6 +119,42 @@ def test_a_dotted_run_of_initials_reads_as_spaced_initials(producer, pm, tier):
 
 
 @pytest.mark.parametrize(
+    ("producer", "pm", "tier"),
+    [
+        ("J.R.R. Tolkien", "J. R. Q. Tolkien", None),  # was `given`: R.R. read as one `rr`
+        ("J. R. R. Tolkien", "J. R. Q. Tolkien", None),
+        ("J.R.R. Tolkien", "J. R. R. Tolkien", "given"),
+        ("J. R. R. Tolkien", "J. R. R. Tolkien", "exact"),
+        ("A.B.C. Smith", "A. Bob Carl Smith", "given"),  # was None: `bc` met `bob`
+        ("A. B. C. Smith", "A. Bob Carl Smith", "given"),
+        ("J.R.R. Tolkien", "J. Ronald Reuel Tolkien", "given"),  # was None: `rr` met `ronald`
+        ("Øle Ø.Ø. Hansen", "Øle Ø. P. Hansen", None),  # a letter `fold` keeps non-ASCII
+    ],
+)
+def test_a_dotted_run_in_the_middle_reads_as_spaced_initials(producer, pm, tier):
+    """nameparser leaves a run after the first initial whole in the middle (``J.R.R.`` →
+    given ``J.``, middle ``R.R.``); the guard compares it initial by initial, as it
+    compares the spaced form (#872)."""
+    assert person_match(producer, pm) == tier
+
+
+@pytest.mark.parametrize(
+    ("raw", "middle"),
+    [
+        ("J.R.R. Tolkien", ("r", "r")),
+        ("John r.r. Smith", ("r", "r")),  # folded text is lowercase, typed or not
+        ("John É.É. Smith", ("e", "e")),  # folds to `e.e.`
+        ("John Ø.Ø. Smith", ("ø", "ø")),  # no decomposition: any letter counts, not a-z
+        ("John Ph.D. Smith", ("phd",)),  # a two-letter part is no initial
+        ("Mary St.John Smith", ("stjohn",)),  # no trailing dot on the last part
+    ],
+)
+def test_only_a_run_of_dotted_single_letters_splits(raw, middle):
+    """The rule reads folded text, so it is wider than `_split_middle`'s uppercase one."""
+    assert _person(fold(raw)).middle == middle
+
+
+@pytest.mark.parametrize(
     ("producer", "pm"), [("Rev. Smith", "R. Smith"), ("Judge Smith", "J. Smith")]
 )
 def test_a_title_before_a_bare_surname_is_no_initial_twin(producer, pm):
