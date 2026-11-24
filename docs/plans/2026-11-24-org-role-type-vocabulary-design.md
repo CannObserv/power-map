@@ -25,7 +25,7 @@ Most untyped roles are corporate and advocacy roles: owners, chief executives, l
 
 **Goals**
 - Seed a coarse `org_*` vocabulary that passes #266's aggregation test.
-- Type the unambiguous part of the backlog automatically, and type the ambiguous part only after a human has reviewed it.
+- Suggest types for the backlog from rules and Jev; an operator accepts them — the unambiguous part in validated bulk, the ambiguous part row by row.
 - Keep `org_*` clear of the legislative `committee_` / `chamber_` / `legislature_` / `party_` types.
 
 **Non-goals:** typing every role. Under rule 1, the long tail (892 rows whose title occurs once) stays free text. Government and elected offices (Governor, Mayor, Council Member, Commissioner, tribal Chair), federal legislative roles, splitting compound roles, and the noise/typo sweep are also out (#304).
@@ -83,7 +83,7 @@ The ambiguous titles really do mix domains. Sampled:
 
 ## Approaches
 
-**A. Coarse function vocabulary, two-tier classifier (recommended).** Seven `org_*` slugs, one per function a power map would aggregate. The org's own label stays in `title` (rule 3). The classifier types exact unambiguous titles automatically and types everything else from a reviewed decisions file.
+**A. Coarse function vocabulary, two-tier classifier (recommended).** Seven `org_*` slugs, one per function a power map would aggregate. The org's own label stays in `title` (rule 3). The classifier types exact unambiguous titles automatically and types everything else from a reviewed decisions file. *(Superseded 2026-11-24: the operator chose suggestions with operator acceptance, D4.)*
 
 **B. One slug per title** (`org_ceo`, `org_president`, `org_executive_director`, `org_chair`, `org_co_owner`, …). Rejected:
 - CEO, President and Executive Director are one concept, the chief executive, under labels that differ by org form (company, association, nonprofit). That is exactly rule 3's "concept in type, label in title", like `chamber_leader`.
@@ -99,7 +99,7 @@ The ambiguous titles really do mix domains. Sampled:
 
 All seven are `expects_jurisdiction=FALSE`, `requires_qualifier=FALSE`, `forbids_qualifier=FALSE` and `occupancy='shared'`. Co-owners, co-CEOs and boards all have several holders, so none makes a single-holder claim.
 
-| id | slug | display_name | concept | exact titles typed automatically |
+| id | slug | display_name | concept | exact titles the rules source suggests |
 |---|---|---|---|---|
 | `01KX000000000000000000000E` | `org_owner` | Organization Owner | holds equity or ownership | Owner, Co-Owner, Managing Member |
 | `01KX000000000000000000000F` | `org_founder` | Organization Founder | founded the org | Founder, Co-Founder |
@@ -113,8 +113,8 @@ The ids follow the seed's Crockford sequence after `…0D`. There is no I, L, O 
 
 - **`Owner` and `Co-Owner` share `org_owner`.** The co- prefix stays in the title. "All owners" is the query, and co-ownership doesn't change the concept.
 - **Board chair takes `org_board_member`**, not a type of its own. The power-map query is board interlock ("every board seat X holds"), and chair is the label. `org_board_chair` is **reserved, not seeded**, until something needs "all board chairs".
-- **`Director` never maps automatically.** It means a board seat, an agency head and a department head. The prefix-safe name for the board concept is `org_board_member`, not `org_director`.
-- **`org_member` is seeded, and it is review-only.** It passes rule 1 (coalition and association membership is a power relation). Its "Member" rows mix in seats that are not `org_member`: city councils are public offices, party district orgs are `party_member`, and advisory committees are public bodies. So no title ever maps to it automatically.
+- **`Director` never gets a rules suggestion.** It means a board seat, an agency head and a department head. The prefix-safe name for the board concept is `org_board_member`, not `org_director`.
+- **`org_member` is seeded, and it is review-only.** It passes rule 1 (coalition and association membership is a power relation). Its "Member" rows mix in seats that are not `org_member`: city councils are public offices, party district orgs are `party_member`, and advisory committees are public bodies. So no title ever gets a rules suggestion for it.
 - **No `org_staff`. It is reserved, not seeded.** "All employees across orgs" fails rule 1, and seeding it would invite typing the long tail. `Employee` (47) stays free text.
 
 **What `org_*` means, recorded in rule 2:** it covers an organization's ownership, governance, management, membership and representation, for any org without a more specific prefix. It never goes on an org carrying a legislature or party identifier, which belongs to `committee_` / `chamber_` / `legislature_` / `party_`. It never goes on a public office: elected or appointed seats are a future government vocabulary. A state agency's executive director is `org_executive`: the concept is the same, and the seat isn't elected.
@@ -126,8 +126,8 @@ The ids follow the seed's Crockford sequence after `…0D`. There is no I, L, O 
 The prefix already keeps the slugs apart. `org_member` ≠ `committee_member` ≠ `party_member`, and `org_board_member` doesn't overlap `committee_chair`.
 
 The risk is in the data. Two backlog rows sit on legislature and party orgs, and "Chair" and "Member" rows sit on US House and city-council committees with no identifier. Two guards cover it:
-1. The classifier **refuses** any role whose org carries an `org_wa_legislature%` or `org_wa_party` identifier (reason `legislative_or_party_org`).
-2. The domain-ambiguous titles (Member, Chair, Chairman, Co-Chair, Vice Chair, Director, President, Principal, Partner, Managing Partner, Managing Director, Treasurer, Secretary, Founding Member, Advisory Board Member, Principal Officer) **never** map automatically. A human decides each one.
+1. **No source suggests** an `org_*` type for a role whose org carries an `org_wa_legislature%` or `org_wa_party` identifier (`legislative_or_party_org`).
+2. The domain-ambiguous titles (Member, Chair, Chairman, Co-Chair, Vice Chair, Director, President, Principal, Partner, Managing Partner, Managing Director, Treasurer, Secretary, Founding Member, Advisory Board Member, Principal Officer) **never** get a rules suggestion. Jev may suggest one; a human decides each.
 
 A new sweep test checks that every seeded non-jurisdictional slug starts with a registered prefix (`committee_`, `chamber_`, `legislature_`, `party_`, `org_`). That makes rule 2 executable.
 
@@ -194,7 +194,7 @@ The detailed design — the table shape, the queue, health and spend, the enable
 
 This design adds **no** path that creates roles.
 - The observation path already refuses an archived org (`resolve_role` → `org_not_found`).
-- The classifier skips a role on an archived org.
+- No suggestion is made for a role on an archived org.
 - **Found, outside this design's scope:** the CSV importer's org dedup (`pipeline.py`, `existing_org` lookup) matches canonical names without `archived_at IS NULL`. A future import could attach a role to an archived org. This is recorded for #835. It is not fixed here.
 
 ### D7. The wire, the version and the relays
