@@ -43,12 +43,17 @@ def test_seed_parser_reads_the_whole_seed():
     assert seeded["committee_member"] is False
 
 
-def test_non_jurisdictional_seeded_slugs_carry_a_domain_prefix():
-    unprefixed = sorted(
+def _unprefixed_slugs(sql: str = SCHEMA) -> list[str]:
+    """Seeded non-jurisdictional slugs that carry no domain prefix, sorted."""
+    return sorted(
         slug
-        for slug, expects_jurisdiction in _seeded_role_types().items()
+        for slug, expects_jurisdiction in _seeded_role_types(sql).items()
         if not expects_jurisdiction and not slug.startswith(DOMAIN_PREFIXES)
     )
+
+
+def test_non_jurisdictional_seeded_slugs_carry_a_domain_prefix():
+    unprefixed = _unprefixed_slugs()
     assert unprefixed == [], (
         f"non-jurisdictional role types without a domain prefix: {unprefixed}. "
         "Prefix the slug by the org-kind it attaches to (docs/SCHEMA_INDEXES.md, rule 2)."
@@ -56,11 +61,14 @@ def test_non_jurisdictional_seeded_slugs_carry_a_domain_prefix():
 
 
 def test_sweep_flags_an_unprefixed_slug():
-    """Mutation check: a bare noun seeded non-jurisdictional is caught."""
-    sql = SCHEMA.replace(
-        "('01KX000000000000000000000C', 'party_member',",
-        "('01KX000000000000000000000C', 'member',",
-    )
-    seeded = _seeded_role_types(sql)
-    assert "member" in seeded and seeded["member"] is False
-    assert not "member".startswith(DOMAIN_PREFIXES)
+    """Mutation check: the sweep's own filter catches a bare noun seeded non-jurisdictional."""
+    row = "('01KX000000000000000000000C', 'party_member',"
+    assert row in SCHEMA, "mutation anchor drifted; re-point it at a seeded row"
+    sql = SCHEMA.replace(row, "('01KX000000000000000000000C', 'member',")
+    assert _unprefixed_slugs(sql) == ["member"]
+
+
+def test_sweep_exempts_jurisdictional_seats():
+    """Mutation check: an unprefixed *jurisdictional* seat is out of rule 2's scope."""
+    assert "state_senator" in _seeded_role_types()
+    assert "state_senator" not in _unprefixed_slugs()
