@@ -76,12 +76,13 @@ _PUNCT = str.maketrans(
 )
 _TRAILING_NOTE = re.compile(r"\s*\([^()]*\)\s*$")
 _SPACE = re.compile(r"\s+")
-# A dotted run of initials in folded text (``r.r.``, ``b.c.``). Wider than
-# `person_name._split_middle`'s ``[A-Z]`` rule, which reads the typed name: this one
-# reads text `fold` has already lowercased, so it also splits a run typed lowercase
-# or one that folds from a diacritic (``É.É.`` → ``e.e.``). Both sides of a comparison
+# A dotted run of initials in folded text (``r.r.``, ``b.c.``): any letter, dotted,
+# two or more times. Wider than `person_name._split_middle`'s ``[A-Z]`` rule, which
+# reads the typed name: this one reads text `fold` has already lowercased, so it also
+# splits a run typed lowercase, one that folds from a diacritic (``É.É.`` → ``e.e.``)
+# and one `fold` leaves non-ASCII (``Ø.Ø.`` → ``ø.ø.``). Both sides of a comparison
 # fold alike, so that costs nothing here (#872).
-_INITIALS_RUN = re.compile(r"^(?:[a-z]\.){2,}$")
+_INITIALS_RUN = re.compile(r"^(?:[^\W\d_]\.){2,}$")
 
 
 def fold(text: str) -> str:

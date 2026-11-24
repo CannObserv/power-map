@@ -128,6 +128,7 @@ def test_a_dotted_run_of_initials_reads_as_spaced_initials(producer, pm, tier):
         ("A.B.C. Smith", "A. Bob Carl Smith", "given"),  # was None: `bc` met `bob`
         ("A. B. C. Smith", "A. Bob Carl Smith", "given"),
         ("J.R.R. Tolkien", "J. Ronald Reuel Tolkien", "given"),  # was None: `rr` met `ronald`
+        ("Øle Ø.Ø. Hansen", "Øle Ø. P. Hansen", None),  # a letter `fold` keeps non-ASCII
     ],
 )
 def test_a_dotted_run_in_the_middle_reads_as_spaced_initials(producer, pm, tier):
@@ -143,6 +144,7 @@ def test_a_dotted_run_in_the_middle_reads_as_spaced_initials(producer, pm, tier)
         ("J.R.R. Tolkien", ("r", "r")),
         ("John r.r. Smith", ("r", "r")),  # folded text is lowercase, typed or not
         ("John É.É. Smith", ("e", "e")),  # folds to `e.e.`
+        ("John Ø.Ø. Smith", ("ø", "ø")),  # no decomposition: any letter counts, not a-z
         ("John Ph.D. Smith", ("phd",)),  # a two-letter part is no initial
         ("Mary St.John Smith", ("stjohn",)),  # no trailing dot on the last part
     ],
