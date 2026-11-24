@@ -29,12 +29,14 @@ one look and silence costs a duplicate, so recall wins — but only inside the
 middle-and-suffix guard above. Without it, a given name plus surname collides
 42 groups on the producer's corpus; with it, the person tiers match 104 pairs of
 distinct people among PM's 4,901 live ones — 6 ``exact``, 20 ``given``, 12
-``nickname``, 66 ``initial`` — on display names (measured 2026-11-24 under
-nameparser 3.1, before and after #872: the same 104 pairs). nameparser 3.1 reads
-a dotted run's first initial as the given name (``A.A.`` → ``A.`` + middle ``A.``,
-#868) but leaves the rest of a longer run whole (``J.R.R.`` → middle ``R.R.``), and
-``_middle`` splits that remainder, so ``J.R.R.`` meets ``J. R. Q.`` at no tier
-(#872). Anything softer belongs to the duplicate audit, not a per-create hint.
+``nickname``, 66 ``initial`` — on display names, and the same 104 on every live
+name the hint indexes (measured 2026-11-24 under nameparser 3.1, before and after
+#872: the same pairs; the method is on #872, issuecomment-7121030791, so the figure
+can be re-taken). nameparser 3.1 reads a dotted run's first initial as the given
+name (``A.A.`` → ``A.`` + middle ``A.``, #868) but leaves the rest of a longer run
+whole (``J.R.R.`` → middle ``R.R.``), and ``_middle`` splits that remainder, so
+``J.R.R.`` meets ``J. R. Q.`` at no tier (#872). Anything softer belongs to the
+duplicate audit, not a per-create hint.
 
 Known gaps:
 
