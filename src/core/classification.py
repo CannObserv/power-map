@@ -192,8 +192,11 @@ class RulesChange:
 
 _RULES_INPUT_SQL = """
 SELECT o.id AS org_id,
-       COALESCE(array_agg(k.slug) FILTER (WHERE k.slug IS NOT NULL), '{}') AS kinds,
-       COALESCE(array_agg(t.slug) FILTER (WHERE k.slug IS NOT NULL), '{}') AS type_slugs,
+       -- Zipped by position in plan_rules: both aggregates share one ORDER BY.
+       COALESCE(array_agg(k.slug ORDER BY t.slug) FILTER (WHERE k.slug IS NOT NULL), '{}')
+           AS kinds,
+       COALESCE(array_agg(t.slug ORDER BY t.slug) FILTER (WHERE k.slug IS NOT NULL), '{}')
+           AS type_slugs,
        (SELECT s.value FROM classification_suggestions s
          WHERE s.entity_type = 'organization' AND s.entity_id = o.id
            AND s.field = 'org_kind' AND s.source = 'rules' AND s.ignored_at IS NULL
