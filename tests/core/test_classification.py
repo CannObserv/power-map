@@ -240,3 +240,30 @@ async def test_plan_rules_skips_archived_orgs(db):
     await _identify(db, org, "org_wa_party")
     await db.execute("UPDATE organizations SET archived_at=NOW() WHERE id=$1", org)
     assert org not in {c.org_id for c in await cls.plan_rules(db)}
+
+
+@pytest.mark.integration
+async def test_latest_decision_is_the_last_written_within_one_transaction(db):
+    """CR 1: rows written in one transaction must still order by write, not by ULID luck."""
+    org = await _org(db)
+    for _ in range(5):
+        await cls.record_decision(db, org_id=org, action="set", kind="business")
+        await cls.record_decision(db, org_id=org, action="clear")
+        assert not await cls.is_decided(db, org)
+        await cls.record_decision(db, org_id=org, action="dismiss")
+        assert await cls.is_decided(db, org)
+
+
+@pytest.mark.integration
+async def test_merge_carries_a_decision_over_a_survivors_clear(db):
+    """CR 2: a survivor undecided by a newer `clear` takes the loser's decision cleanly."""
+    survivor, loser = await _org(db), await _org(db)
+    await cls.record_decision(db, org_id=loser, action="set", kind="tribe")
+    await cls.record_decision(db, org_id=survivor, action="set", kind="business")
+    await cls.record_decision(db, org_id=survivor, action="clear")
+    await cls.carry_kind_on_merge(db, loser_id=loser, survivor_id=survivor)
+    assert await _kind_slug(db, survivor) == "tribe"
+    assert await cls.is_decided(db, survivor)
+    latest = (await cls.latest_answers(db, survivor))["manual"]
+    assert (latest["manual_action"], latest["value"]) == ("set", "tribe")
+    assert latest["note"] == f"carried from merged {loser}"

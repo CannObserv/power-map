@@ -69,7 +69,12 @@ async def test_undecided_survivor_takes_the_losers_decision(db):
 
     assert await _kind(db, winner) == "association"
     assert await cls.is_decided(db, winner)
-    assert [r["source"] for r in await _rows(db, winner)] == ["manual"]
+    # The loser's decision moves over as history, then is restated on the survivor
+    # so it is the survivor's latest manual row (CR 2).
+    assert [(r["source"], r["manual_action"]) for r in await _rows(db, winner)] == [
+        ("manual", "set"),
+        ("manual", "set"),
+    ]
     assert await _rows(db, loser) == []
 
 

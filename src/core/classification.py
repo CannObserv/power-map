@@ -71,10 +71,14 @@ async def latest_answers(db: asyncpg.Connection, org_id: str) -> dict[str, async
     return {r["source"]: r for r in await db.fetch(_LATEST_SQL, org_id)}
 
 
+def is_deciding(manual: asyncpg.Record | None) -> bool:
+    """True when a latest ``manual`` row decides: accept, set or dismiss."""
+    return manual is not None and manual["manual_action"] in DECIDING_ACTIONS
+
+
 async def is_decided(db: asyncpg.Connection, org_id: str) -> bool:
     """True when the org's latest manual row is accept, set or dismiss."""
-    manual = (await latest_answers(db, org_id)).get("manual")
-    return manual is not None and manual["manual_action"] in DECIDING_ACTIONS
+    return is_deciding((await latest_answers(db, org_id)).get("manual"))
 
 
 async def record_decision(
@@ -144,12 +148,25 @@ async def carry_kind_on_merge(db: asyncpg.Connection, *, loser_id: str, survivor
     recomputed by the next rules run, because its identifiers changed.
     """
     survivor_decided = await is_decided(db, survivor_id)
-    if not survivor_decided and await is_decided(db, loser_id):
+    loser_decision = (await latest_answers(db, loser_id)).get("manual")
+    if not survivor_decided and is_deciding(loser_decision):
         await db.execute(
             "UPDATE classification_suggestions SET entity_id=$1"
             " WHERE entity_type='organization' AND entity_id=$2 AND source='manual'",
             survivor_id,
             loser_id,
+        )
+        # The moved rows keep their timestamps, so a newer `clear` of the
+        # survivor's own would still read as latest. Restate the carried decision.
+        await db.execute(
+            "INSERT INTO classification_suggestions"
+            " (id, entity_type, entity_id, field, source, value, manual_action, note)"
+            " VALUES ($1, 'organization', $2, 'org_kind', 'manual', $3, $4, $5)",
+            generate_id(),
+            survivor_id,
+            loser_decision["value"],
+            loser_decision["manual_action"],
+            f"carried from merged {loser_id}",
         )
         await db.execute(
             "UPDATE organizations SET org_kind_id ="
