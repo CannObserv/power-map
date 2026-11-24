@@ -31,6 +31,7 @@ from src.core.ancillary_migrate import (
     rehome_entity_events,
     rehome_role_ancillary,
 )
+from src.core.classification import carry_kind_on_merge
 from src.core.db import generate_id
 from src.core.logging import get_logger
 from src.core.merge_signals import record_merge_tombstones
@@ -540,6 +541,9 @@ async def _execute_merge(
         # #514: a curator's override on the loser applies to the winner from here on.
         await rehome_curation_overlay(db, "organization", [(loser_id, winner_id)])
 
+        # #877: the survivor keeps its kind decision (or takes the loser's); the
+        # loser's derived suggestions go with it.
+        await carry_kind_on_merge(db, loser_id=loser_id, survivor_id=winner_id)
         await db.execute("DELETE FROM organizations WHERE id=$1", loser_id)
         await db.execute(
             "INSERT INTO deleted_entities (entity_type, entity_id, merged_into)"

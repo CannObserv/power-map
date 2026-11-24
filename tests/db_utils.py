@@ -29,6 +29,7 @@ REFERENCE_TABLES = frozenset(
         "role_assignment_relationship_types",
         "organization_jurisdiction_affiliation_types",
         "role_types",
+        "org_kinds",
         "bcp47_locales",
         "iso15924_scripts",
         "api_key_scope_types",

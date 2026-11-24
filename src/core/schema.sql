@@ -4602,3 +4602,147 @@ CREATE OR REPLACE TRIGGER trg_touch_parents_on_address_change
            NEW.city, NEW.region, NEW.postal_code, NEW.country, NEW.latitude,
            NEW.longitude, NEW.components, NEW.precision))
     EXECUTE FUNCTION touch_parents_on_address_change();
+
+-- =============================================================================
+-- Org kinds and the classification suggestion store (#877)
+-- =============================================================================
+-- What an organization *is*: a flat, operator-decided vocabulary (11 kinds,
+-- 2026-11-24). One kind per org; when kinds overlap the most specific wins (an
+-- association organized as a nonprofit is `association`). `description` is the
+-- criterion text the Jev question sends (#877 D1): changing one means re-scoring
+-- the org-kind gold set. Slug-keyed, so it is seeded through staging and
+-- reconcile_seeded_slugs() (#458). Design: docs/plans/2026-11-24-org-kind-suggestions-design.md.
+CREATE TABLE IF NOT EXISTS org_kinds (
+    id           TEXT        PRIMARY KEY,
+    slug         TEXT        NOT NULL UNIQUE,
+    display_name TEXT        NOT NULL,
+    description  TEXT        NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TABLE IF EXISTS pg_temp._seed_org_kinds;
+CREATE TEMP TABLE _seed_org_kinds (LIKE org_kinds INCLUDING ALL);
+
+INSERT INTO _seed_org_kinds (id, slug, display_name, description) VALUES
+    ('01KZ0000000000000000000001', 'business',           'Business',
+     'A for-profit company of any size: a store, farm, brand, cannabis licensee, law, consulting or lobbying firm, lab, or holding company'),
+    ('01KZ0000000000000000000002', 'nonprofit',          'Nonprofit',
+     'A charity, foundation, advocacy group, think tank, or civil-rights or community organization that is not a membership association of an industry or profession'),
+    ('01KZ0000000000000000000003', 'association',        'Association',
+     'A trade, industry or professional association whose members are businesses or practitioners (e.g. a growers'' association, a bar association, a guild)'),
+    ('01KZ0000000000000000000004', 'coalition',          'Coalition',
+     'A coalition, alliance, network or campaign of several organizations or community members working on a shared issue'),
+    ('01KZ0000000000000000000005', 'labor_union',        'Labor Union',
+     'A labor union or a union local'),
+    ('01KZ0000000000000000000006', 'government',         'Government',
+     'Any government entity other than a legislature: an executive department, agency, office, regulator, public utility, prosecutor or military unit, or an appointed or elected board, commission, council, task force or advisory committee, including a city or county council and its committees'),
+    ('01KZ0000000000000000000007', 'legislature',        'Legislature',
+     'A state or national legislature, one of its chambers, or one of its committees or caucuses'),
+    ('01KZ0000000000000000000008', 'political_party',    'Political Party',
+     'A political party or one of its state, county or district organizations'),
+    ('01KZ0000000000000000000009', 'campaign_committee', 'Campaign Committee',
+     'A political action committee (PAC) or a candidate or ballot-measure campaign committee'),
+    ('01KZ000000000000000000000A', 'tribe',              'Tribe',
+     'A Native American tribe, band or nation, or its tribal government or a tribal agency'),
+    ('01KZ000000000000000000000B', 'academic',           'Academic',
+     'A university, college, school, or an academic research center, institute or lab');
+
+SELECT reconcile_seeded_slugs('org_kinds', '_seed_org_kinds');
+
+INSERT INTO org_kinds (id, slug, display_name, description)
+SELECT id, slug, display_name, description
+FROM _seed_org_kinds
+ON CONFLICT (id) DO UPDATE SET
+    slug         = EXCLUDED.slug,
+    display_name = EXCLUDED.display_name,
+    description  = EXCLUDED.description;
+
+DROP TABLE _seed_org_kinds;
+
+-- The resolved kind. NULL = undecided. Written ONLY by
+-- src/core/classification.py::record_decision (an operator's decision or the
+-- operator-run bulk accept); no producer, applier or importer path sets it, so the
+-- curation overlay never applies. ADD COLUMN IF NOT EXISTS is the reconciliation,
+-- the FK included.
+ALTER TABLE organizations
+    ADD COLUMN IF NOT EXISTS org_kind_id TEXT REFERENCES org_kinds(id);
+
+-- The rules source (#877 D4) is reference data, not code: an identifier type
+-- that proves an org's kind names it here. src/core stays WA-free (#497); the
+-- rule table is this column. UBI and PDC registrations are held by every kind
+-- of org, so they imply nothing. A change here is a new rules version
+-- (classification.RULES_VERSION) when it changes an existing answer.
+ALTER TABLE entity_identifier_types
+    ADD COLUMN IF NOT EXISTS implies_org_kind_id TEXT REFERENCES org_kinds(id);
+
+UPDATE entity_identifier_types t SET implies_org_kind_id = k.id
+FROM (VALUES
+    ('org_wa_legislature',              'legislature'),
+    ('org_wa_legislature_chamber',      'legislature'),
+    ('org_wa_legislature_committee_id', 'legislature'),
+    ('org_wa_party',                    'political_party'),
+    ('org_wa_pdc_committee',            'campaign_committee'),
+    ('org_wslcb',                       'business')
+) AS r(type_slug, kind_slug)
+JOIN org_kinds k ON k.slug = r.kind_slug
+WHERE t.slug = r.type_slug AND t.implies_org_kind_id IS DISTINCT FROM k.id;
+
+-- Every source's answer for a classified field, append-only (#877 D3; shared with
+-- #303's role-type suggestions). Polymorphic with no FK on entity_id, like links:
+-- delete_entity_ancillary drops an entity's rows, a merge re-homes or drops them
+-- (src/core/ancillary_migrate.py), and the daily ancillary-orphans audit is the
+-- backstop. Never exposed on the public API.
+--   source    rules (identifier-derived) / jev (TypeSafe) / manual (an operator).
+--   value     a slug of the field's vocabulary; `none` when rules or Jev find no
+--             kind (rules write it only to supersede an earlier answer, or on
+--             conflicting identifiers); NULL on a manual dismiss or clear.
+--   manual_action  manual rows only. accept / set / dismiss decide; clear
+--             returns the entity to undecided.
+--   ignored_at  rollback or re-ask marker; only a merge or hard delete removes rows.
+CREATE TABLE IF NOT EXISTS classification_suggestions (
+    id             TEXT        PRIMARY KEY,
+    entity_type    TEXT        NOT NULL,
+    entity_id      TEXT        NOT NULL,
+    field          TEXT        NOT NULL,
+    source         TEXT        NOT NULL,
+    value          TEXT,
+    manual_action  TEXT,
+    confidence     DOUBLE PRECISION,
+    probabilities  JSONB,
+    model          TEXT,
+    input_tokens   INTEGER,
+    note           TEXT,
+    created_by     TEXT        REFERENCES app_users(id) ON DELETE SET NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ignored_at     TIMESTAMPTZ,
+    -- Named <table>_entity_type_check: the polymorphic seeders (tests) read that
+    -- name, and only it, as "type not admitted"; CHECKs run in name order.
+    CONSTRAINT classification_suggestions_entity_type_check CHECK (
+        entity_type IN ('organization', 'role')),
+    CONSTRAINT classification_suggestions_field_check CHECK (
+        (entity_type = 'organization' AND field = 'org_kind')
+        OR (entity_type = 'role' AND field = 'role_type')),
+    CONSTRAINT chk_suggestion_source CHECK (source IN ('rules', 'jev', 'manual')),
+    CONSTRAINT chk_suggestion_manual_action CHECK (
+        manual_action IN ('accept', 'set', 'dismiss', 'clear')),
+    -- A manual row carries an action and no model; other sources the reverse.
+    CONSTRAINT chk_suggestion_manual_shape CHECK (
+        (source = 'manual') = (manual_action IS NOT NULL)
+        AND (source <> 'manual' OR model IS NULL)),
+    -- accept/set name a value; dismiss/clear don't; rules and Jev always answer.
+    CONSTRAINT chk_suggestion_value CHECK (
+        CASE WHEN source = 'manual' THEN (manual_action IN ('accept', 'set')) = (value IS NOT NULL)
+             ELSE value IS NOT NULL END),
+    CONSTRAINT chk_suggestion_confidence CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 1),
+    CONSTRAINT chk_suggestion_input_tokens CHECK (input_tokens IS NULL OR input_tokens >= 0)
+);
+
+-- Classify once (#877 D3): one live Jev answer per entity, field and model. A
+-- re-ask marks the current row ignored_at first, in the same transaction.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_classification_suggestions_live_jev
+    ON classification_suggestions (entity_type, entity_id, field, model)
+    WHERE source = 'jev' AND ignored_at IS NULL;
+
+-- The latest answer per source: the panel's and the drainer's read.
+CREATE INDEX IF NOT EXISTS idx_classification_suggestions_entity
+    ON classification_suggestions (entity_type, entity_id, field, source, created_at DESC);

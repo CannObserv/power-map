@@ -734,7 +734,14 @@ async def rehome_curation_overlay(
 
 #: Polymorphic tables keyed on (entity_type, entity_id) that an entity owns
 #: outright. A type a table's CHECK does not admit simply matches no row.
-_OWNED_TABLES = ("links", "contact_methods", "citations", "field_confidence", "import_provenance")
+_OWNED_TABLES = (
+    "links",
+    "contact_methods",
+    "citations",
+    "field_confidence",
+    "import_provenance",
+    "classification_suggestions",  # #877
+)
 
 #: The types an admin hard delete removes, spelt as `deleted_entities` spells them.
 HARD_DELETABLE_TYPES = frozenset(
@@ -865,6 +872,9 @@ _ORPHAN_SCOPES: dict[str, _OrphanScope] = {
     "curation_overlay": _OrphanScope(
         ("person", "organization", "role", "role_assignment"), "curation_overlay x"
     ),
+    "classification_suggestions": _OrphanScope(
+        ("organization", "role"), "classification_suggestions x"
+    ),  # #877
     # #611's two kinds: an entity's own events, and another's event linking to it.
     "entity_events": _OrphanScope(("person", "organization"), "entity_events x"),
     "entity_events_linked": _OrphanScope(
