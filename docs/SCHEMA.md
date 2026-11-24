@@ -98,6 +98,15 @@ Seeded once at the #490 cutover by `scripts/seed_producer_crosswalk.py`, retired
 
 Written by the admin (#498) and merges; read only via `scripts/export_pm_tables.py`, which hands the models Parquet so they never open a database connection.
 
+## Org kinds and classification suggestions (#877)
+
+What an organization *is*, decided by an operator from sources that only suggest. Design: `docs/plans/2026-11-24-org-kind-suggestions-design.md`.
+
+- `org_kinds` — 11 seeded kinds (slug-keyed, #458 reconciliation). One kind per org; when kinds overlap the most specific wins. `description` is the Jev criterion text: changing one means re-scoring the gold set
+- `organizations.org_kind_id` — the resolved kind, NULL = undecided. **Written only by `src.core.classification.record_decision`** (and `carry_kind_on_merge`); `tests/core/test_classification_write_sweep.py` refuses any other writer. No producer, applier or importer path sets it, so the curation overlay never applies
+- `entity_identifier_types.implies_org_kind_id` — the rules source as reference data (seeded in `schema.sql`, so `src/core` stays WA-free); UBI and PDC registrations imply nothing
+- `classification_suggestions` — every source's answer (`rules` / `jev` / `manual`), append-only, polymorphic with no FK (`organization` → `org_kind`; `role` → `role_type`, #303). Latest non-ignored row per source is its answer. `manual_action` accept / set / dismiss decide; clear un-decides. One live Jev row per entity, field and model (`uq_classification_suggestions_live_jev`; a re-ask sets `ignored_at` first). Rules rows are written only on change, so an absent rules row means "no rule". Merge keeps the survivor's decision (or takes the loser's) and drops the loser's derived rows; hard delete drops them all (`docs/ANCILLARY.md`). Never on the public API
+
 ---
 
 ## Moved out

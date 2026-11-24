@@ -195,3 +195,19 @@ async def test_requires_admin_auth(client, db):
     org = await _org(db)
     r = await client.get(f"/admin/orgs/{org}/kind/")
     assert r.status_code in (303, 307)
+
+
+async def test_undecided_select_starts_on_a_placeholder(client, db):
+    """No kind is preselected for an undecided org, so Set can't record one by accident."""
+    org = await _org(db)
+    r = await client.get(f"/admin/orgs/{org}/kind/", headers=HTMX)
+    assert '<option value="" selected>Choose a kind…</option>' in r.text
+
+
+async def test_set_without_a_kind_warns_and_changes_nothing(client, db):
+    org = await _org(db)
+    r = await client.post(
+        f"/admin/orgs/{org}/kind/", data={"action": "set", "kind": ""}, headers=HTMX
+    )
+    assert _flash(r)["level"] == "warning"
+    assert await _kind(db, org) is None

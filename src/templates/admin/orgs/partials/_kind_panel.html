@@ -52,7 +52,8 @@
   <div class="btn-group" style="margin-top:var(--space-3);align-items:flex-end">
     <div class="form-group" style="margin-bottom:0">
       <label for="kind-select-{{ org.id }}">Set kind</label>
-      <select id="kind-select-{{ org.id }}" name="kind">
+      <select id="kind-select-{{ org.id }}" name="kind" style="max-width:20rem">
+        <option value=""{% if not org.kind_slug %} selected{% endif %}>Choose a kind…</option>
         {% for k in kinds %}
         <option value="{{ k.slug }}"{% if k.slug == org.kind_slug %} selected{% endif %}>{{ k.display_name }}</option>
         {% endfor %}

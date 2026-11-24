@@ -345,6 +345,15 @@ every run, and rows behind them wait. Raise `--limit` past the stuck count (the 
 counts give it) to reach them. This bites the opt-in statuses most: a `--status
 unsupported` run re-asks the same rows until the validator covers their country.
 
+## Org-kind suggestions (#877)
+
+`scripts/classify_suggestions.py` records suggestions; it never sets a kind (the admin Kind panel does). Phase 1 has `--source rules`: an org's identifier-implied kind (`entity_identifier_types.implies_org_kind_id`), written only when it changed. Run after a deploy that changes the rule seed, and after bulk identifier changes.
+
+```bash
+uv run "${env_args[@]}" python -m scripts.classify_suggestions --source rules            # dry run: counts by kind
+uv run "${env_args[@]}" python -m scripts.classify_suggestions --source rules --execute  # write (supervised)
+```
+
 ## Operational scripts — dry run by default & target echo (#402)
 
 
