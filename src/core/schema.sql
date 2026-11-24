@@ -2450,6 +2450,13 @@ END $$;
 -- public-API slug is breaking). Reserved-but-not-seeded
 -- peers (chamber_majority_leader, ...) are seeded only on first observation.
 -- The pre-#266 coarse `member` was split into committee_member + party_member.
+-- #303 vocab (all non-jurisdictional, every flag FALSE, occupancy `shared`): the
+-- coarse organization functions org_owner/org_founder/org_executive/org_officer/
+-- org_board_member/org_lobbyist/org_member, for any org without a more specific
+-- prefix. The org's own label (CEO, President, Executive Director, Chairman,
+-- Co-Owner) stays in the title. Seeded ahead of the data for the same reason as
+-- the at-large seat: no remote write path. Reserved-not-seeded: org_board_chair,
+-- org_staff. tests/core/test_role_type_prefix_sweep.py enforces the prefixes.
 DROP TABLE IF EXISTS pg_temp._seed_role_types;
 CREATE TEMP TABLE _seed_role_types (LIKE role_types INCLUDING ALL);
 
@@ -2465,7 +2472,14 @@ INSERT INTO _seed_role_types (id, slug, display_name, expects_jurisdiction, requ
     ('01KX0000000000000000000009', 'committee_assistant_ranking_member', 'Committee Assistant Ranking Member', FALSE, FALSE, FALSE, 'shared'),
     ('01KX000000000000000000000A', 'committee_member',                   'Committee Member',                   FALSE, FALSE, FALSE, 'shared'),
     ('01KX000000000000000000000B', 'legislature_staff',                  'Legislative Staff',                  FALSE, FALSE, FALSE, 'shared'),
-    ('01KX000000000000000000000C', 'party_member',                       'Party Member',                       FALSE, FALSE, FALSE, 'shared');
+    ('01KX000000000000000000000C', 'party_member',                       'Party Member',                       FALSE, FALSE, FALSE, 'shared'),
+    ('01KX000000000000000000000E', 'org_owner',                          'Organization Owner',                 FALSE, FALSE, FALSE, 'shared'),
+    ('01KX000000000000000000000F', 'org_founder',                        'Organization Founder',               FALSE, FALSE, FALSE, 'shared'),
+    ('01KX000000000000000000000G', 'org_executive',                      'Organization Executive',             FALSE, FALSE, FALSE, 'shared'),
+    ('01KX000000000000000000000H', 'org_officer',                        'Organization Officer',               FALSE, FALSE, FALSE, 'shared'),
+    ('01KX000000000000000000000J', 'org_board_member',                   'Organization Board Member',          FALSE, FALSE, FALSE, 'shared'),
+    ('01KX000000000000000000000K', 'org_lobbyist',                       'Organization Lobbyist',              FALSE, FALSE, FALSE, 'shared'),
+    ('01KX000000000000000000000M', 'org_member',                         'Organization Member',                FALSE, FALSE, FALSE, 'shared');
 
 SELECT reconcile_seeded_slugs('role_types', '_seed_role_types');
 
