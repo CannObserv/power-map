@@ -1477,7 +1477,7 @@ async def write_org_parent(
     - **Authoritative** (``authoritative=True``, the id-addressed ``pm_org_id``
       path): the producer proves it means exactly this org, so the supplied
       parent *replaces* the stored one (reparent). Gated on provenance —
-      rejected ``source_key_mismatch`` when the org's ``source_key_id`` is
+      rejected ``provenance_conflict`` when the org's ``source_key_id`` is
       non-NULL and differs from the caller's; a NULL source (admin-set or
       pre-#334) is claimed (COALESCE) on write. An identical redelivery (parent
       already as supplied) is a quiet no-op *before* the gate, so a mirroring
@@ -2522,7 +2522,7 @@ async def update_assignment_fields(
     - ``is_current``: tri-state; None means omitted. A dated resulting end with
       ``is_current`` omitted implies FALSE (a dated end means ended).
 
-    Provenance (#311): rejected ``source_key_mismatch`` when the row's
+    Provenance (#311): rejected ``provenance_conflict`` when the row's
     ``source_key_id`` is non-NULL and differs from the caller's; a NULL source
     is claimed (COALESCE) on the first update. An identical redelivery leaves
     the *bounds* alone regardless of source (that check precedes the gate).
@@ -2544,7 +2544,7 @@ async def update_assignment_fields(
     whole observation back. Raises ``ObservationRejected`` when the row is
     archived/gone (``assignment_not_found`` — including a row archived between
     this function's read and its write); another key owns the row
-    (``source_key_mismatch``, from the gate on the stored value *or* from losing
+    (``provenance_conflict``, from the gate on the stored value *or* from losing
     a race to a key that claimed it after that read); the merged state would be
     ``is_current`` with a dated end (``is_current_end_date_conflict`` — send an
     explicit ``end_date: null`` to reopen); the merged bounds invert
@@ -2740,7 +2740,7 @@ async def retract_assignment(
     - id unresolved → ``assignment_not_found``
     - supplied ``person_id`` / ``role_id`` differing from the stored row →
       ``identity_immutable`` (guards a copy-paste ``pm_assignment_id``)
-    - live row, foreign non-NULL ``source_key_id`` → ``source_key_mismatch``
+    - live row, foreign non-NULL ``source_key_id`` → ``provenance_conflict``
     - else archive → ``RETRACTED``. The UPDATE fires
       ``trg_cascade_assignment_relationships`` (dependent ``staff_of`` edges
       archive with it, #301).
