@@ -320,3 +320,14 @@ def test_additional_identifier_item_documents_an_optional_replaces():
 
     assert "replaces" in item["properties"]
     assert "replaces" not in item.get("required", [])
+
+
+def test_observation_reason_code_is_an_enum_in_the_spec():
+    """#882: the generated client carries ``reason_code`` as an enum, not a string."""
+    schemas = app.openapi()["components"]["schemas"]
+    prop = schemas["ObservationResponse"]["properties"]["reason_code"]
+    refs = [b.get("$ref") for b in prop.get("anyOf", [prop])]
+    assert "#/components/schemas/ObservationReasonCode" in refs
+    codes = set(schemas["ObservationReasonCode"]["enum"])
+    assert {"provenance_conflict", "invalid", "identifier_taken"} <= codes
+    assert "source_key_mismatch" not in codes

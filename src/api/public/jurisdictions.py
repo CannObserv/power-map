@@ -40,6 +40,7 @@ from src.core.observation import (
     write_contact_methods,
     write_links,
 )
+from src.core.refusals import ObservationReasonCode
 
 router = APIRouter(prefix="/jurisdictions", tags=["public-api"])
 
@@ -447,9 +448,12 @@ async def submit_jurisdiction_observation(
                 create_data=create_data,
             )
             if disposition is Disposition.REJECTED:
-                raise ObservationRejected(reason or "rejected")
+                raise ObservationRejected.of(reason)
             if entity_type != "jurisdiction":
-                raise ObservationRejected(f"entity_type_mismatch: {entity_type!r}")
+                raise ObservationRejected(
+                    ObservationReasonCode.ENTITY_TYPE_MISMATCH,
+                    f"entity_type_mismatch: {entity_type!r}",
+                )
 
             await write_links(db, entity_id, entity_type, request.links)
             await write_contact_methods(db, entity_id, entity_type, request.contact_methods)
@@ -458,18 +462,18 @@ async def submit_jurisdiction_observation(
                 db, entity_id, entity_type, request.additional_identifiers
             )
     except ObservationRejected as exc:
-        return ObservationResponse(disposition="rejected", reason=exc.detail)
+        return ObservationResponse.rejected(exc.code, exc.detail)
     except IdentifierConflict as exc:
-        return ObservationResponse(
-            disposition="rejected",
-            reason=f"identifier_conflict: {exc.identifier_type_slug!r}",
+        return ObservationResponse.rejected(
+            ObservationReasonCode.IDENTIFIER_CONFLICT,
+            f"identifier_conflict: {exc.identifier_type_slug!r}",
         )
     except asyncpg.UniqueViolationError as exc:
         # #812: a lost race on uq_identifiers_cannabis_observer is identifier_taken.
-        reason = await unique_violation_reason(db, exc)
-        return ObservationResponse(disposition="rejected", reason=reason)
+        refusal = await unique_violation_reason(db, exc)
+        return ObservationResponse.rejected(refusal.code, refusal)
     except (asyncpg.CheckViolationError, asyncpg.ForeignKeyViolationError):
-        return ObservationResponse(disposition="rejected", reason="db_constraint_violation")
+        return ObservationResponse.rejected(ObservationReasonCode.DB_CONSTRAINT_VIOLATION)
 
     log_replaced_identifiers(entity_type, entity_id, replaced)
     return ObservationResponse(

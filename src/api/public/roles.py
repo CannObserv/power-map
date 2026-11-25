@@ -33,6 +33,7 @@ from src.core.observation import (
     write_contact_methods,
     write_links,
 )
+from src.core.refusals import ObservationReasonCode
 
 router = APIRouter(prefix="/roles", tags=["public-api"])
 
@@ -241,12 +242,15 @@ async def submit_role_observation(
                     req.identifier_value,
                 )
                 if role_id is None:
-                    raise ObservationRejected(f"pm_id_not_found: {req.identifier_value!r}")
+                    raise ObservationRejected(
+                        ObservationReasonCode.PM_ID_NOT_FOUND,
+                        f"pm_id_not_found: {req.identifier_value!r}",
+                    )
                 disposition = Disposition.AUTO_ATTACHED
             else:
                 role_id, disposition, reason = await _resolve_role(db, req)
                 if disposition is Disposition.REJECTED:
-                    raise ObservationRejected(reason or "rejected")
+                    raise ObservationRejected.of(reason)
 
             await write_links(db, role_id, "role", req.links)
             await write_contact_methods(db, role_id, "role", req.contact_methods)
@@ -255,18 +259,18 @@ async def submit_role_observation(
                 db, role_id, "role", req.additional_identifiers
             )
     except ObservationRejected as exc:
-        return ObservationResponse(disposition="rejected", reason=exc.detail)
+        return ObservationResponse.rejected(exc.code, exc.detail)
     except IdentifierConflict as exc:
-        return ObservationResponse(
-            disposition="rejected",
-            reason=f"identifier_conflict: {exc.identifier_type_slug!r}",
+        return ObservationResponse.rejected(
+            ObservationReasonCode.IDENTIFIER_CONFLICT,
+            f"identifier_conflict: {exc.identifier_type_slug!r}",
         )
     except asyncpg.UniqueViolationError as exc:
         # #812: a lost race on uq_identifiers_cannabis_observer is identifier_taken.
-        reason = await unique_violation_reason(db, exc)
-        return ObservationResponse(disposition="rejected", reason=reason)
+        refusal = await unique_violation_reason(db, exc)
+        return ObservationResponse.rejected(refusal.code, refusal)
     except (asyncpg.CheckViolationError, asyncpg.ForeignKeyViolationError):
-        return ObservationResponse(disposition="rejected", reason="db_constraint_violation")
+        return ObservationResponse.rejected(ObservationReasonCode.DB_CONSTRAINT_VIOLATION)
 
     log_replaced_identifiers("role", role_id, replaced)
     return ObservationResponse(

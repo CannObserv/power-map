@@ -1,6 +1,6 @@
 # #882 — a stable `reason_code`, one provenance name, readable ownership
 
-Issue: #882 (asked on CannObserv/cli#1386). Operator decisions 2026-11-25, comment 7172492503.
+Issue: #882 (asked on CannObserv/cli#1386). Operator decisions 2026-11-25, comment 7172492503. Design approved 2026-11-25, with all three recommendations and the `owned_by_dataset` refusal in scope.
 
 ## Goal
 
@@ -14,7 +14,7 @@ A producer can tell, before writing, whether an id-addressed write to a record w
 - **`ObservationRejected(code, detail=None)`.** The code is required. `detail` keeps today's text, so `reason` is unchanged on the wire. The route handlers' `except` blocks build both fields from the exception. The `IdentifierConflict`, `UniqueViolationError` and constraint branches set their codes directly. The resolvers' `(…, REJECTED, reason)` tuples carry a code too.
 - **The code is the reason's slug,** the text before `": "`, with three exceptions:
   - `source_key_mismatch` (assignments, org parent) and `name_provenance_conflict` (names) both become **`provenance_conflict`**;
-  - free-text validation messages (unknown link, contact or affiliation type; address normalisation; parent-lookup counts; internal identifier type) become **`invalid`**;
+  - free-text validation messages (unknown link, contact or affiliation type; address normalisation; parent-lookup counts; internal identifier type) become **`invalid`**, except an additional identifier of an unknown type, which is **`unknown_identifier_type`**, as the top-level identifier's is;
   - `"rejected"`, the resolver's `reason or "rejected"` fallback, becomes `invalid`.
 - **Embedded events, citations and names** re-raise with their own enum's slug, so their codes are a subset of the new enum. A guard holds `EventRejectReason`, `CitationRejectReason` and `NameRejectReason` (as mapped) inside `ObservationReasonCode`.
 - **`reason` text is unchanged this release,** `source_key_mismatch` included, as the decision requires. A follow-up issue switches the text to `provenance_conflict` one release later.
@@ -36,6 +36,7 @@ A producer can tell, before writing, whether an id-addressed write to a record w
   - This over-approximates for an anchored org whose dataset emits no parent row (`retraction: none`: silence). The overlay draws its scope the same way, so the two agree.
 - **Surfaces:** `getAssignment`, `getOrg`, `batchGetOrgs` (its ETags must equal `getOrg`'s). List rows carry no ownership. A list ETag is a collection watermark, and a per-row key-relative field would break it.
 - **ETag:** `make_etag(id, updated_at, *extra)` appends the key-relative value. Two keys reading one row then get different validators, and a dataset adopting a row changes it without touching `updated_at`. `conditional_response` is unchanged.
+- **`owned_by_dataset` refusal** (pulled into scope 2026-11-25). An id-addressed write the nightly apply would revert is refused rather than accepted and silently undone, as #592 already does for events. It covers assignment tenure updates and retracts on a `dataset` row, and a parent write on a `dataset` org. It is checked before the `source_key_id` gate, so a dataset row answers `owned_by_dataset` whoever holds its key. The read's `dataset` and the write's refusal share one helper, so they cannot disagree.
 - **The principle and its guard.** OBSERVATIONS.md: "a `source_key_id` gate exists exactly where the observation API can overwrite or remove a value; who created a row is not who may overwrite it." The guard asserts that the set of tables holding `source_key_id` (read from `schema.sql`) equals a declared list, each entry naming its gate. A new column, or a gate on people or roles, fails it until it is declared and documented.
 
 ## Key decisions
@@ -45,7 +46,7 @@ A producer can tell, before writing, whether an id-addressed write to a record w
 | Code = the slug, not a coarse class | Today's slugs already carry the meaning (`person_not_found`, `start_date_conflict`); a class like `not_found` would throw it away. One rule ("the slug before `: `") is easy to state and to guard. |
 | `reason` text untouched in PR 1 | Required by the decision; the code is the contract, and the text renames a release later. |
 | `dataset` beats `self` | The gate ignores dataset ownership (#499 applier). A key could hold `source_key_id` on a row the dataset reverts nightly, so `self` there would be a false promise. |
-| No refusal for writes to dataset-owned rows | Not in the decided scope. A follow-up issue: a write the nightly apply will revert should be refused as `owned_by_dataset`, as events already are (#592). |
+| Refuse writes to dataset-owned rows (`owned_by_dataset`) | A write the nightly apply reverts is a false success. Events already refuse it (#592). Pulled into scope by the operator 2026-11-25. |
 
 ## Out of scope
 

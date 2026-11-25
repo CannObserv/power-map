@@ -21,6 +21,7 @@ from src.core.normalizers.address import get_address_normalizer, standardization
 from src.core.normalizers.email import EmailNormalizer
 from src.core.normalizers.phone import PhoneNormalizer
 from src.core.organizations import ActiveOnArchivedOrg, OrgNotFound, set_org_active
+from src.core.refusals import ObservationReasonCode, Refusal
 from src.core.types import EVENT_PLACE_PRECISIONS
 
 logger = get_logger(__name__)
@@ -286,7 +287,7 @@ class AssignmentResolution:
 
     assignment_id: str
     disposition: Disposition
-    reason: str | None = None
+    reason: Refusal | None = None  # #882: carries its ObservationReasonCode
     unapplied: list[str] = field(default_factory=list)
     attached_archived: bool = False
 
@@ -349,11 +350,41 @@ _MUTABLE_EVENT_DATE_COLS = (
 
 
 class ObservationRejected(Exception):
-    """Raised by attribute writers when the observation payload fails validation."""
+    """Raised by attribute writers when the observation payload fails validation.
 
-    def __init__(self, detail: str) -> None:
-        self.detail = detail
-        super().__init__(detail)
+    ``code`` is the refusal's stable ``ObservationReasonCode`` (#882), the wire's
+    ``reason_code``; ``detail`` is the diagnostic ``reason`` text, the code's own
+    value unless given.
+    """
+
+    def __init__(self, code: ObservationReasonCode, detail: str | None = None) -> None:
+        if not isinstance(code, ObservationReasonCode):
+            raise TypeError(f"ObservationRejected needs an ObservationReasonCode, not {code!r}")
+        self.code = code
+        self.detail = code.value if detail is None else detail
+        super().__init__(self.detail)
+
+    @classmethod
+    def of(cls, reason: Refusal | None) -> "ObservationRejected":
+        """The raise for a resolver's ``REJECTED`` answer, keeping its code and text.
+
+        A resolver answers REJECTED with a ``Refusal``; one that answered with
+        none is a bug, refused as ``invalid`` rather than surfaced as a 500.
+        """
+        if isinstance(reason, Refusal):
+            return cls(reason.code, str(reason))
+        logger.warning("ObservationRejected.of: REJECTED without a Refusal: %r", reason)
+        return cls(ObservationReasonCode.INVALID, reason or "rejected")
+
+
+# #882: an identifier landing on an archived entity is refused as `<type>_archived`.
+_ARCHIVED_CODES: dict[str, ObservationReasonCode] = {
+    "person": ObservationReasonCode.PERSON_ARCHIVED,
+    "organization": ObservationReasonCode.ORGANIZATION_ARCHIVED,
+    "role": ObservationReasonCode.ROLE_ARCHIVED,
+    "jurisdiction": ObservationReasonCode.JURISDICTION_ARCHIVED,
+    "role_assignment": ObservationReasonCode.ROLE_ASSIGNMENT_ARCHIVED,
+}
 
 
 @dataclass(frozen=True)
@@ -384,7 +415,7 @@ async def resolve_entity(
     identifier_value: str,
     *,
     create_data: dict | None = None,
-) -> tuple[str, str, Disposition, str | None]:
+) -> tuple[str, str, Disposition, Refusal | None]:
     """Find or create the entity identified by the given identifier.
 
     Returns (entity_id, entity_type, disposition, reason).
@@ -398,7 +429,8 @@ async def resolve_entity(
                        entity type requires create_data for NEW and none was
                        provided
 
-    reason is a human-readable string on REJECTED, None otherwise.
+    reason is a ``Refusal`` on REJECTED — the diagnostic text, carrying its
+    ``ObservationReasonCode`` (#882) — None otherwise.
     Raises nothing — REJECTED is returned, not raised.
     """
     eit = await conn.fetchrow(
@@ -407,7 +439,15 @@ async def resolve_entity(
     )
     if eit is None:
         logger.warning("Unknown identifier_type_slug=%r", identifier_type_slug)
-        return "", "", Disposition.REJECTED, f"unknown_identifier_type: {identifier_type_slug!r}"
+        return (
+            "",
+            "",
+            Disposition.REJECTED,
+            Refusal(
+                ObservationReasonCode.UNKNOWN_IDENTIFIER_TYPE,
+                f"unknown_identifier_type: {identifier_type_slug!r}",
+            ),
+        )
 
     entity_type = eit["entity_type"]
 
@@ -417,7 +457,14 @@ async def resolve_entity(
         entity_id = await _live_entity_id(conn, entity_type, identifier_value)
         if entity_id is None:
             logger.warning("pm-internal resolve: %s id=%r not found", entity_type, identifier_value)
-            return "", "", Disposition.REJECTED, f"pm_id_not_found: {identifier_value!r}"
+            return (
+                "",
+                "",
+                Disposition.REJECTED,
+                Refusal(
+                    ObservationReasonCode.PM_ID_NOT_FOUND, f"pm_id_not_found: {identifier_value!r}"
+                ),
+            )
         return entity_id, entity_type, Disposition.AUTO_ATTACHED, None
 
     entity_identifier_type_id = eit["id"]
@@ -441,7 +488,12 @@ async def resolve_entity(
                 identifier_type_slug,
                 identifier_value,
             )
-            return "", "", Disposition.REJECTED, f"{entity_type}_archived: {entity_id!r}"
+            return (
+                "",
+                "",
+                Disposition.REJECTED,
+                Refusal(_ARCHIVED_CODES[entity_type], f"{entity_type}_archived: {entity_id!r}"),
+            )
         return entity_id, entity_type, Disposition.AUTO_ATTACHED, None
 
     if entity_type not in _CREATABLE_ENTITY_TYPES:
@@ -453,7 +505,15 @@ async def resolve_entity(
             identifier_type_slug,
             identifier_value,
         )
-        return "", "", Disposition.REJECTED, f"entity_type_not_creatable: {entity_type!r}"
+        return (
+            "",
+            "",
+            Disposition.REJECTED,
+            Refusal(
+                ObservationReasonCode.ENTITY_TYPE_NOT_CREATABLE,
+                f"entity_type_not_creatable: {entity_type!r}",
+            ),
+        )
 
     if entity_type == "jurisdiction":
         if not create_data:
@@ -461,7 +521,12 @@ async def resolve_entity(
                 "Jurisdiction NEW disposition requires create_data; identifier_type=%r",
                 identifier_type_slug,
             )
-            return "", "", Disposition.REJECTED, "jurisdiction_new_requires_create_data"
+            return (
+                "",
+                "",
+                Disposition.REJECTED,
+                Refusal(ObservationReasonCode.JURISDICTION_NEW_REQUIRES_CREATE_DATA),
+            )
         # Pre-validate type_slug outside the transaction so we can return REJECTED cleanly.
         type_row = await conn.fetchrow(
             "SELECT id FROM jurisdiction_types WHERE slug=$1", create_data["type_slug"]
@@ -472,7 +537,10 @@ async def resolve_entity(
                 "",
                 "",
                 Disposition.REJECTED,
-                f"unknown_jurisdiction_type: {create_data['type_slug']!r}",
+                Refusal(
+                    ObservationReasonCode.UNKNOWN_JURISDICTION_TYPE,
+                    f"unknown_jurisdiction_type: {create_data['type_slug']!r}",
+                ),
             )
         create_data = {**create_data, "type_id": type_row["id"]}
 
@@ -518,7 +586,7 @@ async def resolve_entity(
             identifier_type_slug,
             identifier_value,
         )
-        return "", "", Disposition.REJECTED, "unique_violation"
+        return "", "", Disposition.REJECTED, Refusal(ObservationReasonCode.UNIQUE_VIOLATION)
     logger.info(
         "Created %s entity_id=%s for identifier_type=%s value=%r",
         entity_type,
@@ -799,7 +867,10 @@ async def write_links(conn, entity_id: str, entity_type: str, links: list) -> No
                 "SELECT id FROM link_types WHERE slug=$1", link.link_type_slug
             )
             if row is None:
-                raise ObservationRejected(f"Unknown link_type_slug: {link.link_type_slug!r}")
+                raise ObservationRejected(
+                    ObservationReasonCode.INVALID,
+                    f"Unknown link_type_slug: {link.link_type_slug!r}",
+                )
             link_type_id = row["id"]
         existing = await conn.fetchrow(
             "SELECT id FROM links"
@@ -858,11 +929,15 @@ async def write_contact_methods(
             elif cm.contact_type == "phone":
                 normalized = _phone_normalizer.normalize(cm.value).value
             else:
-                raise ObservationRejected(f"Unsupported contact_type: {cm.contact_type!r}")
+                raise ObservationRejected(
+                    ObservationReasonCode.INVALID, f"Unsupported contact_type: {cm.contact_type!r}"
+                )
         except ValueError as exc:
-            raise ObservationRejected(str(exc)) from exc
+            raise ObservationRejected(ObservationReasonCode.INVALID, str(exc)) from exc
         if normalized is None:
-            raise ObservationRejected(f"Empty contact value for type {cm.contact_type!r}")
+            raise ObservationRejected(
+                ObservationReasonCode.INVALID, f"Empty contact value for type {cm.contact_type!r}"
+            )
         existing = await conn.fetchrow(
             "SELECT id FROM contact_methods"
             " WHERE entity_type=$1 AND entity_id=$2 AND contact_type=$3 AND value=$4",
@@ -919,14 +994,18 @@ async def write_addresses(conn, entity_id: str, entity_type: str, addresses: lis
         try:
             result = await normalizer.normalize(addr.raw_input)
         except Exception as exc:
-            raise ObservationRejected(f"Address normalization failed: {exc}") from exc
+            raise ObservationRejected(
+                ObservationReasonCode.INVALID, f"Address normalization failed: {exc}"
+            ) from exc
         if result.skipped:
             raise ObservationRejected(
-                f"Address skipped by normalizer (unrecognised format): {addr.raw_input!r}"
+                ObservationReasonCode.INVALID,
+                f"Address skipped by normalizer (unrecognised format): {addr.raw_input!r}",
             )
         if result.value is None:
             raise ObservationRejected(
-                f"Address normalisation returned no result for: {addr.raw_input!r}"
+                ObservationReasonCode.INVALID,
+                f"Address normalisation returned no result for: {addr.raw_input!r}",
             )
         v = result.value
         # Dedup key: standardized form if present, else raw_input
@@ -1074,7 +1153,7 @@ async def resolve_role(
     role_type: str | None = None,
     jurisdiction_id: str | None = None,
     qualifier: str | None = None,
-) -> tuple[str, Disposition, str | None]:
+) -> tuple[str, Disposition, Refusal | None]:
     """Match or create a role.
 
     Roles without a jurisdiction (jurisdiction_id is None) match by
@@ -1106,14 +1185,18 @@ async def resolve_role(
     NEW if created, REJECTED if a referenced entity is missing/archived, a role
     with a jurisdiction omits its role type, or a jurisdictional observation of a
     ``requires_qualifier`` office omits the qualifier (``qualifier_required``,
-    #273). reason is a human-readable string on REJECTED, None otherwise.
+    #273). reason is a ``Refusal`` on REJECTED (#882), None otherwise.
     """
     org_exists = await conn.fetchval(
         "SELECT 1 FROM organizations WHERE id=$1 AND archived_at IS NULL", organization_id
     )
     if not org_exists:
         logger.warning("resolve_role: unknown organization_id=%r", organization_id)
-        return "", Disposition.REJECTED, f"org_not_found: {organization_id!r}"
+        return (
+            "",
+            Disposition.REJECTED,
+            Refusal(ObservationReasonCode.ORG_NOT_FOUND, f"org_not_found: {organization_id!r}"),
+        )
 
     role_type_id: str | None = None
     requires_qualifier = False
@@ -1124,7 +1207,13 @@ async def resolve_role(
             role_type,
         )
         if rt is None:
-            return "", Disposition.REJECTED, f"role_type_not_found: {role_type!r}"
+            return (
+                "",
+                Disposition.REJECTED,
+                Refusal(
+                    ObservationReasonCode.ROLE_TYPE_NOT_FOUND, f"role_type_not_found: {role_type!r}"
+                ),
+            )
         role_type_id = rt["id"]
         requires_qualifier = rt["requires_qualifier"]
         forbids_qualifier = rt["forbids_qualifier"]
@@ -1134,11 +1223,29 @@ async def resolve_role(
             "SELECT archived_at, slug FROM jurisdictions WHERE id=$1", jurisdiction_id
         )
         if jur is None:
-            return "", Disposition.REJECTED, f"jurisdiction_not_found: {jurisdiction_id!r}"
+            return (
+                "",
+                Disposition.REJECTED,
+                Refusal(
+                    ObservationReasonCode.JURISDICTION_NOT_FOUND,
+                    f"jurisdiction_not_found: {jurisdiction_id!r}",
+                ),
+            )
         if jur["archived_at"] is not None:
-            return "", Disposition.REJECTED, f"jurisdiction_archived: {jurisdiction_id!r}"
+            return (
+                "",
+                Disposition.REJECTED,
+                Refusal(
+                    ObservationReasonCode.JURISDICTION_ARCHIVED,
+                    f"jurisdiction_archived: {jurisdiction_id!r}",
+                ),
+            )
         if role_type_id is None:
-            return "", Disposition.REJECTED, "role_type_required_for_jurisdiction"
+            return (
+                "",
+                Disposition.REJECTED,
+                Refusal(ObservationReasonCode.ROLE_TYPE_REQUIRED_FOR_JURISDICTION),
+            )
         # A per-position office needs a qualifier; without
         # one, a create would mint a spurious positionless seat (#267/#273).
         # Reject before match/create so the omission is loud, not silently minted.
@@ -1146,14 +1253,28 @@ async def resolve_role(
         # None, but a direct caller might not) so it can't slip past as a distinct
         # blank-qualifier seat.
         if requires_qualifier and not (qualifier or "").strip():
-            return "", Disposition.REJECTED, f"qualifier_required: role_type={role_type!r}"
+            return (
+                "",
+                Disposition.REJECTED,
+                Refusal(
+                    ObservationReasonCode.QUALIFIER_REQUIRED,
+                    f"qualifier_required: role_type={role_type!r}",
+                ),
+            )
         # The mirror (#302): a positionless office must REFUSE a qualifier, not
         # merely tolerate its absence. requires_qualifier=False only permits NULL;
         # without this a stray qualifier mints a second, self-contradictory role
         # for the district. Blank is absence, so it falls through to the normal
         # positionless create rather than rejecting.
         if forbids_qualifier and (qualifier or "").strip():
-            return "", Disposition.REJECTED, f"qualifier_forbidden: role_type={role_type!r}"
+            return (
+                "",
+                Disposition.REJECTED,
+                Refusal(
+                    ObservationReasonCode.QUALIFIER_FORBIDDEN,
+                    f"qualifier_forbidden: role_type={role_type!r}",
+                ),
+            )
         # Blank is absence everywhere downstream — match key, stored value, title
         # synthesis. Normalize once here so a direct caller's "" can't persist as
         # a distinct blank-qualifier seat (the case the reject above guards for
@@ -1224,7 +1345,7 @@ async def resolve_role(
         # Required on every create (#497). For a plain role it is the match key;
         # for a role with a jurisdiction it is the producer's to supply — PM no
         # longer synthesizes one (#267, retracted by #490).
-        return "", Disposition.REJECTED, "title_required"
+        return "", Disposition.REJECTED, Refusal(ObservationReasonCode.TITLE_REQUIRED)
 
     role_id = generate_id()
     await conn.execute(
@@ -1274,7 +1395,7 @@ async def write_role_assignments(
         role_rejection = await _role_liveness_rejection(conn, ra.role_id)
         if role_rejection is not None:
             logger.warning("write_role_assignments: unknown or archived role_id=%r", ra.role_id)
-            raise ObservationRejected(role_rejection)
+            raise ObservationRejected.of(role_rejection)
         open_existing = await conn.fetchrow(
             "SELECT id FROM role_assignments"
             " WHERE person_id=$1 AND role_id=$2 AND end_date IS NULL"
@@ -1331,7 +1452,7 @@ async def _set_org_parent(
         await conn.execute(sql, parent_id, organization_id, source_key_id)
     except asyncpg.RaiseError as exc:
         logger.warning("write_org_parent: cycle org=%s parent=%s", organization_id, parent_id)
-        raise ObservationRejected("parent_cycle") from exc
+        raise ObservationRejected(ObservationReasonCode.PARENT_CYCLE) from exc
 
 
 async def write_org_parent(
@@ -1377,19 +1498,19 @@ async def write_org_parent(
         organization_id,
     )
     if row is None:
-        raise ObservationRejected("org_not_found")
+        raise ObservationRejected(ObservationReasonCode.ORG_NOT_FOUND)
     if row["parent_id"] == parent_id:
         # Idempotent — parent already as supplied. Checked before the authority
         # gate so an identical redelivery by a foreign key stays a quiet no-op.
         return
 
     if parent_id == organization_id:
-        raise ObservationRejected("parent_cycle")
+        raise ObservationRejected(ObservationReasonCode.PARENT_CYCLE)
     parent_exists = await conn.fetchval(
         "SELECT 1 FROM organizations WHERE id=$1 AND archived_at IS NULL", parent_id
     )
     if not parent_exists:
-        raise ObservationRejected("parent_not_found")
+        raise ObservationRejected(ObservationReasonCode.PARENT_NOT_FOUND)
 
     if row["source_key_id"] is not None and row["source_key_id"] != source_key_id:
         logger.warning(
@@ -1398,7 +1519,7 @@ async def write_org_parent(
             row["source_key_id"],
             source_key_id,
         )
-        raise ObservationRejected("source_key_mismatch")
+        raise ObservationRejected(ObservationReasonCode.PROVENANCE_CONFLICT, "source_key_mismatch")
 
     await _set_org_parent(conn, organization_id, parent_id, source_key_id, "archived_at IS NULL")
     logger.info("Reparented org id=%s parent_id=%s", organization_id, parent_id)
@@ -1421,9 +1542,9 @@ async def write_org_active(conn, organization_id: str, active: bool) -> None:
     try:
         await set_org_active(conn, organization_id, active)
     except ActiveOnArchivedOrg as exc:
-        raise ObservationRejected("active_on_archived_org") from exc
+        raise ObservationRejected(ObservationReasonCode.ACTIVE_ON_ARCHIVED_ORG) from exc
     except OrgNotFound as exc:
-        raise ObservationRejected("org_not_found") from exc
+        raise ObservationRejected(ObservationReasonCode.ORG_NOT_FOUND) from exc
 
 
 async def write_org_jurisdiction_affiliations(
@@ -1443,7 +1564,8 @@ async def write_org_jurisdiction_affiliations(
         )
         if type_id is None:
             raise ObservationRejected(
-                f"Unknown affiliation_type_slug: {aff.affiliation_type_slug!r}"
+                ObservationReasonCode.INVALID,
+                f"Unknown affiliation_type_slug: {aff.affiliation_type_slug!r}",
             )
         await conn.execute(
             """
@@ -1483,7 +1605,8 @@ async def lookup_org_parent_by_name(conn, name: str) -> str:
     )
     if len(rows) != 1:
         raise ObservationRejected(
-            f"Org parent name lookup returned {len(rows)} matches (expected 1)"
+            ObservationReasonCode.INVALID,
+            f"Org parent name lookup returned {len(rows)} matches (expected 1)",
         )
     return rows[0]["id"]
 
@@ -1503,7 +1626,8 @@ async def lookup_org_parent_by_acronym(conn, acronym: str) -> str:
     )
     if len(rows) != 1:
         raise ObservationRejected(
-            f"Org parent acronym lookup returned {len(rows)} matches (expected 1)"
+            ObservationReasonCode.INVALID,
+            f"Org parent acronym lookup returned {len(rows)} matches (expected 1)",
         )
     return rows[0]["id"]
 
@@ -1543,16 +1667,23 @@ async def write_additional_identifiers(
             "SELECT id, entity_type, is_internal FROM entity_identifier_types WHERE slug=$1", slug
         )
         if eit is None:
-            raise ObservationRejected(f"Unknown identifier_type_slug: {slug!r}")
+            raise ObservationRejected(
+                ObservationReasonCode.UNKNOWN_IDENTIFIER_TYPE,
+                f"Unknown identifier_type_slug: {slug!r}",
+            )
         if eit["is_internal"]:
             raise ObservationRejected(
-                f"Internal identifier type {slug!r} cannot be assigned via observations"
+                ObservationReasonCode.INVALID,
+                f"Internal identifier type {slug!r} cannot be assigned via observations",
             )
         if eit["entity_type"] != entity_type:
             # #617: identifiers is polymorphic with no guard, so an org_ubi would
             # land on a person; resolve_entity then checks liveness against the
             # *type's* table and mislabels the UBI's lookup organization_archived.
-            raise ObservationRejected(f"identifier_type_mismatch: {slug!r}")
+            raise ObservationRejected(
+                ObservationReasonCode.IDENTIFIER_TYPE_MISMATCH,
+                f"identifier_type_mismatch: {slug!r}",
+            )
         eit_id = eit["id"]
         held = await _held_identifier_values(conn, entity_id, eit_id)
         if replaces is None:
@@ -1563,7 +1694,9 @@ async def write_additional_identifiers(
         # #710 decision (a): a type a dataset asserts on this entity comes only
         # from the dataset — an observed key could never be removed here.
         if await dataset_owned_identifier(conn, entity_type, entity_id, eit_id):
-            raise ObservationRejected(f"identifier_locked: {slug!r}")
+            raise ObservationRejected(
+                ObservationReasonCode.IDENTIFIER_LOCKED, f"identifier_locked: {slug!r}"
+            )
         if held and replaces is None:
             raise IdentifierConflict(slug)
         # #812: a *_cannabis_observer value names one entity. Name the holder
@@ -1572,7 +1705,9 @@ async def write_additional_identifiers(
         if eit_id in UNIQUE_IDENTIFIER_TYPE_IDS:
             holder = await identifier_holder(conn, eit_id, value, other_than=entity_id)
             if holder is not None:
-                raise ObservationRejected(taken_reason(slug, holder))
+                raise ObservationRejected(
+                    ObservationReasonCode.IDENTIFIER_TAKEN, taken_reason(slug, holder)
+                )
         if replaces is None:
             await _insert_identifier(conn, entity_id, eit_id, value)
         elif await _swap_identifier(conn, entity_id, eit_id, slug, value, replaces):
@@ -1640,14 +1775,18 @@ def _replace_applies(type_id: str, slug: str, value: str, replaces: str, held: s
       - neither held → ``replaces_not_held``
     """
     if type_id not in UNIQUE_IDENTIFIER_TYPE_IDS:
-        raise ObservationRejected(f"replaces_unsupported: {slug!r}")
+        raise ObservationRejected(
+            ObservationReasonCode.REPLACES_UNSUPPORTED, f"replaces_unsupported: {slug!r}"
+        )
     if replaces == value:
-        raise ObservationRejected("invalid")
+        raise ObservationRejected(ObservationReasonCode.INVALID)
     if replaces in held:
         return True
     if value in held:
         return False
-    raise ObservationRejected(f"replaces_not_held: {slug!r}")
+    raise ObservationRejected(
+        ObservationReasonCode.REPLACES_NOT_HELD, f"replaces_not_held: {slug!r}"
+    )
 
 
 async def _swap_identifier(
@@ -1688,7 +1827,9 @@ async def _swap_identifier(
     if not removed:
         if holds_new:
             return False
-        raise ObservationRejected(f"replaces_not_held: {slug!r}")
+        raise ObservationRejected(
+            ObservationReasonCode.REPLACES_NOT_HELD, f"replaces_not_held: {slug!r}"
+        )
     if not holds_new:
         await _insert_identifier(conn, entity_id, type_id, value)
     return True
@@ -2093,9 +2234,10 @@ async def write_entity_events(
             # the pre-check's slug, not the route's blanket constraint answer.
             if not linked_entity_vanished(exc):
                 raise
-            raise ObservationRejected(EventRejectReason.LINKED_ENTITY_UNRESOLVED) from exc
+            raise ObservationRejected(ObservationReasonCode.LINKED_ENTITY_UNRESOLVED) from exc
         if result.disposition is EventDisposition.REJECTED:
-            raise ObservationRejected(result.reason)
+            # An event slug is a code too (tests/core/test_refusals.py holds it).
+            raise ObservationRejected(ObservationReasonCode(result.reason))
         results.append(result)
     return results
 
@@ -2147,7 +2289,7 @@ async def apply_event_observations(
     return results
 
 
-async def _role_liveness_rejection(conn, role_id: str) -> str | None:
+async def _role_liveness_rejection(conn, role_id: str) -> Refusal | None:
     """Return ``role_not_found: '<id>'`` if the role is unknown or archived, else None.
 
     Shared by both create doors — :func:`resolve_assignment` and
@@ -2157,7 +2299,11 @@ async def _role_liveness_rejection(conn, role_id: str) -> str | None:
     alone admits an archived role.
     """
     live = await conn.fetchval("SELECT 1 FROM roles WHERE id=$1 AND archived_at IS NULL", role_id)
-    return None if live else f"role_not_found: {role_id!r}"
+    return (
+        None
+        if live
+        else Refusal(ObservationReasonCode.ROLE_NOT_FOUND, f"role_not_found: {role_id!r}")
+    )
 
 
 async def _find_archived_assignment_twin(
@@ -2200,8 +2346,8 @@ async def resolve_assignment(
 
     Returns an :class:`AssignmentResolution`. ``disposition`` is AUTO_ATTACHED if
     an active (non-archived) match is found, NEW if created, REJECTED if
-    person_id or role_id does not exist; ``reason`` is a human-readable string on
-    REJECTED, None otherwise.
+    person_id or role_id does not exist; ``reason`` is a ``Refusal`` on REJECTED
+    (#882), None otherwise.
 
     On AUTO_ATTACHED (#311):
 
@@ -2228,7 +2374,11 @@ async def resolve_assignment(
     )
     if not person_exists:
         logger.warning("resolve_assignment: unknown person_id=%r", person_id)
-        return AssignmentResolution("", Disposition.REJECTED, f"person_not_found: {person_id!r}")
+        return AssignmentResolution(
+            "",
+            Disposition.REJECTED,
+            Refusal(ObservationReasonCode.PERSON_NOT_FOUND, f"person_not_found: {person_id!r}"),
+        )
 
     role_rejection = await _role_liveness_rejection(conn, role_id)
     if role_rejection is not None:
@@ -2334,7 +2484,9 @@ async def resolve_assignment(
             role_id,
             start_date,
         )
-        return AssignmentResolution("", Disposition.REJECTED, "unique_violation")
+        return AssignmentResolution(
+            "", Disposition.REJECTED, Refusal(ObservationReasonCode.UNIQUE_VIOLATION)
+        )
 
     logger.info(
         "Created role_assignment id=%s person=%s role=%s start=%s",
@@ -2408,7 +2560,7 @@ async def update_assignment_fields(
         assignment_id,
     )
     if row is None:
-        raise ObservationRejected("assignment_not_found")
+        raise ObservationRejected(ObservationReasonCode.ASSIGNMENT_NOT_FOUND)
 
     # A NULL source is unowned: the first caller to assert this row's bounds
     # claims it. Computed once — both the identical-assertion branch below and
@@ -2464,7 +2616,7 @@ async def update_assignment_fields(
                     "update_assignment_fields: assignment=%s archived between read and claim",
                     assignment_id,
                 )
-                raise ObservationRejected("assignment_not_found")
+                raise ObservationRejected(ObservationReasonCode.ASSIGNMENT_NOT_FOUND)
             return False
         logger.info(
             "Claimed provenance on role_assignment id=%s source_key_id=%s",
@@ -2480,12 +2632,12 @@ async def update_assignment_fields(
             row["source_key_id"],
             source_key_id,
         )
-        raise ObservationRejected("source_key_mismatch")
+        raise ObservationRejected(ObservationReasonCode.PROVENANCE_CONFLICT, "source_key_mismatch")
 
     if new_current and new_end is not None:
-        raise ObservationRejected("is_current_end_date_conflict")
+        raise ObservationRejected(ObservationReasonCode.IS_CURRENT_END_DATE_CONFLICT)
     if new_start is not None and new_end is not None and new_start > new_end:
-        raise ObservationRejected("start_after_end_date")
+        raise ObservationRejected(ObservationReasonCode.START_AFTER_END_DATE)
 
     try:
         # RETURNING for the same reason as the claim branch above: the reported
@@ -2515,7 +2667,7 @@ async def update_assignment_fields(
             assignment_id,
             new_start,
         )
-        raise ObservationRejected("start_date_conflict") from exc
+        raise ObservationRejected(ObservationReasonCode.START_DATE_CONFLICT) from exc
 
     if updated is None:
         # Zero rows matched, so nothing was written — never log or return success
@@ -2537,12 +2689,14 @@ async def update_assignment_fields(
                 assignment_id,
                 current["source_key_id"],
             )
-            raise ObservationRejected("source_key_mismatch")
+            raise ObservationRejected(
+                ObservationReasonCode.PROVENANCE_CONFLICT, "source_key_mismatch"
+            )
         logger.warning(
             "update_assignment_fields: assignment=%s vanished between read and write",
             assignment_id,
         )
-        raise ObservationRejected("assignment_not_found")
+        raise ObservationRejected(ObservationReasonCode.ASSIGNMENT_NOT_FOUND)
 
     logger.info(
         "Updated role_assignment id=%s start_date=%s end_date=%s is_current=%s",
@@ -2601,7 +2755,7 @@ async def retract_assignment(
     )
     if row is None:
         logger.warning("retract_assignment: unknown assignment=%r", assignment_id)
-        raise ObservationRejected("assignment_not_found")
+        raise ObservationRejected(ObservationReasonCode.ASSIGNMENT_NOT_FOUND)
 
     if row["archived_at"] is not None:
         # Idempotent — a producer re-emits the retract every cycle. No UPDATE,
@@ -2620,7 +2774,7 @@ async def retract_assignment(
             person_id,
             role_id,
         )
-        raise ObservationRejected("identity_immutable")
+        raise ObservationRejected(ObservationReasonCode.IDENTITY_IMMUTABLE)
 
     if row["source_key_id"] is not None and row["source_key_id"] != source_key_id:
         logger.warning(
@@ -2629,7 +2783,7 @@ async def retract_assignment(
             row["source_key_id"],
             source_key_id,
         )
-        raise ObservationRejected("source_key_mismatch")
+        raise ObservationRejected(ObservationReasonCode.PROVENANCE_CONFLICT, "source_key_mismatch")
 
     await conn.execute(
         "UPDATE role_assignments SET archived_at=NOW(),"

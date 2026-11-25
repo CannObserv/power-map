@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 import asyncpg
 
+from src.core.refusals import ObservationReasonCode, Refusal
+
 #: The index, and the constraint name a ``unique_violation`` on it carries.
 IDENTIFIER_TAKEN_GUARD = "uq_identifiers_cannabis_observer"
 
@@ -97,7 +99,7 @@ def taken_reason(slug: str, holder: Holder | None) -> str:
     return f"identifier_taken: {slug!r} held by {state}{holder.entity_id!r}"
 
 
-async def unique_violation_reason(conn, exc: asyncpg.UniqueViolationError) -> str:
+async def unique_violation_reason(conn, exc: asyncpg.UniqueViolationError) -> Refusal:
     """An observation route's reason for a ``unique_violation`` that aborted its write.
 
     This index's violation is a lost race past ``write_additional_identifiers``'
@@ -106,12 +108,13 @@ async def unique_violation_reason(conn, exc: asyncpg.UniqueViolationError) -> st
     before. The route's transaction has rolled back, so ``conn`` reads again.
     """
     if not is_identifier_taken(exc):
-        return "db_constraint_violation"
+        return Refusal(ObservationReasonCode.DB_CONSTRAINT_VIOLATION)
+    taken = ObservationReasonCode.IDENTIFIER_TAKEN
     key = taken_key(exc)
     if key is None:
-        return "identifier_taken"
+        return Refusal(taken)
     type_id, value = key
     slug = await conn.fetchval("SELECT slug FROM entity_identifier_types WHERE id = $1", type_id)
     if slug is None:
-        return "identifier_taken"
-    return taken_reason(slug, await identifier_holder(conn, type_id, value))
+        return Refusal(taken)
+    return Refusal(taken, taken_reason(slug, await identifier_holder(conn, type_id, value)))

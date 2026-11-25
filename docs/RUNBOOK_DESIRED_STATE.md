@@ -351,7 +351,7 @@ versions are the ones it offered (`currency`, #535).
   defaults. `updated_at` and the touch triggers fire as for any
   writer; no `source_key_id` is stamped. That makes the applier a **second door**
   to `organizations.parent_id`, beside the observation API's authoritative
-  reparent: the `source_key_mismatch` gate (#334) guards that API, not the
+  reparent: the `provenance_conflict` gate (#334) guards that API, not the
   column, so it neither blocks nor records an applier reparent.
 - **What the runs find**, in shape rather than tally: person-name updates
   (punctuation and nickname forms), acronym updates, parent updates on the

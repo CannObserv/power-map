@@ -37,6 +37,7 @@ from src.core.observation import (
     write_contact_methods,
     write_links,
 )
+from src.core.refusals import ObservationReasonCode
 
 router = APIRouter(prefix="/assignments", tags=["public-api"])
 
@@ -245,7 +246,7 @@ async def submit_assignment_observation(
     try:
         if req.op == "retract":
             if not is_pm_native:
-                raise ObservationRejected("invalid")
+                raise ObservationRejected(ObservationReasonCode.INVALID)
             async with db.transaction():
                 disposition = await retract_assignment(
                     db,
@@ -272,7 +273,7 @@ async def submit_assignment_observation(
                     db, "pm_assignment_id", req.identifier_value
                 )
                 if disposition is Disposition.REJECTED:
-                    raise ObservationRejected(reason)
+                    raise ObservationRejected.of(reason)
                 provenance_claimed = await update_assignment_fields(
                     db,
                     assignment_id,
@@ -294,7 +295,7 @@ async def submit_assignment_observation(
                     source_key_id=auth.key_id,
                 )
                 if resolution.disposition is Disposition.REJECTED:
-                    raise ObservationRejected(resolution.reason)
+                    raise ObservationRejected.of(resolution.reason)
                 assignment_id = resolution.assignment_id
                 disposition = resolution.disposition
                 # Copy on read: `frozen=True` does not freeze the list itself, and
@@ -328,18 +329,18 @@ async def submit_assignment_observation(
                     db, assignment_id, "role_assignment", req.additional_identifiers
                 )
     except ObservationRejected as exc:
-        return ObservationResponse(disposition="rejected", reason=exc.detail)
+        return ObservationResponse.rejected(exc.code, exc.detail)
     except IdentifierConflict as exc:
-        return ObservationResponse(
-            disposition="rejected",
-            reason=f"identifier_conflict: {exc.identifier_type_slug!r}",
+        return ObservationResponse.rejected(
+            ObservationReasonCode.IDENTIFIER_CONFLICT,
+            f"identifier_conflict: {exc.identifier_type_slug!r}",
         )
     except asyncpg.UniqueViolationError as exc:
         # #812: a lost race on uq_identifiers_cannabis_observer is identifier_taken.
-        reason = await unique_violation_reason(db, exc)
-        return ObservationResponse(disposition="rejected", reason=reason)
+        refusal = await unique_violation_reason(db, exc)
+        return ObservationResponse.rejected(refusal.code, refusal)
     except (asyncpg.CheckViolationError, asyncpg.ForeignKeyViolationError):
-        return ObservationResponse(disposition="rejected", reason="db_constraint_violation")
+        return ObservationResponse.rejected(ObservationReasonCode.DB_CONSTRAINT_VIOLATION)
 
     log_replaced_identifiers("role_assignment", assignment_id, replaced)
     return ObservationResponse(
