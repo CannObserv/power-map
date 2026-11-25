@@ -173,7 +173,7 @@ async def search_people(
     if id_type is not None:
         rows = await db.fetch(
             f"""
-            SELECT p.id, v.display_name, p.archived_at
+            SELECT p.id, v.display_name, p.personal_pronouns, p.archived_at
             FROM people p
             LEFT JOIN v_person_display_names v ON v.person_id = p.id
             WHERE p.id IN ({identifier_holders("person", 1, 2)})
@@ -200,6 +200,7 @@ async def search_people(
         SELECT
             p.id,
             v.display_name,
+            p.personal_pronouns,
             p.archived_at
         FROM (SELECT pm_prefix_tsquery('pm_unaccent_simple', $1) AS tsq) _q,
              people p
@@ -226,7 +227,12 @@ def _person_search_page(rows: list, limit: int, offset: int) -> dict:
     page = rows[:limit]
     return {
         "data": [
-            {"id": r["id"], "display_name": r["display_name"], "archived_at": r["archived_at"]}
+            {
+                "id": r["id"],
+                "display_name": r["display_name"],
+                "personal_pronouns": r["personal_pronouns"],
+                "archived_at": r["archived_at"],
+            }
             for r in page
         ],
         "meta": {
@@ -255,7 +261,8 @@ async def get_person(
     """Return full person record with public name variants and identifiers."""
     row = await db.fetchrow(
         """
-        SELECT p.id, p.archived_at, p.created_at, p.updated_at, v.display_name
+        SELECT p.id, p.personal_pronouns, p.archived_at, p.created_at, p.updated_at,
+               v.display_name
         FROM people p
         LEFT JOIN v_person_display_names v ON v.person_id = p.id
         WHERE p.id = $1
@@ -275,6 +282,7 @@ async def get_person(
     return {
         "id": row["id"],
         "display_name": row["display_name"],
+        "personal_pronouns": row["personal_pronouns"],
         "archived_at": row["archived_at"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],

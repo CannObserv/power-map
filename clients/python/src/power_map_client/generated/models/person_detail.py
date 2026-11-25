@@ -26,6 +26,7 @@ class PersonDetail:
         created_at (datetime.datetime):
         updated_at (datetime.datetime):
         display_name (None | str | Unset):
+        personal_pronouns (None | str | Unset):
         archived_at (datetime.datetime | None | Unset):
         names (list[PersonName] | Unset):
         identifiers (list[PersonIdentifier] | Unset):
@@ -36,6 +37,7 @@ class PersonDetail:
     created_at: datetime.datetime
     updated_at: datetime.datetime
     display_name: None | str | Unset = UNSET
+    personal_pronouns: None | str | Unset = UNSET
     archived_at: datetime.datetime | None | Unset = UNSET
     names: list[PersonName] | Unset = UNSET
     identifiers: list[PersonIdentifier] | Unset = UNSET
@@ -54,6 +56,12 @@ class PersonDetail:
             display_name = UNSET
         else:
             display_name = self.display_name
+
+        personal_pronouns: None | str | Unset
+        if isinstance(self.personal_pronouns, Unset):
+            personal_pronouns = UNSET
+        else:
+            personal_pronouns = self.personal_pronouns
 
         archived_at: None | str | Unset
         if isinstance(self.archived_at, Unset):
@@ -90,6 +98,8 @@ class PersonDetail:
         )
         if display_name is not UNSET:
             field_dict["display_name"] = display_name
+        if personal_pronouns is not UNSET:
+            field_dict["personal_pronouns"] = personal_pronouns
         if archived_at is not UNSET:
             field_dict["archived_at"] = archived_at
         if names is not UNSET:
@@ -121,6 +131,15 @@ class PersonDetail:
             return cast(None | str | Unset, data)
 
         display_name = _parse_display_name(d.pop("display_name", UNSET))
+
+        def _parse_personal_pronouns(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        personal_pronouns = _parse_personal_pronouns(d.pop("personal_pronouns", UNSET))
 
         def _parse_archived_at(data: object) -> datetime.datetime | None | Unset:
             if data is None:
@@ -164,6 +183,7 @@ class PersonDetail:
             created_at=created_at,
             updated_at=updated_at,
             display_name=display_name,
+            personal_pronouns=personal_pronouns,
             archived_at=archived_at,
             names=names,
             identifiers=identifiers,

@@ -316,6 +316,32 @@ async def test_pronouns_write_if_null(client, ppl_write_key, db):
     assert row["personal_pronouns"] == "she/her"
 
 
+async def test_observed_pronouns_read_back_on_detail(client, ppl_write_key):
+    """#880 seam: pronouns written through the observation read back on the detail GET.
+
+    The write is fill-if-empty, so the read is what lets a producer see the value PM
+    kept when its own differs.
+    """
+    raw, _ = ppl_write_key
+    value = _unique_id()
+    for pronouns in ("she/her", "he/him"):
+        r = await _post(
+            client,
+            raw,
+            {
+                "identifier_type": "person_wa_pdc",
+                "identifier_value": value,
+                "personal_pronouns": pronouns,
+            },
+        )
+        assert r.status_code == 200
+    eid = r.json()["entity_id"]
+
+    detail = await client.get(f"/api/v1/people/{eid}", headers={"X-API-Key": raw})
+    assert detail.status_code == 200
+    assert detail.json()["personal_pronouns"] == "she/her"
+
+
 # ---------------------------------------------------------------------------
 # Role assignment
 # ---------------------------------------------------------------------------
