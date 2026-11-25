@@ -845,6 +845,7 @@ async def test_get_person_etag_changes_after_pronouns_set(client, api_key, perso
             headers={"X-API-Key": api_key, "If-None-Match": etag1},
         )
         assert r2.status_code == 200
+        assert r2.headers["etag"] != etag1
         assert r2.json()["personal_pronouns"] == "they/them"
     finally:
         await db.execute("UPDATE people SET personal_pronouns=NULL WHERE id=$1", pid)
