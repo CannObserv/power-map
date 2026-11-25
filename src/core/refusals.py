@@ -64,6 +64,9 @@ class ObservationReasonCode(StrEnum):
     IS_CURRENT_END_DATE_CONFLICT = "is_current_end_date_conflict"
     START_AFTER_END_DATE = "start_after_end_date"
     START_DATE_CONFLICT = "start_date_conflict"
+    # Assignments and org parent (#882): a subscribed dataset owns the row, and
+    # its nightly apply would revert the write — correct it at the dataset.
+    OWNED_BY_DATASET = "owned_by_dataset"
     # Org parent
     PARENT_NOT_FOUND = "parent_not_found"
     PARENT_CYCLE = "parent_cycle"

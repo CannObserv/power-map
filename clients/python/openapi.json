@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "power-map",
-    "version": "0.80.0"
+    "version": "0.81.0"
   },
   "paths": {
     "/health": {
@@ -211,7 +211,7 @@
           "public-api"
         ],
         "summary": "Get Assignment",
-        "description": "Return a full assignment record with links, contact methods, addresses, and identifiers.",
+        "description": "Return a full assignment record with links, contact methods, addresses, and identifiers.\n\n``ownership`` (#882) is relative to the calling key, so the ETag carries it.",
         "operationId": "getAssignment",
         "security": [
           {
@@ -3515,7 +3515,7 @@
           "public-api"
         ],
         "summary": "Get Org",
-        "description": "Return full org record with names, acronyms, and identifiers.",
+        "description": "Return full org record with names, acronyms, and identifiers.\n\n``parent_ownership`` (#882) is relative to the calling key, so the ETag carries it.",
         "operationId": "getOrg",
         "security": [
           {
@@ -4901,6 +4901,9 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "ownership": {
+            "$ref": "#/components/schemas/Ownership"
+          },
           "links": {
             "items": {
               "$ref": "#/components/schemas/AssignmentLink"
@@ -4938,7 +4941,8 @@
           "is_current",
           "membership_type",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "ownership"
         ],
         "title": "AssignmentDetail",
         "description": "Full assignment record including links, contact methods, addresses, and identifiers."
@@ -7815,6 +7819,7 @@
           "is_current_end_date_conflict",
           "start_after_end_date",
           "start_date_conflict",
+          "owned_by_dataset",
           "parent_not_found",
           "parent_cycle",
           "active_on_archived_org",
@@ -8367,6 +8372,9 @@
             "type": "boolean",
             "title": "Active"
           },
+          "parent_ownership": {
+            "$ref": "#/components/schemas/Ownership"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -8411,6 +8419,7 @@
           "id",
           "lifespan",
           "active",
+          "parent_ownership",
           "created_at",
           "updated_at"
         ],
@@ -8860,6 +8869,17 @@
         ],
         "title": "OrganizationObservationRequest",
         "description": "Payload for POST /api/v1/orgs/observations."
+      },
+      "Ownership": {
+        "type": "string",
+        "enum": [
+          "self",
+          "other",
+          "none",
+          "dataset"
+        ],
+        "title": "Ownership",
+        "description": "A record's ownership relative to the calling key."
       },
       "PartialDate": {
         "properties": {

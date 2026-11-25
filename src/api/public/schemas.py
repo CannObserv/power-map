@@ -13,6 +13,7 @@ from pydantic import (
     model_validator,
 )
 
+from src.core.record_ownership import Ownership
 from src.core.refusals import ObservationReasonCode
 
 # The `entity_identifier_types.entity_type` CHECK vocabulary. Aliased because
@@ -179,6 +180,11 @@ class OrgDetail(OrgSearchResult):
     # Required (no default): the org row always supplies it, and a default would
     # silently mask a handler that forgot to populate it.
     active: bool
+    # #882: who may change `parent_id` through the observation API, relative to
+    # the calling key — the only org column the `source_key_id` gate guards, so
+    # it is named for it. `dataset` first: an id-addressed reparent is refused
+    # `owned_by_dataset`, and a natural-key fill is skipped (`unapplied`).
+    parent_ownership: Ownership
     created_at: datetime
     updated_at: datetime
     names: list[OrgName] = Field(default_factory=list)
@@ -1807,6 +1813,11 @@ class AssignmentIdentifier(BaseModel):
 class AssignmentDetail(AssignmentListItem):
     """Full assignment record including links, contact methods, addresses, and identifiers."""
 
+    # #882: who may change the tenure (`start_date`, `end_date`, `is_current`)
+    # through the observation API, relative to the calling key. `dataset` first:
+    # the nightly apply reverts an observation write, and one is refused
+    # `owned_by_dataset`. Required: a handler that forgot it must fail loudly.
+    ownership: Ownership
     links: list[AssignmentLink] = Field(default_factory=list)
     contact_methods: list[AssignmentContactMethod] = Field(default_factory=list)
     addresses: list[AssignmentAddress] = Field(default_factory=list)

@@ -158,6 +158,14 @@ def test_make_etag_is_quoted_and_millisecond_precision():
     assert etag.endswith('500"')
 
 
+def test_make_etag_folds_a_key_relative_value():
+    """#882: a caller-relative field varies the validator, not just updated_at."""
+    ts = datetime(2026, 8, 5, 12, 30, 45, 500000, tzinfo=UTC)
+    assert make_etag("01ABC", ts, "self") == '"01ABC-1785933045500-self"'
+    assert make_etag("01ABC", ts, "self") != make_etag("01ABC", ts, "other")
+    assert make_etag("01ABC", ts) == '"01ABC-1785933045500"'
+
+
 # ---------------------------------------------------------------------------
 # conditional_response
 # ---------------------------------------------------------------------------

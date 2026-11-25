@@ -21,6 +21,7 @@ __all__ = [
     "DATASET_OWNED_IDENTIFIER_TYPES",
     "DATASET_OWNED_LINK_TYPES",
     "DATASET_OWNED_TABLES",
+    "anchored_assignments",
     "anchored_orgs",
     "anchored_people",
     "dataset_owned_identifier",
@@ -65,6 +66,15 @@ async def _anchored(conn: asyncpg.Connection, kind: str, ids: list[str]) -> set[
 async def anchored_orgs(conn: asyncpg.Connection, ids: list[str]) -> set[str]:
     """The orgs among ``ids`` the producer's anchors hold in scope — one query for a list."""
     return await _anchored(conn, "organization", ids)
+
+
+async def anchored_assignments(conn: asyncpg.Connection, ids: list[str]) -> set[str]:
+    """The assignments among ``ids`` the producer's anchors hold in scope (#882).
+
+    Their dates are the dataset's (``desired_role_assignment_dates``), so an
+    observation write to one would be reverted by the next apply.
+    """
+    return await _anchored(conn, "assignment", ids)
 
 
 async def anchored_people(conn: asyncpg.Connection, ids: list[str]) -> set[str]:

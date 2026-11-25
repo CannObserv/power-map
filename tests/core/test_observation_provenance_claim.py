@@ -63,6 +63,11 @@ class _StubConn:
         stored = self._row["source_key_id"]
         return {"id": _RA_ID, "source_key_id": stored if stored is not None else args[4]}
 
+    async def fetch(self, sql, *args):
+        """The #882 dataset-anchor lookup: no anchor, so the row is not a dataset's."""
+        assert "producer_crosswalk" in sql
+        return []
+
     async def fetchval(self, sql, *args):
         self.executed.append((sql, args))
         assert sql.rstrip().endswith("RETURNING source_key_id")

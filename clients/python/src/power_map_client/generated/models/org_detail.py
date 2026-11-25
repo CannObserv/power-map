@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.ownership import Ownership
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
@@ -31,6 +32,7 @@ class OrgDetail:
             date within precision of the earliest dissolved/merged_with/dated
             succeeded_by event). Either side null when no dated event bounds it.
         active (bool):
+        parent_ownership (Ownership): A record's ownership relative to the calling key.
         created_at (datetime.datetime):
         updated_at (datetime.datetime):
         name (None | str | Unset):
@@ -49,6 +51,7 @@ class OrgDetail:
     id: str
     lifespan: OrgLifespan
     active: bool
+    parent_ownership: Ownership
     created_at: datetime.datetime
     updated_at: datetime.datetime
     name: None | str | Unset = UNSET
@@ -70,6 +73,8 @@ class OrgDetail:
         lifespan = self.lifespan.to_dict()
 
         active = self.active
+
+        parent_ownership = self.parent_ownership.value
 
         created_at = self.created_at.isoformat()
 
@@ -154,6 +159,7 @@ class OrgDetail:
                 "id": id,
                 "lifespan": lifespan,
                 "active": active,
+                "parent_ownership": parent_ownership,
                 "created_at": created_at,
                 "updated_at": updated_at,
             }
@@ -197,6 +203,8 @@ class OrgDetail:
         lifespan = OrgLifespan.from_dict(d.pop("lifespan"))
 
         active = d.pop("active")
+
+        parent_ownership = Ownership(d.pop("parent_ownership"))
 
         created_at = datetime.datetime.fromisoformat(d.pop("created_at"))
 
@@ -315,6 +323,7 @@ class OrgDetail:
             id=id,
             lifespan=lifespan,
             active=active,
+            parent_ownership=parent_ownership,
             created_at=created_at,
             updated_at=updated_at,
             name=name,

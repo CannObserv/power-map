@@ -31,6 +31,7 @@ class ObservationReasonCode(StrEnum):
     NAME_IS_LAST = "name_is_last"
     ORGANIZATION_ARCHIVED = "organization_archived"
     ORG_NOT_FOUND = "org_not_found"
+    OWNED_BY_DATASET = "owned_by_dataset"
     PARENT_CYCLE = "parent_cycle"
     PARENT_NOT_FOUND = "parent_not_found"
     PERSON_ARCHIVED = "person_archived"

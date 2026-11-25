@@ -19,7 +19,7 @@ from starlette.requests import Request
 
 from src.api.deps import get_db
 from src.api.main import app
-from src.api.public.deps import require_api_key
+from src.api.public.deps import AuthedKey, require_key
 from src.api.routing import iter_api_routes
 from src.api.validation import (
     TOO_DEEP_INPUT,
@@ -31,6 +31,9 @@ from src.api.validation import (
 )
 from src.core.json_depth import MAX_JSON_DEPTH
 from src.core.storable_text import escape_unstorable_deep
+
+# The batch read takes the caller's key id (#882: parent_ownership is relative to it).
+_KEY = AuthedKey(user_id="u", key_id="k")
 
 
 @pytest.fixture
@@ -164,7 +167,7 @@ def test_multipart_form_body(client):
 def test_storable_lookalikes_reach_the_route(client, body, monkeypatch):
     c, db = client
     db.fetch.return_value = []  # no org rows, no tombstones: every id is not_found
-    monkeypatch.setitem(app.dependency_overrides, require_api_key, lambda: "key")
+    monkeypatch.setitem(app.dependency_overrides, require_key, lambda: _KEY)
     r = c.post("/api/v1/orgs/batch-get", content=body, headers={"content-type": "application/json"})
     assert r.status_code == 200, r.text
     assert [x["outcome"] for x in r.json()["results"]] == ["not_found"]
@@ -252,7 +255,7 @@ def test_depth_sweep_never_5xx(client, monkeypatch, depth, leaf, keyed):
     # input; with a NUL leaf, find_unstorable did so from 971, before auth.
     c, db = client
     if keyed:
-        monkeypatch.setitem(app.dependency_overrides, require_api_key, lambda: "key")
+        monkeypatch.setitem(app.dependency_overrides, require_key, lambda: _KEY)
     r = c.post(_BATCH, content=_deep_body(depth, _LEAVES[leaf]), headers=_JSON)
     expected = _expected(depth, leaf, keyed)
     if expected == 403:
@@ -267,7 +270,7 @@ def test_depth_sweep_never_5xx(client, monkeypatch, depth, leaf, keyed):
 @pytest.mark.parametrize("leaf", sorted(_LEAVES))
 def test_body_at_the_bound_passes_the_rule(client, monkeypatch, leaf):
     c, _ = client
-    monkeypatch.setitem(app.dependency_overrides, require_api_key, lambda: "key")
+    monkeypatch.setitem(app.dependency_overrides, require_key, lambda: _KEY)
     r = c.post(_BATCH, content=_deep_body(MAX_JSON_DEPTH - 1, _LEAVES[leaf]), headers=_JSON)
     assert r.status_code == 422, r.text
     (err,) = r.json()["detail"]
@@ -304,7 +307,7 @@ def test_brackets_inside_strings_reach_the_route(client, monkeypatch):
     # The byte pre-screen's candidate is confirmed on the parsed body.
     c, db = client
     db.fetch.return_value = []
-    monkeypatch.setitem(app.dependency_overrides, require_api_key, lambda: "key")
+    monkeypatch.setitem(app.dependency_overrides, require_key, lambda: _KEY)
     body = json.dumps({"ids": ["[" * (MAX_JSON_DEPTH + 1) + "{" * 10]}).encode()
     r = c.post(_BATCH, content=body, headers=_JSON)
     assert r.status_code == 200, r.text

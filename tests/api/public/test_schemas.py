@@ -156,6 +156,7 @@ _TS = datetime(2024, 1, 1, tzinfo=UTC)
 
 def test_org_detail_inherits_archived_at_serializer():
     detail = OrgDetail(
+        parent_ownership="none",
         lifespan=OrgLifespan(),
         id="abc",
         active=True,
@@ -169,7 +170,12 @@ def test_org_detail_inherits_archived_at_serializer():
 
 def test_org_detail_timestamps_serialized_to_z():
     detail = OrgDetail(
-        lifespan=OrgLifespan(), id="abc", active=True, created_at=_TS, updated_at=_TS
+        parent_ownership="none",
+        lifespan=OrgLifespan(),
+        id="abc",
+        active=True,
+        created_at=_TS,
+        updated_at=_TS,
     )
     dumped = detail.model_dump(mode="json")
     assert dumped["created_at"].endswith("Z")
@@ -178,7 +184,12 @@ def test_org_detail_timestamps_serialized_to_z():
 
 def test_org_detail_arrays_default_empty():
     detail = OrgDetail(
-        lifespan=OrgLifespan(), id="abc", active=True, created_at=_TS, updated_at=_TS
+        parent_ownership="none",
+        lifespan=OrgLifespan(),
+        id="abc",
+        active=True,
+        created_at=_TS,
+        updated_at=_TS,
     )
     assert detail.names == []
     assert detail.acronyms == []
@@ -188,15 +199,31 @@ def test_org_detail_arrays_default_empty():
 def test_org_detail_active_is_required():
     """active (#240) is required — no silent default masks a handler omission."""
     with pytest.raises(ValidationError):
-        OrgDetail(lifespan=OrgLifespan(), id="abc", created_at=_TS, updated_at=_TS)
+        OrgDetail(
+            parent_ownership="none",
+            lifespan=OrgLifespan(),
+            id="abc",
+            created_at=_TS,
+            updated_at=_TS,
+        )
 
 
 def test_org_detail_active_round_trips():
     true_dump = OrgDetail(
-        lifespan=OrgLifespan(), id="abc", active=True, created_at=_TS, updated_at=_TS
+        parent_ownership="none",
+        lifespan=OrgLifespan(),
+        id="abc",
+        active=True,
+        created_at=_TS,
+        updated_at=_TS,
     ).model_dump(mode="json")
     false_dump = OrgDetail(
-        lifespan=OrgLifespan(), id="abc", active=False, created_at=_TS, updated_at=_TS
+        parent_ownership="none",
+        lifespan=OrgLifespan(),
+        id="abc",
+        active=False,
+        created_at=_TS,
+        updated_at=_TS,
     ).model_dump(mode="json")
     assert true_dump["active"] is True
     assert false_dump["active"] is False
@@ -204,6 +231,7 @@ def test_org_detail_active_round_trips():
 
 def test_org_detail_full_record_shape():
     detail = OrgDetail(
+        parent_ownership="none",
         lifespan=OrgLifespan(),
         id="abc",
         name="Foo Corp",
@@ -231,7 +259,12 @@ def test_org_detail_full_record_shape():
 
 def test_org_detail_jurisdiction_affiliations_default_empty():
     detail = OrgDetail(
-        lifespan=OrgLifespan(), id="abc", active=True, created_at=_TS, updated_at=_TS
+        parent_ownership="none",
+        lifespan=OrgLifespan(),
+        id="abc",
+        active=True,
+        created_at=_TS,
+        updated_at=_TS,
     )
     assert detail.jurisdiction_affiliations == []
 
@@ -240,6 +273,7 @@ def test_org_detail_jurisdiction_affiliations_shape():
     aff_type = OrgAffiliationType(id="t1", slug="governing", display_name="is governed by")
     aff = OrgJurisdictionAffiliation(jurisdiction_id="jid1", affiliation_type=aff_type)
     detail = OrgDetail(
+        parent_ownership="none",
         lifespan=OrgLifespan(),
         id="abc",
         active=True,
