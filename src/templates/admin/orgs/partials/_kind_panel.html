@@ -1,0 +1,84 @@
+{# admin/orgs/partials/_kind_panel.html — #877 Kind panel. Sources suggest; the operator decides. #}
+<div id="kind-panel" class="kind-panel">
+  <h3 class="field-group-label" style="margin:0 0 var(--space-3)">Kind</h3>
+  <p style="margin:0 0 var(--space-3)">
+    {% if org.kind_slug %}
+      <strong>{{ org.kind_name }}</strong>
+      <span class="badge badge--active">Reviewed</span>
+    {% elif decision == "dismiss" %}
+      <span class="badge badge--neutral">Dismissed</span>
+      <span style="color:var(--color-text-muted)">no kind applies</span>
+    {% else %}
+      <span class="badge badge--inactive">Undecided</span>
+    {% endif %}
+  </p>
+
+  {% if suggestions %}
+  <div class="table-wrapper">
+    <table class="data-table" aria-label="Kind suggestions">
+      <thead>
+        <tr>
+          <th scope="col">Source</th>
+          <th scope="col">Suggests</th>
+          <th scope="col">Confidence</th>
+          <th scope="col">Note</th>
+          <th scope="col"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in suggestions %}
+        <tr>
+          <td><span class="badge badge--neutral">{{ s.label }}</span></td>
+          <td>{% if s.name %}{{ s.name }}{% else %}<span style="color:var(--color-text-muted)">none</span>{% endif %}</td>
+          <td>{% if s.confidence is not none %}{{ "%.0f" | format(s.confidence * 100) }}%{% else %}<span style="color:var(--color-text-muted)">-</span>{% endif %}</td>
+          <td>{{ s.note or "" }}</td>
+          <td style="text-align:right">
+            {% if editable and s.acceptable %}
+            <button type="button" class="btn btn--sm btn--primary"
+                    hx-post="/admin/orgs/{{ org.id }}/kind/"
+                    hx-vals='{"action": "accept", "kind": "{{ s.value }}", "source": "{{ s.source }}"}'
+                    hx-target="#kind-panel"
+                    hx-swap="outerHTML">Accept {{ s.name }}</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if editable %}
+  <div class="btn-group" style="margin-top:var(--space-3);align-items:flex-end">
+    <div class="form-group" style="margin-bottom:0">
+      <label for="kind-select-{{ org.id }}">Set kind</label>
+      <select id="kind-select-{{ org.id }}" name="kind" style="max-width:20rem">
+        <option value=""{% if not org.kind_slug %} selected{% endif %}>Choose a kind…</option>
+        {% for k in kinds %}
+        <option value="{{ k.slug }}"{% if k.slug == org.kind_slug %} selected{% endif %}>{{ k.display_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-post="/admin/orgs/{{ org.id }}/kind/"
+            hx-vals='{"action": "set"}'
+            hx-include="#kind-select-{{ org.id }}"
+            hx-target="#kind-panel"
+            hx-swap="outerHTML">Set</button>
+    {% if decision != "dismiss" %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-post="/admin/orgs/{{ org.id }}/kind/"
+            hx-vals='{"action": "dismiss"}'
+            hx-target="#kind-panel"
+            hx-swap="outerHTML">Dismiss</button>
+    {% endif %}
+    {% if decided %}
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-post="/admin/orgs/{{ org.id }}/kind/"
+            hx-vals='{"action": "clear"}'
+            hx-target="#kind-panel"
+            hx-swap="outerHTML">Clear</button>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>

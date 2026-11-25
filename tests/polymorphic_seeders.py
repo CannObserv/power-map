@@ -241,6 +241,22 @@ async def seed_curation_overlay(db, et, eid):
     return [("curation_overlay", i)]
 
 
+async def seed_classification_suggestions(db, et, eid):
+    # The field is the entity type's (organization: org_kind; role: role_type);
+    # any other type trips classification_suggestions_entity_type_check first.
+    i = generate_id()
+    await db.execute(
+        "INSERT INTO classification_suggestions"
+        " (id, entity_type, entity_id, field, source, value, model)"
+        " VALUES ($1, $2, $3, $4, 'rules', 'business', 'rules-1')",
+        i,
+        et,
+        eid,
+        "org_kind" if et == "organization" else "role_type",
+    )
+    return [("classification_suggestions", i)]
+
+
 SEEDERS = {
     "links": seed_links,
     "contact_methods": seed_contact_methods,
@@ -251,6 +267,7 @@ SEEDERS = {
     "field_confidence": seed_field_confidence,
     "import_provenance": seed_import_provenance,
     "curation_overlay": seed_curation_overlay,
+    "classification_suggestions": seed_classification_suggestions,
 }
 
 
