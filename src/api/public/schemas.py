@@ -194,6 +194,9 @@ class PersonSearchResult(BaseModel):
 
     id: str
     display_name: str | None = None
+    # #880: as stored; None = PM holds none. The observation write only fills an
+    # empty value, so this is how a producer sees what PM kept.
+    personal_pronouns: str | None = None
     archived_at: datetime | None = None
 
     @field_serializer("archived_at")

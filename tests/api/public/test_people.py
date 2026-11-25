@@ -455,6 +455,49 @@ async def test_get_person_detail_timestamps(client, api_key, person_fixture):
     assert data["updated_at"].endswith("Z"), f"updated_at missing Z suffix: {data['updated_at']}"
 
 
+@pytest_asyncio.fixture(loop_scope="session")
+async def pronouns_set(db, person_fixture):
+    """Give the fixture person pronouns for one test; clear them afterwards (#880)."""
+    pid = person_fixture["person_id"]
+    await db.execute("UPDATE people SET personal_pronouns='she/her' WHERE id=$1", pid)
+    yield pid
+    await db.execute("UPDATE people SET personal_pronouns=NULL WHERE id=$1", pid)
+
+
+@pytest.mark.integration
+async def test_get_person_returns_personal_pronouns(client, api_key, pronouns_set):
+    """#880: the detail read carries the pronouns the write path stores."""
+    r = await client.get(f"/api/v1/people/{pronouns_set}", headers={"X-API-Key": api_key})
+    assert r.status_code == 200
+    assert r.json()["personal_pronouns"] == "she/her"
+
+
+@pytest.mark.integration
+async def test_get_person_personal_pronouns_null_when_unset(client, api_key, person_fixture):
+    """#880: present and null — "PM holds none" is a value a producer can read."""
+    pid = person_fixture["person_id"]
+    r = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    data = r.json()
+    assert "personal_pronouns" in data
+    assert data["personal_pronouns"] is None
+
+
+@pytest.mark.integration
+async def test_search_result_carries_personal_pronouns(client, api_key, pronouns_set):
+    """#880: name search rows carry pronouns, for an operator confirming a match."""
+    r = await _search(client, api_key, "Jane Elizabeth Smith")
+    hit = next(p for p in r.json()["data"] if p["id"] == pronouns_set)
+    assert hit["personal_pronouns"] == "she/her"
+
+
+@pytest.mark.integration
+async def test_identifier_search_carries_personal_pronouns(client, api_key, pronouns_set):
+    """#880: the identifier-filter branch of search carries them too."""
+    r = await _search_by_identifier(client, api_key, "person_wa_pdc", "PDC-99999")
+    hit = next(p for p in r.json()["data"] if p["id"] == pronouns_set)
+    assert hit["personal_pronouns"] == "she/her"
+
+
 @pytest.mark.integration
 async def test_search_people_does_not_expose_timestamps(client, api_key, person_fixture):
     """Search results must not include created_at or updated_at (detail-only fields)."""
@@ -785,6 +828,27 @@ async def test_get_person_etag_changes_after_parent_update(client, api_key, pers
         headers={"X-API-Key": api_key, "If-None-Match": etag1},
     )
     assert r3.status_code == 200
+
+
+@pytest.mark.integration
+async def test_get_person_etag_changes_after_pronouns_set(client, api_key, person_fixture, db):
+    """#880: pronouns are now served, so setting them must move the detail ETag."""
+    pid = person_fixture["person_id"]
+    r1 = await client.get(f"/api/v1/people/{pid}", headers={"X-API-Key": api_key})
+    etag1 = r1.headers["etag"]
+
+    await db.execute("SELECT pg_sleep(0.001)")
+    await db.execute("UPDATE people SET personal_pronouns='they/them' WHERE id=$1", pid)
+    try:
+        r2 = await client.get(
+            f"/api/v1/people/{pid}",
+            headers={"X-API-Key": api_key, "If-None-Match": etag1},
+        )
+        assert r2.status_code == 200
+        assert r2.headers["etag"] != etag1
+        assert r2.json()["personal_pronouns"] == "they/them"
+    finally:
+        await db.execute("UPDATE people SET personal_pronouns=NULL WHERE id=$1", pid)
 
 
 @pytest.mark.integration
