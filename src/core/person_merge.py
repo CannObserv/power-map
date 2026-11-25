@@ -171,7 +171,7 @@ async def merge_person_into(
         winner_id,
     )
     loser = await db.fetchrow(
-        "SELECT id, notes FROM people WHERE id=$1 FOR UPDATE",
+        "SELECT id, notes, personal_pronouns FROM people WHERE id=$1 FOR UPDATE",
         loser_id,
     )
     if not winner or not loser:
@@ -199,6 +199,16 @@ async def merge_person_into(
         await db.execute(
             "UPDATE people SET notes=$1 WHERE id=$2",
             new_notes,
+            winner_id,
+        )
+
+    # #880: pronouns are served on person reads, so the loser's must not vanish with
+    # its row. The survivor's own value stands — the observation write's fill-if-empty
+    # rule — and a NULL survivor takes the loser's.
+    if loser["personal_pronouns"]:
+        await db.execute(
+            "UPDATE people SET personal_pronouns=$1 WHERE id=$2 AND personal_pronouns IS NULL",
+            loser["personal_pronouns"],
             winner_id,
         )
 

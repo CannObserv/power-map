@@ -148,6 +148,11 @@ The re-home is a system operation, not curation: it moves dataset-owned links
 (#592) like any other, unrefused, and the next applier run reconciles them against
 `org_lineage` — a moved link the dataset no longer names is archived (gated).
 
+**A person's scalars survive the loser (#880).** `notes` append to the survivor's
+under a merge line; `personal_pronouns` fill a NULL survivor from the loser and never
+replace the survivor's own (the observation write's fill-if-empty rule). Both are
+PM's, not a dataset's (`desired_people.sql`). Guard: `tests/core/test_person_merge.py`.
+
 ---
 
 ## Merge Bar Pattern

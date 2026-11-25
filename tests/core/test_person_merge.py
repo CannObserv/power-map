@@ -83,6 +83,35 @@ async def test_returns_no_pairs_when_nothing_collides(db):
     assert await merge_person_into(db, winner_id=winner, loser_id=loser, actor_email=ACTOR) == []
 
 
+async def _pronouns(db, person_id, value):
+    await db.execute("UPDATE people SET personal_pronouns=$1 WHERE id=$2", value, person_id)
+
+
+async def test_the_losers_pronouns_carry_to_a_winner_without_any(db):
+    """#880: pronouns are read-visible, so a merge must not silently drop them."""
+    winner, loser = await _person(db, "Merge Pronoun A"), await _person(db, "Merge Pronoun B")
+    await _pronouns(db, loser, "she/her")
+
+    await merge_person_into(db, winner_id=winner, loser_id=loser, actor_email=ACTOR)
+
+    assert (
+        await db.fetchval("SELECT personal_pronouns FROM people WHERE id=$1", winner) == "she/her"
+    )
+
+
+async def test_the_winners_own_pronouns_stand(db):
+    """The survivor's value wins, as the observation write's fill-if-empty rule does."""
+    winner, loser = await _person(db, "Merge Pronoun C"), await _person(db, "Merge Pronoun D")
+    await _pronouns(db, winner, "they/them")
+    await _pronouns(db, loser, "he/him")
+
+    await merge_person_into(db, winner_id=winner, loser_id=loser, actor_email=ACTOR)
+
+    assert (
+        await db.fetchval("SELECT personal_pronouns FROM people WHERE id=$1", winner) == "they/them"
+    )
+
+
 async def test_a_missing_loser_raises_before_writing(db):
     winner = await _person(db, "Merge Return E")
     with pytest.raises(PersonNotFoundError):
