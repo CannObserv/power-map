@@ -83,18 +83,9 @@ Lookup by one: `GET /roles`, `GET /assignments`, `people/search`, `orgs/search` 
 `identifier_type` + `identifier_value`, return every holder paged by `id` (archived:
 `include_archived=true`); `count > 1`/`has_more` = duplicate (#811).
 
-**Producer-minted ids are addressed: that is the create (#879, CannObserv/cli#1386).**
-A person or organization has no natural key (a name isn't identity), so a producer
-that knows only a name creates one by minting a ULID and observing *by*
-`person_co_operator` / `org_co_operator`. An unknown value creates the record (`new`)
-and a re-send of the same value attaches to it (`auto-attached`), for good: there is no
-retry window to outlive. After a timeout, `people/search` / `orgs/search` with
-`identifier_type` + `identifier_value` say whether the create landed. Mint once per
-real person or org and keep the value: a fresh ULID for someone already in Power Map
-is a duplicate, and finding them first (name search, operator confirmation) is the
-producer's job. A curator merge moves the value to the survivor. People carry no
-`source_key_id`, so the slug is also the record of which producer minted the record.
-Citations are recommended, not enforced.
+**Producer-minted ids are addressed: that is the create (#879).** `person_co_operator`
+/ `org_co_operator` create a person or organization that holds no external identifier:
+[PRODUCER_CONTRACT.md](PRODUCER_CONTRACT.md) § Creating a record with no external identifier.
 
 **One value, one entity (#812, #879).** A value of any of the four
 `*_cannabis_observer` types or the two `*_co_operator` types appears once in

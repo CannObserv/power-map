@@ -1,6 +1,6 @@
-# power-map — The producer contract: refusal codes and record ownership
+# power-map — The producer contract: refusal codes, record ownership, minted ids
 
-What a producer acts on around an observation write (#882): the stable `reason_code` on a refusal, and a record's `ownership` before a write. The write semantics themselves are in [OBSERVATIONS.md](OBSERVATIONS.md); the response shape is in [PUBLIC_API.md](PUBLIC_API.md) § Observation writes.
+What a producer acts on around an observation write (#882): the stable `reason_code` on a refusal, and a record's `ownership` before a write; and how it creates a person or organization that holds no external identifier (#879). The write semantics themselves are in [OBSERVATIONS.md](OBSERVATIONS.md); the response shape is in [PUBLIC_API.md](PUBLIC_API.md) § Observation writes.
 
 ---
 
@@ -46,3 +46,14 @@ People and roles carry none: nothing on either row is overwritable through the A
 **Ownership on reads.** `AssignmentDetail.ownership` and `OrgDetail.parent_ownership` answer `self | other | none | dataset` relative to the calling key, from one helper the refusal shares (`src/core/record_ownership.py`). `dataset` comes first; otherwise the gate's own answer (`none` = unowned, claimable). The detail ETag carries the value. List rows carry none.
 
 **`Ownership` is a closed set.** `self`, `other`, `none` and `dataset` are the whole vocabulary: a fifth value would be a breaking change, so it would ship as one. (Reason codes are open — see PUBLIC_API.md: a minor release may add one.)
+
+---
+
+## Creating a record with no external identifier
+
+A person or organization has no natural key (a name isn't identity), so a producer that knows only a name creates one by minting a ULID and observing *by* `person_co_operator` / `org_co_operator` (#879, CannObserv/cli#1386). A role and an assignment need no such id: each re-sends safely on its natural key ([API_ROLES.md](API_ROLES.md), [API_ASSIGNMENTS.md](API_ASSIGNMENTS.md)).
+
+- **Create, re-send, recover.** An unknown value creates the record (`new`); a re-send of the same value attaches to it (`auto-attached`), with no retry window to outlive. After a timeout, `people/search` / `orgs/search` with `identifier_type` + `identifier_value` say whether the create landed. Address the record by its `pm_*` id from then on.
+- **Mint once per real person or org, and keep the value.** A fresh ULID for someone already in Power Map is a duplicate: finding them first (name search, operator confirmation) is the producer's job. Citations are recommended, not enforced.
+- **One value, one record.** The value is under `uq_identifiers_cannabis_observer` ([OBSERVATIONS.md](OBSERVATIONS.md) § Identifier types): attaching it to a second record is refused `identifier_taken`. A curator merge moves it to the survivor; `replaces` swaps it ([ANCILLARY.md](ANCILLARY.md) § Replacing).
+- **Provenance.** People carry no `source_key_id`, so the slug is also the record of which producer minted the record.

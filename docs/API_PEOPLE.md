@@ -56,7 +56,8 @@ rather than hardcoding slugs, since admin curates the table. Value conventions p
 slug — `person_wa_legislature_roster`'s `<name fold>:<first session year>` and the
 rest — are in [OBSERVATIONS.md](OBSERVATIONS.md) §"Identifier types", the single home
 for them; the catalog carries no value-format column. A person with no external
-identifier is created by a producer-minted `person_co_operator` value (#879, same §).
+identifier is created by a producer-minted `person_co_operator` value (#879,
+[PRODUCER_CONTRACT.md](PRODUCER_CONTRACT.md) § Creating a record with no external identifier).
 
 **Disposition semantics:**
 

@@ -126,7 +126,7 @@ conventions per slug — which PDC filer_id `org_wa_pdc` versus `org_wa_pdc_comm
 holds, and the rest — are in [OBSERVATIONS.md](OBSERVATIONS.md) §"Identifier types",
 the single home for them; the catalog carries no value-format column. An organization
 with no external identifier is created by a producer-minted `org_co_operator` value (#879,
-same §).
+[PRODUCER_CONTRACT.md](PRODUCER_CONTRACT.md) § Creating a record with no external identifier).
 
 **Disposition semantics:**
 
