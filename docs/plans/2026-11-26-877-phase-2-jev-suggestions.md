@@ -19,7 +19,7 @@ Two PRs, because the gold set needs operator time and the code doesn't need the 
 **PR 2a: the plumbing (flag off).**
 - **One question builder,** shared by production and the gold set, so what is scored is exactly what runs. It builds the context line, the org's state and the criteria (`org_kinds.description`).
   - **State:** the display name, the display names of its identifier types, and up to ~300 characters of its active roles' titles. No person names.
-- **A transport client,** modelled on the tracker's `jev_client.py`: plain `httpx`, 25 orgs per request, 429/529 retried with backoff, 401/403 not retried, a malformed reply stores nothing, the key never logged.
+- **A transport client,** modelled on the tracker's `jev_client.py`: plain `httpx`, **one org per request** (revised 2026-11-26, below), 429/529 retried with backoff, 401/403 not retried, a malformed reply stores nothing, the key never logged.
 - **A drain** in `classification.py`: rules first, then Jev for active orgs with no live answer for the pinned model, capped per run, under an advisory lock.
 - **Three ways to run the drain:** an in-process drainer (woken on org creation, plus a tick), the CLI, and a daily timer that checks in to co-status.
 - **A health panel** on the dashboard, plus an "AI · NN %" badge and a Re-ask button on the Kind panel.
@@ -41,8 +41,9 @@ Two PRs, because the gold set needs operator time and the code doesn't need the 
    - *Done when* these tests and `test_src_core_wa_free` pass.
 2. **Jev client (TDD).** `src/core/jev_client.py`, tested against `httpx.MockTransport` only; no test calls the API.
    - **Config,** read at call time: `JEV_SUGGESTIONS_ENABLED`, `TYPESAFE_API_KEY`, `JEV_MODEL` (default `jev-1.14.0`), `JEV_CONFIDENCE_THRESHOLD` (0.7), `JEV_MAX_PER_RUN` (2000).
+   - **Revised 2026-11-26: one org per request, not 25.** The harness scores one case per call, so a batched production request would ask a different question from the one scored. The cost is about 1 M tokens for the whole backlog. Requests run a few at a time.
    - **Tests:**
-     - batching;
+     - one org per request, and the body is exactly the shared builder's;
      - retry on 429/529 and not on 401/403;
      - a choice that isn't an option fails the batch;
      - tokens are split across the batch;
