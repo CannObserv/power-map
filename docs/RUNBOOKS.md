@@ -347,11 +347,28 @@ unsupported` run re-asks the same rows until the validator covers their country.
 
 ## Org-kind suggestions (#877)
 
-`scripts/classify_suggestions.py` records suggestions; it never sets a kind (the admin Kind panel does). Phase 1 has `--source rules`: an org's identifier-implied kind (`entity_identifier_types.implies_org_kind_id`), written only when it changed. Run after a deploy that changes the rule seed, and after bulk identifier changes.
+`scripts/classify_suggestions.py` records suggestions; it never sets a kind (the admin Kind panel does).
+- `--source rules`: an org's identifier-implied kind (`entity_identifier_types.implies_org_kind_id`), written only when it changed. Run after a deploy that changes the rule seed, and after bulk identifier changes.
+- `--source all`: the drain. Rules, then TypeSafe Jev for the active orgs with no answer from the pinned model, at most `--limit` (default `JEV_MAX_PER_RUN`). The dry run prints the backlog and an estimate of input tokens. `--reask-ids FILE` asks again about those org ids, skipping any an operator decided. Changing `JEV_MODEL` needs no flag: the new model has its own backlog.
 
 ```bash
 uv run "${env_args[@]}" python -m scripts.classify_suggestions --source rules            # dry run: counts by kind
 uv run "${env_args[@]}" python -m scripts.classify_suggestions --source rules --execute  # write (supervised)
+uv run "${env_args[@]}" python -m scripts.classify_suggestions --source all              # backlog, est. tokens
+uv run "${env_args[@]}" python -m scripts.classify_suggestions --source all --execute    # drain (supervised)
+```
+
+**Configuration** (`/etc/power-map/.env`, read at call time; the service needs a restart to see a change): `JEV_SUGGESTIONS_ENABLED` (1/true/yes to call Jev; off by default), `TYPESAFE_API_KEY`, `JEV_MODEL` (default `jev-1.14.0`), `JEV_CONFIDENCE_THRESHOLD` (0.7), `JEV_MAX_PER_RUN` (2000). One org per request, so production asks exactly the question the gold set scores (`src/core/org_kind_question.py`; changing its text or a kind's `description` means re-scoring).
+
+**Three runners, one drain.** The API's in-process drainer (each worker, woken on org creation with a 5 s debounce, else every 15 min, at most 50 orgs; never checks in), this CLI, and `power-map-classification.timer` (daily, `--source all --execute --origin timer --limit 200`). The timer is the dead-man: its DB connect and Jev calls ride out a blip on the #833 budget, and it exits 3 (`jev_failed`) on a permanent Jev failure (no key, a 4xx, a malformed reply, another model answering) or when Jev has failed with no stored answer for 48 h. co-status monitor `co-power-map-classification` (CannObserv/status#144).
+
+Install the timer:
+
+```bash
+sudo cp infra/power-map-classification.service infra/power-map-classification.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now power-map-classification.timer
+sudo journalctl -u power-map-classification -f
 ```
 
 ## Operational scripts — dry run by default & target echo (#402)

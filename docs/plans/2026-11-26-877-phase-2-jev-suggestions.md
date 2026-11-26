@@ -115,3 +115,12 @@ Two PRs, because the gold set needs operator time and the code doesn't need the 
 - **Small kinds** (`tribe`, `labor_union`, `academic`, `political_party`) may have fewer than 20 orgs in all of PM. They then fail closed for Jev by the bar, and their orgs go to review. That matches decision C for rules.
 - **Your time:** roughly the unsure rows (my guess, 40–60) plus 30 random ones, checked against public sources.
 - **A blocking call in an async handler:** the Re-ask route awaits `httpx.AsyncClient`, never a sync client. Guarded by ruff `ASYNC`.
+
+## Revisions during execution (2026-11-26)
+
+- **One org per request** (step 2, above).
+- **`wake()` sits at the three `src/` org inserts** (the observation create, the admin create, the CSV importer), not at each route. The sweep test checks every `INSERT INTO organizations` under `src/`, so it covers every public route through the observation path.
+- **The in-process drainer asks at most 50 orgs a drain** (a pool has 5 connections), and the test suite runs with `CLASSIFICATION_DRAINER=off`.
+- **`--refresh-model` is dropped.** With one live answer per model, changing `JEV_MODEL` already makes a new backlog. `--reask-ids FILE` remains, and skips decided orgs.
+- **The timer's alert follows #833.** Jev errors are classed as transient or permanent. Transient ones are retried on the run's one budget. Exit 3 comes from a permanent failure, or from failing with no stored answer for 48 h. An answer from a model other than the pin counts as a permanent failure.
+- **co-status monitor requested:** CannObserv/status#144. The unit ships with an empty id, listed in `PENDING_MONITORS`.
