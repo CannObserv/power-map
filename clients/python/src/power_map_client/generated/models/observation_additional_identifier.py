@@ -17,8 +17,9 @@ class ObservationAdditionalIdentifier:
 
     ``replaces`` (#848) turns the attach into a swap: the entity's value
     ``replaces`` is removed and ``identifier_value`` is held instead, in the
-    observation's one transaction. Only the four ``*_cannabis_observer`` types
-    take it (``replaces_unsupported`` otherwise). An entity holding neither value
+    observation's one transaction. Only the one-holder types take it — the four
+    ``*_cannabis_observer`` and the two ``*_co_operator`` ones
+    (``replaces_unsupported`` otherwise). An entity holding neither value
     rejects the observation ``replaces_not_held``; one already holding the new
     value and not the old is a no-op, so a replace can be re-sent.
 

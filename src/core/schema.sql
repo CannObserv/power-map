@@ -834,32 +834,49 @@ CREATE INDEX IF NOT EXISTS idx_identifiers_lookup
 
 -- #812: one cannabis.observer site record maps to one Power Map entity. A value
 -- of a *_cannabis_observer type may appear once in the table: on one entity, in
--- one row, archived holders included (archiving keeps identifiers, #481). The
--- predicate names the four seeded type ids as literals -- a partial index can't
--- read entity_identifier_types -- so it depends on those seed ids (see the
--- seed rows; src/core/identifier_taken.py holds the same set). Other types are
--- left out on purpose: role_wa_pdc and person_wa_pdc_filer hold legitimate
--- cross-entity repeats. A unique index runs in apply_schema's phase 1, inside
+-- one row, archived holders included (archiving keeps identifiers, #481). #879
+-- puts the producer-minted *_co_operator types under the same rule, keeping the
+-- index's name. The predicate names the six seeded type ids as literals -- a
+-- partial index can't read entity_identifier_types -- so it depends on those
+-- seed ids (see the seed rows; src/core/identifier_taken.py holds the same set).
+-- Other types are left out on purpose: role_wa_pdc and person_wa_pdc_filer hold
+-- legitimate cross-entity repeats. CREATE ... IF NOT EXISTS never changes an
+-- existing predicate, so an index missing any of the six ids is dropped and
+-- rebuilt; on a duplicate the EXCEPTION clause rolls the DROP back too, and the
+-- older, narrower index stays. A unique index runs in apply_schema's phase 1, inside
 -- the schema transaction (never CONCURRENTLY), and the restart applies the
 -- schema, so existing duplicates warn and skip rather than abort the start
 -- (#398/#748), as uq_role_org_title does. A skip is drift to the daily
 -- schema-parity audit's unique_index kind (#816) when its reference DB carries
 -- the index and runs prod's PG major.
 DO $$ BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = 'public' AND indexname = 'uq_identifiers_cannabis_observer'
+          AND NOT indexdef LIKE ALL (ARRAY[
+              '%01M7DPQMCVA815DZ2M8PXS198H%', '%01M7DPQMH6CXKNTY183BXDMN1V%',
+              '%01M7DPQMPBJEQ52A6TN3GGTGDA%', '%01M7DPQMVS8Y6PX1KB5CES7SGQ%',
+              '%01M8ARJWFZJMP5XDQECCMSRXZB%', '%01M8ARJWG12ZK4V10BA5PM0N7J%'])
+    ) THEN
+        DROP INDEX uq_identifiers_cannabis_observer;
+    END IF;
     CREATE UNIQUE INDEX IF NOT EXISTS uq_identifiers_cannabis_observer
         ON identifiers (entity_identifier_type_id, value)
         WHERE entity_identifier_type_id IN (
             '01M7DPQMCVA815DZ2M8PXS198H',  -- org_cannabis_observer
             '01M7DPQMH6CXKNTY183BXDMN1V',  -- person_cannabis_observer
             '01M7DPQMPBJEQ52A6TN3GGTGDA',  -- role_cannabis_observer
-            '01M7DPQMVS8Y6PX1KB5CES7SGQ'   -- role_assignment_cannabis_observer
+            '01M7DPQMVS8Y6PX1KB5CES7SGQ',  -- role_assignment_cannabis_observer
+            '01M8ARJWFZJMP5XDQECCMSRXZB',  -- org_co_operator (#879)
+            '01M8ARJWG12ZK4V10BA5PM0N7J'   -- person_co_operator (#879)
         );
 EXCEPTION WHEN unique_violation THEN
     RAISE WARNING
-        'uq_identifiers_cannabis_observer not created: a *_cannabis_observer value '
-        'is held more than once. Find them with SELECT entity_identifier_type_id, value '
-        'FROM identifiers GROUP BY 1, 2 HAVING count(*) > 1, keep one holder per value '
-        '(merge or unlink the others), then re-apply schema.';
+        'uq_identifiers_cannabis_observer not created: a *_cannabis_observer or '
+        '*_co_operator value is held more than once. Find them with SELECT '
+        'entity_identifier_type_id, value FROM identifiers GROUP BY 1, 2 HAVING '
+        'count(*) > 1, keep one holder per value (merge or unlink the others), then '
+        're-apply schema.';
 END $$;
 
 -- Citations (#319): human-checkable source provenance for a fact — a URL/title/
@@ -2263,7 +2280,16 @@ INSERT INTO _seed_entity_identifier_types (id, entity_type, slug, display_name, 
     ('01M7DPQMCVA815DZ2M8PXS198H', 'organization',    'org_cannabis_observer',             'Cannabis Observer', 'Cannabis Observer Organization ULID',    FALSE),
     ('01M7DPQMH6CXKNTY183BXDMN1V', 'person',          'person_cannabis_observer',          'Cannabis Observer', 'Cannabis Observer Person ULID',          FALSE),
     ('01M7DPQMPBJEQ52A6TN3GGTGDA', 'role',            'role_cannabis_observer',            'Cannabis Observer', 'Cannabis Observer Role ULID',            FALSE),
-    ('01M7DPQMVS8Y6PX1KB5CES7SGQ', 'role_assignment', 'role_assignment_cannabis_observer', 'Cannabis Observer', 'Cannabis Observer Role Assignment ULID', FALSE);
+    ('01M7DPQMVS8Y6PX1KB5CES7SGQ', 'role_assignment', 'role_assignment_cannabis_observer', 'Cannabis Observer', 'Cannabis Observer Role Assignment ULID', FALSE),
+    -- Producer-minted ids (#879, CannObserv/cli#1386): a deliberate create of a
+    -- person or organization that holds no external identifier. The value is a
+    -- ULID the cli mints: an unknown value creates the record, a re-send attaches
+    -- to it, and a search on the value recovers it after a timeout. People carry
+    -- no source_key_id, so the slug also records which producer minted the
+    -- record. uq_identifiers_cannabis_observer covers both ids as literals, like
+    -- the four above: never re-id them.
+    ('01M8ARJWFZJMP5XDQECCMSRXZB', 'organization',    'org_co_operator',    'CO Operator', 'Cannabis Observer Operator-Minted Organization ULID', FALSE),
+    ('01M8ARJWG12ZK4V10BA5PM0N7J', 'person',          'person_co_operator', 'CO Operator', 'Cannabis Observer Operator-Minted Person ULID',       FALSE);
 
 SELECT reconcile_seeded_slugs('entity_identifier_types', '_seed_entity_identifier_types');
 

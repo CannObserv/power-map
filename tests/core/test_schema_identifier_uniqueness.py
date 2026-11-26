@@ -1,7 +1,10 @@
-"""#812: one value of a ``*_cannabis_observer`` identifier type names one entity.
+"""#812/#879: one value of a one-holder identifier type names one entity.
 
 ``uq_identifiers_cannabis_observer`` is a partial unique index on
-``identifiers (entity_identifier_type_id, value)`` over the four seeded type ids.
+``identifiers (entity_identifier_type_id, value)`` over six seeded type ids: the
+four ``*_cannabis_observer`` ones (#812) and the two producer-minted
+``*_co_operator`` ones (#879). A DB whose index predates #879 names only the
+first four; the same ``DO`` block rebuilds it with all six.
 It covers every row, archived holders included (archiving keeps identifiers,
 #481), and no other type: the WA scheme types legitimately repeat a value
 across entities. Its ``DO`` block warns and skips on existing duplicates rather
@@ -22,13 +25,22 @@ from tests.polymorphic_seeders import archived_entity
 
 pytestmark = [pytest.mark.integration]
 
-#: The type each entity type carries under the index.
+#: Each type under the index, and the entity type it identifies.
 UNIQUE_SLUGS = {
-    "organization": "org_cannabis_observer",
-    "person": "person_cannabis_observer",
-    "role": "role_cannabis_observer",
-    "role_assignment": "role_assignment_cannabis_observer",
+    "org_cannabis_observer": "organization",
+    "person_cannabis_observer": "person",
+    "role_cannabis_observer": "role",
+    "role_assignment_cannabis_observer": "role_assignment",
+    "org_co_operator": "organization",
+    "person_co_operator": "person",
 }
+#: The ids the index named before #879 added the two ``*_co_operator`` types.
+PRE_879_TYPE_IDS = (
+    "01M7DPQMCVA815DZ2M8PXS198H",
+    "01M7DPQMH6CXKNTY183BXDMN1V",
+    "01M7DPQMPBJEQ52A6TN3GGTGDA",
+    "01M7DPQMVS8Y6PX1KB5CES7SGQ",
+)
 #: Types outside the index whose values legitimately repeat across entities.
 REPEATABLE_SLUGS = {
     "person": "person_wa_pdc_filer",
@@ -78,24 +90,24 @@ def _guard_statement() -> str:
     return stmts[0]
 
 
-@pytest.mark.parametrize("entity_type", sorted(UNIQUE_SLUGS))
-async def test_one_value_on_a_second_entity_is_refused(conn, entity_type):
-    a = await archived_entity(conn, entity_type)
-    b = await archived_entity(conn, entity_type)
-    await _identify(conn, a, UNIQUE_SLUGS[entity_type], "01SITEULID")
+@pytest.mark.parametrize("slug", sorted(UNIQUE_SLUGS))
+async def test_one_value_on_a_second_entity_is_refused(conn, slug):
+    a = await archived_entity(conn, UNIQUE_SLUGS[slug])
+    b = await archived_entity(conn, UNIQUE_SLUGS[slug])
+    await _identify(conn, a, slug, "01SITEULID")
 
     with pytest.raises(asyncpg.UniqueViolationError) as exc:
-        await _identify(conn, b, UNIQUE_SLUGS[entity_type], "01SITEULID")
+        await _identify(conn, b, slug, "01SITEULID")
     assert exc.value.constraint_name == IDENTIFIER_TAKEN_GUARD
 
 
-@pytest.mark.parametrize("entity_type", sorted(UNIQUE_SLUGS))
-async def test_one_value_twice_on_one_entity_is_refused(conn, entity_type):
-    a = await archived_entity(conn, entity_type)
-    await _identify(conn, a, UNIQUE_SLUGS[entity_type], "01SITEULID")
+@pytest.mark.parametrize("slug", sorted(UNIQUE_SLUGS))
+async def test_one_value_twice_on_one_entity_is_refused(conn, slug):
+    a = await archived_entity(conn, UNIQUE_SLUGS[slug])
+    await _identify(conn, a, slug, "01SITEULID")
 
     with pytest.raises(asyncpg.UniqueViolationError):
-        await _identify(conn, a, UNIQUE_SLUGS[entity_type], "01SITEULID")
+        await _identify(conn, a, slug, "01SITEULID")
 
 
 async def test_a_live_entity_is_refused_a_value_an_archived_one_holds(conn):
@@ -124,25 +136,66 @@ async def test_distinct_values_of_one_type_coexist(conn):
     await _identify(conn, b, "person_cannabis_observer", "01SITEB")
 
 
-async def test_the_code_constant_names_the_four_seeded_type_ids(conn):
+async def test_the_code_constant_names_the_six_seeded_type_ids(conn):
     seeded = {
         r["id"]
         for r in await conn.fetch(
             "SELECT id FROM entity_identifier_types WHERE slug = ANY($1::text[])",
-            list(UNIQUE_SLUGS.values()),
+            list(UNIQUE_SLUGS),
         )
     }
+    assert len(seeded) == len(UNIQUE_SLUGS)
     assert seeded == UNIQUE_IDENTIFIER_TYPE_IDS
 
 
-async def test_the_index_predicate_names_exactly_the_code_constant(conn):
+async def _indexed_type_ids(conn) -> set[str] | None:
     indexdef = await conn.fetchval(
         "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1",
         IDENTIFIER_TAKEN_GUARD,
     )
-    assert indexdef is not None
+    if indexdef is None:
+        return None
     assert indexdef.startswith("CREATE UNIQUE INDEX")
-    assert set(re.findall(r"'([0-9A-HJKMNP-TV-Z]{26})'", indexdef)) == UNIQUE_IDENTIFIER_TYPE_IDS
+    return set(re.findall(r"'([0-9A-HJKMNP-TV-Z]{26})'", indexdef))
+
+
+async def test_the_index_predicate_names_exactly_the_code_constant(conn):
+    assert await _indexed_type_ids(conn) == UNIQUE_IDENTIFIER_TYPE_IDS
+
+
+async def _plant_pre_879_index(conn) -> None:
+    """The index as #812 built it: the four ``*_cannabis_observer`` ids only."""
+    await drop_index(conn, IDENTIFIER_TAKEN_GUARD)
+    ids = ", ".join(f"'{i}'" for i in PRE_879_TYPE_IDS)
+    await conn.execute(
+        f"CREATE UNIQUE INDEX {IDENTIFIER_TAKEN_GUARD} ON identifiers"
+        f" (entity_identifier_type_id, value) WHERE entity_identifier_type_id IN ({ids})"
+    )
+
+
+async def test_an_index_predating_879_is_rebuilt_with_all_six_types(conn):
+    """``CREATE … IF NOT EXISTS`` alone would keep the old predicate for good."""
+    await _plant_pre_879_index(conn)
+
+    warnings = await _warnings_while(conn, _guard_statement())
+
+    assert warnings == []
+    assert await _indexed_type_ids(conn) == UNIQUE_IDENTIFIER_TYPE_IDS
+
+
+async def test_a_co_operator_duplicate_keeps_the_pre_879_index(conn):
+    """The rebuild fails as one unit: the old index survives, never no index."""
+    await _plant_pre_879_index(conn)
+    a = await archived_entity(conn, "person")
+    b = await archived_entity(conn, "person")
+    await _identify(conn, a, "person_co_operator", "01DUPLICATE")
+    await _identify(conn, b, "person_co_operator", "01DUPLICATE")
+
+    warnings = await _warnings_while(conn, _guard_statement())
+
+    assert len(warnings) == 1
+    assert "not created" in warnings[0]
+    assert await _indexed_type_ids(conn) == set(PRE_879_TYPE_IDS)
 
 
 async def _plant_duplicate(conn) -> tuple[str, str]:

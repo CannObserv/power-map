@@ -1678,8 +1678,9 @@ async def write_additional_identifiers(
       - Type for another entity type → raise ObservationRejected (#617)
       - A type a dataset owns on this entity, not already held → raise
         ObservationRejected ``identifier_locked`` (#710)
-      - A ``*_cannabis_observer`` value another entity holds, archived or not →
-        raise ObservationRejected ``identifier_taken`` naming the holder (#812)
+      - A one-holder type's value (``*_cannabis_observer``, ``*_co_operator``)
+        another entity holds, archived or not → raise ObservationRejected
+        ``identifier_taken`` naming the holder (#812, #879)
       - New type → insert
 
     An item naming ``.replaces`` (#848) swaps that value for its own instead of
@@ -1730,7 +1731,7 @@ async def write_additional_identifiers(
             )
         if held and replaces is None:
             raise IdentifierConflict(slug)
-        # #812: a *_cannabis_observer value names one entity. Name the holder
+        # #812/#879: a one-holder type's value names one entity. Name the holder
         # here; one committing after this read meets the index instead, and the
         # route maps that race to the same reason (unique_violation_reason).
         if eit_id in UNIQUE_IDENTIFIER_TYPE_IDS:
@@ -1797,7 +1798,7 @@ def _replace_applies(type_id: str, slug: str, value: str, replaces: str, held: s
     The caller names the value it expects to remove, so a stale picture is
     rejected rather than acted on:
 
-      - a type outside the four ``*_cannabis_observer`` ones → ``replaces_unsupported``
+      - a type outside the one-holder set → ``replaces_unsupported``
         (every other type repeats, is dataset-owned or is history)
       - ``replaces`` equal to the item's own value → ``invalid``
       - the old value held → True: remove it (the new one may be held too — a
