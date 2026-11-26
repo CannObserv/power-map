@@ -319,3 +319,24 @@ async def test_health_reports_the_flag_key_backlog_failures_and_tokens(db, monke
 async def test_health_with_no_runs(db):
     h = await cls.health(db)
     assert (h.last_success, h.failed_runs_7d, h.tokens_all) == (None, 0, 0)
+
+
+async def test_apply_rules_locked_writes_when_free_and_skips_when_held(db, db_pool):
+    oid = await _org(db, "Rules Locked")
+    type_id = await db.fetchval("SELECT id FROM entity_identifier_types WHERE slug='org_wa_party'")
+    await db.execute(
+        "INSERT INTO identifiers (id, entity_id, entity_identifier_type_id, value)"
+        " VALUES ($1,$2,$3,'p')",
+        generate_id(),
+        oid,
+        type_id,
+    )
+    async with db_pool.acquire() as other:
+        assert await other.fetchval("SELECT pg_try_advisory_lock($1)", cls.DRAIN_LOCK_KEY)
+        try:
+            assert await cls.apply_rules_locked(db) is None
+        finally:
+            await other.execute("SELECT pg_advisory_unlock($1)", cls.DRAIN_LOCK_KEY)
+    applied = await cls.apply_rules_locked(db)
+    assert oid in {c.org_id for c in applied}
+    assert await cls.apply_rules_locked(db) == []

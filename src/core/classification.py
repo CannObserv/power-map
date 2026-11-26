@@ -338,6 +338,23 @@ ORDER BY o.id
 """
 
 
+async def apply_rules_locked(db: asyncpg.Connection) -> list[RulesChange] | None:
+    """Plan and apply rules under ``DRAIN_LOCK_KEY``; None when a drain holds it.
+
+    For writers outside :func:`drain` (the CLI's rules and re-ask paths): the
+    in-process drainer applies rules too, and two planners racing would each
+    insert the same change.
+    """
+    if not await db.fetchval("SELECT pg_try_advisory_lock($1)", DRAIN_LOCK_KEY):
+        return None
+    try:
+        changes = await plan_rules(db)
+        await apply_rules(db, changes)
+        return changes
+    finally:
+        await db.execute("SELECT pg_advisory_unlock($1)", DRAIN_LOCK_KEY)
+
+
 async def last_answered_at(db: asyncpg.Connection) -> datetime | None:
     """When a run last stored a Jev answer (any origin), or None."""
     return await db.fetchval(

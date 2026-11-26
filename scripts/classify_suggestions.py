@@ -43,7 +43,7 @@ import asyncpg
 from scripts._dsn import add_dsn_args, build_parser, resolve_dsn
 from src.core import classification as cls
 from src.core import jev_client as jc
-from src.core.classification import RulesChange, apply_rules, plan_rules
+from src.core.classification import RulesChange, plan_rules
 from src.core.logging import configure_logging, get_logger
 from src.core.retry import Backoff, connect_with_retry, retry_async
 
@@ -73,6 +73,19 @@ class Report:
     backlog: int | None = None
     would_ask: int | None = None
     est_tokens: int | None = None
+    # Rules were skipped: a drain held the lock (and applies rules itself).
+    busy: bool = False
+
+
+def _record_rules(report: Report, applied: list[RulesChange] | None) -> None:
+    """Fold :func:`cls.apply_rules_locked`'s result into *report* (None: busy)."""
+    if applied is None:
+        report.busy = True
+        report.changes, report.counts, report.written = [], Counter(), 0
+        return
+    report.changes = applied
+    report.counts = Counter(c.value for c in applied)
+    report.written = len(applied)
 
 
 def bounded_ask(backoff: Backoff) -> cls.AskFn:
@@ -119,7 +132,7 @@ async def classify(
     report = Report(changes=changes, counts=Counter(c.value for c in changes))
     if source == "rules":
         if execute:
-            report.written = await apply_rules(conn, changes)
+            _record_rules(report, await cls.apply_rules_locked(conn))
         return report
 
     report.jev_enabled = jc.is_enabled()
@@ -135,7 +148,7 @@ async def classify(
     if not execute:
         return report
     if reask_ids is not None:
-        report.written = await apply_rules(conn, changes)
+        _record_rules(report, await cls.apply_rules_locked(conn))
         report.drain = await cls.reask(conn, reask_ids, origin=origin, ask=ask, skip_decided=True)
         report.drain.rules_written = report.written
     else:
@@ -147,7 +160,9 @@ async def classify(
 def _log(report: Report, *, source: str, execute: bool) -> None:
     breakdown = ", ".join(f"{k}={n}" for k, n in sorted(report.counts.items())) or "no change"
     replaced = sum(1 for c in report.changes if c.previous is not None)
-    if execute:
+    if report.busy:
+        logger.warning("rules: skipped — a drain holds the lock and applies rules itself")
+    elif execute:
         logger.info(
             "rules: wrote %d row(s) (%d replacing): %s", report.written, replaced, breakdown
         )

@@ -225,3 +225,43 @@ async def test_reask_ids_skip_decided_orgs(db, jev_on):
 async def test_reask_ids_need_source_all(db):
     with pytest.raises(ValueError, match="--source all"):
         await classify(db, source="rules", execute=False, reask_ids=["x"])
+
+
+async def _hold_lock(db_pool):
+    other = await db_pool.acquire()
+    assert await other.fetchval("SELECT pg_try_advisory_lock($1)", cls.DRAIN_LOCK_KEY)
+    return other
+
+
+async def _release_lock(db_pool, other):
+    await other.execute("SELECT pg_advisory_unlock($1)", cls.DRAIN_LOCK_KEY)
+    await db_pool.release(other)
+
+
+@pytest.mark.integration
+async def test_rules_execute_skips_while_a_drain_holds_the_lock(db, db_pool):
+    party = await _org(db, "org_wa_party")
+    other = await _hold_lock(db_pool)
+    try:
+        report = await classify(db, source="rules", execute=True)
+    finally:
+        await _release_lock(db_pool, other)
+    assert report.busy is True
+    assert report.written == 0
+    assert await _rules_rows(db, party) == []
+
+
+@pytest.mark.integration
+async def test_reask_skips_rules_but_still_asks_while_the_lock_is_held(db, db_pool, jev_on):
+    party = await _org(db, "org_wa_party")
+    asked: list = []
+    other = await _hold_lock(db_pool)
+    try:
+        report = await classify(
+            db, source="all", execute=True, ask=_fake_ask(asked), reask_ids=[party]
+        )
+    finally:
+        await _release_lock(db_pool, other)
+    assert report.busy is True
+    assert await _rules_rows(db, party) == []
+    assert report.drain.answered == 1
