@@ -1,6 +1,6 @@
 # power-map — Testing
 
-How to run each tier: the Python suite and its integration marker, the endpoint-test
+How to run each tier, and when each runs: the Python suite and its markers, the endpoint-test
 client, the Vitest JS suite and its conventions, the marker-gated browser a11y sweep, and
 the bats shell suite. Fixture recipes live in `docs/SCHEMA.md`; the a11y rules themselves
 in `docs/ACCESSIBILITY.md`.
@@ -26,14 +26,42 @@ uv run pytest --cov
 # Run a specific file
 uv run pytest tests/path/to/test_file.py --no-cov
 
-# Run integration tests (hits live external services)
-uv run pytest -m integration
+# Integration: only when asked (§ Which tests run when). The default is the
+# modules mirroring the touched code, never the whole marker.
+uv run pytest -m integration tests/path/to/test_file.py
 
 # What the refresh hook's skills-vendor/ bump commit runs in place of pytest
 # and bats (#755, docs/SKILLS.md)
 uv run pre-commit run pytest-vendored --all-files
 uv run pre-commit run bats-vendored --all-files
 ```
+
+### Which tests run when (#890)
+
+| Run | Unit tier | `dbt` tier | `-m integration` |
+|---|---|---|---|
+| Commit hook | routed, below | when reachable | never |
+| `scripts/pre-ship.sh`, CI | all | all | the lxml a11y tier, on an admin diff |
+| An agent, by default | as needed | as needed | the touched code's modules only |
+
+**Integration is opt-in.** The whole marker (~18 min, the shared test DB) runs only
+when someone asks for it. Otherwise run the integration modules that mirror the
+code you touched (`tests/` mirrors `src/`), and say in the hand-off which ran.
+
+**The commit hook routes by the staged set** (`scripts/commit_tests.py`): nothing
+staged (a manual `pre-commit run`, CI) → the whole unit tier; only docs (`docs/**`,
+`*.md`) → the modules that name a doc, by text (~25 s); otherwise the unit tier
+without `dbt`, which a staged path adds back when it is in the dbt modules' import
+closure, under `src/core/ingestion/` or `tests/core/ingestion/`, or is
+`pyproject.toml`, `uv.lock` or `tests/conftest.py`. A test routed out still runs at
+pre-ship, before any push.
+
+**`pytest.mark.dbt`** marks a test that runs a dbt build: 87% of the unit tier's
+time in #890's profile. The root conftest fails an unmarked one
+(`tests/test_dbt_marker_guard.py`), so none slips into the fast path.
+
+No xdist here: two vCPUs, shared with the agent and other worktrees.
+`gate-workers.sh` already resolves `auto` to serial at ≤2 cores.
 
 ### Deprecations are errors (#789)
 
@@ -50,62 +78,10 @@ comment naming the upstream issue or version that removes it:
 
 ---
 
-## Mapping-project tier (#497)
+## Ingestion tiers (#497, #499)
 
-
-`tests/core/ingestion/mapping/` builds the dbt-duckdb project against a fixture
-store (`fixtures/store/`, the puller's layout) through a `build` fixture that
-writes PM's tables as Parquet from tuples and runs `dbt build`. Each test is a
-full build (~2.5s); the tier is unit-tier and needs the `mapping` group —
-`tests/optional_groups.py` announces its absence rather than letting the skip
-pass as coverage. `EXPECTED_WARNINGS` pins exactly which dbt warnings a build
-may raise (the blank-name case); a new warning fails the test.
-
-`test_real_snapshot.py` is marked `integration`: it builds against the landed
-store plus the read-only crosswalk export and asserts measured counts (seeded
-by the design doc, re-measured by #655). It never opens a database, and it **skips by name** when the
-store or the export is absent in that checkout — provision with
-`scripts/pull_datasets.py` and `scripts/export_pm_tables.py`.
-
-## Applier tier (#499)
-
-
-The diff-applier reads the database only through a `LiveStore` protocol, so
-its engine tests (`tests/core/ingestion/test_applier_*.py` — count them with
-`uv run pytest --collect-only -q tests/core/ingestion/test_applier_*.py`) run
-with no database against `FakeLiveStore` in `tests/core/ingestion/applier_fakes.py`,
-which serves rows from dicts and records every request — how "a row outside
-the crosswalk is never read" and "a column outside the owned set is never in
-an UPDATE" are asserted on the emitted SQL (`FakeConn` records statements and
-the transaction outcome). `write_desired(dir, **tables)` builds a loadable
-desired-state directory from dicts.
-
-Every module here calls `pytest.importorskip("duckdb")` before its first
-`src.core.ingestion` import — integration modules included, since collection
-imports a module before its marker deselects it. `applier_pg` reaches dbt
-through `mapping`, and the main checkout's venv is production's, pruned of the
-`mapping` group on every restart: an unguarded module is a collection *error*
-there, and every commit made in main fails the unit hook (#545).
-`tests/test_optional_groups.py` collects the suite with each optional group's
-package blocked and fails on any such error.
-
-`tests/scripts/test_apply_desired_state_db.py` is the integration tier for
-what the fake cannot prove — the asyncpg store's SQL, apply-twice-is-a-no-op,
-a gated create writing nothing, an execute writing exactly the predicted
-entries and touching their parents, a curator column surviving, a cyclic parent
-rolling back, a crosswalk change being stale, and an entity archived since the
-export being stale — the `LiveStore` contract that `entity_rows` returns
-`archived_at` whatever columns it was asked for — on the rollback connection.
-#498's acceptance sits beside it in `tests/scripts/test_curation_overlay_seam.py`:
-a pin through the real admin route, exported through `export_pm_tables.run`
-from the same rollback connection, built with dbt over the fixture store, and
-diffed — a noop while pinned, the update back once unpinned. It needs both the
-`mapping` group and `TEST_DATABASE_URL`, and skips by name without dbt.
-#514 adds the Heck tombstone there end to end: the real person merge folded
-once through the CLI, `Denny Heck` held, and a second run a no-op. The unit
-tier proves the merge phase's routing and verification with a recording
-primitive injected into `apply_diff(..., merges=…)`; `FakeLiveStore(previews=…)`
-answers `merge_preview`.
+The mapping project's dbt fixture tier and the diff-applier's engine tier →
+[TESTING_INGESTION.md](TESTING_INGESTION.md).
 
 ## Endpoint-test client (#288)
 
@@ -385,7 +361,7 @@ filter.
 | Unit pytest, every optional group installed | pre-commit; ship gate | yes |
 | ruff, ESLint, Prettier, vitest | pre-commit; ship gate | yes |
 | bats, shellcheck, version sync, `terraform fmt` | pre-commit | yes |
-| Integration (`-m integration`) | by hand | no: the DB is DO-only (#579) |
+| Integration (`-m integration`) | on request (§ Which tests run when) | no: the DB is DO-only (#579) |
 | a11y: lxml render + browser | ship gate, on an admin diff | no: needs the test DB |
 
 `.github/dependabot.yml` runs weekly. Minor and patch bumps are grouped, majors open
