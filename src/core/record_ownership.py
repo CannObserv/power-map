@@ -5,8 +5,8 @@ from one that will be refused or reverted:
 
 - ``dataset``: a subscribed dataset owns the row — its crosswalk anchor is in
   scope — so the nightly apply reverts any observation write. It comes first,
-  whoever holds ``source_key_id``: the observation gate never consulted the
-  dataset (#499), so a key can hold the stamp on a row it cannot keep.
+  whoever holds ``source_key_id``: the applier writes without consulting that
+  column (#499), so a key can hold the stamp on a row it cannot keep.
 - ``self`` / ``other``: the row's ``source_key_id`` is the caller's, or another
   key's — the same-or-NULL gate's two answers.
 - ``none``: no one holds it; the first id-addressed write claims it.
