@@ -184,3 +184,17 @@ async def test_replaces_swaps_one_minted_id_for_another(client, db, write_key, e
     assert r.status_code == 200
     assert r.json()["disposition"] == "auto-attached"
     assert await _held_values(db, created, slug) == {new}
+
+
+@pytest.mark.parametrize("entity_type", sorted(CASES))
+async def test_a_re_send_naming_an_archived_record_is_refused(client, db, write_key, entity_type):
+    """#481: archiving keeps the minted id, so a re-send neither attaches nor creates."""
+    value = _minted()
+    created = (await _create(client, write_key, entity_type, value)).json()["entity_id"]
+    await db.execute(f"UPDATE {TABLES[entity_type]} SET archived_at = NOW() WHERE id = $1", created)
+
+    r = await _create(client, write_key, entity_type, value)
+
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "rejected"
+    assert r.json()["reason"] == f"{entity_type}_archived: {created!r}"
