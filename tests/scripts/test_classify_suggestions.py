@@ -265,3 +265,46 @@ async def test_reask_skips_rules_but_still_asks_while_the_lock_is_held(db, db_po
     assert report.busy is True
     assert await _rules_rows(db, party) == []
     assert report.drain.answered == 1
+
+
+@pytest.mark.integration
+async def test_a_busy_drain_is_retried_then_reported_skipped(db, db_pool, jev_on):
+    await _org(db)
+    waits: list[float] = []
+
+    async def sleep(s):
+        waits.append(s)
+
+    other = await _hold_lock(db_pool)
+    try:
+        report = await classify(db, source="all", execute=True, ask=_fake_ask([]), sleep=sleep)
+    finally:
+        await _release_lock(db_pool, other)
+    assert report.drain.status == "busy"
+    assert report.busy is True
+    assert report.written == 0
+    assert waits == [cs.BUSY_WAIT] * cs.BUSY_RETRIES
+
+
+@pytest.mark.integration
+async def test_a_busy_drain_runs_once_the_lock_frees(db, db_pool, jev_on):
+    await _org(db)
+    asked: list = []
+    other = await _hold_lock(db_pool)
+    held = [other]
+    waits: list[float] = []
+
+    async def sleep(s):
+        waits.append(s)
+        if held:
+            await _release_lock(db_pool, held.pop())
+
+    try:
+        report = await classify(db, source="all", execute=True, ask=_fake_ask(asked), sleep=sleep)
+    finally:
+        if held:
+            await _release_lock(db_pool, held.pop())
+    assert report.drain.status == "ok"
+    assert report.busy is False
+    assert len(waits) == 1
+    assert asked

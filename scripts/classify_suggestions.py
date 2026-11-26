@@ -33,7 +33,7 @@ Usage:
 import asyncio
 import sys
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -59,6 +59,10 @@ EST_TOKENS_PER_ORG = 800
 # its TimeoutStartSec (tests/test_infra_retry.py).
 JEV_TIMEOUT = 30.0
 JEV_ATTEMPTS = 3
+# A drain already running (the API's drainer, ≤ 50 orgs) makes this one
+# `busy`. Wait it out so the timer's check-in reflects a drain that ran.
+BUSY_RETRIES = 6
+BUSY_WAIT = 10.0
 
 
 @dataclass
@@ -122,8 +126,13 @@ async def classify(
     ask: cls.AskFn = jc.ask_kind,
     limit: int | None = None,
     reask_ids: Sequence[str] | None = None,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> Report:
-    """Plan (and with *execute*, write) a source's suggestion rows."""
+    """Plan (and with *execute*, write) a source's suggestion rows.
+
+    A drain that finds another holding the lock is retried ``BUSY_RETRIES``
+    times, ``BUSY_WAIT`` seconds apart; still busy, the report says skipped.
+    """
     if source not in SOURCES:
         raise ValueError(f"unknown source {source!r}; known: {', '.join(SOURCES)}")
     if reask_ids is not None and source != "all":
@@ -152,8 +161,15 @@ async def classify(
         report.drain = await cls.reask(conn, reask_ids, origin=origin, ask=ask, skip_decided=True)
         report.drain.rules_written = report.written
     else:
-        report.drain = await cls.drain(conn, origin=origin, ask=ask, limit=cap)
-        report.written = report.drain.rules_written
+        for attempt in range(BUSY_RETRIES + 1):
+            report.drain = await cls.drain(conn, origin=origin, ask=ask, limit=cap)
+            if report.drain.status != "busy" or attempt == BUSY_RETRIES:
+                break
+            await sleep(BUSY_WAIT)
+        if report.drain.status == "busy":
+            _record_rules(report, None)
+        else:
+            report.written = report.drain.rules_written
     return report
 
 
@@ -176,7 +192,11 @@ def _log(report: Report, *, source: str, execute: bool) -> None:
     if source != "all":
         return
     d = report.drain
-    if d is None:
+    if d is not None and d.status == "busy":
+        logger.warning(
+            "jev: skipped — another drain held the lock for %ds", BUSY_RETRIES * BUSY_WAIT
+        )
+    elif d is None:
         logger.info(
             "jev: dry run — %s; backlog %d, would ask %d (~%d input tokens)."
             " Pass --execute to write.",
