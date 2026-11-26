@@ -1,0 +1,36 @@
+[Unit]
+Description=power-map daily org-kind suggestions: rules, then TypeSafe Jev (issue #877)
+After=network.target
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/power-map
+EnvironmentFile=/etc/power-map/.env
+# Requires uv on PATH (/usr/local/bin/uv); see infra/power-map.service.
+# Runs the classification drain: identifier rules for every active org, then
+# (with JEV_SUGGESTIONS_ENABLED on) asks Jev about at most 200 orgs that have no
+# answer from the pinned model. Writes suggestion and run rows only; it never
+# sets an org's kind (an operator does). The API's in-process drainer does the
+# same work within minutes of an org's creation, and never checks in: this unit
+# is the dead-man. Exit 3 (jev_failed): a permanent Jev failure (no key, a 4xx,
+# a malformed reply, another model), or Jev failing with no stored answer for
+# 48 h. A one-off blip is not an alert.
+ExecStart=uv run python -m scripts.classify_suggestions --source all --execute --origin timer --limit 200
+# The DB connect and each Jev request are retried in-process on one 645 s
+# budget (#833); tests/test_infra_retry.py holds the worst case inside this.
+# No Restart=: the check-in would report every attempt.
+TimeoutStartSec=1800
+
+# After every run, ok or alert, a check-in with co-status (#566): a failed run
+# reaches a person through Notifier, and a run that never happens goes `missing`.
+# Best-effort (`-`, and the hook always exits 0); never changes this unit's result.
+# The key is a credential, never an env var; SetCredential= (a lone newline,
+# read as "no key") is the fallback that keeps a missing key file from failing
+# the unit (243).
+# co-status monitor: co-power-map-classification (CannObserv/status#144; id pending)
+Environment=STATUS_MONITOR_ID=
+Environment=STATUS_EXIT_KINDS=3:jev_failed
+LoadCredential=status-checkin:/etc/power-map/status-api.key
+SetCredential=status-checkin:\n
+ExecStopPost=-/usr/bin/python3 /home/exedev/power-map/scripts/status_checkin.py %n

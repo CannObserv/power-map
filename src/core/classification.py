@@ -287,6 +287,9 @@ class DrainResult:
     failed: int = 0
     input_tokens: int = 0
     error: str | None = None
+    # A failure that asking again won't fix: no key, a 4xx, a malformed reply,
+    # another model answering. The timer alerts on one at once (#833).
+    permanent: bool = False
 
 
 _BACKLOG_WHERE = """
@@ -333,6 +336,13 @@ WHERE o.id = ANY($1::text[]) AND o.archived_at IS NULL
       WHERE latest.manual_action IN ('accept', 'set', 'dismiss')))
 ORDER BY o.id
 """
+
+
+async def last_answered_at(db: asyncpg.Connection) -> datetime | None:
+    """When a run last stored a Jev answer (any origin), or None."""
+    return await db.fetchval(
+        "SELECT max(finished_at) FROM classification_runs WHERE field = 'org_kind' AND answered > 0"
+    )
 
 
 async def jev_backlog_count(db: asyncpg.Connection, model: str) -> int:
@@ -395,6 +405,7 @@ async def _ask_all(
             elif isinstance(reply, jc.JevError):
                 result.failed += 1
                 result.error = str(reply)
+                result.permanent = result.permanent or not reply.transient
                 stop = stop or reply.auth
             else:
                 raise reply
@@ -422,7 +433,7 @@ async def _ask_and_record(
     model = jc.get_model()
     api_key = jc.get_api_key()
     if not api_key:
-        result = DrainResult(status="failed", error=f"{jc.API_KEY_ENV} is not set")
+        result = DrainResult(status="failed", error=f"{jc.API_KEY_ENV} is not set", permanent=True)
     elif client is None:
         async with httpx.AsyncClient() as own:
             result = await _ask_all(
@@ -490,6 +501,13 @@ async def drain(
         await db.execute("SELECT pg_advisory_unlock($1)", DRAIN_LOCK_KEY)
 
 
+async def reask_eligible(
+    db: asyncpg.Connection, org_ids: Sequence[str], *, skip_decided: bool
+) -> list[str]:
+    """The active orgs among *org_ids* (with *skip_decided*, only undecided ones)."""
+    return [r["id"] for r in await db.fetch(_ACTIVE_SQL, list(org_ids), skip_decided)]
+
+
 async def reask(
     db: asyncpg.Connection,
     org_ids: Sequence[str],
@@ -507,9 +525,7 @@ async def reask(
     """
     if not jc.is_enabled():
         return DrainResult(status="disabled")
-    rows = await db.fetch(_ACTIVE_SQL, list(org_ids), skip_decided)
-    if not rows:
+    ids = await reask_eligible(db, org_ids, skip_decided=skip_decided)
+    if not ids:
         return DrainResult(status="idle")
-    return await _ask_and_record(
-        db, [r["id"] for r in rows], origin=origin, ask=ask, client=client, replace=True
-    )
+    return await _ask_and_record(db, ids, origin=origin, ask=ask, client=client, replace=True)

@@ -275,3 +275,24 @@ async def test_an_answer_from_another_model_is_a_failure(db):
     assert await _jev_rows(db, oid) == []
     (run,) = await _runs(db)
     assert "jev-9.9.9" in run["error"]
+
+
+async def test_a_run_says_whether_a_failure_was_permanent(db):
+    await _org(db, "Blip Org")
+    blip = await cls.drain(
+        db, origin="tick", ask=FakeJev(default=jc.JevError("Jev: HTTP 503", transient=True))
+    )
+    assert (blip.status, blip.permanent) == ("failed", False)
+    await _org(db, "Bad Request Org")
+    bad = await cls.drain(db, origin="tick", ask=FakeJev({"Bad Request Org": jc.JevError("400")}))
+    assert bad.permanent is True
+
+
+async def test_last_answered_at_reads_runs_that_answered(db):
+    assert await cls.last_answered_at(db) is None
+    await _org(db, "Never Answers")
+    await cls.drain(db, origin="tick", ask=FakeJev(default=jc.JevError("x", transient=True)))
+    assert await cls.last_answered_at(db) is None
+    await _org(db, "Answers")
+    await cls.drain(db, origin="tick", ask=FakeJev({"Never Answers": jc.JevError("x")}))
+    assert await cls.last_answered_at(db) is not None

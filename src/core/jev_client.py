@@ -30,6 +30,7 @@ import httpx
 
 from src.core import org_kind_question as q
 from src.core.logging import get_logger
+from src.core.retry import is_transient_httpx
 
 logger = get_logger(__name__)
 
@@ -63,12 +64,19 @@ class JevAnswer:
 
 
 class JevError(Exception):
-    """A request that stored nothing. ``status`` is the HTTP status, or None."""
+    """A request that stored nothing. ``status`` is the HTTP status, or None.
 
-    def __init__(self, message: str, *, status: int | None = None) -> None:
-        """Record the message and the HTTP status (None when no response came)."""
+    ``transient``: asking again could plausibly succeed (a network error, a
+    5xx, rate limiting that outlasted the retries). The timer retries those on
+    its #833 budget; anything else (a 4xx, a malformed reply, no key) is
+    permanent.
+    """
+
+    def __init__(self, message: str, *, status: int | None = None, transient: bool = False) -> None:
+        """Record the message, the HTTP status (None when no response came) and transience."""
         super().__init__(message)
         self.status = status
+        self.transient = transient
 
     @property
     def auth(self) -> bool:
@@ -215,7 +223,9 @@ async def ask_kind(
             response = await client.post(URL, json=body, headers=headers, timeout=timeout)
         except httpx.RequestError as e:
             # By type only: the message may echo request details.
-            raise JevError(f"Jev request failed: {type(e).__name__}") from None
+            raise JevError(
+                f"Jev request failed: {type(e).__name__}", transient=is_transient_httpx(e)
+            ) from None
         status = response.status_code
         if status in RETRY_STATUSES:
             if attempt + 1 < max_attempts:
@@ -229,11 +239,13 @@ async def ask_kind(
                 )
                 await sleep(wait)
                 continue
-            raise JevError(f"Jev: HTTP {status} after {max_attempts} attempts", status=status)
+            raise JevError(
+                f"Jev: HTTP {status} after {max_attempts} attempts", status=status, transient=True
+            )
         if status != httpx.codes.OK:
             # Never quote an auth rejection: some vendors echo a key prefix in it.
             detail = "" if status in AUTH_STATUSES else _excerpt(response)
-            raise JevError(f"Jev: HTTP {status}{detail}", status=status)
+            raise JevError(f"Jev: HTTP {status}{detail}", status=status, transient=status >= 500)
         try:
             data = response.json()
         except ValueError:

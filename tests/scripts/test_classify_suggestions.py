@@ -1,17 +1,90 @@
-"""Integration tests for scripts/classify_suggestions.py --source rules (#877).
+"""Tests for scripts/classify_suggestions.py (#877).
 
-The rules source writes a ``classification_suggestions`` row only when an
-org's identifier-implied kind changed. Dry run by default; ``--execute``
-writes. Requires TEST_DATABASE_URL + a schema-applied DB.
+``--source rules`` writes a ``classification_suggestions`` row only when an
+org's identifier-implied kind changed. ``--source all`` is the drain: rules,
+then Jev (a fake here; nothing calls the API). Dry run by default;
+``--execute`` writes. The DB-backed tests need TEST_DATABASE_URL.
 """
+
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
 
+from scripts import classify_suggestions as cs
 from scripts.classify_suggestions import classify
+from src.core import classification as cls
+from src.core import jev_client as jc
 from src.core.db import generate_id
+from src.core.retry import Backoff
 
-pytestmark = [pytest.mark.integration]
+NOW = datetime(2026, 11, 26, 12, tzinfo=UTC)
+
+
+# --- the timer's verdict: pure ------------------------------------------
+
+
+def _result(status="ok", failed=0, permanent=False):
+    return cls.DrainResult(
+        status=status, asked=2, answered=2 - failed, failed=failed, permanent=permanent
+    )
+
+
+@pytest.mark.parametrize("status", ["ok", "idle", "disabled", "busy"])
+def test_verdict_quiet_runs_are_ok(status):
+    assert cs.verdict(cls.DrainResult(status=status), None, NOW) == 0
+
+
+def test_verdict_a_permanent_failure_alerts_at_once():
+    assert cs.verdict(_result("partial", 1, permanent=True), NOW, NOW) == cs.EXIT_JEV_FAILED
+
+
+def test_verdict_a_blip_with_a_recent_answer_is_ok():
+    recent = NOW - timedelta(hours=3)
+    assert cs.verdict(_result("failed", 2), recent, NOW) == 0
+
+
+def test_verdict_failing_with_no_answer_for_two_days_alerts():
+    stale = NOW - cs.STALE_AFTER - timedelta(minutes=1)
+    assert cs.verdict(_result("failed", 2), stale, NOW) == cs.EXIT_JEV_FAILED
+    assert cs.verdict(_result("failed", 2), None, NOW) == cs.EXIT_JEV_FAILED
+
+
+def test_verdict_without_a_drain_is_ok():
+    assert cs.verdict(None, None, NOW) == 0
+
+
+async def test_timer_ask_retries_a_transient_failure_on_the_run_budget(monkeypatch):
+    calls = []
+
+    async def flaky(org, crit, **kw):
+        calls.append(kw)
+        if len(calls) == 1:
+            raise jc.JevError("Jev: HTTP 503", status=503, transient=True)
+        return "answer"
+
+    monkeypatch.setattr(cs.jc, "ask_kind", flaky)
+    ask = cs.bounded_ask(Backoff((0.0,)))
+    assert await ask("org", {}, api_key="k", model="m", client=None) == "answer"
+    assert len(calls) == 2
+    assert calls[0]["timeout"] == cs.JEV_TIMEOUT
+    assert calls[0]["max_attempts"] == cs.JEV_ATTEMPTS
+
+
+async def test_timer_ask_does_not_retry_a_permanent_failure(monkeypatch):
+    calls = []
+
+    async def bad(org, crit, **kw):
+        calls.append(1)
+        raise jc.JevError("Jev: HTTP 400", status=400)
+
+    monkeypatch.setattr(cs.jc, "ask_kind", bad)
+    with pytest.raises(jc.JevError):
+        await cs.bounded_ask(Backoff((0.0,)))("org", {}, api_key="k", model="m", client=None)
+    assert calls == [1]
+
+
+# --- DB-backed ------------------------------------------------------------
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -50,6 +123,7 @@ async def _rules_rows(db, org_id) -> list[str]:
     return [r["value"] for r in rows]
 
 
+@pytest.mark.integration
 async def test_dry_run_reports_without_writing(db):
     party = await _org(db, "org_wa_party")
     report = await classify(db, source="rules", execute=False)
@@ -59,6 +133,7 @@ async def test_dry_run_reports_without_writing(db):
     assert await _rules_rows(db, party) == []
 
 
+@pytest.mark.integration
 async def test_execute_writes_once_and_reruns_clean(db):
     leg = await _org(db, "org_wa_legislature_committee_id")
     biz = await _org(db, "org_wslcb", "org_ubi")
@@ -75,6 +150,78 @@ async def test_execute_writes_once_and_reruns_clean(db):
     assert again.written == 0
 
 
+@pytest.mark.integration
 async def test_unknown_source_is_refused(db):
     with pytest.raises(ValueError, match="source"):
-        await classify(db, source="jev", execute=False)
+        await classify(db, source="magic", execute=False)
+
+
+@pytest.fixture
+def jev_on(monkeypatch):
+    monkeypatch.setenv("JEV_SUGGESTIONS_ENABLED", "1")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "sk-test")
+    monkeypatch.delenv("JEV_MODEL", raising=False)
+
+
+def _fake_ask(asked):
+    async def ask(org, crit, **kw):
+        asked.append(org)
+        return jc.JevAnswer("business", 0.9, {"business": 0.9}, kw["model"], 700)
+
+    return ask
+
+
+@pytest.mark.integration
+async def test_all_dry_run_reports_the_backlog_without_asking(db, jev_on):
+    await _org(db)
+    await _org(db)
+    asked: list = []
+    report = await classify(db, source="all", execute=False, ask=_fake_ask(asked), limit=1)
+    assert report.backlog >= 2
+    assert report.would_ask == 1
+    assert report.est_tokens == cs.EST_TOKENS_PER_ORG
+    assert report.jev_enabled is True
+    assert report.drain is None
+    assert asked == []
+
+
+@pytest.mark.integration
+async def test_all_execute_drains(db, jev_on):
+    oid = await _org(db, "org_wa_party")
+    asked: list = []
+    report = await classify(db, source="all", execute=True, ask=_fake_ask(asked), origin="timer")
+    assert report.drain.status == "ok"
+    assert report.drain.rules_written >= 1
+    assert report.drain.answered == len(asked) >= 1
+    run = await db.fetchrow(
+        "SELECT origin FROM classification_runs ORDER BY finished_at DESC LIMIT 1"
+    )
+    assert run["origin"] == "timer"
+    assert (
+        await db.fetchval(
+            "SELECT count(*) FROM classification_suggestions WHERE entity_id=$1 AND source='jev'",
+            oid,
+        )
+        == 1
+    )
+
+
+@pytest.mark.integration
+async def test_reask_ids_skip_decided_orgs(db, jev_on):
+    decided = await _org(db)
+    open_ = await _org(db)
+    await cls.record_decision(db, org_id=decided, action="dismiss")
+    asked: list = []
+    dry = await classify(db, source="all", execute=False, reask_ids=[decided, open_])
+    assert dry.would_ask == 1
+    report = await classify(
+        db, source="all", execute=True, ask=_fake_ask(asked), reask_ids=[decided, open_]
+    )
+    assert report.drain.answered == 1
+    assert len(asked) == 1
+
+
+@pytest.mark.integration
+async def test_reask_ids_need_source_all(db):
+    with pytest.raises(ValueError, match="--source all"):
+        await classify(db, source="rules", execute=False, reask_ids=["x"])

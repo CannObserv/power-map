@@ -7,6 +7,7 @@
 
 [installed]
 "power-map-ancillary-orphans.service" = "/etc/systemd/system/power-map-ancillary-orphans.service"
+"power-map-classification.service" = "/etc/systemd/system/power-map-classification.service"
 "power-map-anomaly.service" = "/etc/systemd/system/power-map-anomaly.service"
 "power-map-assignment-rel-windows.service" = "/etc/systemd/system/power-map-assignment-rel-windows.service"
 "power-map-datasets-pull.service" = "/etc/systemd/system/power-map-datasets-pull.service"
@@ -20,6 +21,7 @@
 "power-map.service" = "/etc/systemd/system/power-map.service"
 "power-map-notify-failure@.service" = "/etc/systemd/system/power-map-notify-failure@.service"
 "power-map-ancillary-orphans.timer" = "/etc/systemd/system/power-map-ancillary-orphans.timer"
+"power-map-classification.timer" = "/etc/systemd/system/power-map-classification.timer"
 "power-map-anomaly.timer" = "/etc/systemd/system/power-map-anomaly.timer"
 "power-map-assignment-rel-windows.timer" = "/etc/systemd/system/power-map-assignment-rel-windows.timer"
 "power-map-datasets-pull.timer" = "/etc/systemd/system/power-map-datasets-pull.timer"

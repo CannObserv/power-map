@@ -211,3 +211,34 @@ async def test_key_never_logged(caplog):
     with pytest.raises(jc.JevError):
         await _ask(client)
     assert KEY not in caplog.text
+
+
+# --- transient or permanent (the timer's #833 retry reads this) -----------
+
+
+@pytest.mark.parametrize(
+    ("responses", "transient"),
+    [
+        ([httpx.ConnectError("down")], True),
+        ([httpx.ReadTimeout("slow")], True),
+        ([(500, "oops")], True),
+        ([(503, "oops")], True),
+        ([(429, {})] * 2, True),
+        ([(400, "bad")], False),
+        ([(401, "no")], False),
+        ([(200, "not json")], False),
+        ([(200, _reply(choice="tribe"))], False),
+    ],
+)
+async def test_errors_say_whether_they_are_transient(responses, transient):
+    client, _ = _client(*responses)
+    with pytest.raises(jc.JevError) as exc:
+        await _ask(client, max_attempts=2)
+    assert exc.value.transient is transient
+
+
+async def test_a_missing_key_is_permanent():
+    client, _ = _client()
+    with pytest.raises(jc.JevError) as exc:
+        await jc.ask_kind(ORG, CRIT, api_key="", model="jev-1.14.0", client=client)
+    assert exc.value.transient is False
