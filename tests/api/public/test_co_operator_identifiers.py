@@ -149,3 +149,38 @@ async def test_a_minted_id_another_record_holds_is_identifier_taken(
     assert r.json()["disposition"] == "rejected"
     assert r.json()["reason_code"] == "identifier_taken"
     assert r.json()["reason"] == f"identifier_taken: {slug!r} held by {holder!r}"
+
+
+async def _held_values(db, entity_id: str, slug: str) -> set[str]:
+    rows = await db.fetch(
+        "SELECT i.value FROM identifiers i JOIN entity_identifier_types t"
+        " ON t.id = i.entity_identifier_type_id WHERE i.entity_id = $1 AND t.slug = $2",
+        entity_id,
+        slug,
+    )
+    return {r["value"] for r in rows}
+
+
+@pytest.mark.parametrize("entity_type", sorted(CASES))
+async def test_replaces_swaps_one_minted_id_for_another(client, db, write_key, entity_type):
+    """#848: the co_operator types are one-holder types, so they take ``replaces``."""
+    old, new = _minted(), _minted()
+    created = (await _create(client, write_key, entity_type, old)).json()["entity_id"]
+    route, slug, _, _ = CASES[entity_type]
+    pm_type = "pm_person_id" if entity_type == "person" else "pm_org_id"
+
+    r = await client.post(
+        route,
+        json={
+            "identifier_type": pm_type,
+            "identifier_value": created,
+            "additional_identifiers": [
+                {"identifier_type_slug": slug, "identifier_value": new, "replaces": old}
+            ],
+        },
+        headers={"X-API-Key": write_key},
+    )
+
+    assert r.status_code == 200
+    assert r.json()["disposition"] == "auto-attached"
+    assert await _held_values(db, created, slug) == {new}
