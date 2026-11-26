@@ -224,6 +224,7 @@ All `POST /*/observations` endpoints return an `ObservationResponse` with the fo
 | `entity_id` | `string \| null` | ULID of the matched or created entity; `null` on `rejected` |
 | `entity_type` | `string \| null` | Entity type string; `null` on `rejected` |
 | `reason` | `string \| null` | Human-readable rejection cause; `null` on non-rejected responses |
+| `reason_code` | `ObservationReasonCode \| null` | #882: the stable code for a rejection, set on every `rejected` and `null` otherwise. The contract to act on; see "Reason codes" below |
 | `unapplied` | `list[string] \| null` | #311: fields supplied but not applied on a natural-key auto-attach (see the assignments section). Currently populated only by assignment observations; `null` elsewhere and on clean attaches |
 | `events` | `list[EventObservationResult] \| null` | #321: per-event dispositions when the payload carried `events`. `null` when none submitted. On this all-or-nothing embedded path a rejected event raises → whole observation `rejected`, so `events` is present only on full success. Each item: `{disposition, event_id?, reason?}` |
 | `citations` | `list[CitationObservationResult] \| null` | #319: per-citation dispositions when the payload carried `citations[]`; `null` when none were submitted, and present only on full success (the embedded path is all-or-nothing) |
@@ -231,7 +232,23 @@ All `POST /*/observations` endpoints return an `ObservationResponse` with the fo
 | `attached_archived` | `bool \| null` | #477: `true` when an `auto-attached` addressed an **archived** row rather than a live one — the #391 anti-resurrection attach, or a re-emitted `op="retract"`. Absent/`null` otherwise, never `false`. Treat `true` as "PM asserts this never happened — stop re-emitting it"; `unapplied` never carried that meaning. Currently populated only by assignment observations; the per-item results for events / citations / relationships carry their own. See [OBSERVATIONS.md](OBSERVATIONS.md) §"Anti-resurrection is labelled" |
 | `provenance_claimed` | `bool \| null` | #478: `true` when this observation stamped `source_key_id` onto a row that had none. Absent/`null` otherwise, never `false`. Assignment observations only, on the `pm_assignment_id` path — asserting a span **identical** to what an unowned row already stores now claims it, so a producer can backfill provenance without falsifying a date, and can tell "already yours" from "now yours" without a read-back per row. An *owned* row (same-source or foreign) is untouched by an identical assertion. See [API_ASSIGNMENTS.md](API_ASSIGNMENTS.md) §"Write semantics & provenance" |
 
-**`reason` is a diagnostic aid, not a stable API contract.** Its format (e.g. `"unknown_identifier_type: 'org_wa_legislature_chamber'"`) may change across releases. Do not pattern-match on specific reason strings in production code; use it for logging and debugging only. To avoid `unknown_identifier_type` in the first place, discover the registered slugs from `GET /api/v1/entity-identifier-types` instead of hardcoding them (#459) — value conventions per slug are in [OBSERVATIONS.md](OBSERVATIONS.md).
+**Act on `reason_code`; log `reason`.** `reason_code` (#882) is an enum in the OpenAPI schema, so the generated client carries it, and a value is never renamed without a deprecation release. A minor release may **add** codes: treat one you don't recognise as an ordinary refusal, never as a parse error (the generated client passes an unknown code through as a plain string). `reason` is a diagnostic aid, not a stable API contract. Its format (e.g. `"unknown_identifier_type: 'org_wa_legislature_chamber'"`) may change across releases. Do not pattern-match on specific reason strings in production code; use it for logging and debugging only. To avoid `unknown_identifier_type` in the first place, discover the registered slugs from `GET /api/v1/entity-identifier-types` instead of hardcoding them (#459) — value conventions per slug are in [OBSERVATIONS.md](OBSERVATIONS.md).
+
+#### Reason codes
+
+A code is the slug at the head of `reason` (the text before `: `), except for the three cases in the last two rows.
+
+| Area | Codes |
+|---|---|
+| Resolving the entity | `unknown_identifier_type`, `pm_id_not_found`, `person_archived`, `organization_archived`, `role_archived`, `jurisdiction_archived`, `role_assignment_archived`, `entity_type_not_creatable`, `entity_type_mismatch`, `jurisdiction_new_requires_create_data`, `unknown_jurisdiction_type`, `unique_violation` |
+| Roles | `org_not_found`, `role_type_not_found`, `jurisdiction_not_found`, `role_type_required_for_jurisdiction`, `qualifier_required`, `qualifier_forbidden`, `title_required` |
+| Assignments | `person_not_found`, `role_not_found`, `assignment_not_found`, `is_current_end_date_conflict`, `start_after_end_date`, `start_date_conflict` |
+| Org parent | `parent_not_found`, `parent_cycle`, `active_on_archived_org` (`org_not_found` as for roles) |
+| Identifiers | `identifier_conflict`, `identifier_taken`, `identifier_type_mismatch`, `identifier_locked`, `replaces_unsupported`, `replaces_not_held` |
+| Embedded events, citations, names | the per-item slugs below (`linked_entity_unresolved` and `entity_unresolved` are transient), and `name_is_canonical`, `name_is_last`, `name_has_readings`, `name_has_foreign_citations` |
+| Any write | `identity_immutable`, `missing_required_field`, `db_constraint_violation`, `invalid` |
+| **`provenance_conflict`** | The same-or-NULL `source_key_id` gate, on every surface: another key owns the row. Its `reason` text still reads `source_key_mismatch` (assignments, org parent) or `name_provenance_conflict` (names) until #888 |
+| **`invalid`** | Also every free-text validation message: an unknown link, contact or affiliation type, an address the normaliser refused, a parent lookup that matched other than once. An additional identifier of an unknown type is `unknown_identifier_type` |
 
 **Event `reason` slugs are a contract, though.** Unlike the top-level `reason`, per-event `EventObservationResult.reason` (#321) is a stable machine-readable slug: one transient — `linked_entity_unresolved` (self-heals once the linked entity anchors) — and the rest terminal: `identity_immutable`, `event_not_found`, `provenance_conflict`, `applies_to_mismatch`, `missing_required_field`, `unknown_event_type`, `invalid`, `event_owned_by_dataset` (#592: a `succeeded_by`/`merged_with`/`split_from` link between two orgs a subscribed dataset anchors — create, refine and retract alike; correct it at the dataset).
 

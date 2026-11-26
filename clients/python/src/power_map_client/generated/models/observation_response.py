@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.observation_reason_code import ObservationReasonCode
 from ..models.observation_response_entity_type_type_0 import (
     ObservationResponseEntityTypeType0,
 )
@@ -29,6 +30,7 @@ class ObservationResponse:
         entity_id (None | str | Unset):
         entity_type (None | ObservationResponseEntityTypeType0 | Unset):
         reason (None | str | Unset):
+        reason_code (None | ObservationReasonCode | Unset):
         unapplied (list[str] | None | Unset):
         events (list[EventObservationResult] | None | Unset):
         citations (list[CitationObservationResult] | None | Unset):
@@ -41,6 +43,7 @@ class ObservationResponse:
     entity_id: None | str | Unset = UNSET
     entity_type: None | ObservationResponseEntityTypeType0 | Unset = UNSET
     reason: None | str | Unset = UNSET
+    reason_code: None | ObservationReasonCode | Unset = UNSET
     unapplied: list[str] | None | Unset = UNSET
     events: list[EventObservationResult] | None | Unset = UNSET
     citations: list[CitationObservationResult] | None | Unset = UNSET
@@ -71,6 +74,14 @@ class ObservationResponse:
             reason = UNSET
         else:
             reason = self.reason
+
+        reason_code: None | str | Unset
+        if isinstance(self.reason_code, Unset):
+            reason_code = UNSET
+        elif isinstance(self.reason_code, ObservationReasonCode):
+            reason_code = self.reason_code.value
+        else:
+            reason_code = self.reason_code
 
         unapplied: list[str] | None | Unset
         if isinstance(self.unapplied, Unset):
@@ -142,6 +153,8 @@ class ObservationResponse:
             field_dict["entity_type"] = entity_type
         if reason is not UNSET:
             field_dict["reason"] = reason
+        if reason_code is not UNSET:
+            field_dict["reason_code"] = reason_code
         if unapplied is not UNSET:
             field_dict["unapplied"] = unapplied
         if events is not UNSET:
@@ -200,6 +213,23 @@ class ObservationResponse:
             return cast(None | str | Unset, data)
 
         reason = _parse_reason(d.pop("reason", UNSET))
+
+        def _parse_reason_code(data: object) -> None | ObservationReasonCode | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                reason_code_type_0 = ObservationReasonCode(data)
+
+                return reason_code_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | ObservationReasonCode | Unset, data)
+
+        reason_code = _parse_reason_code(d.pop("reason_code", UNSET))
 
         def _parse_unapplied(data: object) -> list[str] | None | Unset:
             if data is None:
@@ -309,6 +339,7 @@ class ObservationResponse:
             entity_id=entity_id,
             entity_type=entity_type,
             reason=reason,
+            reason_code=reason_code,
             unapplied=unapplied,
             events=events,
             citations=citations,

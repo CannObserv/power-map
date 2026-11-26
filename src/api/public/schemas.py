@@ -13,6 +13,8 @@ from pydantic import (
     model_validator,
 )
 
+from src.core.refusals import ObservationReasonCode
+
 # The `entity_identifier_types.entity_type` CHECK vocabulary. Aliased because
 # this module's own `EntityType` (below) is a *different*, wider set — the
 # entity kinds the wire addresses, which include `role` and
@@ -1128,6 +1130,9 @@ class ObservationResponse(BaseModel):
     entity_id: str | None = None  # None only when disposition == 'rejected'
     entity_type: EntityType | None = None  # None when rejected
     reason: str | None = None  # human-readable rejection cause; None on non-rejected
+    # #882: the stable code for a rejection, the contract a producer acts on —
+    # `reason` stays diagnostic text. Set on every `rejected`, null otherwise.
+    reason_code: ObservationReasonCode | None = None
     # #311: fields supplied but not applied on a natural-key auto-attach (e.g. a
     # differing non-NULL end_date). None on new/rejected and on clean attaches.
     unapplied: list[str] | None = None
@@ -1155,6 +1160,17 @@ class ObservationResponse(BaseModel):
     # yours" from "now yours" without a read-back per row, which is what a
     # producer backfilling provenance across thousands of pre-#311 rows needs.
     provenance_claimed: bool | None = None
+
+    @classmethod
+    def rejected(
+        cls, code: ObservationReasonCode, reason: str | None = None
+    ) -> "ObservationResponse":
+        """A refusal: its stable ``reason_code``, and its text (the code's, unless given)."""
+        return cls(
+            disposition="rejected",
+            reason=code.value if reason is None else reason,
+            reason_code=code,
+        )
 
 
 class JurisdictionObservationRequest(BaseModel):

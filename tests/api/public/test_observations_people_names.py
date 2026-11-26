@@ -237,6 +237,7 @@ async def test_retract_of_another_keys_name_rejects_and_keeps_it(
     r = await _post(client, raw, person_id, [{**_VARIANT, "op": "retract"}])
 
     assert (r.json()["disposition"], r.json()["reason"]) == ("rejected", "name_provenance_conflict")
+    assert r.json()["reason_code"] == "provenance_conflict"  # #882: one name for the gate
     assert (
         await db.fetchval(
             "SELECT count(*) FROM person_names WHERE person_id=$1 AND name='Jody Example'",

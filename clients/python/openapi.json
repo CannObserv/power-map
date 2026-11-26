@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "power-map",
-    "version": "0.79.0"
+    "version": "0.80.0"
   },
   "paths": {
     "/health": {
@@ -7787,6 +7787,64 @@
         "title": "ObservationPersonNameParts",
         "description": "Structured name parts supplied by upstream source (pre-parsed, not auto-decomposed)."
       },
+      "ObservationReasonCode": {
+        "type": "string",
+        "enum": [
+          "unknown_identifier_type",
+          "pm_id_not_found",
+          "person_archived",
+          "organization_archived",
+          "role_archived",
+          "jurisdiction_archived",
+          "role_assignment_archived",
+          "entity_type_not_creatable",
+          "entity_type_mismatch",
+          "jurisdiction_new_requires_create_data",
+          "unknown_jurisdiction_type",
+          "unique_violation",
+          "org_not_found",
+          "role_type_not_found",
+          "jurisdiction_not_found",
+          "role_type_required_for_jurisdiction",
+          "qualifier_required",
+          "qualifier_forbidden",
+          "title_required",
+          "person_not_found",
+          "role_not_found",
+          "assignment_not_found",
+          "is_current_end_date_conflict",
+          "start_after_end_date",
+          "start_date_conflict",
+          "parent_not_found",
+          "parent_cycle",
+          "active_on_archived_org",
+          "identifier_conflict",
+          "identifier_taken",
+          "identifier_type_mismatch",
+          "identifier_locked",
+          "replaces_unsupported",
+          "replaces_not_held",
+          "linked_entity_unresolved",
+          "event_not_found",
+          "applies_to_mismatch",
+          "unknown_event_type",
+          "event_owned_by_dataset",
+          "entity_unresolved",
+          "citation_not_found",
+          "citable_field_unknown",
+          "name_is_canonical",
+          "name_is_last",
+          "name_has_readings",
+          "name_has_foreign_citations",
+          "provenance_conflict",
+          "identity_immutable",
+          "missing_required_field",
+          "db_constraint_violation",
+          "invalid"
+        ],
+        "title": "ObservationReasonCode",
+        "description": "Why an observation was refused: ``ObservationResponse.reason_code`` (#882).\n\nTransient (may clear on a later cycle, once what it names arrives):\n``linked_entity_unresolved``, ``entity_unresolved``. The rest are terminal for\nthe payload as sent. The table with each code's meaning is in\n``docs/PUBLIC_API.md``."
+      },
       "ObservationResponse": {
         "properties": {
           "disposition": {
@@ -7833,6 +7891,16 @@
               }
             ],
             "title": "Reason"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObservationReasonCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "unapplied": {
             "anyOf": [

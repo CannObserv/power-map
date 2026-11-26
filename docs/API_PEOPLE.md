@@ -97,7 +97,7 @@ for them; the catalog carries no value-format column.
 
 | Reason | When |
 |---|---|
-| `name_provenance_conflict` | the public row was written by another key, or carries no stamp |
+| `name_provenance_conflict` | the public row was written by another key, or carries no stamp. Its `reason_code` is `provenance_conflict`, the gate's one name (#882); the text follows in #888 |
 | `name_is_canonical` | it is the displayed name, however it became so: a curator promoted it, a hint claimed the slot, or PM auto-promoted a name the key added to a person who had none. Also the answer when a promote commits while the retract runs |
 | `name_is_last` | it is the person's only **public** name — the guard answers from what a read shows, so a hidden name neither permits the delete nor is revealed by it |
 | `name_has_foreign_citations` | a citation on it was written by another key or a curator (a retracted one counts): the citations are deleted with the row, and those are not the caller's |

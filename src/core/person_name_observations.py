@@ -43,13 +43,20 @@ from src.core.ancillary_migrate import delete_citations
 from src.core.citations import CitationResult, claims_from, write_citations
 from src.core.logging import get_logger
 from src.core.observation import ObservationRejected, PersonNameWrite, write_names
+from src.core.refusals import ObservationReasonCode
 
 if TYPE_CHECKING:
     from src.api.public.schemas import ObservationPersonName
 
 logger = get_logger(__name__)
 
-__all__ = ["NameDisposition", "NameRejectReason", "NameResult", "write_person_names"]
+__all__ = [
+    "NameDisposition",
+    "NameRejectReason",
+    "NameResult",
+    "name_reason_code",
+    "write_person_names",
+]
 
 
 class NameDisposition(StrEnum):
@@ -69,6 +76,22 @@ class NameRejectReason(StrEnum):
     IS_LAST = "name_is_last"
     HAS_READINGS = "name_has_readings"
     HAS_FOREIGN_CITATIONS = "name_has_foreign_citations"
+
+
+def name_reason_code(reason: NameRejectReason) -> ObservationReasonCode:
+    """The stable code for a name refusal (#882): its slug, but one name for the gate.
+
+    ``name_provenance_conflict`` is the same-or-NULL ``source_key_id`` gate every
+    other observation calls ``provenance_conflict``; the text keeps the old name.
+    """
+    if reason is NameRejectReason.PROVENANCE_CONFLICT:
+        return ObservationReasonCode.PROVENANCE_CONFLICT
+    return ObservationReasonCode(reason.value)
+
+
+def _refused(reason: NameRejectReason) -> ObservationRejected:
+    """The raise for a name refusal: its code, and its slug as the text."""
+    return ObservationRejected(name_reason_code(reason), reason.value)
 
 
 @dataclass(frozen=True)
@@ -158,10 +181,10 @@ async def _retract(
         return NameResult(NameDisposition.RETRACTED)
     own = next((r for r in rows if r["source_key_id"] == key_id), None)
     if own is None:
-        raise ObservationRejected(NameRejectReason.PROVENANCE_CONFLICT)
+        raise _refused(NameRejectReason.PROVENANCE_CONFLICT)
     if own["is_canonical"]:
         # A curator promoted it, or a hint claimed the slot: the displayed name.
-        raise ObservationRejected(NameRejectReason.IS_CANONICAL)
+        raise _refused(NameRejectReason.IS_CANONICAL)
     name_id = own["id"]
     # The last *public* name: the guard answers from what a read shows. Counting
     # hidden rows would tell two people who read alike apart, and let a key take
@@ -173,13 +196,13 @@ async def _retract(
         )
         == 1
     ):
-        raise ObservationRejected(NameRejectReason.IS_LAST)
+        raise _refused(NameRejectReason.IS_LAST)
     if await conn.fetchval("SELECT 1 FROM person_names WHERE reading_of_id=$1 LIMIT 1", name_id):
         # reading_of_id is ON DELETE CASCADE: the delete would take rows this
         # key may not have written. A child of any visibility counts, so this
         # answer can reveal that a hidden reading points here — the alternative
         # is cascading a curator's row away unseen.
-        raise ObservationRejected(NameRejectReason.HAS_READINGS)
+        raise _refused(NameRejectReason.HAS_READINGS)
     if await conn.fetchval(
         "SELECT 1 FROM citations WHERE entity_type='person_name' AND entity_id=$1"
         "   AND source_key_id IS DISTINCT FROM $2 LIMIT 1",
@@ -190,7 +213,7 @@ async def _retract(
         # key or a curator wrote (a retracted one included) is theirs to lose —
         # and evidence someone else put on the name means it is no longer this
         # key's claim alone.
-        raise ObservationRejected(NameRejectReason.HAS_FOREIGN_CITATIONS)
+        raise _refused(NameRejectReason.HAS_FOREIGN_CITATIONS)
     # The checks above read a snapshot; a promote, a hide or a delete may commit
     # before this runs. The WHERE re-checks what must still hold — Postgres
     # re-evaluates it against the row as committed — so this never deletes a
@@ -205,7 +228,7 @@ async def _retract(
     if deleted is None:
         # Promoted, far the likeliest; a hide or a delete lands here too, and a
         # re-sent retract then finds no public row and answers the quiet no-op.
-        raise ObservationRejected(NameRejectReason.IS_CANONICAL)
+        raise _refused(NameRejectReason.IS_CANONICAL)
     # person_name is citable with no FK (#319), so nothing orders these two.
     await delete_citations(conn, "person_name", name_id)
     logger.info("Retracted person_name id=%s person=%s key=%s", name_id, person_id, key_id)

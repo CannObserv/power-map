@@ -528,6 +528,7 @@ async def test_org_reparent_via_pm_org_id_foreign_key_rejected(
         body = r2.json()
         assert body["disposition"] == "rejected"
         assert body["reason"] == "source_key_mismatch"
+        assert body["reason_code"] == "provenance_conflict"  # #882
         row = await db.fetchrow("SELECT parent_id FROM organizations WHERE id=$1", sub)
         assert row["parent_id"] == p1
     finally:

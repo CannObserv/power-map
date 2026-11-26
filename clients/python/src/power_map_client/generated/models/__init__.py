@@ -95,6 +95,7 @@ from .observation_person_name_parts import ObservationPersonNameParts
 from .observation_person_name_parts_primary_identifier_type_0 import (
     ObservationPersonNamePartsPrimaryIdentifierType0,
 )
+from .observation_reason_code import ObservationReasonCode
 from .observation_response import ObservationResponse
 from .observation_response_entity_type_type_0 import ObservationResponseEntityTypeType0
 from .observation_role_assignment import ObservationRoleAssignment
@@ -246,6 +247,7 @@ __all__ = (
     "ObservationPersonNameOp",
     "ObservationPersonNameParts",
     "ObservationPersonNamePartsPrimaryIdentifierType0",
+    "ObservationReasonCode",
     "ObservationResponse",
     "ObservationResponseEntityTypeType0",
     "ObservationRoleAssignment",

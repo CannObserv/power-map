@@ -35,6 +35,7 @@ import asyncpg
 from src.core.db import generate_id
 from src.core.logging import get_logger
 from src.core.observation import ObservationRejected
+from src.core.refusals import ObservationReasonCode
 
 logger = get_logger(__name__)
 
@@ -418,7 +419,8 @@ async def write_citations(
     for claim in claims:
         result = await _apply_one_citation(conn, entity_type, entity_id, key_id, claim)
         if result.disposition is CitationDisposition.REJECTED:
-            raise ObservationRejected(result.reason)
+            # A citation slug is a code too (tests/core/test_refusals.py holds it).
+            raise ObservationRejected(ObservationReasonCode(result.reason))
         results.append(result)
     return results
 

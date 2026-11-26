@@ -121,6 +121,7 @@ async def test_new_person_returns_new_disposition(client, ppl_write_key):
     assert body["disposition"] == "new"
     assert body["entity_id"] is not None
     assert body["entity_type"] == "person"
+    assert body["reason_code"] is None  # #882: set only on a refusal
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +159,7 @@ async def test_rejected_on_unknown_identifier_type(client, ppl_write_key):
     body = r.json()
     assert body["disposition"] == "rejected"
     assert body["entity_id"] is None
+    assert body["reason_code"] == "unknown_identifier_type"  # #882
 
 
 async def test_rejected_on_wrong_entity_type(client, ppl_write_key):
@@ -166,6 +168,26 @@ async def test_rejected_on_wrong_entity_type(client, ppl_write_key):
     r = await _post(client, raw, {"identifier_type": "org_ubi", "identifier_value": _unique_id()})
     assert r.status_code == 200
     assert r.json()["disposition"] == "rejected"
+    assert r.json()["reason_code"] == "entity_type_mismatch"  # #882
+
+
+async def test_free_text_refusal_is_invalid(client, ppl_write_key):
+    """#882: a validation message with no slug of its own carries ``invalid``."""
+    raw, _ = ppl_write_key
+    value = _unique_id()
+    r = await _post(
+        client,
+        raw,
+        {
+            "identifier_type": "person_wa_pdc",
+            "identifier_value": value,
+            "links": [{"url": f"https://example.com/{value}", "link_type_slug": "zzz_no_such"}],
+        },
+    )
+    body = r.json()
+    assert body["disposition"] == "rejected"
+    assert body["reason"] == "Unknown link_type_slug: 'zzz_no_such'"
+    assert body["reason_code"] == "invalid"
 
 
 async def test_rejected_on_identifier_of_archived_person(client, ppl_write_key, db):
@@ -200,6 +222,7 @@ async def test_rejected_on_identifier_of_archived_person(client, ppl_write_key, 
     body = r.json()
     assert body["disposition"] == "rejected"
     assert body["reason"] == f"person_archived: {person_id!r}"
+    assert body["reason_code"] == "person_archived"  # #882
     assert body["entity_id"] is None
     assert await db.fetchval("SELECT COUNT(*) FROM person_names WHERE person_id=$1", person_id) == 0
     assert (
@@ -517,6 +540,7 @@ async def test_additional_identifier_conflict_is_rejected(client, ppl_write_key,
     body = second.json()
     assert body["disposition"] == "rejected"
     assert body["reason"] == f"identifier_conflict: {slug!r}"
+    assert body["reason_code"] == "identifier_conflict"  # #882
 
 
 async def test_additional_identifier_of_another_entity_type_is_rejected(client, ppl_write_key, db):

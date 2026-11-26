@@ -901,7 +901,8 @@ async def test_pm_update_source_key_mismatch_rejected(
         },
     )
     assert r.json()["disposition"] == "rejected"
-    assert r.json()["reason"] == "source_key_mismatch"
+    assert r.json()["reason"] == "source_key_mismatch"  # #882: the text stays one release
+    assert r.json()["reason_code"] == "provenance_conflict"
     row = await db.fetchrow("SELECT end_date FROM role_assignments WHERE id=$1", asgn_id)
     assert row["end_date"] is None  # untouched
 
@@ -1200,6 +1201,7 @@ async def test_retract_without_pm_assignment_id_invalid(client, write_key, obs_e
     body = r.json()
     assert body["disposition"] == "rejected"
     assert body["reason"] == "invalid"
+    assert body["reason_code"] == "invalid"
     archived = await db.fetchval("SELECT archived_at FROM role_assignments WHERE id=$1", aid)
     assert archived is None
 
