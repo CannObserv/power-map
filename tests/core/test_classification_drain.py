@@ -296,3 +296,26 @@ async def test_last_answered_at_reads_runs_that_answered(db):
     await _org(db, "Answers")
     await cls.drain(db, origin="tick", ask=FakeJev({"Never Answers": jc.JevError("x")}))
     assert await cls.last_answered_at(db) is not None
+
+
+async def test_health_reports_the_flag_key_backlog_failures_and_tokens(db, monkeypatch):
+    await _org(db, "Health A")
+    await _org(db, "Health B")
+    await cls.drain(db, origin="tick", ask=FakeJev({"Health B": jc.JevError("x", transient=True)}))
+
+    h = await cls.health(db)
+
+    assert (h.enabled, h.key_present, h.model) == (True, True, MODEL)
+    assert h.backlog == 1
+    assert h.failed_runs_7d == 1
+    assert (h.tokens_all, h.tokens_month) == (700, 700)
+    assert h.last_success is not None
+    monkeypatch.setenv("TYPESAFE_API_KEY", "")
+    monkeypatch.setenv("JEV_SUGGESTIONS_ENABLED", "0")
+    h = await cls.health(db)
+    assert (h.enabled, h.key_present) == (False, False)
+
+
+async def test_health_with_no_runs(db):
+    h = await cls.health(db)
+    assert (h.last_success, h.failed_runs_7d, h.tokens_all) == (None, 0, 0)

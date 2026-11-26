@@ -165,3 +165,15 @@ async def test_dashboard_routes_db_through_get_db_dep(client, db):
 
     assert resp.status_code == 200
     assert call_count["n"] >= 1, "dashboard route did not route DB acquisition through get_db dep"
+
+
+async def test_dashboard_shows_the_ai_suggestions_card(client, monkeypatch):
+    """#877: Jev's health on the dashboard: flag, key presence (never the key), backlog."""
+    monkeypatch.setenv("JEV_SUGGESTIONS_ENABLED", "0")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "sk-dashboard-SECRET")
+    r = await client.get("/admin/", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert "AI suggestions" in r.text
+    assert "Off" in r.text
+    assert "sk-dashboard-SECRET" not in r.text
+    assert "Awaiting AI" in r.text

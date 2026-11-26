@@ -529,3 +529,49 @@ async def reask(
     if not ids:
         return DrainResult(status="idle")
     return await _ask_and_record(db, ids, origin=origin, ask=ask, client=client, replace=True)
+
+
+# --- health (the admin dashboard card) ------------------------------------
+
+
+@dataclass(frozen=True)
+class JevHealth:
+    """Jev's state for the dashboard: config, the last success, failures, spend in tokens."""
+
+    enabled: bool
+    key_present: bool
+    model: str
+    last_success: datetime | None
+    backlog: int
+    failed_runs_7d: int
+    tokens_all: int
+    tokens_month: int
+
+
+_HEALTH_SQL = """
+SELECT max(finished_at) FILTER (WHERE answered > 0) AS last_success,
+       count(*) FILTER (WHERE failed > 0 AND finished_at >= now() - interval '7 days')
+           AS failed_7d,
+       COALESCE(sum(input_tokens), 0) AS tokens_all,
+       COALESCE(sum(input_tokens) FILTER (
+           WHERE finished_at >= date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'),
+           0) AS tokens_month
+FROM classification_runs
+WHERE field = 'org_kind'
+"""
+
+
+async def health(db: asyncpg.Connection) -> JevHealth:
+    """Read Jev's health: config from the environment, the rest from ``classification_runs``."""
+    model = jc.get_model()
+    row = await db.fetchrow(_HEALTH_SQL)
+    return JevHealth(
+        enabled=jc.is_enabled(),
+        key_present=bool(jc.get_api_key()),
+        model=model,
+        last_success=row["last_success"],
+        backlog=await jev_backlog_count(db, model),
+        failed_runs_7d=row["failed_7d"],
+        tokens_all=int(row["tokens_all"]),
+        tokens_month=int(row["tokens_month"]),
+    )
