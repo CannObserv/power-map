@@ -173,7 +173,7 @@ Each line says what a task would need the doc for — load the one that matches,
 **Operating it**
 
 - [docs/COMMANDS.md](docs/COMMANDS.md) — everyday commands: setup, env files, provisioning, deploy, the dev loop, linting, timers, the ship gate
-- [docs/TESTING.md](docs/TESTING.md) — each test tier, the integration marker, the endpoint-test client, Vitest, the browser a11y sweep, the ship gate
+- [docs/TESTING.md](docs/TESTING.md) — each test tier and when it runs (integration: only on request), endpoint-test client, Vitest, browser a11y sweep, ship gate
 - [docs/RUNBOOKS.md](docs/RUNBOOKS.md) — data operations: importer, seeds, role sweep, TTL prune, operational-script dry-run rules
 - [docs/RUNBOOK_DESIRED_STATE.md](docs/RUNBOOK_DESIRED_STATE.md) — the dataset-subscription chain: pull, build, apply, and what a nightly run blocks on
 - [docs/AUDITS.md](docs/AUDITS.md) — the recurring integrity audits and uptime guards, and which carry systemd timers

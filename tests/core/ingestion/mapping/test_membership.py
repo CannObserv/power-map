@@ -27,6 +27,9 @@ MEMBERSHIP = "desired_role_assignment_membership"
 # a substitute without restating the row.
 CLOSED_TAIL = f"{SPAN_CLOSED},dated,dated,2017-01-09,2020-12-31,principal"
 
+# Every test here builds the dbt project (#890: the commit hook routes by it).
+pytestmark = pytest.mark.dbt
+
 
 def _membership(built) -> dict[str, tuple]:
     return {r[1]: r for r in built.rows(MEMBERSHIP)}

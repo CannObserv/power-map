@@ -21,6 +21,9 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     overlay_row,
 )
 
+# Every test here builds the dbt project (#890: the commit hook routes by it).
+pytestmark = pytest.mark.dbt
+
 
 def test_dissolved_year_is_the_end_of_the_last_biennium(build):
     b = build()

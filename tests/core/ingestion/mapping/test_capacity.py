@@ -28,6 +28,9 @@ PERIODS = "role_periods"
 CAPACITY = "desired_role_capacity_periods"
 UNRESOLVED = "unresolved_role_capacity_periods"
 
+# Every test here builds the dbt project (#890: the commit hook routes by it).
+pytestmark = pytest.mark.dbt
+
 
 def _with(*lines: str, replace=None) -> dict[str, str]:
     return {PERIODS: fixture_csv(PERIODS, add=list(lines), replace=replace)}

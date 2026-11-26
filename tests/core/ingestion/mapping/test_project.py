@@ -19,6 +19,9 @@ from src.core.ingestion.mapping import (  # noqa: E402
     run_dbt,
 )
 
+# Every test here builds the dbt project (#890: the commit hook routes by it).
+pytestmark = pytest.mark.dbt
+
 
 def test_the_project_parses_with_no_snapshot_present(tmp_path):
     """`dbt parse` needs the project and profile, not the data."""

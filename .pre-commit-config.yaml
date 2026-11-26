@@ -16,11 +16,13 @@ repos:
         always_run: true
 
       - id: pytest
-        name: pytest (unit)
+        name: pytest (unit, routed by the staged paths)
         language: system
         # Skipped on the refresh hook's own commit (.skills/refresh-skip-hooks,
         # #755); pytest-vendored runs there instead. docs/SKILLS.md § Auto-refresh hook.
-        entry: uv run --group seed pytest --no-cov -x -m "not integration and not browser"
+        # The router (#890) runs the unit tests the staged set can break; nothing
+        # staged runs them all. docs/TESTING.md § Which tests run when.
+        entry: uv run --group seed python -m scripts.commit_tests
         pass_filenames: false
         always_run: true
 

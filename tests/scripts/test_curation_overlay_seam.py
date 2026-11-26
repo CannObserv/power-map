@@ -36,7 +36,7 @@ from src.core.ingestion.crosswalk import PRODUCER_SOURCE  # noqa: E402
 from src.core.ingestion.mapping import load_manifest  # noqa: E402
 from tests.core.ingestion.mapping.conftest import FIXTURE_STORE, P1  # noqa: E402
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.dbt]  # dbt: #890
 
 PRODUCED = "Peter Abbarno"  # the fixture snapshot's name for P1, reasserted every build
 CURATED = "Peter J. Abbarno"

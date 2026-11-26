@@ -41,7 +41,9 @@ VENDORED_MARK = re.compile(r"\bpytest\.mark\.vendored\b")
 
 # The stages the refresh hook's commit skips, each with its full command.
 FULL = {
-    "pytest": 'uv run --group seed pytest --no-cov -x -m "not integration and not browser"',
+    # The router (#890) picks the unit tests a hand commit runs; it never sees
+    # the refresh's commit, which this knob has skip the stage outright.
+    "pytest": "uv run --group seed python -m scripts.commit_tests",
     "vitest": "npm run test:js",
     "bats": "npm run test:sh",
 }
