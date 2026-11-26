@@ -309,11 +309,15 @@ UPDATE classification_suggestions SET ignored_at = clock_timestamp()
 WHERE entity_type = 'organization' AND entity_id = $1 AND field = 'org_kind'
   AND source = 'jev' AND model = $2 AND ignored_at IS NULL
 """
+# Only for an org still active: one archived, merged away or deleted while its
+# request was in flight gets no row (the table has no FK to catch an orphan).
 _INSERT_JEV_SQL = """
 INSERT INTO classification_suggestions
     (id, entity_type, entity_id, field, source, value, confidence, probabilities,
      model, input_tokens)
-VALUES ($1, 'organization', $2, 'org_kind', 'jev', $3, $4, $5::jsonb, $6, $7)
+SELECT $1::text, 'organization', $2::text, 'org_kind', 'jev', $3::text, $4::float8,
+       $5::jsonb, $6::text, $7::int
+WHERE EXISTS (SELECT 1 FROM organizations WHERE id = $2::text AND archived_at IS NULL)
 ON CONFLICT (entity_type, entity_id, field, model)
     WHERE source = 'jev' AND ignored_at IS NULL
 DO NOTHING

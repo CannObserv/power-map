@@ -340,3 +340,26 @@ async def test_apply_rules_locked_writes_when_free_and_skips_when_held(db, db_po
     applied = await cls.apply_rules_locked(db)
     assert oid in {c.org_id for c in applied}
     assert await cls.apply_rules_locked(db) == []
+
+
+async def test_an_org_archived_mid_request_gets_no_answer_row(db):
+    oid = await _org(db, "Vanishing Org")
+
+    async def ask(org, crit, **kw):
+        await db.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", oid)
+        return _answer()
+
+    await cls.drain(db, origin="tick", ask=ask)
+    assert await _jev_rows(db, oid) == []
+
+
+async def test_an_org_deleted_mid_request_leaves_no_orphan(db):
+    oid = await _org(db, "Deleted Org")
+
+    async def ask(org, crit, **kw):
+        await db.execute("DELETE FROM organization_names WHERE organization_id = $1", oid)
+        await db.execute("DELETE FROM organizations WHERE id = $1", oid)
+        return _answer()
+
+    await cls.drain(db, origin="tick", ask=ask)
+    assert await _jev_rows(db, oid) == []
