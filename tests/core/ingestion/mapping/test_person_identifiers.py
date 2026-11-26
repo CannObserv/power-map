@@ -29,6 +29,9 @@ MEMBER = "person_wa_legislature_member_id"
 P8 = "01P8000000000000000000000A"
 P9 = "01P9000000000000000000000A"
 
+# Every test here builds the dbt project (#890: the commit hook routes by it).
+pytestmark = pytest.mark.dbt
+
 
 def _key(entity: str, namespace: str, value: str, merged_into: str = "") -> str:
     return f"{entity},{namespace}:{value},{namespace},{value},registrar,{merged_into}"

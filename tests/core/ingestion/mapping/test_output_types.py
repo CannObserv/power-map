@@ -16,6 +16,9 @@ pytest.importorskip("dbt.adapters.duckdb")
 from src.core.ingestion.mapping import USA_WA_SOURCES, load_manifest  # noqa: E402
 from tests.core.ingestion.mapping.conftest import FIXTURE_STORE, FIXTURE_VERSION  # noqa: E402
 
+# Every test here builds the dbt project (#890: the commit hook routes by it).
+pytestmark = pytest.mark.dbt
+
 
 def _empty_store() -> dict:
     """``build`` arguments for a store holding every input with zero rows."""

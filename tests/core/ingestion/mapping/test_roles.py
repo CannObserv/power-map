@@ -30,6 +30,9 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
 
 ROLES, TITLES = "desired_roles", "desired_role_titles"
 
+# Every test here builds the dbt project (#890: the commit hook routes by it).
+pytestmark = pytest.mark.dbt
+
 
 def _by_producer(built, model):
     return {r[1]: r for r in built.rows(model)}

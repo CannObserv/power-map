@@ -101,10 +101,12 @@ def vendored_source() -> str:
 
 
 def _uv_args_of(entry: str) -> list[str]:
-    """The arguments between `uv run` and `pytest` in a hook's command line."""
+    """The arguments between `uv run` and the command (`pytest`, or `python` for the
+    #890 router, which runs pytest in the same environment) in a hook's command line."""
     words = shlex.split(entry)
     start = words.index("run") + 1
-    return words[start : words.index("pytest")]
+    end = next(i for i, word in enumerate(words) if word in ("pytest", "python"))
+    return words[start:end]
 
 
 def _uv_args_file() -> list[str]:
@@ -121,6 +123,7 @@ def test_uv_args_of_reads_the_hook_entry():
     """The parser: everything between `uv run` and `pytest`, nothing after."""
     entry = 'uv run --group seed pytest --no-cov -x -m "not integration and not browser"'
     assert _uv_args_of(entry) == ["--group", "seed"]
+    assert _uv_args_of("uv run --group seed python -m scripts.commit_tests") == ["--group", "seed"]
     assert _uv_args_of("uv run pytest -x") == []
 
 

@@ -205,8 +205,18 @@ def _build_cache(tmp_path_factory):
     A full `dbt build` is ~2.5s and most tests build the identical default
     project; unshared, the tier took the unit gate from 12s to 93s (CR 6).
     Sharing is safe because tests only ever open the built file read-only.
+
+    Every build runs at one duckdb path and one target, then the built file is
+    copied out under its key (#890). dbt then partial-parses after the first
+    build (~1 s, not ~4–6 s): a fresh duckdb path changed the profile and a
+    fresh target held no saved manifest, so each build parsed in full. The
+    store stays per key: the staging views read its paths, so a shared store
+    would let a later build change an earlier one's rows.
     """
     cache: dict[tuple, Built] = {}
+    work = tmp_path_factory.mktemp("mapping-work")
+    work_db = work / "mapping.duckdb"
+    target = work / ".dbt-target"
 
     def _build(
         *,
@@ -241,14 +251,15 @@ def _build_cache(tmp_path_factory):
         write_parquet(overlay, TABLES["curation_overlay"], pm / "curation_overlay.parquet")
         write_parquet(role_types, TABLES["role_types"], pm / "role_types.parquet")
         write_parquet(pm_orgs, TABLES["organizations"], pm / "organizations.parquet")
-        db = root.parent / "mapping.duckdb"
+        for stale in (work_db, work_db.with_name(work_db.name + ".wal")):
+            stale.unlink(missing_ok=True)  # the last build's, failed or not
         # `--indirect-selection cautious`: a partial build runs a singular test only
         # when every model it reads was selected, so a test of another family does
         # not run against tables this build never made (#529).
         args = ["build"] + (
             ["--select", select, "--indirect-selection", "cautious"] if select else []
         )
-        result = run_dbt(args, snapshot_root=root, duckdb_path=str(db))
+        result = run_dbt(args, snapshot_root=root, duckdb_path=str(work_db), target_path=target)
         if must_succeed:
             assert result.success, getattr(result, "exception", None) or _failures(result)
         else:
@@ -256,9 +267,12 @@ def _build_cache(tmp_path_factory):
         # A selector naming no model is a successful no-op to dbt; here it is
         # a test that would go on to assert against nothing.
         assert result.result.results, f"nothing built — does {select!r} name a model?"
+        db = root.parent / "mapping.duckdb"
+        shutil.copyfile(work_db, db)  # run_dbt released it: no WAL left behind
         cache[key] = Built(db, result)
         return cache[key]
 
+    _build.target = target
     return _build
 
 

@@ -37,6 +37,9 @@ UNMAPPED = [
 ]
 IDS = ["person.parent_id", "organization.name", "person.pronouns", "role.name"]
 
+# Every test here builds the dbt project (#890: the commit hook routes by it).
+pytestmark = pytest.mark.dbt
+
 
 @pytest.mark.parametrize("row", UNMAPPED, ids=IDS)
 def test_an_overlay_row_naming_an_unmapped_field_is_named_and_dropped(build, row):

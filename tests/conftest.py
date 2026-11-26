@@ -11,6 +11,7 @@ a test requests db_pool without the integration marker.
 """
 
 import os
+import sys
 
 import asyncpg
 import pytest
@@ -66,6 +67,35 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "integration" in item.keywords:
             item.add_marker(skip)
+
+
+class _DbtNeedsItsMarker:
+    """Stands in for `dbtRunner` in a test without `pytest.mark.dbt` (#890)."""
+
+    def __init__(self, nodeid: str):
+        self.nodeid = nodeid
+
+    def __call__(self, *args, **kwargs):
+        return self
+
+    def invoke(self, args):
+        pytest.fail(
+            f"{self.nodeid} runs dbt ({args[0] if args else '?'}) without pytest.mark.dbt. "
+            "Mark it: the commit hook routes the dbt tier by that marker "
+            "(scripts/commit_tests.py, docs/TESTING.md § Commit hook)."
+        )
+
+
+@pytest.fixture(autouse=True)
+def _dbt_needs_its_marker(request, monkeypatch):
+    """Fail a dbt build in an unmarked test (#890); `dbtRunner` is run_dbt's only door.
+
+    The mapping package is imported at collection by every module that builds,
+    so looking in sys.modules (never importing dbt here) is enough.
+    """
+    mapping = sys.modules.get("src.core.ingestion.mapping")
+    if mapping is not None and request.node.get_closest_marker("dbt") is None:
+        monkeypatch.setattr(mapping, "dbtRunner", _DbtNeedsItsMarker(request.node.nodeid))
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")

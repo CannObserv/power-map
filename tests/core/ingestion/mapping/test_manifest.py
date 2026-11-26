@@ -277,6 +277,7 @@ def test_a_table_whose_types_do_not_cover_it_fails_at_load(edit, message):
 # --- write_desired_state ------------------------------------------------------
 
 
+@pytest.mark.dbt
 def test_write_desired_state_emits_one_parquet_per_declared_table(build, tmp_path):
     b = build()
     out = tmp_path / "desired_state"
@@ -289,6 +290,7 @@ def test_write_desired_state_emits_one_parquet_per_declared_table(build, tmp_pat
     assert list(out.glob(".incoming*")) == []
 
 
+@pytest.mark.dbt
 def test_write_desired_state_removes_parquet_the_manifest_no_longer_names(build, tmp_path):
     """CR 3: data/desired_state is #499's input; a ghost table reads as a live claim."""
     b = build()

@@ -33,6 +33,9 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
 
 SPANS, DATES = "desired_role_assignments", "desired_role_assignment_dates"
 
+# Every test here builds the dbt project (#890: the commit hook routes by it).
+pytestmark = pytest.mark.dbt
+
 
 def _by_span(built, model):
     return {r[1]: r for r in built.rows(model)}

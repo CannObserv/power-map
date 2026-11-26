@@ -21,6 +21,9 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
 
 HINT = "org_active_divergence"
 
+# Every test here builds the dbt project (#890: the commit hook routes by it).
+pytestmark = pytest.mark.dbt
+
 
 def _with(pm_id, active, *, archived_at=None):
     return [r for r in DEFAULT_PM_ORGS if r[0] != pm_id] + [

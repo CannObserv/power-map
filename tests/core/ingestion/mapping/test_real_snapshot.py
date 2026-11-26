@@ -38,7 +38,7 @@ assert (REPO_ROOT / "pyproject.toml").exists(), f"not the repo root: {REPO_ROOT}
 STORE = REPO_ROOT / "data" / "usa_wa_snapshots"
 CROSSWALK = STORE / PM_EXPORT_DIR / "producer_crosswalk.parquet"
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.dbt]  # dbt: #890
 
 
 def _missing() -> list[str]:

@@ -32,6 +32,9 @@ UNRESOLVED = "unresolved_org_lineage"
 O11 = "01O11000000000000000000000A"  # published, never anchored: a create
 O12 = "01O12000000000000000000000A"  # in no dataset at all
 
+# Every test here builds the dbt project (#890: the commit hook routes by it).
+pytestmark = pytest.mark.dbt
+
 
 def _link(subject: str, slug: str, linked: str, year: int = 2023) -> str:
     return f"{subject},{slug},{linked},1,2,{year},,"

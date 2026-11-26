@@ -36,6 +36,9 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     fixture_csv,
 )
 
+# Every test here builds the dbt project (#890: the commit hook routes by it).
+pytestmark = pytest.mark.dbt
+
 
 def test_staging_reads_every_producer_organization_verbatim(build):
     b = build(select="stg_usa_wa__organizations")

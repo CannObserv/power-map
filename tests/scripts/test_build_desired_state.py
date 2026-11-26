@@ -26,6 +26,9 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     FIXTURE_STORE,
 )
 
+# Every test here builds the dbt project (#890: the commit hook routes by it).
+pytestmark = pytest.mark.dbt
+
 
 @pytest.fixture
 def store(tmp_path):
