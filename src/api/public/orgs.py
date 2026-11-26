@@ -11,6 +11,7 @@ from src.api.public.deps import (
     AuthedKey,
     identifier_filter,
     require_api_key,
+    require_key,
     require_scope,
 )
 from src.api.public.etag import conditional_response, if_none_match_matches, make_etag
@@ -64,6 +65,7 @@ from src.core.observation import (
     write_org_jurisdiction_affiliations,
     write_org_parent,
 )
+from src.core.record_ownership import Ownership, dataset_owned, ownership
 from src.core.refusals import ObservationReasonCode
 
 router = APIRouter(prefix="/orgs", tags=["public-api"])
@@ -109,26 +111,33 @@ async def submit_org_observation(
             await write_org_acronyms(db, entity_id, request.org_acronyms)
 
             parent_id: str | None = None
+            parent_field: str | None = None
             if request.organization_parent_id:
-                parent_id = request.organization_parent_id
+                parent_id, parent_field = request.organization_parent_id, "organization_parent_id"
             elif request.organization_parent_name:
                 parent_id = await lookup_org_parent_by_name(db, request.organization_parent_name)
+                parent_field = "organization_parent_name"
             elif request.organization_parent_acronym:
                 parent_id = await lookup_org_parent_by_acronym(
                     db, request.organization_parent_acronym
                 )
+                parent_field = "organization_parent_acronym"
 
+            unapplied: list[str] = []
             if parent_id:
                 # Authoritative (reparent) only when the org was id-addressed by
                 # pm_org_id — the producer proves it means exactly this org
                 # (#334). Natural / external-identifier matches stay write-if-null.
-                await write_org_parent(
+                # #882: a dataset-owned org skips that fill, and the response says so.
+                applied = await write_org_parent(
                     db,
                     entity_id,
                     parent_id,
                     source_key_id=auth.key_id,
                     authoritative=request.identifier_type == "pm_org_id",
                 )
+                if not applied and parent_field is not None:
+                    unapplied.append(parent_field)
 
             replaced = await write_additional_identifiers(
                 db, entity_id, entity_type, request.additional_identifiers
@@ -161,6 +170,7 @@ async def submit_org_observation(
         disposition=disposition.value,
         entity_id=entity_id,
         entity_type=entity_type,
+        unapplied=unapplied or None,
         events=[
             EventObservationResult(
                 disposition=r.disposition.value,
@@ -478,7 +488,7 @@ async def _search_by_jurisdiction(
 )
 async def batch_get_orgs(
     body: OrgBatchGetRequest,
-    _: str = Depends(require_api_key),
+    auth: AuthedKey = Depends(require_key),
     db=Depends(get_db),
 ) -> OrgBatchGetResponse:
     """Read many orgs in one call: one ``getOrg`` answer per distinct id (#654).
@@ -494,16 +504,17 @@ async def batch_get_orgs(
     ids = list(dict.fromkeys(body.ids))
     results: dict[str, OrgBatchResult] = {}
     rows = await _fetch_org_rows(db, ids)
+    owners = await _parent_ownerships(db, list(rows.values()), auth.key_id)
 
     fresh: list[tuple[Any, str]] = []
     for org_id, row in rows.items():
-        etag = make_etag(row["id"], row["updated_at"])
+        etag = make_etag(row["id"], row["updated_at"], owners[org_id])
         if if_none_match_matches(body.etags.get(org_id), etag):
             results[org_id] = OrgBatchNotModified(outcome="not_modified", id=org_id, etag=etag)
         else:
             fresh.append((row, etag))
 
-    details = await _org_details(db, [row for row, _ in fresh])
+    details = await _org_details(db, [row for row, _ in fresh], owners)
     for (row, etag), detail in zip(fresh, details, strict=True):
         results[row["id"]] = OrgBatchOk(
             outcome="ok", id=row["id"], etag=etag, org=OrgDetail.model_validate(detail)
@@ -539,20 +550,24 @@ async def get_org(
     org_id: str,
     request: Request,
     response: Response,
-    _: str = Depends(require_api_key),
+    auth: AuthedKey = Depends(require_key),
     db=Depends(get_db),
 ) -> Any:
-    """Return full org record with names, acronyms, and identifiers."""
+    """Return full org record with names, acronyms, and identifiers.
+
+    ``parent_ownership`` (#882) is relative to the calling key, so the ETag carries it.
+    """
     row = (await _fetch_org_rows(db, [org_id])).get(org_id)
     if not row:
         return await not_found_or_gone(db, "organization", org_id, "Organization not found")
 
-    etag = make_etag(row["id"], row["updated_at"])
+    owners = await _parent_ownerships(db, [row], auth.key_id)
+    etag = make_etag(row["id"], row["updated_at"], owners[org_id])
     cached = conditional_response(request, response, etag, row["updated_at"])
     if cached is not None:
         return cached
 
-    return (await _org_details(db, [row]))[0]
+    return (await _org_details(db, [row], owners))[0]
 
 
 @router.get(
@@ -641,6 +656,7 @@ async def _fetch_org_rows(db: Any, org_ids: list[str]) -> dict[str, Any]:
             o.active,
             o.created_at,
             o.updated_at,
+            o.source_key_id,
             n.name,
             a.acronym
         FROM organizations o
@@ -653,11 +669,23 @@ async def _fetch_org_rows(db: Any, org_ids: list[str]) -> dict[str, Any]:
     return {r["id"]: r for r in rows}
 
 
-async def _org_details(db: Any, rows: list[Any]) -> list[dict[str, Any]]:
+async def _parent_ownerships(db: Any, rows: list[Any], key_id: str) -> dict[str, Ownership]:
+    """Each org's ``parent_ownership`` for the calling key (#882) — one query for a list.
+
+    Read before the ETag, which carries it, so ``getOrg`` and the batch agree.
+    """
+    held = await dataset_owned(db, "organization", [r["id"] for r in rows])
+    return {r["id"]: ownership(r["source_key_id"], key_id, dataset=r["id"] in held) for r in rows}
+
+
+async def _org_details(
+    db: Any, rows: list[Any], owners: dict[str, Ownership]
+) -> list[dict[str, Any]]:
     """Build the ``OrgDetail`` payload for each org row, in order.
 
     The one place the detail payload is assembled — ``getOrg`` passes one row,
-    the batch read (#654) many — so the two cannot drift.
+    the batch read (#654) many — so the two cannot drift. ``owners`` is
+    :func:`_parent_ownerships`' answer for the same rows.
     """
     if not rows:
         return []
@@ -674,6 +702,7 @@ async def _org_details(db: Any, rows: list[Any]) -> list[dict[str, Any]]:
                 # active is detail-only (#240) — added here, not in _org_row_to_dict
                 # (shared with search, whose queries do not select o.active).
                 "active": row["active"],
+                "parent_ownership": owners[row["id"]],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
                 "names": a["names"],

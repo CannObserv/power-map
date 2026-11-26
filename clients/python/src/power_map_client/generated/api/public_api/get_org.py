@@ -102,6 +102,8 @@ def sync_detailed(
 
      Return full org record with names, acronyms, and identifiers.
 
+    ``parent_ownership`` (#882) is relative to the calling key, so the ETag carries it.
+
     Args:
         org_id (str):
         if_none_match (str | Unset):
@@ -136,6 +138,8 @@ def sync(
 
      Return full org record with names, acronyms, and identifiers.
 
+    ``parent_ownership`` (#882) is relative to the calling key, so the ETag carries it.
+
     Args:
         org_id (str):
         if_none_match (str | Unset):
@@ -164,6 +168,8 @@ async def asyncio_detailed(
     """Get Org
 
      Return full org record with names, acronyms, and identifiers.
+
+    ``parent_ownership`` (#882) is relative to the calling key, so the ETag carries it.
 
     Args:
         org_id (str):
@@ -196,6 +202,8 @@ async def asyncio(
     """Get Org
 
      Return full org record with names, acronyms, and identifiers.
+
+    ``parent_ownership`` (#882) is relative to the calling key, so the ETag carries it.
 
     Args:
         org_id (str):

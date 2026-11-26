@@ -331,3 +331,13 @@ def test_observation_reason_code_is_an_enum_in_the_spec():
     codes = set(schemas["ObservationReasonCode"]["enum"])
     assert {"provenance_conflict", "invalid", "identifier_taken"} <= codes
     assert "source_key_mismatch" not in codes
+
+
+def test_ownership_is_an_enum_on_both_details():
+    """#882: the generated client carries ownership as an enum on both detail reads."""
+    schemas = app.openapi()["components"]["schemas"]
+    ref = "#/components/schemas/Ownership"
+    assert schemas["AssignmentDetail"]["properties"]["ownership"]["$ref"] == ref
+    assert schemas["OrgDetail"]["properties"]["parent_ownership"]["$ref"] == ref
+    assert "ownership" in schemas["AssignmentDetail"]["required"]
+    assert schemas["Ownership"]["enum"] == ["self", "other", "none", "dataset"]

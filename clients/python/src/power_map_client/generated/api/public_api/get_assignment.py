@@ -102,6 +102,8 @@ def sync_detailed(
 
      Return a full assignment record with links, contact methods, addresses, and identifiers.
 
+    ``ownership`` (#882) is relative to the calling key, so the ETag carries it.
+
     Args:
         assignment_id (str):
         if_none_match (str | Unset):
@@ -136,6 +138,8 @@ def sync(
 
      Return a full assignment record with links, contact methods, addresses, and identifiers.
 
+    ``ownership`` (#882) is relative to the calling key, so the ETag carries it.
+
     Args:
         assignment_id (str):
         if_none_match (str | Unset):
@@ -164,6 +168,8 @@ async def asyncio_detailed(
     """Get Assignment
 
      Return a full assignment record with links, contact methods, addresses, and identifiers.
+
+    ``ownership`` (#882) is relative to the calling key, so the ETag carries it.
 
     Args:
         assignment_id (str):
@@ -196,6 +202,8 @@ async def asyncio(
     """Get Assignment
 
      Return a full assignment record with links, contact methods, addresses, and identifiers.
+
+    ``ownership`` (#882) is relative to the calling key, so the ETag carries it.
 
     Args:
         assignment_id (str):

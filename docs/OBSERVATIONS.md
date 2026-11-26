@@ -6,7 +6,7 @@ refines in place, how `op="retract"` works, the
 `source_key_id` provenance gate, and the merge re-homing every conflict-delete owes
 its ancillary rows. Table definitions live in `docs/SCHEMA.md`.
 
-**One gate, one name (#882).** Wherever the same-or-NULL `source_key_id` gate refuses (assignments, org parent, events, citations, RA→RA edges, names), the refusal's `reason_code` is `provenance_conflict`. Every refusal carries a code, the contract a producer acts on; the code table is in `docs/PUBLIC_API.md` § Reason codes, and `tests/core/test_refusal_code_sweep.py` holds every refusal site under `src/` to one.
+**Refusal codes and record ownership** (#882) — the `reason_code` a producer acts on, and who may overwrite what — are in [PRODUCER_CONTRACT.md](PRODUCER_CONTRACT.md).
 
 ---
 

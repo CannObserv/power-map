@@ -10,6 +10,7 @@ from src.api.public.deps import (
     AuthedKey,
     identifier_filter,
     require_api_key,
+    require_key,
     require_scope,
 )
 from src.api.public.etag import conditional_response, make_etag
@@ -37,6 +38,7 @@ from src.core.observation import (
     write_contact_methods,
     write_links,
 )
+from src.core.record_ownership import dataset_owned, ownership
 from src.core.refusals import ObservationReasonCode
 
 router = APIRouter(prefix="/assignments", tags=["public-api"])
@@ -162,14 +164,17 @@ async def get_assignment(
     assignment_id: str,
     request: Request,
     response: Response,
-    _: str = Depends(require_api_key),
+    auth: AuthedKey = Depends(require_key),
     db=Depends(get_db),
 ) -> Any:
-    """Return a full assignment record with links, contact methods, addresses, and identifiers."""
+    """Return a full assignment record with links, contact methods, addresses, and identifiers.
+
+    ``ownership`` (#882) is relative to the calling key, so the ETag carries it.
+    """
     row = await db.fetchrow(
         """
         SELECT id, person_id, role_id, is_current, start_date, end_date,
-               notes, membership_type, archived_at, created_at, updated_at
+               notes, membership_type, archived_at, created_at, updated_at, source_key_id
         FROM role_assignments
         WHERE id = $1
         """,
@@ -178,7 +183,9 @@ async def get_assignment(
     if not row:
         return await not_found_or_gone(db, "role_assignment", assignment_id, "Assignment not found")
 
-    etag = make_etag(row["id"], row["updated_at"])
+    held = await dataset_owned(db, "assignment", [assignment_id])
+    owner = ownership(row["source_key_id"], auth.key_id, dataset=assignment_id in held)
+    etag = make_etag(row["id"], row["updated_at"], owner)
     cached = conditional_response(request, response, etag, row["updated_at"])
     if cached is not None:
         return cached
@@ -186,6 +193,7 @@ async def get_assignment(
     links, contact_methods, addresses = await _fetch_arrays(assignment_id, db)
     return {
         **_row_to_dict(row),
+        "ownership": owner,
         "links": [dict(r) for r in links],
         "contact_methods": [dict(r) for r in contact_methods],
         "addresses": [dict(r) for r in addresses],

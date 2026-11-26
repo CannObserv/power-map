@@ -39,10 +39,16 @@ NOT_MODIFIED: Final = MappingProxyType(
 )
 
 
-def make_etag(entity_id: str, updated_at: datetime) -> str:
-    """Return a strong ETag for a detail resource: ``"<id>-<updated_at_ms>"``."""
+def make_etag(entity_id: str, updated_at: datetime, *relative: str) -> str:
+    """Return a strong ETag for a detail resource: ``"<id>-<updated_at_ms>"``.
+
+    ``relative`` folds in a value that varies with the caller rather than the
+    row (#882: ``ownership``), as ``-<value>`` each. Two keys reading one row
+    then never share a validator, and a change that leaves ``updated_at`` alone
+    (a dataset anchoring the row) still moves it.
+    """
     ts_ms = int(updated_at.timestamp() * 1000)
-    return f'"{entity_id}-{ts_ms}"'
+    return '"' + "-".join([entity_id, str(ts_ms), *relative]) + '"'
 
 
 def _encode_param(value: object) -> str:

@@ -21,6 +21,7 @@ from src.core.normalizers.address import get_address_normalizer, standardization
 from src.core.normalizers.email import EmailNormalizer
 from src.core.normalizers.phone import PhoneNormalizer
 from src.core.organizations import ActiveOnArchivedOrg, OrgNotFound, set_org_active
+from src.core.record_ownership import dataset_owned
 from src.core.refusals import ObservationReasonCode, Refusal
 from src.core.types import EVENT_PLACE_PRECISIONS
 
@@ -385,6 +386,22 @@ _ARCHIVED_CODES: dict[str, ObservationReasonCode] = {
     "jurisdiction": ObservationReasonCode.JURISDICTION_ARCHIVED,
     "role_assignment": ObservationReasonCode.ROLE_ASSIGNMENT_ARCHIVED,
 }
+
+
+async def _is_dataset_owned(conn, kind: str, entity_id: str) -> bool:
+    """Whether a subscribed dataset owns the row (#882): its nightly apply reverts a write."""
+    return entity_id in await dataset_owned(conn, kind, [entity_id])
+
+
+async def _refuse_dataset_owned(conn, kind: str, entity_id: str) -> None:
+    """Refuse ``owned_by_dataset`` (#882): an id-addressed write the apply would revert.
+
+    Checked before the ``source_key_id`` gate, so a dataset row answers the same
+    whoever holds its stamp. The read's ``dataset`` ownership is the same test.
+    """
+    if await _is_dataset_owned(conn, kind, entity_id):
+        logger.warning("observation refused: %s id=%s is owned by a dataset", kind, entity_id)
+        raise ObservationRejected(ObservationReasonCode.OWNED_BY_DATASET)
 
 
 @dataclass(frozen=True)
@@ -1462,8 +1479,8 @@ async def write_org_parent(
     *,
     source_key_id: str | None = None,
     authoritative: bool = False,
-) -> None:
-    """Set organizations.parent_id from an observation (#334).
+) -> bool:
+    """Set organizations.parent_id from an observation (#334); False when skipped (#882).
 
     Two modes, mirroring the assignment split (#311):
 
@@ -1486,12 +1503,24 @@ async def write_org_parent(
       the app pre-check) or an ancestor loop at any depth (caught from the
       recursive ``trg_no_org_cycle``).
 
+    A subscribed dataset owns the parent of an org it anchors (#882): the
+    authoritative path refuses ``owned_by_dataset``, and the write-if-null fill
+    is **skipped** — not refused, so the rest of the observation still lands
+    (operator, 2026-11-25) — returning False so the route can list the field in
+    ``unapplied``. Re-asserting the parent the org already holds is agreement,
+    not a skip. Every other outcome returns True.
+
     Must run inside the caller's transaction so a rejection rolls the whole
     observation back.
     """
     if not authoritative:
+        if await _is_dataset_owned(conn, "organization", organization_id):
+            held = await conn.fetchval(
+                "SELECT parent_id FROM organizations WHERE id=$1", organization_id
+            )
+            return held == parent_id
         await _set_org_parent(conn, organization_id, parent_id, source_key_id, "parent_id IS NULL")
-        return
+        return True
 
     row = await conn.fetchrow(
         "SELECT parent_id, source_key_id FROM organizations WHERE id=$1 AND archived_at IS NULL",
@@ -1502,7 +1531,7 @@ async def write_org_parent(
     if row["parent_id"] == parent_id:
         # Idempotent — parent already as supplied. Checked before the authority
         # gate so an identical redelivery by a foreign key stays a quiet no-op.
-        return
+        return True
 
     if parent_id == organization_id:
         raise ObservationRejected(ObservationReasonCode.PARENT_CYCLE)
@@ -1512,6 +1541,7 @@ async def write_org_parent(
     if not parent_exists:
         raise ObservationRejected(ObservationReasonCode.PARENT_NOT_FOUND)
 
+    await _refuse_dataset_owned(conn, "organization", organization_id)
     if row["source_key_id"] is not None and row["source_key_id"] != source_key_id:
         logger.warning(
             "write_org_parent: source mismatch org=%s owner=%s caller=%s",
@@ -1523,6 +1553,7 @@ async def write_org_parent(
 
     await _set_org_parent(conn, organization_id, parent_id, source_key_id, "archived_at IS NULL")
     logger.info("Reparented org id=%s parent_id=%s", organization_id, parent_id)
+    return True
 
 
 async def write_org_active(conn, organization_id: str, active: bool) -> None:
@@ -2397,7 +2428,15 @@ async def resolve_assignment(
         stored_end = existing["end_date"]
         stored_current = existing["is_current"]
         authorized = existing["source_key_id"] is None or existing["source_key_id"] == source_key_id
-        if end_date is not None and stored_end is None and is_current is not True and authorized:
+        if (
+            end_date is not None
+            and stored_end is None
+            and is_current is not True
+            and authorized
+            # #882: a dataset owns this row's dates; the close would be reverted
+            # by its next apply, so it is skipped and reported unapplied.
+            and not await _is_dataset_owned(conn, "assignment", existing["id"])
+        ):
             # Close an open tenure in place (#311) — the routine election-cycle
             # update. The request validator already blocks is_current=True with
             # a dated end; the is_current guard holds the same invariant for
@@ -2584,6 +2623,10 @@ async def update_assignment_fields(
         # values need no constraint checks either.
         if not claims_provenance:
             return False
+        if await _is_dataset_owned(conn, "assignment", assignment_id):
+            # #882: no one claims a row a dataset owns — the read answers
+            # `dataset` whoever holds the stamp, so a claim would promise nothing.
+            return False
         # #478: the row is *unowned*, so agreeing with it is how a producer
         # claims provenance on a pre-#311 minting. Provenance only — the bounds
         # are already right, and rewriting them would risk
@@ -2625,6 +2668,7 @@ async def update_assignment_fields(
         )
         return True
 
+    await _refuse_dataset_owned(conn, "assignment", assignment_id)
     if row["source_key_id"] is not None and row["source_key_id"] != source_key_id:
         logger.warning(
             "update_assignment_fields: source mismatch assignment=%s owner=%s caller=%s",
@@ -2776,6 +2820,7 @@ async def retract_assignment(
         )
         raise ObservationRejected(ObservationReasonCode.IDENTITY_IMMUTABLE)
 
+    await _refuse_dataset_owned(conn, "assignment", assignment_id)
     if row["source_key_id"] is not None and row["source_key_id"] != source_key_id:
         logger.warning(
             "retract_assignment: source mismatch assignment=%s owner=%s caller=%s",

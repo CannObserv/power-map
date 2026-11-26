@@ -108,7 +108,7 @@ Detail endpoints (`GET /api/v1/orgs/{id}`, `GET /api/v1/people/{id}`, `GET /api/
 
 | Header | Value |
 |--------|-------|
-| `ETag` | `"<id>-<updated_at_ms>"` — strong ETag based on last-update timestamp |
+| `ETag` | `"<id>-<updated_at_ms>"` — strong ETag based on last-update timestamp. Orgs and assignments append their caller-relative ownership (`"<id>-<updated_at_ms>-<ownership>"`, #882), so the validator differs per key and moves when a dataset adopts the row. Treat it as opaque |
 | `Last-Modified` | RFC 9110 §5.6.7 IMF-fixdate — e.g. `Wed, 05 Aug 2026 12:30:45 GMT`, always UTC |
 | `Cache-Control` | `no-cache` — revalidation required before serving from cache |
 | `Vary` | `X-API-Key` |
@@ -135,8 +135,9 @@ An id that was **merged away or hard-deleted** answers `410` on the same five de
 
 | Endpoint | Validator |
 |---|---|
-| `GET /orgs/{id}`, `/people/{id}`, `/roles/{id}`, `/assignments/{id}`, `/jurisdictions/{id}` | `"<id>-<updated_at_ms>"` |
-| `POST /orgs/batch-get` — per id, in the body's `etags` map | `"<id>-<updated_at_ms>"`, shared with `GET /orgs/{id}` |
+| `GET /people/{id}`, `/roles/{id}`, `/jurisdictions/{id}` | `"<id>-<updated_at_ms>"` |
+| `GET /orgs/{id}`, `/assignments/{id}` | `"<id>-<updated_at_ms>-<ownership>"` — per key (#882) |
+| `POST /orgs/batch-get` — per id, in the body's `etags` map | as `GET /orgs/{id}`, and shared with it |
 | `GET /people/{id}/events`, `/orgs/{id}/events`, `/citations/{entity_type}/{entity_id}`, `/assignments/{pm_assignment_id}/relationships`, `/jurisdictions/{id}/relationships` | watermark |
 | `GET /jurisdictions/{id}/lineage` | content hash |
 | `GET /role-types`, `/link-types`, `/entity-event-types`, `/entity-identifier-types`, `/person-name-types`, `/organization-name-types` | content hash |
@@ -225,7 +226,7 @@ All `POST /*/observations` endpoints return an `ObservationResponse` with the fo
 | `entity_type` | `string \| null` | Entity type string; `null` on `rejected` |
 | `reason` | `string \| null` | Human-readable rejection cause; `null` on non-rejected responses |
 | `reason_code` | `ObservationReasonCode \| null` | #882: the stable code for a rejection, set on every `rejected` and `null` otherwise. The contract to act on; see "Reason codes" below |
-| `unapplied` | `list[string] \| null` | #311: fields supplied but not applied on a natural-key auto-attach (see the assignments section). Currently populated only by assignment observations; `null` elsewhere and on clean attaches |
+| `unapplied` | `list[string] \| null` | #311: fields supplied but not applied on a natural-key auto-attach (see the assignments section). Populated by assignment observations, and by org observations whose parent fill a subscribed dataset owns (#882: the parent field supplied); `null` elsewhere and on clean attaches |
 | `events` | `list[EventObservationResult] \| null` | #321: per-event dispositions when the payload carried `events`. `null` when none submitted. On this all-or-nothing embedded path a rejected event raises → whole observation `rejected`, so `events` is present only on full success. Each item: `{disposition, event_id?, reason?}` |
 | `citations` | `list[CitationObservationResult] \| null` | #319: per-citation dispositions when the payload carried `citations[]`; `null` when none were submitted, and present only on full success (the embedded path is all-or-nothing) |
 | `names` | `list[NameObservationResult] \| null` | #845: per-name dispositions on a people observation that carried `names[]` (`new`, `auto-attached`, `retracted`, `not-public`), each `{disposition, name_id?, citations?}`; `null` when none were submitted, and present only on full success. See `docs/API_PEOPLE.md` § Name observations |
@@ -236,19 +237,7 @@ All `POST /*/observations` endpoints return an `ObservationResponse` with the fo
 
 #### Reason codes
 
-A code is the slug at the head of `reason` (the text before `: `), except for the three cases in the last two rows.
-
-| Area | Codes |
-|---|---|
-| Resolving the entity | `unknown_identifier_type`, `pm_id_not_found`, `person_archived`, `organization_archived`, `role_archived`, `jurisdiction_archived`, `role_assignment_archived`, `entity_type_not_creatable`, `entity_type_mismatch`, `jurisdiction_new_requires_create_data`, `unknown_jurisdiction_type`, `unique_violation` |
-| Roles | `org_not_found`, `role_type_not_found`, `jurisdiction_not_found`, `role_type_required_for_jurisdiction`, `qualifier_required`, `qualifier_forbidden`, `title_required` |
-| Assignments | `person_not_found`, `role_not_found`, `assignment_not_found`, `is_current_end_date_conflict`, `start_after_end_date`, `start_date_conflict` |
-| Org parent | `parent_not_found`, `parent_cycle`, `active_on_archived_org` (`org_not_found` as for roles) |
-| Identifiers | `identifier_conflict`, `identifier_taken`, `identifier_type_mismatch`, `identifier_locked`, `replaces_unsupported`, `replaces_not_held` |
-| Embedded events, citations, names | the per-item slugs below (`linked_entity_unresolved` and `entity_unresolved` are transient), and `name_is_canonical`, `name_is_last`, `name_has_readings`, `name_has_foreign_citations` |
-| Any write | `identity_immutable`, `missing_required_field`, `db_constraint_violation`, `invalid` |
-| **`provenance_conflict`** | The same-or-NULL `source_key_id` gate, on every surface: another key owns the row. Its `reason` text still reads `source_key_mismatch` (assignments, org parent) or `name_provenance_conflict` (names) until #888 |
-| **`invalid`** | Also every free-text validation message: an unknown link, contact or affiliation type, an address the normaliser refused, a parent lookup that matched other than once. An additional identifier of an unknown type is `unknown_identifier_type` |
+Every `reason_code`, what each means and which are transient: [PRODUCER_CONTRACT.md](PRODUCER_CONTRACT.md) § Reason codes.
 
 **Event `reason` slugs are a contract, though.** Unlike the top-level `reason`, per-event `EventObservationResult.reason` (#321) is a stable machine-readable slug: one transient — `linked_entity_unresolved` (self-heals once the linked entity anchors) — and the rest terminal: `identity_immutable`, `event_not_found`, `provenance_conflict`, `applies_to_mismatch`, `missing_required_field`, `unknown_event_type`, `invalid`, `event_owned_by_dataset` (#592: a `succeeded_by`/`merged_with`/`split_from` link between two orgs a subscribed dataset anchors — create, refine and retract alike; correct it at the dataset).
 

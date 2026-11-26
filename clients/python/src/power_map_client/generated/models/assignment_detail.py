@@ -8,6 +8,7 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..models.assignment_detail_membership_type import AssignmentDetailMembershipType
+from ..models.ownership import Ownership
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
@@ -34,6 +35,7 @@ class AssignmentDetail:
             producing dataset (#671); only principals count toward a seat's capacity.
         created_at (datetime.datetime):
         updated_at (datetime.datetime):
+        ownership (Ownership): A record's ownership relative to the calling key.
         start_date (datetime.date | None | Unset):
         end_date (datetime.date | None | Unset):
         notes (None | str | Unset):
@@ -51,6 +53,7 @@ class AssignmentDetail:
     membership_type: AssignmentDetailMembershipType
     created_at: datetime.datetime
     updated_at: datetime.datetime
+    ownership: Ownership
     start_date: datetime.date | None | Unset = UNSET
     end_date: datetime.date | None | Unset = UNSET
     notes: None | str | Unset = UNSET
@@ -75,6 +78,8 @@ class AssignmentDetail:
         created_at = self.created_at.isoformat()
 
         updated_at = self.updated_at.isoformat()
+
+        ownership = self.ownership.value
 
         start_date: None | str | Unset
         if isinstance(self.start_date, Unset):
@@ -145,6 +150,7 @@ class AssignmentDetail:
                 "membership_type": membership_type,
                 "created_at": created_at,
                 "updated_at": updated_at,
+                "ownership": ownership,
             }
         )
         if start_date is not UNSET:
@@ -187,6 +193,8 @@ class AssignmentDetail:
         created_at = datetime.datetime.fromisoformat(d.pop("created_at"))
 
         updated_at = datetime.datetime.fromisoformat(d.pop("updated_at"))
+
+        ownership = Ownership(d.pop("ownership"))
 
         def _parse_start_date(data: object) -> datetime.date | None | Unset:
             if data is None:
@@ -292,6 +300,7 @@ class AssignmentDetail:
             membership_type=membership_type,
             created_at=created_at,
             updated_at=updated_at,
+            ownership=ownership,
             start_date=start_date,
             end_date=end_date,
             notes=notes,

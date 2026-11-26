@@ -120,6 +120,7 @@ from .org_search_result import OrgSearchResult
 from .organization_name_type_entry import OrganizationNameTypeEntry
 from .organization_name_types_response import OrganizationNameTypesResponse
 from .organization_observation_request import OrganizationObservationRequest
+from .ownership import Ownership
 from .partial_date import PartialDate
 from .people_observation_request import PeopleObservationRequest
 from .person_detail import PersonDetail
@@ -272,6 +273,7 @@ __all__ = (
     "OrgName",
     "OrgSearchResponse",
     "OrgSearchResult",
+    "Ownership",
     "PartialDate",
     "PeopleObservationRequest",
     "PersonDetail",
