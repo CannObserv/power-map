@@ -63,9 +63,9 @@ ones worth knowing before minting:
 | `person_cannabis_observer` | person | cannabis.observer Person record `ulid` (#808) |
 | `org_cannabis_observer` | organization | cannabis.observer Organization record `ulid` (#808) |
 | `role_cannabis_observer` | role | cannabis.observer Role record `ulid` — a role **definition** (#808) |
+| `role_assignment_cannabis_observer` | role_assignment | cannabis.observer Role Assignment record `ulid` (#809). The older `role_wa_pdc` uses a bare `role_` prefix for an assignment type; this family spells `role_` for a role and `role_assignment_` for an assignment |
 | `person_co_operator` | person | a ULID the producer mints for a person with no external identifier (#879) |
 | `org_co_operator` | organization | a ULID the producer mints for an organization with no external identifier (#879) |
-| `role_assignment_cannabis_observer` | role_assignment | cannabis.observer Role Assignment record `ulid` (#809). The older `role_wa_pdc` uses a bare `role_` prefix for an assignment type; this family spells `role_` for a role and `role_assignment_` for an assignment |
 | `org_ubi` | organization | WA Unified Business Identifier |
 | `org_wa_pdc` | organization | PDC **lobbyist-firm** filer_id, numeric |
 | `org_wa_pdc_committee` | organization | PDC **campaign-finance** committee filer_id, e.g. `LABORG 503` (#296) |
