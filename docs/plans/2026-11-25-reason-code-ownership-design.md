@@ -30,10 +30,10 @@ A producer can tell, before writing, whether an id-addressed write to a record w
 - **Precedence: `dataset` first.**
   - `dataset`: the subscribed dataset owns the row, and its nightly apply reverts any observation write.
   - Otherwise, from `source_key_id`: the calling key's own is `self`, another key's is `other`, and NULL is `none`.
-- **What `dataset` tests:** the same test the curation overlay's `in_scope` uses, a `producer_crosswalk` anchor in `IN_SCOPE`:
+- **What `dataset` tests:** the applier's own row scope, as `dataset_ownership` reads it: a `producer_crosswalk` anchor of `PRODUCER_SOURCE` in `IN_SCOPE` (`live`, `merged`). The curation overlay's `in_scope` is the same test without the source filter, so the two agree while there is one subscribed source:
   - kind `assignment`, for the assignment's dates;
   - kind `organization`, for the org's parent.
-  - This over-approximates for an anchored org whose dataset emits no parent row (`retraction: none`: silence). The overlay draws its scope the same way, so the two agree.
+  - This over-approximates for an anchored org whose dataset emits no parent row (`retraction: none`: silence). The overlay draws its scope the same way.
 - **Surfaces:** `getAssignment`, `getOrg`, `batchGetOrgs` (its ETags must equal `getOrg`'s). List rows carry no ownership. A list ETag is a collection watermark, and a per-row key-relative field would break it.
 - **ETag:** `make_etag(id, updated_at, *extra)` appends the key-relative value. Two keys reading one row then get different validators, and a dataset adopting a row changes it without touching `updated_at`. `conditional_response` is unchanged.
 - **`owned_by_dataset` refusal** (pulled into scope 2026-11-25). An id-addressed write the nightly apply would revert is refused rather than accepted and silently undone, as #592 already does for events. It covers assignment tenure updates and retracts on a `dataset` row, and a parent write on a `dataset` org. It is checked before the `source_key_id` gate, so a dataset row answers `owned_by_dataset` whoever holds its key. The read's `dataset` and the write's refusal share one helper, so they cannot disagree.
