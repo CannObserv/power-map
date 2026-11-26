@@ -237,20 +237,7 @@ All `POST /*/observations` endpoints return an `ObservationResponse` with the fo
 
 #### Reason codes
 
-A code is the slug at the head of `reason` (the text before `: `), except for the three cases in the last two rows.
-
-| Area | Codes |
-|---|---|
-| Resolving the entity | `unknown_identifier_type`, `pm_id_not_found`, `person_archived`, `organization_archived`, `role_archived`, `jurisdiction_archived`, `role_assignment_archived`, `entity_type_not_creatable`, `entity_type_mismatch`, `jurisdiction_new_requires_create_data`, `unknown_jurisdiction_type`, `unique_violation` |
-| Roles | `org_not_found`, `role_type_not_found`, `jurisdiction_not_found`, `role_type_required_for_jurisdiction`, `qualifier_required`, `qualifier_forbidden`, `title_required` |
-| Assignments | `person_not_found`, `role_not_found`, `assignment_not_found`, `is_current_end_date_conflict`, `start_after_end_date`, `start_date_conflict` |
-| Org parent | `parent_not_found`, `parent_cycle`, `active_on_archived_org` (`org_not_found` as for roles) |
-| Assignments and org parent | `owned_by_dataset`: a subscribed dataset owns the row, and its nightly apply would revert the write; correct it at the dataset. Read `ownership` / `parent_ownership` first (#882) |
-| Identifiers | `identifier_conflict`, `identifier_taken`, `identifier_type_mismatch`, `identifier_locked`, `replaces_unsupported`, `replaces_not_held` |
-| Embedded events, citations, names | the per-item slugs below (`linked_entity_unresolved` and `entity_unresolved` are transient), and `name_is_canonical`, `name_is_last`, `name_has_readings`, `name_has_foreign_citations` |
-| Any write | `identity_immutable`, `missing_required_field`, `db_constraint_violation`, `invalid` |
-| **`provenance_conflict`** | The same-or-NULL `source_key_id` gate, on every surface: another key owns the row. Its `reason` text still reads `source_key_mismatch` (assignments, org parent) or `name_provenance_conflict` (names) until #888 |
-| **`invalid`** | Also every free-text validation message: an unknown link, contact or affiliation type, an address the normaliser refused, a parent lookup that matched other than once. An additional identifier of an unknown type is `unknown_identifier_type` |
+Every `reason_code`, what each means and which are transient: [PRODUCER_CONTRACT.md](PRODUCER_CONTRACT.md) § Reason codes.
 
 **Event `reason` slugs are a contract, though.** Unlike the top-level `reason`, per-event `EventObservationResult.reason` (#321) is a stable machine-readable slug: one transient — `linked_entity_unresolved` (self-heals once the linked entity anchors) — and the rest terminal: `identity_immutable`, `event_not_found`, `provenance_conflict`, `applies_to_mismatch`, `missing_required_field`, `unknown_event_type`, `invalid`, `event_owned_by_dataset` (#592: a `succeeded_by`/`merged_with`/`split_from` link between two orgs a subscribed dataset anchors — create, refine and retract alike; correct it at the dataset).
 

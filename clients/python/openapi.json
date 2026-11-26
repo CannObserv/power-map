@@ -7848,7 +7848,7 @@
           "invalid"
         ],
         "title": "ObservationReasonCode",
-        "description": "Why an observation was refused: ``ObservationResponse.reason_code`` (#882).\n\nTransient (may clear on a later cycle, once what it names arrives):\n``linked_entity_unresolved``, ``entity_unresolved``. The rest are terminal for\nthe payload as sent. The table with each code's meaning is in\n``docs/PUBLIC_API.md``."
+        "description": "Why an observation was refused: ``ObservationResponse.reason_code`` (#882).\n\nTransient (may clear on a later cycle, once what it names arrives):\n``linked_entity_unresolved``, ``entity_unresolved``. The rest are terminal for\nthe payload as sent. The table with each code's meaning is in\n``docs/PRODUCER_CONTRACT.md`` § Reason codes."
       },
       "ObservationResponse": {
         "properties": {

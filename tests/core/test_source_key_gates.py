@@ -5,7 +5,7 @@ Every table carrying ``source_key_id`` is declared here with what the column
 does on it: a **gate** (the same-or-NULL ``provenance_conflict`` refusal, on the
 write it guards) or a **stamp** (provenance only — the API adds rows there and
 never overwrites or removes one). A new column fails this test until it is
-declared and documented in ``docs/OBSERVATIONS.md`` § Record ownership. People
+declared and documented in ``docs/PRODUCER_CONTRACT.md`` § Record ownership. People
 and roles carry none: nothing on either row is overwritable through the API, so
 neither has a gate, and the column must not arrive as creation provenance.
 """
@@ -45,7 +45,7 @@ def test_people_and_roles_have_no_gate():
 
 
 def test_the_principle_is_written_down():
-    doc = Path("docs/OBSERVATIONS.md").read_text()
+    doc = Path("docs/PRODUCER_CONTRACT.md").read_text()
     assert "## Record ownership" in doc
     for table in DECLARED:
         assert f"`{table}`" in doc, table

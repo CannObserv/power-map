@@ -49,7 +49,7 @@ Returns all list item fields plus:
 | `contact_methods` | Array of `{id, contact_type, value, display_label (nullable)}` |
 | `addresses` | Array of `{id, address_id, address_type, raw_input (nullable), standardized (nullable), valid_from (nullable date), valid_until (nullable date)}` — `valid_from`/`valid_until` bound the validity window (`YYYY-MM-DD`); NULL = open-ended on that side |
 | `identifiers` | Array of `{id, type_id, type_slug, value}` — external types only, as on people and orgs (#809) |
-| `ownership` | #882: who may change the tenure (`start_date`, `end_date`, `is_current`) through the observation API, **relative to the calling key**. `dataset`: a subscribed dataset owns it, so an id-addressed update or retract is refused `owned_by_dataset` (correct it at the dataset); `self`: yours; `other`: another key's, refused `provenance_conflict`; `none`: unowned, the first id-addressed write claims it. See [OBSERVATIONS.md](OBSERVATIONS.md) § Record ownership |
+| `ownership` | #882: who may change the tenure (`start_date`, `end_date`, `is_current`) through the observation API, **relative to the calling key**. `dataset`: a subscribed dataset owns it, so an id-addressed update or retract is refused `owned_by_dataset` (correct it at the dataset); `self`: yours; `other`: another key's, refused `provenance_conflict`; `none`: unowned, the first id-addressed write claims it. See [PRODUCER_CONTRACT.md](PRODUCER_CONTRACT.md) § Record ownership |
 
 Supports ETag / `If-None-Match` conditional requests; 304 on cache hit. The ETag carries `ownership`, so two keys reading one assignment get different validators.
 

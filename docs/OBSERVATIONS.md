@@ -6,31 +6,9 @@ refines in place, how `op="retract"` works, the
 `source_key_id` provenance gate, and the merge re-homing every conflict-delete owes
 its ancillary rows. Table definitions live in `docs/SCHEMA.md`.
 
-**One gate, one name (#882).** Wherever the same-or-NULL `source_key_id` gate refuses (assignments, org parent, events, citations, RA→RA edges, names), the refusal's `reason_code` is `provenance_conflict`. Every refusal carries a code, the contract a producer acts on; the code table is in `docs/PUBLIC_API.md` § Reason codes, and `tests/core/test_refusal_code_sweep.py` holds every refusal site under `src/` to one.
+**Refusal codes and record ownership** (#882) — the `reason_code` a producer acts on, and who may overwrite what — are in [PRODUCER_CONTRACT.md](PRODUCER_CONTRACT.md).
 
 ---
-
-## Record ownership (#882)
-
-**The principle.** A `source_key_id` gate exists exactly where the observation API can overwrite or remove a value. Who created a row is not who may overwrite it: the column never doubles as creation provenance. `tests/core/test_source_key_gates.py` holds every table carrying the column to a declaration:
-
-| Table | The column is |
-|---|---|
-| `role_assignments` | a gate: the id-addressed tenure update and retract (#311/#391) |
-| `organizations` | a gate on the **parent** only: an id-addressed reparent (#334). Claimed on the first parent write, not at creation |
-| `entity_events`, `citations`, `role_assignment_relationships` | a gate: the id-addressed refine and retract (#321/#319/#301) |
-| `person_names` | a gate: the name retract (#845) |
-| `organization_names` | a stamp: the API only adds org names (#162) |
-
-People and roles carry none: nothing on either row is overwritable through the API.
-
-**A dataset owns some rows outright.** A row whose `producer_crosswalk` anchor is in scope (`live`, `merged`) is the subscribed dataset's, and its nightly apply writes it without consulting `source_key_id` (#499). An observation write there would be reverted, so:
-
-- an id-addressed assignment update or retract, or an id-addressed reparent, is refused **`owned_by_dataset`**, checked before the `source_key_id` gate, whoever holds the stamp;
-- an identical assertion never claims a dataset row (#478's claim stops there);
-- the natural-key close-enrichment and the write-if-null parent fill are **skipped**, not refused, so the rest of the observation lands, and the field is listed in `unapplied`.
-
-**Ownership on reads.** `AssignmentDetail.ownership` and `OrgDetail.parent_ownership` answer `self | other | none | dataset` relative to the calling key, from one helper the refusal shares (`src/core/record_ownership.py`). `dataset` comes first; otherwise the gate's own answer (`none` = unowned, claimable). The detail ETag carries the value. List rows carry none.
 
 ## Identifier types — the identity vocabulary (#459)
 

@@ -33,7 +33,7 @@ class ObservationReasonCode(StrEnum):
     Transient (may clear on a later cycle, once what it names arrives):
     ``linked_entity_unresolved``, ``entity_unresolved``. The rest are terminal for
     the payload as sent. The table with each code's meaning is in
-    ``docs/PUBLIC_API.md``.
+    ``docs/PRODUCER_CONTRACT.md`` § Reason codes.
     """
 
     # Resolving the observed entity

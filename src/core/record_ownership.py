@@ -14,7 +14,7 @@ from one that will be refused or reverted:
 The read (``AssignmentDetail.ownership``, ``OrgDetail.parent_ownership``) and the
 write refusal (``owned_by_dataset``, in ``src/core/observation.py``) share
 :func:`dataset_owned`, so the two cannot disagree. People and roles carry no
-ownership: no gate exists there (``docs/OBSERVATIONS.md`` § Record ownership).
+ownership: no gate exists there (``docs/PRODUCER_CONTRACT.md`` § Record ownership).
 """
 
 from enum import StrEnum
