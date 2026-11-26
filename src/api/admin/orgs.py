@@ -32,6 +32,7 @@ from src.api.admin.overlay_slots import flash_key, overlay_refresh, pinned_note,
 from src.api.admin.pagination import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, PAGE_SIZE_MIN
 from src.core.ancillary_migrate import delete_entity_ancillary
 from src.core.citations import CITABLE_FIELDS
+from src.core.classification_drainer import wake
 from src.core.db import generate_id
 from src.core.logging import get_logger
 from src.core.org_lifecycle import resolve_lifespan_banner
@@ -173,6 +174,7 @@ async def org_create(
                 org_id,
                 acronym.strip(),
             )
+    wake()  # #877: committed; suggest its kind
     return RedirectResponse(with_flash(f"/admin/orgs/{org_id}/", "saved"), status_code=303)
 
 

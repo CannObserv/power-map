@@ -11,6 +11,7 @@ from typing import Any
 
 import asyncpg
 
+from src.core.classification_drainer import wake
 from src.core.db import generate_id
 from src.core.ingestion.base import ConfidenceRecord, value_hash
 from src.core.ingestion.sources.csv_org import transform_org, validate_org
@@ -384,6 +385,7 @@ async def run_import(conn: asyncpg.Connection, config: ImportConfig) -> dict[str
 
         org_index[name_lower] = t["org_id"]
         summary["orgs_loaded"] += 1
+        wake()  # #877: suggest its kind soon (the drainer debounces past the commit)
 
     # -------------------------------------------------------------------------
     # Pass 2: People

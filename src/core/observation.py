@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from src.api.public.schemas import ObservationAcronym, ObservationOrgName, ObservationPersonName
 
 from src.core import name_types
+from src.core.classification_drainer import wake
 from src.core.dataset_ownership import dataset_owned_identifier, dataset_owned_link
 from src.core.db import generate_id, linked_entity_vanished
 from src.core.identifier_taken import UNIQUE_IDENTIFIER_TYPE_IDS, identifier_holder, taken_reason
@@ -657,6 +658,9 @@ async def _create_entity(conn, entity_type: str, *, create_data: dict | None = N
         await conn.execute("INSERT INTO people (id) VALUES ($1)", entity_id)
     elif entity_type == "organization":
         await conn.execute("INSERT INTO organizations (id) VALUES ($1)", entity_id)
+        # #877: suggest its kind soon. Inside the caller's transaction, so the
+        # drainer's debounce (and failing that, its tick) waits out the commit.
+        wake()
     elif entity_type == "jurisdiction":
         if not create_data:
             raise ValueError("jurisdiction _create_entity requires create_data")

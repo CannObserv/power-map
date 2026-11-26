@@ -21,6 +21,7 @@ from src.api.public.middleware import RequestLogMiddleware, drain_pending_writes
 from src.api.public.router import router as public_router
 from src.api.routing import iter_api_routes
 from src.api.validation import install_validation_handlers, reject_unstorable_text
+from src.core.classification_drainer import Drainer
 from src.core.embedding_registry import EmbeddingRegistry
 from src.core.logging import configure_logging
 
@@ -33,15 +34,26 @@ inject_rel_category_label_into_admin_templates()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create and close the asyncpg connection pool."""
+    """Create and close the asyncpg pool, and run this worker's classification drainer.
+
+    The drainer (#877) suggests org kinds in the background; it is stopped
+    before the pool closes. ``CLASSIFICATION_DRAINER=off`` leaves it out (the
+    test suite sets it).
+    """
     dsn = os.environ.get("DATABASE_URL")
+    drainer: Drainer | None = None
     if dsn:
         pool = await db.create_pool(dsn)
         async with pool.acquire() as conn:
             app.state.embedding_registry = await EmbeddingRegistry.load(conn)
+        if os.environ.get("CLASSIFICATION_DRAINER", "").strip().lower() != "off":
+            drainer = Drainer(pool)
+            drainer.start()
     else:
         app.state.embedding_registry = EmbeddingRegistry({})
     yield
+    if drainer is not None:
+        await drainer.stop()
     # Flush in-flight fire-and-forget api_request_log writes before the pool
     # closes (#286) — they acquire pool connections, so drain must precede close.
     await drain_pending_writes()
