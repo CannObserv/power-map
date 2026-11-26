@@ -64,6 +64,8 @@ ones worth knowing before minting:
 | `org_cannabis_observer` | organization | cannabis.observer Organization record `ulid` (#808) |
 | `role_cannabis_observer` | role | cannabis.observer Role record `ulid` — a role **definition** (#808) |
 | `role_assignment_cannabis_observer` | role_assignment | cannabis.observer Role Assignment record `ulid` (#809). The older `role_wa_pdc` uses a bare `role_` prefix for an assignment type; this family spells `role_` for a role and `role_assignment_` for an assignment |
+| `person_co_operator` | person | a ULID the producer mints for a person with no external identifier (#879) |
+| `org_co_operator` | organization | a ULID the producer mints for an organization with no external identifier (#879) |
 | `org_ubi` | organization | WA Unified Business Identifier |
 | `org_wa_pdc` | organization | PDC **lobbyist-firm** filer_id, numeric |
 | `org_wa_pdc_committee` | organization | PDC **campaign-finance** committee filer_id, e.g. `LABORG 503` (#296) |
@@ -81,9 +83,15 @@ Lookup by one: `GET /roles`, `GET /assignments`, `people/search`, `orgs/search` 
 `identifier_type` + `identifier_value`, return every holder paged by `id` (archived:
 `include_archived=true`); `count > 1`/`has_more` = duplicate (#811).
 
-**One value, one entity (#812).** A value of any of the four appears once in
+**Producer-minted ids are addressed: that is the create (#879).** `person_co_operator`
+/ `org_co_operator` create a person or organization that holds no external identifier:
+[PRODUCER_CONTRACT.md](PRODUCER_CONTRACT.md) § Creating a record with no external identifier.
+
+**One value, one entity (#812, #879).** A value of any of the four
+`*_cannabis_observer` types or the two `*_co_operator` types appears once in
 `identifiers` — one entity, one row, archived holders included
-(`uq_identifiers_cannabis_observer`; every other type still repeats across entities).
+(`uq_identifiers_cannabis_observer`, which keeps its #812 name; every other type still
+repeats across entities).
 Attaching a value another entity holds rejects the observation
 `identifier_taken: '<slug>' held by '<id>'`, or `held by archived '<id>'`: archiving
 keeps identifiers (#481), so the fix is to unarchive or merge the holder, not to send a

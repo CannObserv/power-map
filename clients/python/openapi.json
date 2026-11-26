@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "power-map",
-    "version": "0.81.0"
+    "version": "0.82.0"
   },
   "paths": {
     "/health": {
@@ -7238,7 +7238,7 @@
           "identifier_value"
         ],
         "title": "ObservationAdditionalIdentifier",
-        "description": "An additional identifier claim to attach to the resolved entity.\n\n``replaces`` (#848) turns the attach into a swap: the entity's value\n``replaces`` is removed and ``identifier_value`` is held instead, in the\nobservation's one transaction. Only the four ``*_cannabis_observer`` types\ntake it (``replaces_unsupported`` otherwise). An entity holding neither value\nrejects the observation ``replaces_not_held``; one already holding the new\nvalue and not the old is a no-op, so a replace can be re-sent."
+        "description": "An additional identifier claim to attach to the resolved entity.\n\n``replaces`` (#848) turns the attach into a swap: the entity's value\n``replaces`` is removed and ``identifier_value`` is held instead, in the\nobservation's one transaction. Only the one-holder types take it — the four\n``*_cannabis_observer`` and the two ``*_co_operator`` ones\n(``replaces_unsupported`` otherwise). An entity holding neither value\nrejects the observation ``replaces_not_held``; one already holding the new\nvalue and not the old is a no-op, so a replace can be re-sent."
       },
       "ObservationAddress": {
         "properties": {

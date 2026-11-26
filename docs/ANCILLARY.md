@@ -9,7 +9,7 @@ into a bump of the parent's `updated_at`, hence its detail ETag.
 
 Observation write semantics per kind are in `docs/OBSERVATIONS.md` — assignments
 in `docs/API_ASSIGNMENTS.md` — and the tables themselves in `docs/SCHEMA.md`. One
-write rule lives here: replacing a `*_cannabis_observer` identifier (#848).
+write rule lives here: replacing a one-holder identifier (#848).
 
 ---
 
@@ -40,7 +40,7 @@ An admin hard delete (people, orgs, jurisdictions, roles, role-assignments) has 
 
 ---
 
-## Replacing a `*_cannabis_observer` identifier (#848)
+## Replacing a one-holder identifier (#848)
 
 An `additional_identifiers` item may carry `replaces`: the value the producer expects
 to remove. The entity's `replaces` value goes and `identifier_value` is held instead,
@@ -57,8 +57,9 @@ still answers `identifier_conflict`.
 | neither | `rejected`, `replaces_not_held: '<slug>'`. |
 | the old value, while another entity holds the new one | `rejected`, `identifier_taken: '<slug>' held by [archived ]'<id>'` (#812). The old value stays. |
 
-- **Four types only**, the set `uq_identifiers_cannabis_observer` covers
-  (`UNIQUE_IDENTIFIER_TYPE_IDS`). Any other type answers `replaces_unsupported: '<slug>'`:
+- **The six one-holder types only**, the set `uq_identifiers_cannabis_observer` covers
+  (`UNIQUE_IDENTIFIER_TYPE_IDS`): the four `*_cannabis_observer` types and, since #879,
+  `person_co_operator` / `org_co_operator`. Any other type answers `replaces_unsupported: '<slug>'`:
   it repeats across entities, is dataset-owned (#710) or is history. The item model is
   shared with jurisdiction observations, which have no such type, so a `replaces` there
   never applies: `replaces_unsupported` for a jurisdiction type, or the item's own type
@@ -83,7 +84,7 @@ still answers `identifier_conflict`.
   the abort to a rejection.
 - **Order.** The `identifier_taken` check runs before the removal, as for an attach,
   and a lost race on the index rolls the whole observation back, the removal included.
-  The #710 lock check runs too, but none of the four types is dataset-owned.
+  The #710 lock check runs too, but none of the six types is dataset-owned.
 - **Archived entities** are refused by resolution before any identifier is read:
   `pm_id_not_found` for a `pm_*`-addressed one. An assignment matched to a retracted
   twin withholds the item and names `additional_identifiers` in `unapplied` (#391).

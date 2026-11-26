@@ -1,7 +1,9 @@
-"""One value of a ``*_cannabis_observer`` identifier type names one entity (#812).
+"""One value of a one-holder identifier type names one entity (#812, #879).
 
 ``uq_identifiers_cannabis_observer`` (schema.sql) is a partial unique index on
-``identifiers (entity_identifier_type_id, value)`` over the four type ids below.
+``identifiers (entity_identifier_type_id, value)`` over the six type ids below:
+the four ``*_cannabis_observer`` site-record types (#812) and the two
+producer-minted ``*_co_operator`` types (#879).
 It covers every row: an archived holder keeps its identifiers (#481) and so
 still owns the value. A write that would put a held value on a second entity is
 rejected ``identifier_taken``, distinct from ``identifier_conflict`` (this
@@ -19,7 +21,7 @@ from src.core.refusals import ObservationReasonCode, Refusal
 IDENTIFIER_TAKEN_GUARD = "uq_identifiers_cannabis_observer"
 
 #: The type ids the index predicate names, as literals: a partial index can't
-#: read ``entity_identifier_types``. Fixed seeds (#808); a test holds this set
+#: read ``entity_identifier_types``. Fixed seeds (#808, #879); a test holds this set
 #: equal to both the seeded ids and the live predicate.
 UNIQUE_IDENTIFIER_TYPE_IDS = frozenset(
     {
@@ -27,6 +29,8 @@ UNIQUE_IDENTIFIER_TYPE_IDS = frozenset(
         "01M7DPQMH6CXKNTY183BXDMN1V",  # person_cannabis_observer
         "01M7DPQMPBJEQ52A6TN3GGTGDA",  # role_cannabis_observer
         "01M7DPQMVS8Y6PX1KB5CES7SGQ",  # role_assignment_cannabis_observer
+        "01M8ARJWFZJMP5XDQECCMSRXZB",  # org_co_operator (#879)
+        "01M8ARJWG12ZK4V10BA5PM0N7J",  # person_co_operator (#879)
     }
 )
 
