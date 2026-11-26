@@ -24,7 +24,7 @@ DECLARED: dict[str, str] = {
 }
 
 _CREATE = re.compile(r"CREATE TABLE IF NOT EXISTS (\w+) \((.*?)\n\);", re.S)
-_ADD = re.compile(r"ALTER TABLE (\w+)\s+ADD COLUMN IF NOT EXISTS source_key_id\b")
+_ADD = re.compile(r"ALTER TABLE (\w+)\s+ADD COLUMN (?:IF NOT EXISTS )?source_key_id\b")
 
 
 def _tables_with_source_key(sql: str) -> set[str]:
@@ -55,6 +55,7 @@ def test_the_parser_sees_both_forms():
     sql = (
         "CREATE TABLE IF NOT EXISTS a (\n    id TEXT,\n    source_key_id TEXT\n);\n"
         "ALTER TABLE b\n    ADD COLUMN IF NOT EXISTS source_key_id TEXT;\n"
+        "ALTER TABLE d ADD COLUMN source_key_id TEXT;\n"
         "CREATE TABLE IF NOT EXISTS c (\n    id TEXT\n);\n"
     )
-    assert _tables_with_source_key(sql) == {"a", "b"}
+    assert _tables_with_source_key(sql) == {"a", "b", "d"}
