@@ -71,3 +71,9 @@ A name row whose `source_key_id` is set shows `via ‹key label›` (`data-sourc
 
 The org detail Identity card lazy-loads `GET /admin/orgs/{id}/kind/` (`src/api/admin/orgs_kind.py`, `admin/orgs/partials/_kind_panel.html`): the resolved kind with its badge (Reviewed / Dismissed / Undecided), each source's latest suggestion (Rules now, AI with confidence from #877 phase 2) with an Accept button when it names a kind other than the resolved one, and a Set kind select (placeholder first, so Set never records a kind by default) with Dismiss and Clear. Every action is one `POST /admin/orgs/{id}/kind/` (`action` = accept / set / dismiss / clear) through `classification.record_decision`: HTMX gets the panel and a `success` flash, a refusal (stale accept, unknown or missing kind) a `warning` flash with nothing changed; other clients get a 303 to the detail page with `saved` / `invalid`. The POST uses `provision_app_user` because `created_by` references `app_users`. An archived org's panel is read-only.
 
+Phase 2 adds the AI row (Jev's answer and confidence), "accepted from AI · NN %" (or Rules) beside an accepted kind, and **Re-ask AI**: `POST /admin/orgs/{id}/kind/reask/` asks Jev once (one attempt, 20 s) and stores a second opinion through `classification.reask`, never changing the kind. A `success` flash names the answer; flag off, archived, or a Jev error is a `warning` with nothing changed; other clients get a 303 with `saved` / `invalid`. With `JEV_SUGGESTIONS_ENABLED` off the button is disabled, its reason beside it.
+
+### AI suggestions card (#877)
+
+The dashboard's Activity section shows Jev's health (`classification.health`): on, off, or on with no API key (presence only, never the key); the last successful call; orgs awaiting an answer from the pinned model; runs with failures in 7 days; input tokens this month and all time. TypeSafe's price isn't in the repo, so spend shows as tokens.
+

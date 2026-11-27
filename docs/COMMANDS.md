@@ -471,6 +471,7 @@ row names**; this is a roster, not a reference.
 | `power-map-ancillary-orphans` | daily | `audit_ancillary_orphans.py` — no-FK polymorphic orphans | [AUDITS.md](AUDITS.md) |
 | `power-map-seat-occupancy` | daily | `audit_seat_occupancy.py` — two holders of one single seat; ratchet over a baseline | [AUDITS.md](AUDITS.md) |
 | `power-map-assignment-rel-windows` | daily | `audit_assignment_relationship_windows.py` — drifted RA→RA edge windows | [AUDITS.md](AUDITS.md) |
+| `power-map-classification` | daily | `classify_suggestions.py --source all --execute` — org-kind suggestions (rules, then Jev); exit 3 = `jev_failed` | [RUNBOOKS.md](RUNBOOKS.md) |
 | `power-map-infra-drift` | daily | `check_infra_drift.py` — `infra/` vs the installed copies | [AUDITS.md](AUDITS.md) |
 
 Not in `infra/`: `cannobserv-disk-gc` (05:15 UTC) and `cannobserv-disk-headroom` (10 min), the cohort's disk GC (#705) → [AUDITS.md § Root disk](AUDITS.md#root-disk-the-cohort-disk-gc-issue-705).

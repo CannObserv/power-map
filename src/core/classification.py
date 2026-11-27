@@ -10,15 +10,27 @@ producer, applier or importer path sets it, and
 ``tests/core/test_classification_write_sweep.py`` holds every other module to
 that.
 
+The drain (:func:`drain`, phase 2) runs the sources: rules for every active
+org, then Jev for the orgs with no live answer from the pinned model. It runs
+in-process (``src/core/classification_drainer.py``), from the CLI and from the
+daily timer (``scripts/classify_suggestions.py``), one at a time under a
+Postgres advisory lock. It writes suggestions and run rows only.
+
 Design: ``docs/plans/2026-11-24-org-kind-suggestions-design.md``.
 """
 
-from collections.abc import Iterable
+import asyncio
+import json
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal
 
 import asyncpg
+import httpx
 
+from src.core import jev_client as jc
+from src.core import org_kind_question as q
 from src.core.db import generate_id
 from src.core.logging import get_logger
 
@@ -248,3 +260,339 @@ async def apply_rules(db: asyncpg.Connection, changes: Iterable[RulesChange]) ->
             rows,
         )
     return len(rows)
+
+
+# --- the drain: rules, then Jev (phase 2) ---------------------------------
+
+# pg_try_advisory_lock key: one drain at a time across workers and processes.
+DRAIN_LOCK_KEY = 8770002
+# Jev requests in flight at once; answers are stored after each group.
+CONCURRENCY = 4
+# Consecutive groups with no answer before a run gives up (the API is down).
+MAX_DEAD_GROUPS = 2
+
+DrainStatus = Literal["ok", "partial", "failed", "busy", "disabled", "idle"]
+Origin = Literal["wake", "tick", "cli", "timer", "reask"]
+AskFn = Callable[..., Awaitable[jc.JevAnswer]]
+
+
+@dataclass
+class DrainResult:
+    """What one drain did. ``busy``/``disabled``/``idle`` asked nothing."""
+
+    status: DrainStatus
+    rules_written: int = 0
+    asked: int = 0
+    answered: int = 0
+    failed: int = 0
+    input_tokens: int = 0
+    error: str | None = None
+    # A failure that asking again won't fix: no key, a 4xx, a malformed reply,
+    # another model answering. The timer alerts on one at once (#833).
+    permanent: bool = False
+
+
+_BACKLOG_WHERE = """
+FROM organizations o
+WHERE o.archived_at IS NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM classification_suggestions s
+      WHERE s.entity_type = 'organization' AND s.entity_id = o.id
+        AND s.field = 'org_kind' AND s.source = 'jev'
+        AND s.model = $1 AND s.ignored_at IS NULL)
+"""
+_BACKLOG_SQL = f"SELECT o.id {_BACKLOG_WHERE} ORDER BY o.created_at DESC, o.id LIMIT $2"
+_BACKLOG_COUNT_SQL = f"SELECT count(*) {_BACKLOG_WHERE}"
+
+_RETIRE_JEV_SQL = """
+UPDATE classification_suggestions SET ignored_at = clock_timestamp()
+WHERE entity_type = 'organization' AND entity_id = $1 AND field = 'org_kind'
+  AND source = 'jev' AND model = $2 AND ignored_at IS NULL
+"""
+# Only for an org still active: one archived, merged away or deleted while its
+# request was in flight gets no row (the table has no FK to catch an orphan).
+_INSERT_JEV_SQL = """
+INSERT INTO classification_suggestions
+    (id, entity_type, entity_id, field, source, value, confidence, probabilities,
+     model, input_tokens)
+SELECT $1::text, 'organization', $2::text, 'org_kind', 'jev', $3::text, $4::float8,
+       $5::jsonb, $6::text, $7::int
+WHERE EXISTS (SELECT 1 FROM organizations WHERE id = $2::text AND archived_at IS NULL)
+ON CONFLICT (entity_type, entity_id, field, model)
+    WHERE source = 'jev' AND ignored_at IS NULL
+DO NOTHING
+"""
+_INSERT_RUN_SQL = """
+INSERT INTO classification_runs
+    (id, field, origin, status, model, asked, answered, failed, input_tokens,
+     error, started_at)
+VALUES ($1, 'org_kind', $2, $3, $4, $5, $6, $7, $8, $9, $10)
+"""
+_ACTIVE_SQL = """
+SELECT o.id FROM organizations o
+WHERE o.id = ANY($1::text[]) AND o.archived_at IS NULL
+  AND (NOT $2 OR NOT EXISTS (
+      SELECT 1 FROM (
+          SELECT s.manual_action FROM classification_suggestions s
+          WHERE s.entity_type = 'organization' AND s.entity_id = o.id
+            AND s.field = 'org_kind' AND s.source = 'manual' AND s.ignored_at IS NULL
+          ORDER BY s.created_at DESC, s.id DESC LIMIT 1) latest
+      WHERE latest.manual_action IN ('accept', 'set', 'dismiss')))
+ORDER BY o.id
+"""
+
+
+async def apply_rules_locked(db: asyncpg.Connection) -> list[RulesChange] | None:
+    """Plan and apply rules under ``DRAIN_LOCK_KEY``; None when a drain holds it.
+
+    For writers outside :func:`drain` (the CLI's rules and re-ask paths): the
+    in-process drainer applies rules too, and two planners racing would each
+    insert the same change.
+    """
+    if not await db.fetchval("SELECT pg_try_advisory_lock($1)", DRAIN_LOCK_KEY):
+        return None
+    try:
+        changes = await plan_rules(db)
+        await apply_rules(db, changes)
+        return changes
+    finally:
+        await db.execute("SELECT pg_advisory_unlock($1)", DRAIN_LOCK_KEY)
+
+
+async def last_answered_at(db: asyncpg.Connection) -> datetime | None:
+    """When a run last stored a Jev answer (any origin), or None."""
+    return await db.fetchval(
+        "SELECT max(finished_at) FROM classification_runs WHERE field = 'org_kind' AND answered > 0"
+    )
+
+
+async def jev_backlog_count(db: asyncpg.Connection, model: str) -> int:
+    """Active orgs with no live Jev answer from *model*."""
+    return await db.fetchval(_BACKLOG_COUNT_SQL, model)
+
+
+async def _store_answers(
+    db: asyncpg.Connection, answers: Sequence[tuple[str, jc.JevAnswer]], *, replace: bool
+) -> None:
+    """Insert one ``jev`` row per answer; with *replace*, retire the live one first."""
+    if not answers:
+        return
+    async with db.transaction():
+        for org_id, a in answers:
+            if replace:
+                await db.execute(_RETIRE_JEV_SQL, org_id, a.model)
+            await db.execute(
+                _INSERT_JEV_SQL,
+                generate_id(),
+                org_id,
+                a.kind,
+                a.confidence,
+                json.dumps(a.probabilities) if a.probabilities is not None else None,
+                a.model,
+                a.input_tokens,
+            )
+
+
+async def _ask_all(
+    db: asyncpg.Connection,
+    org_ids: Sequence[str],
+    *,
+    ask: AskFn,
+    client: httpx.AsyncClient,
+    api_key: str,
+    model: str,
+    replace: bool,
+) -> DrainResult:
+    """Ask Jev about each org, a few at a time, storing each group's answers."""
+    crit = q.criteria(await q.load_kinds(db))
+    states = await q.load_states(db, org_ids)
+    result = DrainResult(status="ok")
+    dead_groups = 0
+    for start in range(0, len(org_ids), CONCURRENCY):
+        group = org_ids[start : start + CONCURRENCY]
+        replies = await asyncio.gather(
+            *(ask(states[o], crit, api_key=api_key, model=model, client=client) for o in group),
+            return_exceptions=True,
+        )
+        result.asked += len(group)
+        answers: list[tuple[str, jc.JevAnswer]] = []
+        stop = False
+        for org_id, reply in zip(group, replies, strict=True):
+            if isinstance(reply, jc.JevAnswer) and reply.model != model:
+                reply = jc.JevError(f"answered by {reply.model}, not the pinned {model}")
+            if isinstance(reply, jc.JevAnswer):
+                answers.append((org_id, reply))
+                result.input_tokens += reply.input_tokens
+            elif isinstance(reply, jc.JevError):
+                result.failed += 1
+                result.error = str(reply)
+                result.permanent = result.permanent or not reply.transient
+                stop = stop or reply.auth
+            else:
+                raise reply
+        await _store_answers(db, answers, replace=replace)
+        result.answered += len(answers)
+        dead_groups = 0 if answers else dead_groups + 1
+        if stop or dead_groups >= MAX_DEAD_GROUPS:
+            break
+    if result.failed:
+        result.status = "partial" if result.answered else "failed"
+    return result
+
+
+async def _ask_and_record(
+    db: asyncpg.Connection,
+    org_ids: Sequence[str],
+    *,
+    origin: Origin,
+    ask: AskFn,
+    client: httpx.AsyncClient | None,
+    replace: bool,
+) -> DrainResult:
+    """Ask about *org_ids* and write the run row (there is always one here)."""
+    started = datetime.now(UTC)
+    model = jc.get_model()
+    api_key = jc.get_api_key()
+    if not api_key:
+        result = DrainResult(status="failed", error=f"{jc.API_KEY_ENV} is not set", permanent=True)
+    elif client is None:
+        async with httpx.AsyncClient() as own:
+            result = await _ask_all(
+                db, org_ids, ask=ask, client=own, api_key=api_key, model=model, replace=replace
+            )
+    else:
+        result = await _ask_all(
+            db, org_ids, ask=ask, client=client, api_key=api_key, model=model, replace=replace
+        )
+    await db.execute(
+        _INSERT_RUN_SQL,
+        generate_id(),
+        origin,
+        result.status,
+        model,
+        result.asked,
+        result.answered,
+        result.failed,
+        result.input_tokens,
+        result.error,
+        started,
+    )
+    if result.failed:
+        logger.warning(
+            "classification %s: %d/%d Jev answers failed (%s)",
+            origin,
+            result.failed,
+            result.asked,
+            result.error,
+        )
+    return result
+
+
+async def drain(
+    db: asyncpg.Connection,
+    *,
+    origin: Origin,
+    ask: AskFn = jc.ask_kind,
+    client: httpx.AsyncClient | None = None,
+    limit: int | None = None,
+) -> DrainResult:
+    """Run rules for every active org, then ask Jev about the backlog.
+
+    One drain at a time (``DRAIN_LOCK_KEY``): a second returns ``busy``. With
+    ``JEV_SUGGESTIONS_ENABLED`` off it runs rules only (``disabled``). The
+    backlog is the active orgs with no live answer from the pinned model,
+    newest first, at most *limit* (default ``JEV_MAX_PER_RUN``).
+    """
+    if not await db.fetchval("SELECT pg_try_advisory_lock($1)", DRAIN_LOCK_KEY):
+        return DrainResult(status="busy")
+    try:
+        rules_written = await apply_rules(db, await plan_rules(db))
+        if not jc.is_enabled():
+            return DrainResult(status="disabled", rules_written=rules_written)
+        model = jc.get_model()
+        rows = await db.fetch(_BACKLOG_SQL, model, limit or jc.max_per_run())
+        if not rows:
+            return DrainResult(status="idle", rules_written=rules_written)
+        result = await _ask_and_record(
+            db, [r["id"] for r in rows], origin=origin, ask=ask, client=client, replace=False
+        )
+        result.rules_written = rules_written
+        return result
+    finally:
+        await db.execute("SELECT pg_advisory_unlock($1)", DRAIN_LOCK_KEY)
+
+
+async def reask_eligible(
+    db: asyncpg.Connection, org_ids: Sequence[str], *, skip_decided: bool
+) -> list[str]:
+    """The active orgs among *org_ids* (with *skip_decided*, only undecided ones)."""
+    return [r["id"] for r in await db.fetch(_ACTIVE_SQL, list(org_ids), skip_decided)]
+
+
+async def reask(
+    db: asyncpg.Connection,
+    org_ids: Sequence[str],
+    *,
+    origin: Origin,
+    ask: AskFn = jc.ask_kind,
+    client: httpx.AsyncClient | None = None,
+    skip_decided: bool = False,
+) -> DrainResult:
+    """Ask Jev again about *org_ids*, replacing each one's live answer.
+
+    A second opinion: it never touches ``org_kind_id``. Archived orgs are
+    skipped, and with *skip_decided* (the CLI refresh) so are orgs whose
+    latest manual row decides them. Respects ``JEV_SUGGESTIONS_ENABLED``.
+    """
+    if not jc.is_enabled():
+        return DrainResult(status="disabled")
+    ids = await reask_eligible(db, org_ids, skip_decided=skip_decided)
+    if not ids:
+        return DrainResult(status="idle")
+    return await _ask_and_record(db, ids, origin=origin, ask=ask, client=client, replace=True)
+
+
+# --- health (the admin dashboard card) ------------------------------------
+
+
+@dataclass(frozen=True)
+class JevHealth:
+    """Jev's state for the dashboard: config, the last success, failures, spend in tokens."""
+
+    enabled: bool
+    key_present: bool
+    model: str
+    last_success: datetime | None
+    backlog: int
+    failed_runs_7d: int
+    tokens_all: int
+    tokens_month: int
+
+
+_HEALTH_SQL = """
+SELECT max(finished_at) FILTER (WHERE answered > 0) AS last_success,
+       count(*) FILTER (WHERE failed > 0 AND finished_at >= now() - interval '7 days')
+           AS failed_7d,
+       COALESCE(sum(input_tokens), 0) AS tokens_all,
+       COALESCE(sum(input_tokens) FILTER (
+           WHERE finished_at >= date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'),
+           0) AS tokens_month
+FROM classification_runs
+WHERE field = 'org_kind'
+"""
+
+
+async def health(db: asyncpg.Connection) -> JevHealth:
+    """Read Jev's health: config from the environment, the rest from ``classification_runs``."""
+    model = jc.get_model()
+    row = await db.fetchrow(_HEALTH_SQL)
+    return JevHealth(
+        enabled=jc.is_enabled(),
+        key_present=bool(jc.get_api_key()),
+        model=model,
+        last_success=row["last_success"],
+        backlog=await jev_backlog_count(db, model),
+        failed_runs_7d=row["failed_7d"],
+        tokens_all=int(row["tokens_all"]),
+        tokens_month=int(row["tokens_month"]),
+    )

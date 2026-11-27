@@ -139,6 +139,30 @@
     <a href="/admin/activity/requests/" class="btn btn--sm btn--secondary">View →</a>
   </div>
 
+  {# AI suggestions (#877): TypeSafe Jev's org-kind suggestions. Never shows the key. #}
+  <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">
+      <h3 style="margin:0;font-size:var(--font-size-md);font-weight:700">AI suggestions</h3>
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-muted)">org kinds · {{ jev.model }}</span>
+    </div>
+    <dl style="margin:0 0 var(--space-4);font-size:var(--font-size-sm);color:var(--color-text-muted);display:grid;grid-template-columns:1fr auto;gap:var(--space-1) var(--space-3)">
+      <dt>Status</dt>
+      <dd style="margin:0;font-weight:600;color:var(--color-text)">
+        {% if not jev.enabled %}<span class="badge badge--inactive">Off</span>
+        {% elif not jev.key_present %}<span class="badge badge--warning">On, no API key</span>
+        {% else %}<span class="badge badge--active">On</span>{% endif %}
+      </dd>
+      <dt>Last successful call</dt>
+      <dd style="margin:0;font-weight:600;color:var(--color-text)">{{ jev.last_success.strftime('%Y-%m-%d %H:%M') ~ ' UTC' if jev.last_success else '—' }}</dd>
+      <dt>Awaiting AI</dt>
+      <dd style="margin:0;font-weight:600;color:var(--color-text)">{{ jev.backlog }} orgs</dd>
+      <dt>Failed runs (7 days)</dt>
+      <dd style="margin:0;font-weight:600;{% if jev.failed_runs_7d %}color:var(--color-danger){% else %}color:var(--color-text){% endif %}">{{ jev.failed_runs_7d }}</dd>
+      <dt>Input tokens (this month / all time)</dt>
+      <dd style="margin:0;font-weight:600;color:var(--color-text)">{{ "{:,}".format(jev.tokens_month) }} / {{ "{:,}".format(jev.tokens_all) }}</dd>
+    </dl>
+  </div>
+
   {# Import History #}
   <div style="background:var(--color-surface-1);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-5)">
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-2)">

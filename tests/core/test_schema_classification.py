@@ -171,3 +171,50 @@ async def test_created_at_is_per_statement_clock(db):
         " WHERE table_name='classification_suggestions' AND column_name='created_at'"
     )
     assert default == "clock_timestamp()"
+
+
+# --- classification_runs (#877 phase 2) ----------------------------------
+
+
+async def _run(db, **cols) -> str:
+    row = {
+        "id": generate_id(),
+        "field": "org_kind",
+        "origin": "tick",
+        "status": "ok",
+        "model": "jev-1.14.0",
+        "asked": 2,
+        "answered": 2,
+        "started_at": None,
+    } | cols
+    if row["started_at"] is None:
+        row["started_at"] = await db.fetchval("SELECT clock_timestamp()")
+    keys = list(row)
+    await db.execute(
+        f"INSERT INTO classification_runs ({', '.join(keys)})"  # noqa: S608
+        f" VALUES ({', '.join(f'${i + 1}' for i in range(len(keys)))})",
+        *row.values(),
+    )
+    return row["id"]
+
+
+async def test_run_row_accepts_each_origin_and_status(db):
+    for origin in ("wake", "tick", "cli", "timer", "reask"):
+        for status in ("ok", "partial", "failed"):
+            await _run(db, origin=origin, status=status)
+
+
+@pytest.mark.parametrize(
+    "cols",
+    [
+        {"field": "colour"},
+        {"origin": "cron"},
+        {"status": "busy"},
+        {"asked": 1, "answered": 1, "failed": 1},
+        {"input_tokens": -1},
+    ],
+)
+async def test_run_checks_reject_bad_rows(db, cols):
+    with pytest.raises(asyncpg.CheckViolationError):
+        async with db.transaction():
+            await _run(db, **cols)

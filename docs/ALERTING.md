@@ -61,6 +61,7 @@ failure (a 4xx, bad credentials, a TLS verify failure) still alerts in the same 
 | openapi-parity | daily | none: `/openapi.json` is local, and the tag check's skip is #824's accepted limit | 120 |
 | anomaly | hourly | DB connect retried in-process | 900 |
 | ancillary-orphans, assignment-rel-windows, prune, seat-occupancy, schema-parity | daily | DB connect retried in-process | 900 |
+| classification | daily | DB connect and every Jev request, on one budget; Jev failing alerts only when permanent or stale 48 h | 1800 |
 | datasets-pull | daily 09:00 | every request retried in-process | 1260 |
 | desired-state | daily 09:30 | the connect in export **and** in apply | 1800 |
 

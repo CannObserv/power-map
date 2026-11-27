@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, get_admin_user, get_db
+from src.core import classification
 from src.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -48,6 +49,8 @@ async def dashboard(
         WHERE occurred_at >= NOW() - INTERVAL '24 hours'
         """
     )
+    # #877: Jev's health (the flag, key presence, backlog, failures, tokens).
+    jev = await classification.health(db)
     return templates.TemplateResponse(
         request,
         "admin/dashboard.html",
@@ -56,5 +59,6 @@ async def dashboard(
             "active_section": "dashboard",
             "counts": counts,
             "api_stats": api_stats,
+            "jev": jev,
         },
     )

@@ -37,6 +37,10 @@ def pytest_configure(config):
     # The test db_pool fixture passes explicit min/max and ignores these.
     os.environ.setdefault("DB_POOL_MIN_SIZE", "1")
     os.environ.setdefault("DB_POOL_MAX_SIZE", "2")
+    # #877: no in-process classification drainer under test. A TestClient
+    # lifespan would otherwise start one, and a wake() from a test's org create
+    # would drain (and write rules rows) outside that test's rollback.
+    os.environ["CLASSIFICATION_DRAINER"] = "off"
     # #450: asking for the browser tier against an environment `uv sync` has
     # pruned collects nothing and exits 0. Abort instead of passing vacuously.
     reason = optional_groups.browser_guard_reason(getattr(config.option, "markexpr", "") or "")

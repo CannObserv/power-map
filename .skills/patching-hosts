@@ -80,6 +80,7 @@ exception held:fwupd 2026-12-13 conffile prompt stops the maintenance lane until
 exception not-restarter:power-map-ancillary-orphans.service 2027-05-13 uv-run audit or report; starts and restarts no unit
 exception not-restarter:power-map-anomaly.service 2027-05-13 uv-run audit or report; starts and restarts no unit
 exception not-restarter:power-map-assignment-rel-windows.service 2027-05-13 uv-run audit or report; starts and restarts no unit
+exception not-restarter:power-map-classification.service 2027-05-13 uv-run drain; writes suggestion rows; starts and restarts no unit
 exception not-restarter:power-map-datasets-pull.service 2027-05-13 uv-run audit or report; starts and restarts no unit
 exception not-restarter:power-map-desired-state.service 2027-05-13 uv-run audit or report; starts and restarts no unit
 exception not-restarter:power-map-egress-ip.service 2027-05-13 uv-run audit or report; starts and restarts no unit

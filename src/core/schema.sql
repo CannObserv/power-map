@@ -4777,3 +4777,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_classification_suggestions_live_jev
 -- The latest answer per source: the panel's and the drainer's read.
 CREATE INDEX IF NOT EXISTS idx_classification_suggestions_entity
     ON classification_suggestions (entity_type, entity_id, field, source, created_at DESC);
+
+-- One row per classification drain that asked Jev or failed (#877 phase 2): the
+-- admin health card's source, written by the API's in-process drainer, the CLI
+-- and the daily timer alike. An idle drain (nothing to ask, or the flag off)
+-- writes nothing, so the table grows with Jev calls only and is never pruned.
+-- `error` is a JevError's message, which never carries the API key.
+CREATE TABLE IF NOT EXISTS classification_runs (
+    id           TEXT        PRIMARY KEY,
+    field        TEXT        NOT NULL,
+    origin       TEXT        NOT NULL,
+    status       TEXT        NOT NULL,
+    model        TEXT        NOT NULL,
+    asked        INTEGER     NOT NULL DEFAULT 0,
+    answered     INTEGER     NOT NULL DEFAULT 0,
+    failed       INTEGER     NOT NULL DEFAULT 0,
+    input_tokens INTEGER     NOT NULL DEFAULT 0,
+    error        TEXT,
+    started_at   TIMESTAMPTZ NOT NULL,
+    finished_at  TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    CONSTRAINT chk_classification_run_field CHECK (field IN ('org_kind', 'role_type')),
+    CONSTRAINT chk_classification_run_origin CHECK (
+        origin IN ('wake', 'tick', 'cli', 'timer', 'reask')),
+    CONSTRAINT chk_classification_run_status CHECK (status IN ('ok', 'partial', 'failed')),
+    CONSTRAINT chk_classification_run_counts CHECK (
+        asked >= 0 AND answered >= 0 AND failed >= 0 AND input_tokens >= 0
+        AND answered + failed <= asked)
+);
+
+-- The health card's reads: the last success, and failures over a window.
+CREATE INDEX IF NOT EXISTS idx_classification_runs_field_finished
+    ON classification_runs (field, finished_at DESC);

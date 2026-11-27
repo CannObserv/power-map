@@ -40,9 +40,10 @@ MONITOR_IDS_PENDING = False
 # Units whose monitor is requested but not yet provisioned: each carries an
 # empty id, so the hook skips, logged, and names its request. Empty since #665's
 # two disk monitors landed (CannObserv/status#48, 2026-10-16; both units retired
-# by #705); a new timer adds its name here until its id arrives.
-PENDING_MONITORS: frozenset[str] = frozenset()
-PENDING_REQUEST = "CannObserv/status#48"
+# by #705); a new timer adds its name here until its id arrives. #877's
+# classification timer waits on CannObserv/status#144.
+PENDING_MONITORS: frozenset[str] = frozenset({"power-map-classification"})
+PENDING_REQUEST = "CannObserv/status#144"
 
 
 def directives(path: Path) -> dict[str, list[tuple[str, str]]]:
@@ -74,15 +75,15 @@ def environment(path: Path) -> dict[str, str]:
     return env
 
 
-def test_there_are_twelve_timers_each_with_a_service():
+def test_there_are_thirteen_timers_each_with_a_service():
     """status#36 holds one monitor per timer; a new timer needs a new monitor.
 
     #740 retired the a11y timer, so its monitor (co-power-map-a11y) is offboarded too.
     #705 retired the two disk timers for the canonical disk GC: its sensor took
     over co-power-map-disk-headroom, and co-power-map-disk-prune is retired
-    (CannObserv/status#107).
+    (CannObserv/status#107). #877 added the classification timer (status#144).
     """
-    assert len(TIMERS) == 12
+    assert len(TIMERS) == 13
     assert all(s.exists() for s in SERVICES)
 
 

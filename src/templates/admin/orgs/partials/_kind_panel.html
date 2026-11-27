@@ -5,6 +5,9 @@
     {% if org.kind_slug %}
       <strong>{{ org.kind_name }}</strong>
       <span class="badge badge--active">Reviewed</span>
+      {% if accepted_from %}
+      <span style="color:var(--color-text-muted)">accepted from {{ accepted_from.label }}{% if accepted_from.confidence is not none %} · {{ "%.0f" | format(accepted_from.confidence * 100) }}%{% endif %}</span>
+      {% endif %}
     {% elif decision == "dismiss" %}
       <span class="badge badge--neutral">Dismissed</span>
       <span style="color:var(--color-text-muted)">no kind applies</span>
@@ -78,6 +81,16 @@
             hx-vals='{"action": "clear"}'
             hx-target="#kind-panel"
             hx-swap="outerHTML">Clear</button>
+    {% endif %}
+    {# A second opinion from Jev: never changes the kind. #}
+    <button type="button" class="btn btn--sm btn--secondary"
+            hx-post="/admin/orgs/{{ org.id }}/kind/reask/"
+            hx-target="#kind-panel"
+            hx-swap="outerHTML"
+            hx-disabled-elt="this"
+            {% if not jev_enabled %}disabled aria-describedby="kind-reask-why-{{ org.id }}"{% endif %}>Re-ask AI</button>
+    {% if not jev_enabled %}
+    <span id="kind-reask-why-{{ org.id }}" style="font-size:var(--font-size-sm);color:var(--color-text-muted)">AI suggestions are off (JEV_SUGGESTIONS_ENABLED).</span>
     {% endif %}
   </div>
   {% endif %}

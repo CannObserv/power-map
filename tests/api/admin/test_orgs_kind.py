@@ -13,8 +13,10 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
+from src.api.admin import orgs_kind
 from src.api.admin.deps import get_db
 from src.api.main import app
+from src.core import jev_client as jc
 from src.core.db import generate_id
 
 pytestmark = [pytest.mark.integration]
@@ -211,3 +213,129 @@ async def test_set_without_a_kind_warns_and_changes_nothing(client, db):
     )
     assert _flash(r)["level"] == "warning"
     assert await _kind(db, org) is None
+
+
+# --- phase 2: Jev answers, provenance, Re-ask ------------------------------
+
+
+async def _jev(db, org_id: str, value: str, confidence: float) -> None:
+    await db.execute(
+        "INSERT INTO classification_suggestions"
+        " (id, entity_type, entity_id, field, source, value, confidence, model, input_tokens)"
+        " VALUES ($1, 'organization', $2, 'org_kind', 'jev', $3, $4, 'jev-1.14.0', 700)",
+        generate_id(),
+        org_id,
+        value,
+        confidence,
+    )
+
+
+@pytest.fixture
+def jev_on(monkeypatch):
+    monkeypatch.setenv("JEV_SUGGESTIONS_ENABLED", "1")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "sk-test")
+    monkeypatch.delenv("JEV_MODEL", raising=False)
+
+
+@pytest.fixture
+def jev_off(monkeypatch):
+    monkeypatch.setenv("JEV_SUGGESTIONS_ENABLED", "0")
+
+
+def _fake_reask(monkeypatch, result):
+    calls = []
+
+    async def ask(org, crit, **kw):
+        calls.append(org)
+        if isinstance(result, Exception):
+            raise result
+        return jc.JevAnswer(result, 0.83, {result: 0.83}, kw["model"], 650)
+
+    monkeypatch.setattr(orgs_kind, "_reask_ask", ask)
+    return calls
+
+
+async def test_panel_shows_the_ai_answer_with_its_confidence(client, db, jev_off):
+    org = await _org(db)
+    await _jev(db, org, "coalition", 0.91)
+    r = await client.get(f"/admin/orgs/{org}/kind/", headers=HTMX)
+    assert "AI" in r.text
+    assert "91%" in r.text
+    assert "Accept Coalition" in r.text
+
+
+async def test_an_accepted_ai_answer_says_so(client, db, jev_off):
+    org = await _org(db)
+    await _jev(db, org, "coalition", 0.91)
+    r = await client.post(
+        f"/admin/orgs/{org}/kind/",
+        data={"action": "accept", "kind": "coalition", "source": "jev"},
+        headers=HTMX,
+    )
+    assert "Reviewed" in r.text
+    assert "accepted from AI" in r.text
+
+
+async def test_reask_is_disabled_with_its_reason_when_the_flag_is_off(client, db, jev_off):
+    org = await _org(db)
+    r = await client.get(f"/admin/orgs/{org}/kind/", headers=HTMX)
+    assert "Re-ask AI" in r.text
+    assert "disabled" in r.text
+    assert "AI suggestions are off" in r.text
+
+
+async def test_reask_with_the_flag_off_warns_and_asks_nothing(client, db, jev_off, monkeypatch):
+    org = await _org(db)
+    calls = _fake_reask(monkeypatch, "business")
+    r = await client.post(f"/admin/orgs/{org}/kind/reask/", headers=HTMX)
+    assert r.status_code == 200
+    assert _flash(r)["level"] == "warning"
+    assert calls == []
+
+
+async def test_reask_stores_a_new_answer_and_never_sets_the_kind(client, db, jev_on, monkeypatch):
+    org = await _org(db)
+    await _jev(db, org, "business", 0.6)
+    calls = _fake_reask(monkeypatch, "association")
+    r = await client.post(f"/admin/orgs/{org}/kind/reask/", headers=HTMX)
+    assert r.status_code == 200
+    assert len(calls) == 1
+    assert _flash(r)["level"] == "success"
+    assert "Association" in _flash(r)["body"]
+    assert "83%" in r.text
+    assert await _kind(db, org) is None
+    live = await db.fetch(
+        "SELECT value FROM classification_suggestions"
+        " WHERE entity_id=$1 AND source='jev' AND ignored_at IS NULL",
+        org,
+    )
+    assert [x["value"] for x in live] == ["association"]
+
+
+async def test_reask_failure_warns_with_the_escaped_error(client, db, jev_on, monkeypatch):
+    org = await _org(db)
+    _fake_reask(monkeypatch, jc.JevError("Jev: HTTP 400: <bad>", status=400))
+    r = await client.post(f"/admin/orgs/{org}/kind/reask/", headers=HTMX)
+    assert _flash(r)["level"] == "warning"
+    assert "&lt;bad&gt;" in _flash(r)["body"]
+
+
+async def test_reask_on_an_archived_org_warns(client, db, jev_on, monkeypatch):
+    org = await _org(db, archived=True)
+    calls = _fake_reask(monkeypatch, "business")
+    r = await client.post(f"/admin/orgs/{org}/kind/reask/", headers=HTMX)
+    assert _flash(r)["level"] == "warning"
+    assert calls == []
+
+
+async def test_reask_non_htmx_redirects_with_flash(client, db, jev_on, monkeypatch):
+    org = await _org(db)
+    _fake_reask(monkeypatch, "business")
+    r = await client.post(f"/admin/orgs/{org}/kind/reask/", headers=AUTH)
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/admin/orgs/{org}/?flash=saved"
+
+
+async def test_reask_unknown_org_is_404(client, jev_on):
+    r = await client.post("/admin/orgs/nope/kind/reask/", headers=HTMX)
+    assert r.status_code == 404

@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from scripts import status_checkin
+from scripts.classify_suggestions import BUSY_RETRIES, BUSY_WAIT, JEV_ATTEMPTS, JEV_TIMEOUT
 from scripts.pull_datasets import REQUEST_TIMEOUT
 from src.core.retry import CONNECT_TIMEOUT, DELAYS
 from tests.test_infra_alerting import INFRA, SERVICES, TIMERS, values
@@ -76,6 +77,15 @@ RETRY_POLICY: dict[str, str | InProcess] = {
     "power-map-seat-occupancy": _db("scripts.audit_seat_occupancy"),
     "power-map-schema-parity": _db("scripts.audit_schema_constraint_parity", calls=2),
     "power-map-datasets-pull": InProcess(("scripts.pull_datasets",), REQUEST_TIMEOUT, normal=30),
+    # #877: the DB connect and every Jev request share one budget. A Jev attempt
+    # is bounded by the script (JEV_TIMEOUT x JEV_ATTEMPTS + its 429 sleeps);
+    # normal is 200 orgs, 4 in flight, a few seconds each, plus the wait for a
+    # drain already running (BUSY_RETRIES x BUSY_WAIT).
+    "power-map-classification": InProcess(
+        ("scripts.classify_suggestions",),
+        JEV_TIMEOUT * JEV_ATTEMPTS + sum(2**i for i in range(JEV_ATTEMPTS - 1)),
+        normal=300 + BUSY_RETRIES * BUSY_WAIT,
+    ),
     "power-map-desired-state": InProcess(
         ("scripts.export_pm_tables", "scripts.apply_desired_state"), CONNECT_TIMEOUT, normal=60
     ),
