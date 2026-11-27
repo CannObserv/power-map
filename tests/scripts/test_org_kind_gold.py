@@ -222,3 +222,24 @@ def test_kinds_are_the_seeded_org_kinds_plus_none():
     seeded = {k for k in g.KINDS - {"none"} if f"'{k}'" in block}
     assert seeded == g.KINDS - {"none"}
     assert block.count("'01KZ") == len(g.KINDS) - 1
+
+
+def _seeded_descriptions():
+    schema = (REPO / "src" / "core" / "schema.sql").read_text()
+    block = schema[schema.index("INSERT INTO _seed_org_kinds") :]
+    block = block[: block.index(";")].replace("''", "'")
+    out = {}
+    for kind in g.KINDS - {"none"}:
+        tail = block[block.index(f"'{kind}'") :]
+        out[kind] = tail.split("\n", 2)[1].strip().strip(",)")
+    return out
+
+
+def test_the_definitions_carry_the_operators_class_rulings():
+    """2026-11-27 rulings, so Jev is asked what the gold set scores (#877)."""
+    d = _seeded_descriptions()
+    assert "governments" in d["association"]  # ruling 1: members are governments
+    assert "task force" in d["legislature"]  # ruling 2: a legislature's task force
+    assert "legislative task force" in d["government"]  # ...named as the exception
+    assert "federation of unions" in d["labor_union"]  # ruling 3
+    assert "city or county council" in d["government"]  # Longview stays government
