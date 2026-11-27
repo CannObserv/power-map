@@ -70,7 +70,22 @@ def test_report_lines_name_orgs_only_in_the_skim():
     text = "\n".join(acs.report_lines(report, execute=False))
     assert "Acme Farms" in text and "gold: business" in text
     assert "01BBB" not in text
-    assert "dry run" in text
+    assert "dry run (org_kind)" in text
+
+
+@pytest.mark.integration
+async def test_a_field_without_a_bulk_accept_is_refused(db):
+    """CR 6: --field reaches the run, and only org_kind has a bulk accept yet (#303 adds one)."""
+    with pytest.raises(acs.UsageError, match="no bulk accept for 'role_type'"):
+        await acs.accept(
+            db,
+            field_name="role_type",
+            operator="x@test.com",
+            execute=False,
+            allow_unanswered=True,
+            threshold=0.7,
+            gold={},
+        )
 
 
 def test_a_run_quiets_the_per_decision_log_lines():

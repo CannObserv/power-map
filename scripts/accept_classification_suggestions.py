@@ -73,6 +73,7 @@ class Report:
 
     items: list[cls.BulkItem]
     unanswered: int
+    field_name: str = "org_kind"
     skim: list[SkimRow] = field(default_factory=list)
     result: cls.BulkResult | None = None
 
@@ -118,6 +119,7 @@ async def _skim_rows(
 async def accept(
     db: asyncpg.Connection,
     *,
+    field_name: str = "org_kind",
     operator: str,
     execute: bool,
     allow_unanswered: bool,
@@ -125,12 +127,15 @@ async def accept(
     gold: dict[str, str],
 ) -> Report:
     """Plan the bulk accept and, with *execute*, run it as *operator*."""
+    if field_name not in FIELDS:
+        raise UsageError(f"no bulk accept for {field_name!r} yet (only {', '.join(FIELDS)})")
     user_id = await _operator_id(db, operator)
     items = await cls.plan_bulk_accept(db, threshold=threshold)
     unanswered = await cls.jev_backlog_count(db, jc.get_model())
     report = Report(
         items=items,
         unanswered=unanswered,
+        field_name=field_name,
         skim=await _skim_rows(db, skim_items(items), gold),
     )
     if not execute:
@@ -152,7 +157,8 @@ def report_lines(report: Report, *, execute: bool) -> list[str]:
     """The operator's summary. Only the skim list names orgs."""
     to_accept, queue = summarize(report.items)
     lines = [
-        f"{'EXECUTE' if execute else 'dry run'}: {len(report.items)} untouched orgs with no kind;"
+        f"{'EXECUTE' if execute else 'dry run'} ({report.field_name}):"
+        f" {len(report.items)} untouched orgs with no kind;"
         f" Jev backlog still unanswered: {report.unanswered}",
         f"accept ({to_accept.total()}):",
         *(f"  {src:<5} {kind:<20} {n}" for (src, kind), n in sorted(to_accept.items())),
@@ -178,7 +184,9 @@ def quiet_decision_logs() -> None:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
-async def run(dsn: str, *, operator: str, execute: bool, allow_unanswered: bool) -> int:
+async def run(
+    dsn: str, *, field_name: str, operator: str, execute: bool, allow_unanswered: bool
+) -> int:
     """Connect, plan (and run), print the summary; exit 2 on a refused run."""
     quiet_decision_logs()
     gold = dict(read_gold(GOLD_PATH))
@@ -186,6 +194,7 @@ async def run(dsn: str, *, operator: str, execute: bool, allow_unanswered: bool)
     try:
         report = await accept(
             conn,
+            field_name=field_name,
             operator=operator,
             execute=execute,
             allow_unanswered=allow_unanswered,
@@ -226,6 +235,7 @@ def main() -> None:
         asyncio.run(
             run(
                 dsn,
+                field_name=args.field,
                 operator=args.operator,
                 execute=args.execute,
                 allow_unanswered=args.allow_unanswered,
