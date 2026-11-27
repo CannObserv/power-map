@@ -27,7 +27,12 @@ private worksheets (`data/gold-877/`, git-ignored), because the repo is public.
    - a legislative task force or work group is a `legislature`;
    - a federation of unions is a `labor_union`. A council of police guilds
      was ruled an `association`, row by row;
-   - city and county councils stay `government`, as the definition says.
+   - city and county councils stay `government`, as the definition says;
+   - an organization that exists for another purpose and also registers as
+     a political committee takes the kind of that purpose. With this ruling
+     the rule `org_wa_pdc_committee` → `campaign_committee` was retired
+     (rules-2), after the gold set found a trade association that holds a
+     PDC committee filer ID.
 5. **Finalize** (`finalize`). Each worksheet label is kept unless the review
    names another kind.
 

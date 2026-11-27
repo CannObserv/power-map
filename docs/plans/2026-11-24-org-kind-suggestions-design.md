@@ -89,7 +89,7 @@ I labeled them against the draft list of kinds below (the structural strata labe
 | `government` | any government entity other than a legislature: an executive department, agency, office, regulator, public utility, prosecutor or military unit, and an appointed or elected board, commission, council, task force or advisory committee, including a city or county council and its committees (a legislative task force is a legislature) |
 | `legislature` | a state or national legislature, its chambers, committees, caucuses, task forces and work groups |
 | `political_party` | a party or its state, county or district organization |
-| `campaign_committee` | a PAC, or a candidate or ballot-measure committee |
+| `campaign_committee` | a PAC, or a candidate or ballot-measure committee; an org that exists for another purpose and also registers as a political committee takes that purpose's kind |
 | `tribe` | a tribal nation, band or government, or a tribal agency |
 | `academic` | a university, college, school, or academic research center or lab |
 
@@ -137,10 +137,10 @@ One append-only table for every classified field, organizations first and roles 
 - **`rules` (inline, free).** Derived from identifiers:
   - `org_wa_legislature*` → `legislature`
   - `org_wa_party` → `political_party`
-  - `org_wa_pdc_committee` → `campaign_committee`
+  - ~~`org_wa_pdc_committee` → `campaign_committee`~~ (retired 2026-11-27, rules-2: the gold set found a trade association registered as a PDC committee)
   - `org_wslcb` → `business`
 
-  `org_ubi` and `org_wa_pdc` say nothing. A UBI is held by nonprofits too, and PDC lists lobbyist employers of every kind.
+  `org_ubi`, `org_wa_pdc` and `org_wa_pdc_committee` say nothing. A UBI is held by nonprofits too, PDC lists lobbyist employers of every kind, and organizations that exist for another purpose also register as campaign-finance committees.
 
   **Where rules run:** in the drainer and the CLI (D8), never on the identifier write paths (admin, the public API, observations, the applier, the importer, merges). Those paths stay untouched. Each drain recomputes rules for every active org in one query and inserts a row only when the answer differs from the latest `rules` row. So an identifier change shows up within one tick.
 - **`jev` (asynchronous).** One Choice question over D1's slugs.

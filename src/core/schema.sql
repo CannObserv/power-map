@@ -4667,7 +4667,7 @@ INSERT INTO _seed_org_kinds (id, slug, display_name, description) VALUES
     ('01KZ0000000000000000000008', 'political_party',    'Political Party',
      'A political party or one of its state, county or district organizations'),
     ('01KZ0000000000000000000009', 'campaign_committee', 'Campaign Committee',
-     'A political action committee (PAC) or a candidate or ballot-measure campaign committee'),
+     'A political action committee (PAC) or a candidate or ballot-measure campaign committee. An organization that exists for another purpose and also registers as a political committee takes the kind of that other purpose'),
     ('01KZ000000000000000000000A', 'tribe',              'Tribe',
      'A Native American tribe, band or nation, or its tribal government or a tribal agency'),
     ('01KZ000000000000000000000B', 'academic',           'Academic',
@@ -4698,20 +4698,31 @@ ALTER TABLE organizations
 -- rule table is this column. UBI and PDC registrations are held by every kind
 -- of org, so they imply nothing. A change here is a new rules version
 -- (classification.RULES_VERSION) when it changes an existing answer.
+-- rules-2 (2026-11-27) retired org_wa_pdc_committee -> campaign_committee: a PDC
+-- campaign-finance committee filer is not always a campaign committee (a trade
+-- association can register as one). A type absent from this list is cleared.
 ALTER TABLE entity_identifier_types
     ADD COLUMN IF NOT EXISTS implies_org_kind_id TEXT REFERENCES org_kinds(id);
 
-UPDATE entity_identifier_types t SET implies_org_kind_id = k.id
-FROM (VALUES
+DROP TABLE IF EXISTS pg_temp._org_kind_rules;
+CREATE TEMP TABLE _org_kind_rules (type_slug TEXT PRIMARY KEY, kind_slug TEXT NOT NULL);
+INSERT INTO _org_kind_rules (type_slug, kind_slug) VALUES
     ('org_wa_legislature',              'legislature'),
     ('org_wa_legislature_chamber',      'legislature'),
     ('org_wa_legislature_committee_id', 'legislature'),
     ('org_wa_party',                    'political_party'),
-    ('org_wa_pdc_committee',            'campaign_committee'),
-    ('org_wslcb',                       'business')
-) AS r(type_slug, kind_slug)
+    ('org_wslcb',                       'business');
+
+UPDATE entity_identifier_types t SET implies_org_kind_id = NULL
+WHERE t.implies_org_kind_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM _org_kind_rules r WHERE r.type_slug = t.slug);
+
+UPDATE entity_identifier_types t SET implies_org_kind_id = k.id
+FROM _org_kind_rules r
 JOIN org_kinds k ON k.slug = r.kind_slug
 WHERE t.slug = r.type_slug AND t.implies_org_kind_id IS DISTINCT FROM k.id;
+
+DROP TABLE pg_temp._org_kind_rules;
 
 -- Every source's answer for a classified field, append-only (#877 D3; shared with
 -- #303's role-type suggestions). Polymorphic with no FK on entity_id, like links:

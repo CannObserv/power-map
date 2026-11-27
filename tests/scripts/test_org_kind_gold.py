@@ -245,6 +245,8 @@ def test_the_definitions_carry_the_operators_class_rulings():
     assert "legislative task force" in d["government"]  # ...named as the exception
     assert "federation of unions" in d["labor_union"]  # ruling 3
     assert "city or county council" in d["government"]  # Longview stays government
+    # an org that exists for another purpose and also files as a committee
+    assert "another purpose" in d["campaign_committee"]
 
 
 # --- finalize: the committed gold set ----------------------------------------
