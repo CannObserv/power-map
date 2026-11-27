@@ -181,6 +181,24 @@ async def test_accept_takes_a_sources_current_answer(db):
 
 
 @pytest.mark.integration
+async def test_accept_records_which_source_it_took(db):
+    """accepted_source, not the note, says where an accepted kind came from (#877 phase 3)."""
+    accepted, chosen = await _org(db), await _org(db)
+    await _suggest(db, accepted, "jev", "coalition", confidence=0.9)
+    await cls.record_decision(
+        db, org_id=accepted, action="accept", kind="coalition", source="jev", note="checked"
+    )
+    await cls.record_decision(db, org_id=chosen, action="set", kind="coalition")
+    rows = await db.fetch(
+        "SELECT entity_id, accepted_source, note FROM classification_suggestions"
+        " WHERE source = 'manual' AND entity_id = ANY($1::text[])",
+        [accepted, chosen],
+    )
+    got = {r["entity_id"]: (r["accepted_source"], r["note"]) for r in rows}
+    assert got == {accepted: ("jev", "checked"), chosen: (None, None)}
+
+
+@pytest.mark.integration
 async def test_accept_refuses_a_kind_the_source_did_not_answer(db):
     org = await _org(db)
     await _suggest(db, org, "rules", "legislature")

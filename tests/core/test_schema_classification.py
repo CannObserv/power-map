@@ -7,6 +7,9 @@ append-only store every source's answer goes into — rules, Jev and manual —
 shared with #303's role-type suggestions.
 """
 
+import re
+from pathlib import Path
+
 import asyncpg
 import pytest
 import pytest_asyncio
@@ -118,6 +121,11 @@ async def test_organization_kind_references_org_kinds(db):
         {"manual_action": "accept"},
         {"source": "manual", "model": None},
         {"source": "manual", "model": None, "manual_action": "approve"},
+        # accepted_source (#877 phase 3): exactly on an accept, rules or jev only.
+        {"source": "manual", "model": None, "manual_action": "accept"},
+        {"source": "manual", "model": None, "manual_action": "accept", "accepted_source": "x"},
+        {"source": "manual", "model": None, "manual_action": "set", "accepted_source": "rules"},
+        {"accepted_source": "rules"},
     ],
 )
 async def test_suggestion_checks_reject_bad_rows(db, cols):
@@ -128,7 +136,10 @@ async def test_suggestion_checks_reject_bad_rows(db, cols):
 @pytest.mark.parametrize("action", ["accept", "set", "dismiss", "clear"])
 async def test_manual_row_takes_each_action(db, action):
     value = None if action in ("dismiss", "clear") else "business"
-    sid = await _suggest(db, source="manual", model=None, manual_action=action, value=value)
+    accepted = "rules" if action == "accept" else None
+    sid = await _suggest(
+        db, source="manual", model=None, manual_action=action, value=value, accepted_source=accepted
+    )
     assert (
         await db.fetchval("SELECT manual_action FROM classification_suggestions WHERE id=$1", sid)
         == action
@@ -171,6 +182,37 @@ async def test_created_at_is_per_statement_clock(db):
         " WHERE table_name='classification_suggestions' AND column_name='created_at'"
     )
     assert default == "clock_timestamp()"
+
+
+def _backfill_sql() -> str:
+    """schema.sql's accepted_source backfill, verbatim."""
+    text = Path("src/core/schema.sql").read_text()
+    m = re.search(
+        r"UPDATE classification_suggestions\s+SET accepted_source = .*?;", text, re.DOTALL
+    )
+    assert m, "the accepted_source backfill is gone from schema.sql"
+    return m.group(0)
+
+
+async def test_accepted_source_backfill_reads_the_accept_note(db):
+    """CR 3: a backfill that missed would leave the CHECK unadded, with only a deploy WARNING."""
+    await db.execute(
+        "ALTER TABLE classification_suggestions DROP CONSTRAINT chk_suggestion_accepted_source"
+    )
+    manual = {"source": "manual", "model": None, "manual_action": "accept"}
+    by_rules = await _suggest(db, **manual, note="accepted rules")
+    by_jev = await _suggest(db, **manual, note="accepted jev")
+    other = await _suggest(db, **manual, note="accepted rules, then checked")
+    await db.execute(_backfill_sql())
+    rows = await db.fetch(
+        "SELECT id, accepted_source FROM classification_suggestions WHERE id = ANY($1::text[])",
+        [by_rules, by_jev, other],
+    )
+    assert {r["id"]: r["accepted_source"] for r in rows} == {
+        by_rules: "rules",
+        by_jev: "jev",
+        other: None,
+    }
 
 
 # --- classification_runs (#877 phase 2) ----------------------------------

@@ -16,6 +16,7 @@ from httpx import ASGITransport, AsyncClient
 from src.api.admin import orgs_kind
 from src.api.admin.deps import get_db
 from src.api.main import app
+from src.core import classification as cls
 from src.core import jev_client as jc
 from src.core.db import generate_id
 
@@ -273,6 +274,16 @@ async def test_an_accepted_ai_answer_says_so(client, db, jev_off):
         headers=HTMX,
     )
     assert "Reviewed" in r.text
+    assert "accepted from AI" in r.text
+
+
+async def test_provenance_comes_from_the_accepted_source_not_the_note(client, db, jev_off):
+    org = await _org(db)
+    await _jev(db, org, "coalition", 0.91)
+    await cls.record_decision(
+        db, org_id=org, action="accept", kind="coalition", source="jev", note="bulk accept"
+    )
+    r = await client.get(f"/admin/orgs/{org}/kind/", headers=HTMX)
     assert "accepted from AI" in r.text
 
 

@@ -347,7 +347,7 @@ unsupported` run re-asks the same rows until the validator covers their country.
 
 ## Org-kind suggestions (#877)
 
-`scripts/classify_suggestions.py` records suggestions; it never sets a kind (the admin Kind panel does).
+`scripts/classify_suggestions.py` records suggestions; it never sets a kind (the admin Kind panel and bulk accept do).
 - `--source rules`: an org's identifier-implied kind (`entity_identifier_types.implies_org_kind_id`), written only when it changed. Run after a deploy that changes the rule seed, and after bulk identifier changes.
 - `--source all`: the drain. Rules, then TypeSafe Jev for the active orgs with no answer from the pinned model, at most `--limit` (default `JEV_MAX_PER_RUN`). The dry run prints the backlog and an estimate of input tokens. `--reask-ids FILE` asks again about those org ids, skipping any an operator decided. Changing `JEV_MODEL` needs no flag: the new model has its own backlog.
 
@@ -356,6 +356,13 @@ uv run "${env_args[@]}" python -m scripts.classify_suggestions --source rules   
 uv run "${env_args[@]}" python -m scripts.classify_suggestions --source rules --execute  # write (supervised)
 uv run "${env_args[@]}" python -m scripts.classify_suggestions --source all              # backlog, est. tokens
 uv run "${env_args[@]}" python -m scripts.classify_suggestions --source all --execute    # drain (supervised)
+```
+
+**Bulk accept** (`scripts/accept_classification_suggestions.py`, phase 3, design D7) sets kinds, as `--operator`, through `record_decision`. It leaves alone any org with a manual row (a Clear included). It accepts a rules kind unless Jev answers otherwise (decision C), and a Jev kind at or above the threshold on a kind in `classification.TRUSTED_JEV_KINDS` for its model. Everything else waits for review, counted by reason. The dry run prints names only in the skim list (rules acceptances outside `legislature`, with gold labels): post aggregates. `--execute` refuses while Jev's backlog is nonzero unless `--allow-unanswered`, and while a drain holds the lock (it plans and accepts under it).
+
+```bash
+uv run "${env_args[@]}" python -m scripts.accept_classification_suggestions --field org_kind --operator EMAIL            # dry run
+uv run "${env_args[@]}" python -m scripts.accept_classification_suggestions --field org_kind --operator EMAIL --execute  # supervised
 ```
 
 **Configuration** (`/etc/power-map/.env`, read at call time; the service needs a restart to see a change): `JEV_SUGGESTIONS_ENABLED` (1/true/yes to call Jev; off by default), `TYPESAFE_API_KEY`, `JEV_MODEL` (default `jev-1.14.0`), `JEV_CONFIDENCE_THRESHOLD` (0.7), `JEV_MAX_PER_RUN` (2000). One org per request, so production asks exactly the question the gold set scores (`src/core/org_kind_question.py`; changing its text or a kind's `description` means re-scoring).

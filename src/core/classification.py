@@ -21,10 +21,11 @@ Design: ``docs/plans/2026-11-24-org-kind-suggestions-design.md``.
 
 import asyncio
 import json
+from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, get_args
 
 import asyncpg
 import httpx
@@ -71,11 +72,20 @@ def rules_kind(implied: Iterable[tuple[str, str]]) -> tuple[str | None, str | No
 
 _LATEST_SQL = """
 SELECT DISTINCT ON (source)
-       source, value, manual_action, confidence, model, note, created_by, created_at
+       source, value, manual_action, accepted_source, confidence, model, note, created_by,
+       created_at
 FROM classification_suggestions
 WHERE entity_type = 'organization' AND entity_id = $1 AND field = 'org_kind'
   AND ignored_at IS NULL
 ORDER BY source, created_at DESC, id DESC
+"""
+
+
+_TOUCHED_SQL = """
+SELECT EXISTS (
+    SELECT 1 FROM classification_suggestions
+    WHERE entity_type = 'organization' AND entity_id = $1 AND field = 'org_kind'
+      AND source = 'manual')
 """
 
 
@@ -103,16 +113,23 @@ async def record_decision(
     source: str | None = None,
     user_id: str | None = None,
     note: str | None = None,
+    untouched_only: bool = False,
 ) -> None:
     """Record an operator decision on an org's kind, atomically.
 
-    - ``set``: any kind. ``accept``: the kind ``source`` currently answers.
-      Both write a ``manual`` row and set ``org_kind_id``.
+    - ``set``: any kind. ``accept``: the kind ``source`` currently answers,
+      recorded as the row's ``accepted_source``. Both write a ``manual`` row
+      and set ``org_kind_id``.
     - ``dismiss``: decided, with no kind. ``clear``: back to undecided.
       Both clear ``org_kind_id``.
 
+    With *untouched_only* (bulk accept), an org with any ``manual`` row is
+    refused: the check runs under the org's row lock, so an operator's
+    decision made after the run was planned still wins.
+
     Raises :class:`DecisionError` for an unknown or archived org, an unknown
-    kind, or an ``accept`` whose source no longer answers that kind.
+    kind, an ``accept`` whose source no longer answers that kind, or (with
+    *untouched_only*) an org an operator has acted on.
     """
     if action not in ACTIONS:
         raise DecisionError(f"unknown action: {action!r}")
@@ -126,6 +143,8 @@ async def record_decision(
         )
         if locked is None:
             raise DecisionError(f"organization {org_id} not found or archived")
+        if untouched_only and await db.fetchval(_TOUCHED_SQL, org_id):
+            raise DecisionError("an operator has acted on it")
         kind_id = None
         if action in ("accept", "set"):
             kind_id = await db.fetchval("SELECT id FROM org_kinds WHERE slug=$1", kind)
@@ -138,12 +157,14 @@ async def record_decision(
             note = note or f"accepted {source}"
         await db.execute(
             "INSERT INTO classification_suggestions"
-            " (id, entity_type, entity_id, field, source, value, manual_action, note, created_by)"
-            " VALUES ($1, 'organization', $2, 'org_kind', 'manual', $3, $4, $5, $6)",
+            " (id, entity_type, entity_id, field, source, value, manual_action, accepted_source,"
+            "  note, created_by)"
+            " VALUES ($1, 'organization', $2, 'org_kind', 'manual', $3, $4, $5, $6, $7)",
             generate_id(),
             org_id,
             kind if action in ("accept", "set") else None,
             action,
+            source if action == "accept" else None,
             note,
             user_id,
         )
@@ -173,12 +194,14 @@ async def carry_kind_on_merge(db: asyncpg.Connection, *, loser_id: str, survivor
         # survivor's own would still read as latest. Restate the carried decision.
         await db.execute(
             "INSERT INTO classification_suggestions"
-            " (id, entity_type, entity_id, field, source, value, manual_action, note)"
-            " VALUES ($1, 'organization', $2, 'org_kind', 'manual', $3, $4, $5)",
+            " (id, entity_type, entity_id, field, source, value, manual_action, accepted_source,"
+            "  note)"
+            " VALUES ($1, 'organization', $2, 'org_kind', 'manual', $3, $4, $5, $6)",
             generate_id(),
             survivor_id,
             loser_decision["value"],
             loser_decision["manual_action"],
+            loser_decision["accepted_source"],
             f"carried from merged {loser_id}",
         )
         await db.execute(
@@ -261,6 +284,186 @@ async def apply_rules(db: asyncpg.Connection, changes: Iterable[RulesChange]) ->
             rows,
         )
     return len(rows)
+
+
+# --- bulk accept (phase 3) ------------------------------------------------
+
+# The Jev kinds bulk accept trusts, per answering model: the kinds that cleared
+# the gold set's bar (>= 90 % precision on >= 20 answers at the threshold, design
+# D6), approved by the operator 2026-11-27 (#877). A model not listed is trusted
+# for nothing, so a model change means a re-score before any of its answers is
+# bulk-accepted.
+TRUSTED_JEV_KINDS: dict[str, frozenset[str]] = {
+    "jev-1.14.0": frozenset({"association", "business", "government", "legislature"}),
+}
+
+QueueReason = Literal["disagree", "conflict", "low", "untrusted", "none", "unanswered"]
+# In the order the bulk-accept report lists them.
+QUEUE_REASONS: tuple[QueueReason, ...] = get_args(QueueReason)
+
+
+@dataclass(frozen=True)
+class JevView:
+    """An org's live Jev answer, as bulk accept weighs it."""
+
+    value: str
+    confidence: float | None
+    model: str
+
+
+def bulk_outcome(
+    rules: tuple[str, str | None] | None, jev: JevView | None, *, threshold: float
+) -> tuple[str, str | None]:
+    """What bulk accept does with an org's live answers (design D7, amended).
+
+    *rules* is the latest rules ``(value, note)``, *jev* the live Jev answer.
+    Returns ``("rules" | "jev", kind)`` to accept, or ``(reason, None)`` to
+    leave the org for the review queue:
+
+    - a rules kind is accepted by definition (decision C) unless Jev answers
+      anything else (``disagree``), at any confidence;
+    - rules found conflicting identifiers: ``conflict``;
+    - with no rules kind, a Jev kind is accepted at or above *threshold* on a
+      kind trusted for its model; otherwise ``low``, ``untrusted``, ``none``,
+      or ``unanswered``.
+    """
+    rules_value, rules_note = rules or (None, None)
+    if rules_value == "none" and (rules_note or "").startswith("conflict"):
+        return "conflict", None
+    if rules_value and rules_value != "none":
+        if jev is None or jev.value == rules_value:
+            return "rules", rules_value
+        return "disagree", None
+    if jev is None:
+        return "unanswered", None
+    if jev.value == "none":
+        return "none", None
+    if jev.confidence is None or jev.confidence < threshold:
+        return "low", None
+    if jev.value not in TRUSTED_JEV_KINDS.get(jev.model, frozenset()):
+        return "untrusted", None
+    return "jev", jev.value
+
+
+@dataclass(frozen=True)
+class BulkItem:
+    """One org's bulk-accept outcome: a ``source`` and ``kind`` to accept, or a ``reason``."""
+
+    org_id: str
+    rules: str | None
+    jev: str | None
+    confidence: float | None
+    source: Literal["rules", "jev"] | None
+    kind: str | None
+    # The accepted answer's model: the rules version or the Jev model.
+    model: str | None
+    reason: QueueReason | None
+
+
+# Active orgs with no kind and no manual row at all, with their live answers.
+_BULK_INPUT_SQL = """
+WITH live AS (
+    SELECT DISTINCT ON (entity_id, source) entity_id, source, value, note, confidence, model
+    FROM classification_suggestions
+    WHERE entity_type = 'organization' AND field = 'org_kind'
+      AND source IN ('rules', 'jev') AND ignored_at IS NULL
+    ORDER BY entity_id, source, created_at DESC, id DESC)
+SELECT o.id AS org_id,
+       r.value AS rules_value, r.note AS rules_note, r.model AS rules_model,
+       j.value AS jev_value, j.confidence AS jev_confidence, j.model AS jev_model
+FROM organizations o
+LEFT JOIN live r ON r.entity_id = o.id AND r.source = 'rules'
+LEFT JOIN live j ON j.entity_id = o.id AND j.source = 'jev'
+WHERE o.archived_at IS NULL AND o.org_kind_id IS NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM classification_suggestions m
+      WHERE m.entity_type = 'organization' AND m.entity_id = o.id
+        AND m.field = 'org_kind' AND m.source = 'manual')
+ORDER BY o.id
+"""
+
+
+async def plan_bulk_accept(db: asyncpg.Connection, *, threshold: float) -> list[BulkItem]:
+    """Every active, untouched org with no kind, and what bulk accept would do with it."""
+    items = []
+    for r in await db.fetch(_BULK_INPUT_SQL):
+        rules = (r["rules_value"], r["rules_note"]) if r["rules_value"] else None
+        jev = (
+            JevView(r["jev_value"], r["jev_confidence"], r["jev_model"]) if r["jev_value"] else None
+        )
+        outcome, kind = bulk_outcome(rules, jev, threshold=threshold)
+        accepted = outcome in ("rules", "jev")
+        items.append(
+            BulkItem(
+                org_id=r["org_id"],
+                rules=r["rules_value"],
+                jev=r["jev_value"],
+                confidence=r["jev_confidence"],
+                source=outcome if accepted else None,
+                kind=kind,
+                model=(r["rules_model"] if outcome == "rules" else r["jev_model"])
+                if accepted
+                else None,
+                reason=None if accepted else outcome,
+            )
+        )
+    return items
+
+
+@dataclass
+class BulkResult:
+    """What a bulk-accept run wrote: acceptances by ``(source, kind)``, and orgs it skipped."""
+
+    accepted: Counter = field(default_factory=Counter)
+    skipped: list[tuple[str, str]] = field(default_factory=list)
+
+
+async def apply_bulk_accept(
+    db: asyncpg.Connection, items: Iterable[BulkItem], *, user_id: str
+) -> BulkResult:
+    """Accept each planned item through :func:`record_decision`, one transaction per org.
+
+    Queued items are passed over. An org an operator reached after the plan, or
+    whose answer changed since, is skipped with the reason and left as it is.
+    """
+    result = BulkResult()
+    for item in items:
+        if item.source is None:
+            continue
+        try:
+            await record_decision(
+                db,
+                org_id=item.org_id,
+                action="accept",
+                kind=item.kind,
+                source=item.source,
+                user_id=user_id,
+                note=f"bulk accept {item.model}",
+                untouched_only=True,
+            )
+        except DecisionError as e:
+            result.skipped.append((item.org_id, str(e)))
+        else:
+            result.accepted[(item.source, item.kind)] += 1
+    return result
+
+
+async def run_bulk_accept(
+    db: asyncpg.Connection, *, threshold: float, user_id: str
+) -> tuple[list[BulkItem], BulkResult] | None:
+    """Plan and apply a bulk accept under ``DRAIN_LOCK_KEY``; None when a drain holds it.
+
+    The lock keeps the drain's rules and Jev writes out from between the plan
+    and the acceptances, so an answer that would make a disagreement can't
+    arrive after the plan and be overruled by it.
+    """
+    if not await db.fetchval("SELECT pg_try_advisory_lock($1)", DRAIN_LOCK_KEY):
+        return None
+    try:
+        items = await plan_bulk_accept(db, threshold=threshold)
+        return items, await apply_bulk_accept(db, items, user_id=user_id)
+    finally:
+        await db.execute("SELECT pg_advisory_unlock($1)", DRAIN_LOCK_KEY)
 
 
 # --- the drain: rules, then Jev (phase 2) ---------------------------------

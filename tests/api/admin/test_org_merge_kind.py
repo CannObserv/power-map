@@ -88,3 +88,14 @@ async def test_decided_survivor_keeps_its_own_decision(db):
     assert await _kind(db, winner) == "nonprofit"
     assert [(r["source"], r["value"]) for r in await _rows(db, winner)] == [("manual", "nonprofit")]
     assert await _rows(db, loser) == []
+
+
+async def test_a_carried_accept_keeps_its_source(db):
+    winner, loser = await _org(db), await _org(db)
+    await _rules(db, loser, "business")
+    await cls.record_decision(db, org_id=loser, action="accept", kind="business", source="rules")
+
+    await orgs_merge._execute_merge(db, winner, loser)
+
+    latest = (await cls.latest_answers(db, winner))["manual"]
+    assert (latest["manual_action"], latest["accepted_source"]) == ("accept", "rules")
