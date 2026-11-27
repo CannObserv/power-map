@@ -93,13 +93,18 @@ async def test_stop_ends_the_task_and_wake_goes_quiet():
 
 
 def test_every_src_org_insert_wakes_the_drainer():
-    """Each in-process path that creates an org calls wake(); scripts are out of process."""
-    creators = [
-        p for p in (ROOT / "src").rglob("*.py") if "INSERT INTO organizations" in p.read_text()
-    ]
-    assert creators, "the sweep found no org-creating module"
-    missing = [str(p.relative_to(ROOT)) for p in creators if "wake()" not in p.read_text()]
-    assert missing == []
+    """Each in-process org insert has its wake(); scripts are out of process.
+
+    Counted per file: a second insert added beside a woken one needs its own.
+    """
+    counts = {
+        str(p.relative_to(ROOT)): (text.count("INSERT INTO organizations"), text.count("wake()"))
+        for p in (ROOT / "src").rglob("*.py")
+        if "INSERT INTO organizations" in (text := p.read_text())
+    }
+    assert counts, "the sweep found no org-creating module"
+    short = {path: c for path, c in counts.items() if c[1] < c[0]}
+    assert short == {}, "inserts vs wake() calls"
 
 
 @pytest.mark.parametrize("name", ["observation.py", "ingestion/pipeline.py"])
