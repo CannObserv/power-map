@@ -83,17 +83,17 @@ I labeled them against the draft list of kinds below (the structural strata labe
 |---|---|
 | `business` | for-profit company: store, farm, brand, licensee, law/consulting/lobbying firm, lab |
 | `nonprofit` | charity, foundation, advocacy group, think tank, civil-rights or community organization |
-| `association` | trade, industry or professional association; members are businesses or practitioners |
+| `association` | trade, industry or professional association; members are businesses, practitioners, or governments or their officials |
 | `coalition` | coalition, alliance, network or campaign of several organizations or community members |
-| `labor_union` | union or union local |
-| `government` | any government entity other than a legislature: an executive department, agency, office, regulator, public utility, prosecutor or military unit, and an appointed or elected board, commission, council, task force or advisory committee, including a city or county council and its committees |
-| `legislature` | a state or national legislature, its chambers, committees and caucuses |
+| `labor_union` | union, union local, or federation of unions |
+| `government` | any government entity other than a legislature: an executive department, agency, office, regulator, public utility, prosecutor or military unit, and an appointed or elected board, commission, council, task force or advisory committee, including a city or county council and its committees (a legislative task force is a legislature) |
+| `legislature` | a state or national legislature, its chambers, committees, caucuses, task forces and work groups |
 | `political_party` | a party or its state, county or district organization |
 | `campaign_committee` | a PAC, or a candidate or ballot-measure committee |
 | `tribe` | a tribal nation, band or government, or a tribal agency |
 | `academic` | a university, college, school, or academic research center or lab |
 
-There is no `unknown` slug: a NULL kind means "not decided". The Jev criteria state the most-specific rule. The Jev criteria text is the `description` column. Any change to it means re-scoring the gold set (D6).
+There is no `unknown` slug: a NULL kind means "not decided". The Jev criteria state the most-specific rule. The Jev criteria text is the `description` column. Any change to it means re-scoring the gold set (D6). Amended 2026-11-27 with the gold set's class rulings (`docs/research/org-kind/README.md`).
 
 ### D2. Resolved value: `organizations.org_kind_id`
 
