@@ -136,7 +136,11 @@ async def accept(
             f"{unanswered} orgs are still unanswered by Jev; wait for the backlog to drain,"
             " or pass --allow-unanswered"
         )
-    report.result = await cls.apply_bulk_accept(db, items, user_id=user_id)
+    # Re-planned under the drain lock, so the acceptances match what is stored.
+    ran = await cls.run_bulk_accept(db, threshold=threshold, user_id=user_id)
+    if ran is None:
+        raise UsageError("a classification drain is running; try again in a minute")
+    report.items, report.result = ran
     return report
 
 

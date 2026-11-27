@@ -218,3 +218,25 @@ async def test_untouched_only_refuses_an_org_with_any_manual_row(db):
             db, org_id=org, action="accept", kind="legislature", source="rules", untouched_only=True
         )
     assert await _kind(db, org) is None
+
+
+@pytest.mark.integration
+async def test_a_run_waits_for_no_drain(db, db_pool):
+    """Plan and apply hold the drain lock: no rules or Jev row lands between them (CR 2)."""
+    org, user = await _org(db), await _user(db)
+    await _suggest(db, org, "rules", "legislature")
+    async with db_pool.acquire() as drainer:
+        await drainer.execute("SELECT pg_advisory_lock($1)", cls.DRAIN_LOCK_KEY)
+        try:
+            assert await cls.run_bulk_accept(db, threshold=T, user_id=user) is None
+        finally:
+            await drainer.execute("SELECT pg_advisory_unlock($1)", cls.DRAIN_LOCK_KEY)
+    assert await _kind(db, org) is None
+
+    items, result = await cls.run_bulk_accept(db, threshold=T, user_id=user)
+    assert any(i.org_id == org for i in items)
+    assert result.accepted[("rules", "legislature")] >= 1
+    assert await _kind(db, org) == "legislature"
+    # The lock is released after the run.
+    assert await db.fetchval("SELECT pg_try_advisory_lock($1)", cls.DRAIN_LOCK_KEY)
+    await db.execute("SELECT pg_advisory_unlock($1)", cls.DRAIN_LOCK_KEY)

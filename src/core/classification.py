@@ -454,6 +454,24 @@ async def apply_bulk_accept(
     return result
 
 
+async def run_bulk_accept(
+    db: asyncpg.Connection, *, threshold: float, user_id: str
+) -> tuple[list[BulkItem], BulkResult] | None:
+    """Plan and apply a bulk accept under ``DRAIN_LOCK_KEY``; None when a drain holds it.
+
+    The lock keeps the drain's rules and Jev writes out from between the plan
+    and the acceptances, so an answer that would make a disagreement can't
+    arrive after the plan and be overruled by it.
+    """
+    if not await db.fetchval("SELECT pg_try_advisory_lock($1)", DRAIN_LOCK_KEY):
+        return None
+    try:
+        items = await plan_bulk_accept(db, threshold=threshold)
+        return items, await apply_bulk_accept(db, items, user_id=user_id)
+    finally:
+        await db.execute("SELECT pg_advisory_unlock($1)", DRAIN_LOCK_KEY)
+
+
 # --- the drain: rules, then Jev (phase 2) ---------------------------------
 
 # pg_try_advisory_lock key: one drain at a time across workers and processes.

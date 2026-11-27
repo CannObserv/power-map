@@ -358,7 +358,7 @@ uv run "${env_args[@]}" python -m scripts.classify_suggestions --source all     
 uv run "${env_args[@]}" python -m scripts.classify_suggestions --source all --execute    # drain (supervised)
 ```
 
-**Bulk accept** (`scripts/accept_classification_suggestions.py`, phase 3, design D7) sets kinds, as `--operator`, through `record_decision`. It leaves alone any org with a manual row (a Clear included). It accepts a rules kind unless Jev answers otherwise (decision C), and a Jev kind at or above the threshold on a kind in `classification.TRUSTED_JEV_KINDS` for its model. Everything else waits for review, counted by reason. The dry run prints names only in the skim list (rules acceptances outside `legislature`, with gold labels): post aggregates. `--execute` refuses while Jev's backlog is nonzero unless `--allow-unanswered`.
+**Bulk accept** (`scripts/accept_classification_suggestions.py`, phase 3, design D7) sets kinds, as `--operator`, through `record_decision`. It leaves alone any org with a manual row (a Clear included). It accepts a rules kind unless Jev answers otherwise (decision C), and a Jev kind at or above the threshold on a kind in `classification.TRUSTED_JEV_KINDS` for its model. Everything else waits for review, counted by reason. The dry run prints names only in the skim list (rules acceptances outside `legislature`, with gold labels): post aggregates. `--execute` refuses while Jev's backlog is nonzero unless `--allow-unanswered`, and while a drain holds the lock (it plans and accepts under it).
 
 ```bash
 uv run "${env_args[@]}" python -m scripts.accept_classification_suggestions --field org_kind --operator EMAIL            # dry run

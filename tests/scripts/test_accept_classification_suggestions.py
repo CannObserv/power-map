@@ -182,3 +182,17 @@ async def test_the_skim_names_the_org_and_its_gold_label(db):
     report = await _run(db, email, gold={org: "tribe"})
     (row,) = [r for r in report.skim if r.org_id == org]
     assert row == acs.SkimRow(org, "Skim Farms LLC", "business", "tribe")
+
+
+@pytest.mark.integration
+async def test_execute_refuses_while_a_drain_runs(db, db_pool):
+    org, email = await _org(db), await _user(db)
+    await _suggest(db, org, "rules", "legislature")
+    async with db_pool.acquire() as drainer:
+        await drainer.execute("SELECT pg_advisory_lock($1)", cls.DRAIN_LOCK_KEY)
+        try:
+            with pytest.raises(acs.UsageError, match="drain is running"):
+                await _run(db, email, execute=True)
+        finally:
+            await drainer.execute("SELECT pg_advisory_unlock($1)", cls.DRAIN_LOCK_KEY)
+    assert await _kind(db, org) is None
