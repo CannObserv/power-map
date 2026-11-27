@@ -65,6 +65,9 @@ data/.dbt-target
 # #499 applier: per-run reports and the ledger
 data/applier
 data/schema_parity
+# #877 gold-set worksheets: org names, never committed (the repo is public;
+# only docs/research/org-kind/gold.csv, org_id + kind, is)
+data/gold-877/
 src/core/ingestion/mapping/target
 src/core/ingestion/mapping/logs
 src/core/ingestion/mapping/dbt_packages

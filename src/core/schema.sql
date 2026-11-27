@@ -4655,19 +4655,19 @@ INSERT INTO _seed_org_kinds (id, slug, display_name, description) VALUES
     ('01KZ0000000000000000000002', 'nonprofit',          'Nonprofit',
      'A charity, foundation, advocacy group, think tank, or civil-rights or community organization that is not a membership association of an industry or profession'),
     ('01KZ0000000000000000000003', 'association',        'Association',
-     'A trade, industry or professional association whose members are businesses or practitioners (e.g. a growers'' association, a bar association, a guild)'),
+     'A trade, industry or professional association whose members are businesses, practitioners, or governments or their officials (e.g. a growers'' association, a bar association, a guild, an association of counties)'),
     ('01KZ0000000000000000000004', 'coalition',          'Coalition',
      'A coalition, alliance, network or campaign of several organizations or community members working on a shared issue'),
     ('01KZ0000000000000000000005', 'labor_union',        'Labor Union',
-     'A labor union or a union local'),
+     'A labor union, a union local, or a federation of unions'),
     ('01KZ0000000000000000000006', 'government',         'Government',
-     'Any government entity other than a legislature: an executive department, agency, office, regulator, public utility, prosecutor or military unit, or an appointed or elected board, commission, council, task force or advisory committee, including a city or county council and its committees'),
+     'Any government entity other than a legislature: an executive department, agency, office, regulator, public utility, prosecutor or military unit, or an appointed or elected board, commission, council, task force or advisory committee, including a city or county council and its committees (a legislative task force is a legislature)'),
     ('01KZ0000000000000000000007', 'legislature',        'Legislature',
-     'A state or national legislature, one of its chambers, or one of its committees or caucuses'),
+     'A state or national legislature, one of its chambers, or one of its committees, caucuses, or task forces or work groups'),
     ('01KZ0000000000000000000008', 'political_party',    'Political Party',
      'A political party or one of its state, county or district organizations'),
     ('01KZ0000000000000000000009', 'campaign_committee', 'Campaign Committee',
-     'A political action committee (PAC) or a candidate or ballot-measure campaign committee'),
+     'A political action committee (PAC) or a candidate or ballot-measure campaign committee. An organization that exists for another purpose and also registers as a political committee takes the kind of that other purpose'),
     ('01KZ000000000000000000000A', 'tribe',              'Tribe',
      'A Native American tribe, band or nation, or its tribal government or a tribal agency'),
     ('01KZ000000000000000000000B', 'academic',           'Academic',
@@ -4698,20 +4698,31 @@ ALTER TABLE organizations
 -- rule table is this column. UBI and PDC registrations are held by every kind
 -- of org, so they imply nothing. A change here is a new rules version
 -- (classification.RULES_VERSION) when it changes an existing answer.
+-- rules-2 (2026-11-27) retired org_wa_pdc_committee -> campaign_committee: a PDC
+-- campaign-finance committee filer is not always a campaign committee (a trade
+-- association can register as one). A type absent from this list is cleared.
 ALTER TABLE entity_identifier_types
     ADD COLUMN IF NOT EXISTS implies_org_kind_id TEXT REFERENCES org_kinds(id);
 
-UPDATE entity_identifier_types t SET implies_org_kind_id = k.id
-FROM (VALUES
+DROP TABLE IF EXISTS pg_temp._org_kind_rules;
+CREATE TEMP TABLE _org_kind_rules (type_slug TEXT PRIMARY KEY, kind_slug TEXT NOT NULL);
+INSERT INTO _org_kind_rules (type_slug, kind_slug) VALUES
     ('org_wa_legislature',              'legislature'),
     ('org_wa_legislature_chamber',      'legislature'),
     ('org_wa_legislature_committee_id', 'legislature'),
     ('org_wa_party',                    'political_party'),
-    ('org_wa_pdc_committee',            'campaign_committee'),
-    ('org_wslcb',                       'business')
-) AS r(type_slug, kind_slug)
+    ('org_wslcb',                       'business');
+
+UPDATE entity_identifier_types t SET implies_org_kind_id = NULL
+WHERE t.implies_org_kind_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM _org_kind_rules r WHERE r.type_slug = t.slug);
+
+UPDATE entity_identifier_types t SET implies_org_kind_id = k.id
+FROM _org_kind_rules r
 JOIN org_kinds k ON k.slug = r.kind_slug
 WHERE t.slug = r.type_slug AND t.implies_org_kind_id IS DISTINCT FROM k.id;
+
+DROP TABLE pg_temp._org_kind_rules;
 
 -- Every source's answer for a classified field, append-only (#877 D3; shared with
 -- #303's role-type suggestions). Polymorphic with no FK on entity_id, like links:

@@ -36,7 +36,8 @@ from src.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-RULES_VERSION = "rules-1"
+# rules-2 (2026-11-27): one identifier-type rule retired (the seed in schema.sql says which).
+RULES_VERSION = "rules-2"
 
 Action = Literal["accept", "set", "dismiss", "clear"]
 ACTIONS: tuple[Action, ...] = ("accept", "set", "dismiss", "clear")

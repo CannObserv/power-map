@@ -31,11 +31,9 @@ def test_rules_kind_says_nothing_without_a_rule():
 
 
 def test_rules_kind_conflict_is_none_with_a_note():
-    kind, note = cls.rules_kind(
-        [("campaign_committee", "org_wa_pdc_committee"), ("business", "org_wslcb")]
-    )
+    kind, note = cls.rules_kind([("political_party", "org_wa_party"), ("business", "org_wslcb")])
     assert kind == "none"
-    assert note == "conflict: business (org_wslcb), campaign_committee (org_wa_pdc_committee)"
+    assert note == "conflict: business (org_wslcb), political_party (org_wa_party)"
 
 
 # --- DB-backed -----------------------------------------------------------
@@ -100,7 +98,11 @@ async def _suggest(db, org_id, source, value, **extra):
 
 @pytest.mark.integration
 async def test_identifier_types_imply_kinds(db):
-    """The rule table is reference data; UBI and PDC registrations imply nothing."""
+    """The rule table is reference data; UBI and PDC registrations imply nothing.
+
+    Nor does a PDC campaign-finance committee filer ID (rule retired
+    2026-11-27, #877): associations and others register as committees too.
+    """
     rows = await db.fetch(
         "SELECT t.slug, k.slug AS kind FROM entity_identifier_types t"
         " JOIN org_kinds k ON k.id = t.implies_org_kind_id"
@@ -110,7 +112,6 @@ async def test_identifier_types_imply_kinds(db):
         "org_wa_legislature_chamber": "legislature",
         "org_wa_legislature_committee_id": "legislature",
         "org_wa_party": "political_party",
-        "org_wa_pdc_committee": "campaign_committee",
         "org_wslcb": "business",
     }
 
@@ -119,10 +120,33 @@ async def test_identifier_types_imply_kinds(db):
 async def test_plan_rules_flags_conflicting_identifiers(db):
     org = await _org(db)
     await _identify(db, org, "org_wslcb")
-    await _identify(db, org, "org_wa_pdc_committee")
+    await _identify(db, org, "org_wa_party")
     change = next(c for c in await cls.plan_rules(db) if c.org_id == org)
     assert change.value == "none"
     assert change.note.startswith("conflict: ")
+
+
+@pytest.mark.integration
+async def test_a_retired_rule_supersedes_its_answer_under_the_new_version(db):
+    """rules-1 said campaign_committee from the PDC committee ID; rules-2 has no such rule."""
+    org = await _org(db)
+    await _identify(db, org, "org_wa_pdc_committee")
+    await db.execute(
+        "INSERT INTO classification_suggestions"
+        " (id, entity_type, entity_id, field, source, value, model)"
+        " VALUES ($1, 'organization', $2, 'org_kind', 'rules', 'campaign_committee', 'rules-1')",
+        generate_id(),
+        org,
+    )
+    change = next(c for c in await cls.plan_rules(db) if c.org_id == org)
+    assert (change.value, change.note) == ("none", "no rule applies")
+    await cls.apply_rules(db, [change])
+    model = await db.fetchval(
+        "SELECT model FROM classification_suggestions"
+        " WHERE entity_id = $1 AND source = 'rules' AND value = 'none'",
+        org,
+    )
+    assert model == cls.RULES_VERSION == "rules-2"
 
 
 @pytest.mark.integration
