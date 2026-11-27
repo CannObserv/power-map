@@ -25,7 +25,7 @@ from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, get_args
 
 import asyncpg
 import httpx
@@ -298,14 +298,8 @@ TRUSTED_JEV_KINDS: dict[str, frozenset[str]] = {
 }
 
 QueueReason = Literal["disagree", "conflict", "low", "untrusted", "none", "unanswered"]
-QUEUE_REASONS: tuple[QueueReason, ...] = (
-    "disagree",
-    "conflict",
-    "low",
-    "untrusted",
-    "none",
-    "unanswered",
-)
+# In the order the bulk-accept report lists them.
+QUEUE_REASONS: tuple[QueueReason, ...] = get_args(QueueReason)
 
 
 @dataclass(frozen=True)

@@ -30,6 +30,18 @@ def test_the_trust_set_is_the_approved_one_and_keyed_by_model():
     }
 
 
+def test_queue_reasons_are_every_reason_bulk_outcome_can_give():
+    """CR 4: one list, so the report can't drop a reason."""
+    assert cls.QUEUE_REASONS == (
+        "disagree",
+        "conflict",
+        "low",
+        "untrusted",
+        "none",
+        "unanswered",
+    )
+
+
 # --- bulk_outcome: pure ------------------------------------------------------
 
 
