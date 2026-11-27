@@ -193,6 +193,15 @@ One append-only table for every classified field, organizations first and roles 
 
 The same script serves `--field role_type` under #303.
 
+**Amended 2026-11-27 (phase 3 plan, `2026-11-27-877-phase-3-backlog.md`):**
+- **Rules are accepted by definition** (decision C, 2026-11-25), unless Jev answers anything else. The dry run lists the rules acceptances outside `legislature` for a skim.
+- **The trust set is committed code,** `classification.TRUSTED_JEV_KINDS`, keyed by Jev model: a model not listed is trusted for nothing. It replaces the `JEV_TRUSTED_ORG_KINDS` variable.
+- **`created_by` is the operator's `app_users.id`** (`--operator EMAIL`): the column is a foreign key, so `bulk:<operator>` can't be stored. The note says `bulk accept <model>`.
+- **Any manual row keeps an org out,** a `clear` included: the operator sent it back to the queue on purpose.
+- **An accept records its `accepted_source`** (rules / jev), which provenance reads, rather than the note.
+- **What isn't accepted goes to the queue with a reason:** `disagree`, `conflict`, `low`, `untrusted`, `none` or `unanswered`. An answer on an untrusted kind joins D5's queue.
+- `--execute` refuses while Jev's backlog is nonzero, unless `--allow-unanswered`.
+
 ### D8. When Jev runs: at creation, plus a sweep
 
 - **A creation hook.** After an org-creating transaction commits (the admin create doors, an observation's `NEW`, the usa-wa applier, the importer), the code calls `classification.wake()`. That sets an in-process event and returns immediately. It never touches Jev and never fails the write.

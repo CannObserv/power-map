@@ -4779,6 +4779,38 @@ CREATE TABLE IF NOT EXISTS classification_suggestions (
 -- Reconciles a table created with the first-draft NOW() default (idempotent).
 ALTER TABLE classification_suggestions ALTER COLUMN created_at SET DEFAULT clock_timestamp();
 
+-- accepted_source (#877 phase 3): which source's answer an `accept` took, rules
+-- or jev; set on every accept row and on no other. Provenance (the admin panel,
+-- the public API's org_kind_source) reads it; the note is free text. Added here,
+-- not in the CREATE above, so one statement serves fresh and existing databases.
+-- The backfill reads the note record_decision wrote ("accepted <source>") before
+-- the CHECK goes on.
+ALTER TABLE classification_suggestions ADD COLUMN IF NOT EXISTS accepted_source TEXT;
+UPDATE classification_suggestions
+SET accepted_source = substring(note FROM '^accepted (rules|jev)$')
+WHERE manual_action = 'accept' AND accepted_source IS NULL;
+
+DO $$ BEGIN
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'classification_suggestions'::regclass
+              AND conname = 'chk_suggestion_accepted_source'
+        ) THEN
+            ALTER TABLE classification_suggestions
+                ADD CONSTRAINT chk_suggestion_accepted_source CHECK (
+                    -- IS NOT NULL first: NULL IN (...) is NULL, which a CHECK passes.
+                    CASE WHEN manual_action = 'accept'
+                         THEN accepted_source IS NOT NULL AND accepted_source IN ('rules', 'jev')
+                         ELSE accepted_source IS NULL END);
+        END IF;
+    EXCEPTION WHEN check_violation THEN
+        RAISE WARNING
+            'chk_suggestion_accepted_source not added: an accept row has no source '
+            'the backfill could read; set accepted_source on it and re-apply';
+    END;
+END $$;
+
 -- Classify once (#877 D3): one live Jev answer per entity, field and model. A
 -- re-ask marks the current row ignored_at first, in the same transaction.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_classification_suggestions_live_jev

@@ -118,6 +118,11 @@ async def test_organization_kind_references_org_kinds(db):
         {"manual_action": "accept"},
         {"source": "manual", "model": None},
         {"source": "manual", "model": None, "manual_action": "approve"},
+        # accepted_source (#877 phase 3): exactly on an accept, rules or jev only.
+        {"source": "manual", "model": None, "manual_action": "accept"},
+        {"source": "manual", "model": None, "manual_action": "accept", "accepted_source": "x"},
+        {"source": "manual", "model": None, "manual_action": "set", "accepted_source": "rules"},
+        {"accepted_source": "rules"},
     ],
 )
 async def test_suggestion_checks_reject_bad_rows(db, cols):
@@ -128,7 +133,10 @@ async def test_suggestion_checks_reject_bad_rows(db, cols):
 @pytest.mark.parametrize("action", ["accept", "set", "dismiss", "clear"])
 async def test_manual_row_takes_each_action(db, action):
     value = None if action in ("dismiss", "clear") else "business"
-    sid = await _suggest(db, source="manual", model=None, manual_action=action, value=value)
+    accepted = "rules" if action == "accept" else None
+    sid = await _suggest(
+        db, source="manual", model=None, manual_action=action, value=value, accepted_source=accepted
+    )
     assert (
         await db.fetchval("SELECT manual_action FROM classification_suggestions WHERE id=$1", sid)
         == action

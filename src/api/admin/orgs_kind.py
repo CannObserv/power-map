@@ -73,10 +73,10 @@ async def _panel_context(db, org_id: str) -> dict:
         for source, a in answers.items()
         if source != "manual"
     ]
-    # Provenance of an accepted kind: record_decision notes "accepted <source>".
+    # Provenance of an accepted kind: the manual row's accepted_source.
     accepted_from = None
-    if manual is not None and manual["manual_action"] == "accept" and manual["note"]:
-        source = manual["note"].removeprefix("accepted ")
+    if manual is not None and manual["manual_action"] == "accept":
+        source = manual["accepted_source"]
         accepted_from = {
             "label": SOURCE_LABELS.get(source, source),
             "confidence": answers[source]["confidence"]
