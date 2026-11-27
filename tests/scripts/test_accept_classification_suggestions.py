@@ -7,6 +7,7 @@ answer that hasn't arrived), unless told to. The DB-backed tests need
 TEST_DATABASE_URL.
 """
 
+import logging
 from collections import Counter
 
 import pytest
@@ -70,6 +71,18 @@ def test_report_lines_name_orgs_only_in_the_skim():
     assert "Acme Farms" in text and "gold: business" in text
     assert "01BBB" not in text
     assert "dry run" in text
+
+
+def test_a_run_quiets_the_per_decision_log_lines():
+    """CR 5: ~1,400 INFO lines would bury the summary; the manual rows are the record."""
+    logger = logging.getLogger("src.core.classification")
+    before = logger.level
+    try:
+        acs.quiet_decision_logs()
+        assert not logger.isEnabledFor(logging.INFO)
+        assert logger.isEnabledFor(logging.WARNING)
+    finally:
+        logger.setLevel(before)
 
 
 # --- DB-backed -------------------------------------------------------------

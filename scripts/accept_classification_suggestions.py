@@ -29,6 +29,7 @@ Usage:
 """
 
 import asyncio
+import logging
 import sys
 from collections import Counter
 from collections.abc import Iterable
@@ -45,6 +46,9 @@ from src.core.logging import configure_logging, get_logger
 logger = get_logger(__name__)
 
 FIELDS = ("org_kind",)
+# record_decision logs each decision at INFO; a run makes ~1,400 of them, and
+# the manual rows are the audit record. The run's own summary line remains.
+QUIET_LOGGERS = ("src.core.classification",)
 # Rules kinds accepted without a skim: the legislature's own identifiers.
 UNSKIMMED_RULES_KINDS = frozenset({"legislature"})
 
@@ -168,8 +172,15 @@ def report_lines(report: Report, *, execute: bool) -> list[str]:
     return lines
 
 
+def quiet_decision_logs() -> None:
+    """Raise the per-decision loggers to WARNING, so the summary isn't buried."""
+    for name in QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 async def run(dsn: str, *, operator: str, execute: bool, allow_unanswered: bool) -> int:
     """Connect, plan (and run), print the summary; exit 2 on a refused run."""
+    quiet_decision_logs()
     gold = dict(read_gold(GOLD_PATH))
     conn = await asyncpg.connect(dsn)
     try:
