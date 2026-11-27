@@ -40,9 +40,10 @@ MONITOR_IDS_PENDING = False
 # Units whose monitor is requested but not yet provisioned: each carries an
 # empty id, so the hook skips, logged, and names its request. Empty since #665's
 # two disk monitors landed (CannObserv/status#48, 2026-10-16; both units retired
-# by #705); a new timer adds its name here until its id arrives. #877's
-# classification timer waits on CannObserv/status#144.
-PENDING_MONITORS: frozenset[str] = frozenset({"power-map-classification"})
+# by #705) and again since #877's classification monitor landed
+# (CannObserv/status#144, 2026-11-27); a new timer adds its name here until its
+# id arrives.
+PENDING_MONITORS: frozenset[str] = frozenset()
 PENDING_REQUEST = "CannObserv/status#144"
 
 
