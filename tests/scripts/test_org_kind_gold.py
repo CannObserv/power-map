@@ -15,6 +15,8 @@ import pytest
 import pytest_asyncio
 
 from scripts import org_kind_gold as g
+from src.core import jev_client as jev
+from src.core import org_kind_question as q
 from src.core.db import generate_id
 
 REPO = Path(__file__).resolve().parents[2]
@@ -243,3 +245,152 @@ def test_the_definitions_carry_the_operators_class_rulings():
     assert "legislative task force" in d["government"]  # ...named as the exception
     assert "federation of unions" in d["labor_union"]  # ruling 3
     assert "city or county council" in d["government"]  # Longview stays government
+
+
+# --- finalize: the committed gold set ----------------------------------------
+
+
+def _review(tmp_path, rows):
+    path = tmp_path / "review.csv"
+    with path.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=g.REVIEW_COLUMNS)
+        w.writeheader()
+        for org_id, kind, reviewed in rows:
+            w.writerow(
+                {"org_id": org_id, "stratum": "pdc", "name": "x", "kind": kind, "unsure": "Y"}
+                | {"reviewed_kind": reviewed}
+            )
+    return path
+
+
+def test_finalize_takes_the_reviewed_kind_wherever_one_is_given(tmp_path):
+    sheet = g.read_worksheet(_sheet(tmp_path, n_sure=3, n_unsure=2))
+    review = g.read_worksheet(
+        _review(tmp_path, [("U000", "coalition", "association"), ("U001", "coalition", "")])
+    )
+    gold = dict(g.finalize(sheet, review))
+    assert gold["U000"] == "association"
+    assert gold["U001"] == "coalition"
+    assert gold["S000"] == "business"
+    assert len(gold) == 5
+
+
+def test_finalize_is_sorted_and_writes_only_id_and_kind(tmp_path):
+    sheet = g.read_worksheet(_sheet(tmp_path, n_sure=3, n_unsure=2))
+    gold = g.finalize(sheet, [])
+    assert [oid for oid, _ in gold] == sorted(oid for oid, _ in gold)
+    out = tmp_path / "gold.csv"
+    g.write_gold(gold, out)
+    assert out.read_text().splitlines()[0] == "org_id,kind"
+    assert g.read_gold(out) == gold
+
+
+def test_finalize_refuses_a_reviewed_kind_outside_the_vocabulary(tmp_path):
+    sheet = g.read_worksheet(_sheet(tmp_path, n_sure=1, n_unsure=1))
+    review = g.read_worksheet(_review(tmp_path, [("U000", "coalition", "union")]))
+    with pytest.raises(ValueError, match="'union'"):
+        g.finalize(sheet, review)
+
+
+def test_finalize_refuses_a_review_row_the_worksheet_lacks(tmp_path):
+    sheet = g.read_worksheet(_sheet(tmp_path, n_sure=1, n_unsure=0))
+    review = g.read_worksheet(_review(tmp_path, [("ZZZ", "coalition", "coalition")]))
+    with pytest.raises(ValueError, match="ZZZ"):
+        g.finalize(sheet, review)
+
+
+def test_the_committed_gold_set_is_ids_and_kinds_only():
+    rows = g.read_gold(g.GOLD_PATH)
+    assert 280 <= len(rows) <= 320
+    assert {k for _, k in rows} <= g.KINDS
+    assert len({oid for oid, _ in rows}) == len(rows)
+    assert g.GOLD_PATH.read_text().splitlines()[0] == "org_id,kind"
+
+
+# --- eval-set and score --------------------------------------------------------
+
+
+def test_eval_set_refuses_any_path_inside_a_work_tree(tmp_path):
+    repo = _repo(tmp_path)
+    with pytest.raises(g.PrivatePathError):
+        g.require_outside(repo / "private" / "set.jsonl")  # ignored is not enough
+    g.require_outside(tmp_path / "elsewhere" / "set.jsonl")
+
+
+@pytest.mark.integration
+async def test_eval_cases_ask_exactly_what_production_asks(db):
+    oid = await _org(db, "Case Org", "org_wa_pdc", titles=("Owner",))
+    gone = await _org(db, "Gone Org")
+    await db.execute("UPDATE organizations SET archived_at = NOW() WHERE id = $1", gone)
+    kinds = await q.load_kinds(db)
+
+    cases, missing = await g.eval_cases(db, [(oid, "business"), (gone, "nonprofit")], kinds)
+
+    assert missing == [gone]
+    (case,) = cases
+    states = await q.load_states(db, [oid])
+    body = jev.build_request(states[oid], q.criteria(kinds), "m")
+    assert case["state"] == body["state"]
+    assert case["questions"] == body["questions"]
+    assert case["expected"] == {q.QUESTION_NAME: "business"}
+    assert case["id"] == oid
+
+
+def _reply(choice, confidence):
+    return {
+        "model": "jev-x",
+        "answers": {
+            q.QUESTION_NAME: {"type": "choice", "choice": choice, "confidence": confidence}
+        },
+        "usage": {"input_tokens": 10},
+    }
+
+
+CRIT = {k: k for k in sorted(g.KINDS)}
+
+
+def test_score_jev_counts_precision_per_predicted_kind_at_the_threshold():
+    gold = [("a", "business"), ("b", "business"), ("c", "nonprofit"), ("d", "tribe")]
+    replies = {
+        "a": _reply("business", 0.9),
+        "b": _reply("business", 0.6),  # below the bar: not an answer
+        "c": _reply("business", 0.8),  # a wrong answer
+        "d": _reply("tribe", 0.95),
+    }
+    s = g.score_jev(gold, replies, CRIT, model="jev-x", threshold=0.7)
+    assert s.kinds["business"] == g.KindScore(gold=2, answered=2, correct=1)
+    assert s.kinds["tribe"] == g.KindScore(gold=1, answered=1, correct=1)
+    assert s.kinds["nonprofit"] == g.KindScore(gold=1, answered=0, correct=0)
+    assert s.answered == 3 and s.cases == 4
+    assert s.confusion[("nonprofit", "business")] == 1
+    assert s.models == {"jev-x"}
+
+
+def test_score_jev_refuses_a_case_with_no_reply():
+    with pytest.raises(ValueError, match="no reply"):
+        g.score_jev([("a", "business")], {}, CRIT, model="jev-x", threshold=0.7)
+
+
+def test_trust_set_needs_ninety_percent_on_twenty_answers():
+    kinds = {
+        "business": g.KindScore(gold=40, answered=30, correct=28),  # 93 % on 30
+        "government": g.KindScore(gold=40, answered=30, correct=26),  # 87 %
+        "tribe": g.KindScore(gold=10, answered=10, correct=10),  # too few
+    }
+    assert g.trust_set(kinds) == ["business"]
+
+
+def test_score_rules_counts_agreement_per_suggested_kind():
+    gold = [("a", "business"), ("b", "tribe"), ("c", "government")]
+    rules = {"a": "business", "b": "business"}
+    s = g.score_rules(gold, rules)
+    assert s["business"] == g.KindScore(gold=1, answered=2, correct=1)
+    assert sum(k.answered for k in s.values()) == 2
+
+
+def test_the_report_names_no_org():
+    gold = [("01SECRETID", "business")]
+    s = g.score_jev(gold, {"01SECRETID": _reply("business", 0.9)}, CRIT, "jev-x", 0.7)
+    md = g.render_report(s, g.score_rules(gold, {}), missing=0, threshold=0.7)
+    assert "01SECRETID" not in md
+    assert "| business |" in md
