@@ -7,6 +7,8 @@ TEST_DATABASE_URL and run in a rolled-back transaction.
 """
 
 import csv
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -22,7 +24,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def test_refuses_a_path_inside_a_work_tree():
-    with pytest.raises(g.PrivatePathError, match="work tree"):
+    with pytest.raises(g.PrivatePathError, match="not ignored"):
         g.require_private(REPO / "docs" / "worksheet.csv")
 
 
@@ -35,6 +37,30 @@ def test_refuses_a_symlink_into_a_work_tree(tmp_path):
     link.symlink_to(REPO / "docs")
     with pytest.raises(g.PrivatePathError):
         g.require_private(link / "worksheet.csv")
+
+
+def _repo(tmp_path):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True, env=env)
+    (repo / ".gitignore").write_text("private/\n")
+    return repo
+
+
+def test_accepts_an_ignored_path_inside_a_work_tree(tmp_path):
+    repo = _repo(tmp_path)
+    g.require_private(repo / "private" / "worksheet.csv")
+
+
+def test_refuses_an_unignored_path_inside_a_work_tree(tmp_path):
+    repo = _repo(tmp_path)
+    with pytest.raises(g.PrivatePathError, match="not ignored"):
+        g.require_private(repo / "public" / "worksheet.csv")
+
+
+def test_the_repo_ignores_the_gold_set_folder():
+    g.require_private(REPO / "data" / "gold-877" / "worksheet.csv")
 
 
 def test_quotas_total_about_three_hundred():

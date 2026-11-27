@@ -13,7 +13,8 @@ are drafted from D1's definitions **before any Jev call on these orgs**, then
 the operator reviews the unsure rows and a seeded random 30.
 
 The repo is public: the worksheet must resolve outside every git work tree,
-or the run refuses before connecting. Only ``(org_id, kind)`` is ever
+or to a path git ignores (``data/gold-877/``), or the run refuses before
+connecting. Only ``(org_id, kind)`` is ever
 committed, at ``docs/research/org-kind/gold.csv``.
 
 ``review`` picks the rows the operator checks: every row marked unsure, plus
@@ -21,9 +22,9 @@ committed, at ``docs/research/org-kind/gold.csv``.
 private review sheet with a blank ``reviewed_kind`` column.
 
 Usage:
-    uv run python -m scripts.org_kind_gold sample --out ~/gold-877/worksheet.csv
-    uv run python -m scripts.org_kind_gold review --worksheet ~/gold-877/worksheet.csv \
-        --out ~/gold-877/review.csv
+    uv run python -m scripts.org_kind_gold sample --out data/gold-877/worksheet.csv
+    uv run python -m scripts.org_kind_gold review --worksheet data/gold-877/worksheet.csv \
+        --out data/gold-877/review.csv
 """
 
 import asyncio
@@ -144,14 +145,44 @@ def _in_work_tree(path: Path) -> bool | None:
     return False if "not a git repository" in out.stderr else None
 
 
-def require_private(path: Path) -> None:
-    """Refuse *path* unless it is plainly outside every git work tree."""
-    inside = _in_work_tree(path)
-    if inside is not False:
-        reason = "is inside a git work tree" if inside else "can't be checked by git"
-        raise PrivatePathError(
-            f"{path} {reason}: the gold-set worksheet holds org names and must stay private"
+def _git_ignored(path: Path) -> bool:
+    """True when git ignores *path* (resolved, GIT_ variables dropped)."""
+    real = Path(os.path.realpath(path))
+    probe = real
+    while not probe.is_dir():
+        probe = probe.parent
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    try:
+        out = subprocess.run(
+            ["git", "check-ignore", "-q", str(real)],
+            cwd=probe,
+            env=env,
+            capture_output=True,
+            check=False,
         )
+    except OSError:
+        return False
+    return out.returncode == 0
+
+
+def require_private(path: Path) -> None:
+    """Refuse *path* unless it is outside every git work tree, or git ignores it.
+
+    The repo's own ``data/gold-877/`` is ignored (``.gitignore``), so the
+    worksheets can live in the clone without ever being committable.
+    """
+    inside = _in_work_tree(path)
+    if inside is False:
+        return
+    if inside is None:
+        reason = "can't be checked by git"
+    elif _git_ignored(path):
+        return
+    else:
+        reason = "is inside a git work tree and not ignored"
+    raise PrivatePathError(
+        f"{path} {reason}: the gold-set worksheet holds org names and must stay private"
+    )
 
 
 @dataclass(frozen=True)
