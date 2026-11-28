@@ -170,5 +170,15 @@ async def test_a_kind_decision_changes_the_org_etag(
         assert after.status_code == 200
         assert after.headers["etag"] != before.headers["etag"]
         assert _kind(after.json()) == ("business", "operator")
+
+        # Same kind, new source: only org_kind_source changes, and the ETag
+        # still moves, or a cached reader would keep the old source on a 304.
+        await _suggest(db, org, "rules", "business")
+        await cls.record_decision(db, org_id=org, action="accept", kind="business", source="rules")
+        again = await committing_client.get(
+            f"/api/v1/orgs/{org}", headers={**headers, "If-None-Match": after.headers["etag"]}
+        )
+        assert again.status_code == 200
+        assert _kind(again.json()) == ("business", "rules")
     finally:
         await drop_committed_key(db, kid, uid)
