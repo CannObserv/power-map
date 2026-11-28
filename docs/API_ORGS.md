@@ -19,6 +19,7 @@ implicit rules this collection follows. Auth, pagination and conditional request
 | `POST` | `/api/v1/orgs/batch-get` | API key | Many detail reads in one call and **one read-bucket token** (#654): one `getOrg` outcome per distinct id. See § Batch read. |
 | `GET` | `/api/v1/orgs/{id}/events` | API key | Paginated lifecycle events for an organization. Params: `limit` (default 20, max 100), `offset`. Public-visibility and active events only. ETag caching — see the events response-shape section. |
 | `POST` | `/api/v1/orgs/observations` | `observations:write` scope | Submit an organization identity observation. |
+| `GET` | `/api/v1/org-kinds` | API key | The org-kind catalog (#877 D9): `{slug, display_name, description}` per kind, by slug, the vocabulary of `org_kind_slug` (§ Org kind). Unpaginated; ETag (content hash, [Conditional requests](PUBLIC_API.md#conditional-requests)). |
 | `GET` | `/api/v1/organization-name-types` | API key | The org name-type reference (#857): per type, `meaning`, `use_when`, `not_for`, `example` (`docs/NAME_TYPES.md`). Unpaginated; ETag (content hash, [Conditional requests](PUBLIC_API.md#conditional-requests)). |
 
 ### Detail — `GET /api/v1/orgs/{id}`
@@ -37,6 +38,17 @@ Returns the base search-result fields plus:
 | `updated_at` | ISO 8601 UTC timestamp |
 
 Supports conditional requests. Every 200 response includes `ETag`, `Last-Modified`, `Cache-Control: no-cache`, and `Vary: X-API-Key` headers. Pass the ETag back as `If-None-Match` to receive 304 on cache hit. `updated_at` advances whenever any child table (names, acronyms, identifiers, affiliations) changes — and when an entity event **linking to** this org changes (#469), so the succession fields below never go stale under the ETag.
+
+### Org kind (#877 D9)
+
+Every org read (`searchOrgs`, `getOrg`, `batchGetOrgs`) carries two fields, both `null` while the kind is undecided, after a dismiss (no kind applies) and after a clear:
+
+| Field | Description |
+|-------|-------------|
+| `org_kind_slug` | The resolved kind: a slug from `GET /api/v1/org-kinds` (`business`, `government`, `legislature`, …). A plain string, so a kind added later never breaks an older client. |
+| `org_kind_source` | Who decided it: `rules` (an identifier rule, accepted by an operator or the operator-run bulk accept), `ai` (the AI classifier's answer, accepted the same way) or `operator` (an operator chose the kind). |
+
+Only an operator decision, or the bulk accept an operator runs, sets a kind: a suggestion alone never does. A decision changes the org's `updated_at`, so its ETag. Producers don't write kinds.
 
 ### Batch read — `POST /api/v1/orgs/batch-get` (#654)
 

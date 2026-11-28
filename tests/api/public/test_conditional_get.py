@@ -429,7 +429,7 @@ def test_conditional_get_sweep_covers_every_known_route():
         for path in sorted(PUBLIC_DIR.glob("*.py"))
         for name, _ in _routes_calling_conditional_response(ast.parse(path.read_text()))
     ]
-    assert len(found) == 17, f"expected 17 conditional GETs, found {len(found)}: {found}"
+    assert len(found) == 18, f"expected 18 conditional GETs, found {len(found)}: {found}"
 
 
 def test_sweep_detects_a_route_missing_its_304():

@@ -32,6 +32,8 @@ _CONDITIONAL_GETS = [
     # #857 — the name-type catalogs (registry-backed, content hash)
     "/api/v1/person-name-types",
     "/api/v1/organization-name-types",
+    # #877 phase 3c — the org-kind catalog (content hash)
+    "/api/v1/org-kinds",
     # #392 PR-C — needed jurisdiction_relationships.updated_at first
     "/api/v1/jurisdictions/{jurisdiction_id}/relationships",
     "/api/v1/jurisdictions/{jurisdiction_id}/lineage",
