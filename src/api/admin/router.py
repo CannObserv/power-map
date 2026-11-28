@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 from src.api.admin import activity as activity_module
 from src.api.admin import activity_names as activity_names_module
 from src.api.admin import activity_requests as activity_requests_module
+from src.api.admin import classification_review as classification_review_module
 from src.api.admin import dashboard as dashboard_module
 from src.api.admin import dup_badges as dup_badges_module
 from src.api.admin import entities as entities_module
@@ -85,6 +86,7 @@ admin_router.include_router(settings_identifier_types_module.router)
 admin_router.include_router(activity_requests_module.router)
 admin_router.include_router(activity_names_module.router)
 admin_router.include_router(activity_module.router)
+admin_router.include_router(classification_review_module.router)
 # Merge routers must precede their entity routers: FastAPI matches routes in
 # registration order, and the entity routers carry /{id}/ wildcards that would
 # otherwise swallow literal paths like /duplicates/.

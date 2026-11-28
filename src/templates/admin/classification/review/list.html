@@ -1,0 +1,29 @@
+{% extends "admin/base.html" %}
+{% from "admin/macros/flash.html" import message %}
+{% block title %}Kind review{% endblock %}
+{% block flash %}{% if flash_msg %}{{ message(flash_msg.level, flash_msg.body) }}{% endif %}{% endblock %}
+{% block breadcrumb %}
+  <a href="/admin/">Dashboard</a><span class="breadcrumb__sep">›</span><span>Kind review</span>
+{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Kind review</h1></div>
+<p>Organizations whose kind the bulk accept left for a person to decide: the rules and the AI disagree, the identifiers conflict, the AI isn't sure or isn't trusted for that kind yet, or there's no answer. Disagreements come first, then the least confident answers. Accept an answer, set another kind, or dismiss (no kind applies). An organization you clear on its page comes back here.</p>
+<div class="filter-card">
+  <div class="filter-card__controls">
+    <div class="filter-card__field">
+      <label for="review-page-size">Per page</label>
+      <select id="review-page-size" name="page_size"
+              hx-get="/admin/classification/review/" hx-trigger="change"
+              hx-target="#review-region"
+              hx-vals='{"page": 1}' hx-push-url="true">
+        {% for n in [25, 50, 100, 250] %}
+        <option value="{{ n }}" {% if page_size == n %}selected{% endif %}>{{ n }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+</div>
+<div id="review-region" aria-live="polite" aria-atomic="false">
+  {% include "admin/classification/review/_region.html" %}
+</div>
+{% endblock %}

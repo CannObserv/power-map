@@ -1,0 +1,24 @@
+{# admin/classification/review/_region.html — the org-kind review queue (#877 D5),
+   swapped on paging and after each decision. #}
+{% from "admin/macros/pagination.html" import controls as pagination %}
+<div class="table-wrapper">
+  <table class="data-table" id="review-table">
+    <caption>Kind review — {{ total }} organization{{ "s" if total != 1 else "" }}{% if ready %}; {{ ready }} more ready for the bulk accept{% endif %}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Organization</th>
+        <th scope="col">Why</th>
+        <th scope="col">Rules</th>
+        <th scope="col">AI</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% include "admin/classification/review/_rows.html" %}
+    </tbody>
+  </table>
+</div>
+<div class="pagination--sticky">
+  {{ pagination(page, total_pages, showing_from, showing_to, total, page_range,
+               "/admin/classification/review/", "#review-region", "page_size=" ~ page_size) }}
+</div>

@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 
 from src.api.admin.deps import AdminUser, get_admin_user, get_db
 from src.core import classification
+from src.core import jev_client as jc
 from src.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -51,6 +52,8 @@ async def dashboard(
     )
     # #877: Jev's health (the flag, key presence, backlog, failures, tokens).
     jev = await classification.health(db)
+    # #877 phase 3b: the review queue, and what the next bulk accept would take.
+    review = await classification.review_queue(db, threshold=jc.confidence_threshold())
     return templates.TemplateResponse(
         request,
         "admin/dashboard.html",
@@ -60,5 +63,7 @@ async def dashboard(
             "counts": counts,
             "api_stats": api_stats,
             "jev": jev,
+            "review_count": len(review.items),
+            "ready_count": review.ready,
         },
     )

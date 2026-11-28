@@ -191,6 +191,20 @@ async def seed_admin_fixtures(db) -> dict:
         s["acronym_id"],
         s["org_id"],
     )
+    # Kind suggestions (#877): rules and the AI disagree on A11y Org One, so its
+    # Kind panel offers both Accepts and the review queue lists it with every action.
+    for source, value, confidence in (("rules", "business", None), ("jev", "tribe", 0.62)):
+        await db.execute(
+            "INSERT INTO classification_suggestions"
+            " (id, entity_type, entity_id, field, source, value, model, confidence)"
+            " VALUES ($1, 'organization', $2, 'org_kind', $3, $4, $5, $6)",
+            generate_id(),
+            s["org_id"],
+            source,
+            value,
+            "rules-2" if source == "rules" else "jev-1.14.0",
+            confidence,
+        )
     s["role_id"], s["role2_id"] = generate_id(), generate_id()
     for rid, title in ((s["role_id"], "Director"), (s["role2_id"], "Deputy Director")):
         await db.execute(
