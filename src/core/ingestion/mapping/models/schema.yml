@@ -294,14 +294,18 @@ models:
         tests: [unique, not_null]
       - name: entity_id
         description: >-
-          Warn, never halt (#883). A brand-new role publishes unbound on its first
-          night and usa-wa's registrar binds it the next; until then it, and every
-          unanchored span and period on it, waits out of the marts.
+          Warns up to 150, halts above (#883). A brand-new role publishes unbound
+          on its first night and usa-wa's registrar binds it the next; until then
+          it, and every unanchored span and period on it, waits out of the marts.
+          150 clears a seat-elect cycle (WA: 98 House + 25 Senate); more is a
+          registrar regression, which must halt here rather than reach the dry
+          run as one archive per anchored role.
         tests:
           - unique
           - not_null:
               config:
-                severity: warn
+                warn_if: "!=0"
+                error_if: ">150"
 
   - name: stg_pm__role_types
     columns:

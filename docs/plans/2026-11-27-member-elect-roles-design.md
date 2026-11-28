@@ -53,7 +53,9 @@ names an anchored role whose type moved, which the applier ignores silently
 (identity is written once).
 
 **(c) Tolerate the one-night registration lag.**
-- `not_null` on `stg_usa_wa__roles.entity_id` → warn; it names the unbound roles.
+- `not_null` on `stg_usa_wa__roles.entity_id` → warn up to 150, error above (CR 1):
+  a seat-elect cycle is at most 123; more is a registrar regression, which halts
+  the build instead of reaching the dry run as an archive per anchored role.
 - `desired_roles` skips a role with no `entity_id` (it can never be anchored).
 - `desired_role_assignments` skips an **unanchored** span whose role is
   published but unbound; an anchored span is kept (absence archives).

@@ -128,8 +128,8 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   triggers and a CHECK that fire mid-transaction. An **anchored** role is never
   dropped: absence is what archives it.
   `not_null_stg_usa_wa__roles_entity_id` (#883): a role published unbound, on
-  its first night before usa-wa's registrar names it. It waits for the next
-  night, with every **unanchored** span and period on it (an anchored span is
+  its first night before usa-wa's registrar names it (over 150 halts: a
+  registrar regression). It waits for the next night, with every **unanchored** span and period on it (an anchored span is
   kept and named by `unresolved_assignment_roles`).
   `published_role_type_unknown_to_pm` (#883): a `role_type` PM's vocabulary
   lacks, one row per slug. Each create on it reads `stale` in the dry run, so

@@ -24,6 +24,7 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     R3,
     R4,
     R5,
+    SEAT_ELECT,
     crosswalk_row,
     fixture_csv,
     overlay_row,
@@ -33,6 +34,9 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
 ROLES, TITLES = "desired_roles", "desired_role_titles"
 UNKNOWN_TYPE = "published_role_type_unknown_to_pm"  # #883
 UNBOUND = "not_null_stg_usa_wa__roles_entity_id"  # #883: the registrar's one-night lag
+# More unbound roles than a seat-elect cycle can publish (WA: 98 House + 25
+# Senate) is a registrar regression, not the lag: the build halts (#883 CR 1).
+UNBOUND_HALT_ABOVE = 150
 
 # Every test here builds the dbt project (#890: the commit hook routes by it).
 pytestmark = pytest.mark.dbt
@@ -187,3 +191,24 @@ def test_an_unbound_role_waits_a_night_without_failing_the_build(build):
     assert None not in _by_producer(built, ROLES)
     assert None not in _by_producer(built, TITLES)
     assert "role_create_pm_would_refuse" not in built.warnings
+
+
+def _unbound_roles(n: int) -> str:
+    """The roles CSV with ``n`` unbound seat-elect roles added, each its own key."""
+    lines = [seat_elect_role("").replace(SEAT_ELECT, f"{SEAT_ELECT}-{i}") for i in range(n)]
+    return fixture_csv("roles", add=lines)
+
+
+def test_a_seat_elect_cycle_of_unbound_roles_still_only_warns(build):
+    """#883 CR 1: the most unbound roles one night's lag can explain is a warning."""
+    built = build(datasets={"roles": _unbound_roles(UNBOUND_HALT_ABOVE)})
+
+    assert UNBOUND in built.warnings
+
+
+def test_more_unbound_roles_than_a_cycle_halts_the_build(build):
+    """#883 CR 1: a registrar regression that unbinds every role must halt at build with
+    its cause named, not reach the dry run as one archive per anchored role."""
+    built = build(datasets={"roles": _unbound_roles(UNBOUND_HALT_ABOVE + 1)}, must_succeed=False)
+
+    assert UNBOUND in built.failures
