@@ -23,12 +23,20 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     R2,
     R3,
     R4,
+    R5,
+    SEAT_ELECT,
     crosswalk_row,
     fixture_csv,
     overlay_row,
+    seat_elect_role,
 )
 
 ROLES, TITLES = "desired_roles", "desired_role_titles"
+UNKNOWN_TYPE = "published_role_type_unknown_to_pm"  # #883
+UNBOUND = "not_null_stg_usa_wa__roles_entity_id"  # #883: the registrar's one-night lag
+# More unbound roles than a seat-elect cycle can publish (WA: 98 House + 25
+# Senate) is a registrar regression, not the lag: the build halts (#883 CR 1).
+UNBOUND_HALT_ABOVE = 150
 
 # Every test here builds the dbt project (#890: the commit hook routes by it).
 pytestmark = pytest.mark.dbt
@@ -126,3 +134,81 @@ def test_a_role_type_pm_does_not_carry_is_kept_for_the_applier_to_refuse(build):
     built = build(datasets={"roles": fixture_csv("roles", drop=R3, add=[line])})
 
     assert _by_producer(built, ROLES)[R3][3] == "at_large_senator"
+    assert UNKNOWN_TYPE in built.warnings
+
+
+def test_every_type_the_fixture_publishes_is_in_pms_vocabulary(build):
+    assert UNKNOWN_TYPE not in build().warnings
+
+
+def test_an_anchored_role_whose_type_pm_lacks_is_named(build):
+    """#883: identity is written once, so the applier never reads an anchored role's
+    type again — the guard is the only word that it moved somewhere PM cannot follow."""
+    roles = fixture_csv(
+        "roles",
+        replace={
+            "committee-member-role:31640,committee_member": (
+                "committee-member-role:31640,committee_clerk"
+            )
+        },
+    )
+
+    built = build(datasets={"roles": roles})
+
+    assert _by_producer(built, ROLES)[R1][0] == MR1
+    assert UNKNOWN_TYPE in built.warnings
+
+
+def test_a_seat_elect_role_is_a_districted_create(build):
+    """#883 (usa-wa#600): a member-elect's office is its seat's, held early."""
+    built = build(datasets={"roles": fixture_csv("roles", add=[seat_elect_role()])})
+
+    assert _by_producer(built, ROLES)[R5] == (
+        None,
+        R5,
+        O2,
+        "state_representative_elect",
+        "usa-wa-ld-34",
+        "Position 1",
+        "Washington State Representative-elect, LD-34, Position 1",
+    )
+    assert UNKNOWN_TYPE not in built.warnings
+
+
+def test_an_unbound_role_waits_a_night_without_failing_the_build(build):
+    """#883: a brand-new role publishes with no entity_id; the next night's registrar
+    binds it. Never anchored, so leaving it out archives nothing — and it is not a
+    create PM would refuse, so the refusal warn stays quiet (R4 anchored here)."""
+    crosswalk = [
+        *DEFAULT_CROSSWALK,
+        crosswalk_row(R4, "01SR4000000000000000000000A", "live", kind="role"),
+    ]
+    roles = fixture_csv("roles", add=[seat_elect_role("")])
+
+    built = build(crosswalk=tuple(crosswalk), datasets={"roles": roles})
+
+    assert UNBOUND in built.warnings
+    assert None not in _by_producer(built, ROLES)
+    assert None not in _by_producer(built, TITLES)
+    assert "role_create_pm_would_refuse" not in built.warnings
+
+
+def _unbound_roles(n: int) -> str:
+    """The roles CSV with ``n`` unbound seat-elect roles added, each its own key."""
+    lines = [seat_elect_role("").replace(SEAT_ELECT, f"{SEAT_ELECT}-{i}") for i in range(n)]
+    return fixture_csv("roles", add=lines)
+
+
+def test_a_seat_elect_cycle_of_unbound_roles_still_only_warns(build):
+    """#883 CR 1: the most unbound roles one night's lag can explain is a warning."""
+    built = build(datasets={"roles": _unbound_roles(UNBOUND_HALT_ABOVE)})
+
+    assert UNBOUND in built.warnings
+
+
+def test_more_unbound_roles_than_a_cycle_halts_the_build(build):
+    """#883 CR 1: a registrar regression that unbinds every role must halt at build with
+    its cause named, not reach the dry run as one archive per anchored role."""
+    built = build(datasets={"roles": _unbound_roles(UNBOUND_HALT_ABOVE + 1)}, must_succeed=False)
+
+    assert UNBOUND in built.failures

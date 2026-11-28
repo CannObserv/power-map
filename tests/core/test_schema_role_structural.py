@@ -450,7 +450,8 @@ async def test_occupancy_seeded_single_only_on_districted_seats(db):
     """A senator or a positioned representative holds the seat alone; nothing else is asserted.
 
     At-large seats are fungible (N concurrent holders on one role, #302), and the
-    coarse types carry co-chairs and co-leaders, so they stay ``shared``.
+    coarse types carry co-chairs and co-leaders, so they stay ``shared``. A
+    member-elect's seat (#883) is its seat's, held early: one person at a time.
     """
     rows = {
         r["slug"]: r["occupancy"] for r in await db.fetch("SELECT slug, occupancy FROM role_types")
@@ -461,6 +462,8 @@ async def test_occupancy_seeded_single_only_on_districted_seats(db):
     assert {slug for slug, occ in rows.items() if occ == "single"} == {
         "state_senator",
         "state_representative",
+        "state_senator_elect",
+        "state_representative_elect",
     }
 
 

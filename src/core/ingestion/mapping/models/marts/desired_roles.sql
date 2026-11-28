@@ -11,7 +11,9 @@
 -- without a type — is dropped here and named by role_create_pm_would_refuse,
 -- since those are triggers and a CHECK, which fire mid-transaction. An anchored
 -- role is kept whatever it carries: dropping it would read as absence, and
--- absence archives.
+-- absence archives. A role with no entity_id (#883) is unbound: published on
+-- its first night, before usa-wa's registrar names it. It can never be anchored,
+-- so it waits for the next night here, named by the entity_id not_null warn.
 with pm as (
     select producer_id, pm_id, resolution
     from {{ ref('stg_pm__producer_crosswalk') }}
@@ -32,7 +34,9 @@ published as (
     from {{ ref('stg_usa_wa__roles') }} as r
     left join pm on pm.producer_id = r.entity_id
     left join {{ ref('stg_pm__role_types') }} as t on t.slug = r.role_type
-    where pm.resolution is null or pm.resolution in ('live', 'merged')
+    where
+        r.entity_id is not null
+        and (pm.resolution is null or pm.resolution in ('live', 'merged'))
 )
 
 select

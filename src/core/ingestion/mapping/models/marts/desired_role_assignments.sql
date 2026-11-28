@@ -8,7 +8,9 @@
 -- the role through the live crosswalk, or to the row the same run creates for
 -- them. A span whose role_key names no published role is kept, with no role —
 -- dropping it would read as absence and archive a live tenure — and is named by
--- tests/unresolved_assignment_roles.sql; the applier cannot create it.
+-- tests/unresolved_assignment_roles.sql; the applier cannot create it. A span on
+-- a published but unbound role (#883: its first night, no entity_id yet) waits
+-- with its role, unless it is anchored — then it is kept, and named, as above.
 with pm as (
     select producer_id, pm_id, resolution
     from {{ ref('stg_pm__producer_crosswalk') }}
@@ -24,4 +26,6 @@ select
 from {{ ref('stg_usa_wa__assignments') }} as s
 left join {{ ref('stg_usa_wa__roles') }} as r on r.role_key = s.role_key
 left join pm on pm.producer_id = s.span_key
-where pm.resolution is null or pm.resolution in ('live', 'merged')
+where
+    (pm.resolution is null or pm.resolution in ('live', 'merged'))
+    and not (pm.pm_id is null and r.role_key is not null and r.entity_id is null)

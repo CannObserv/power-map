@@ -104,6 +104,30 @@ SPAN_CLOSED = f"{P1}|party-role:republican|party|republican|2017-18"
 SPAN_NEW = f"{P3}|committee-member-role:31640|committee|31640|2023-24"
 SPAN_OUT = f"{P1}|party-role:republican|party|republican|2023-24"
 
+# #883 (usa-wa#600): a member-elect's seat-elect role, R5, and P1's span on it, as
+# the snapshot publishes them. Off the default fixture: a test adds them. The
+# unbound copy is the role's first night, before usa-wa's registrar gives it an id.
+R5 = _ids("R", (5,))[0]
+SEAT_ELECT = "seat-elect:house:ld-34:position-1"
+SEAT_ELECT_TITLE = '"Washington State Representative-elect, LD-34, Position 1"'
+
+
+def seat_elect_role(entity_id: str = R5) -> str:
+    """The seat-elect role's `roles` line; ``entity_id=""`` is an unbound role."""
+    return ",".join(
+        [entity_id, SEAT_ELECT, "state_representative_elect", SEAT_ELECT_TITLE]
+        + ["chamber-house-elect", "34", "usa_wa_house", O2, "34", "Position 1"]
+    )
+
+
+SPAN_ELECT = f"{P1}|{SEAT_ELECT}|chamber-house-elect|ld-34-position-1|2027-28"
+SPAN_ELECT_LINE = ",".join(
+    [P1, "1", "usa_wa_legislature", SEAT_ELECT, "chamber-house-elect", "ld-34-position-1"]
+    + ["2027-28", "2027-28", "2026-11-03", "2027-01-10", "false", SPAN_ELECT]
+    + ["dated", "dated", "2026-11-25", "2027-01-10", "principal"]
+)
+PERIOD_ELECT_LINE = f"{SEAT_ELECT},2026-11-03,,1,kind"
+
 DEFAULT_CROSSWALK = [
     crosswalk_row(P1, PM1, "live"),
     crosswalk_row(P2, PM2, "merged"),  # PM merged it; pm_id already points at the survivor
@@ -127,6 +151,8 @@ DEFAULT_ROLE_TYPES = [
     ("rt-state_senator", "state_senator", False, False),
     ("rt-state_representative", "state_representative", True, False),
     ("rt-state_representative_at_large", "state_representative_at_large", False, True),
+    ("rt-state_senator_elect", "state_senator_elect", False, False),  # #883
+    ("rt-state_representative_elect", "state_representative_elect", True, False),
 ]
 
 

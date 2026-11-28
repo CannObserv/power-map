@@ -119,6 +119,21 @@ async def test_role_types_seeded_offices_present_and_expect_jurisdiction(client,
 
 
 @pytest.mark.integration
+async def test_role_types_member_elect_offices_mirror_their_seats(client, api_key):
+    """#883: usa-wa#600's member-elect seats are in the catalog, flagged as their seats.
+
+    A producer resolves a `seat-elect:` role by slug and has no way to add one (#302).
+    """
+    response = await client.get("/api/v1/role-types", headers={"X-API-Key": api_key})
+    by_slug = {r["slug"]: r for r in response.json()["data"]}
+    flags = ("expects_jurisdiction", "requires_qualifier", "forbids_qualifier", "occupancy")
+    for seat in ("state_representative", "state_senator"):
+        elect = by_slug[f"{seat}_elect"]
+        assert {f: elect[f] for f in flags} == {f: by_slug[seat][f] for f in flags}
+    assert by_slug["state_senator_elect"]["display_name"] == "State Senator-elect"
+
+
+@pytest.mark.integration
 async def test_role_types_coarse_member_retired(client, api_key):
     """The #269 coarse `member` classifier is gone (#266).
 

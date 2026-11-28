@@ -18,7 +18,8 @@ compared, and no re-mint is worth blocking every build on.
 
 Exit codes: 0 built and written; 1 a held snapshot is not its pin, the build
 failed, or a dbt test *errored* (a dbt *warning* — the fixture-known blank
-names — does not fail the run, but is printed); 2 usage, which includes a pin
+names — does not fail the run, but is printed, with up to ten of its rows when
+the test stores them, #883); 2 usage, which includes a pin
 file that will not load, as it does for the puller. A successful run also
 writes `BUILD.json` beside the tables: the dataset versions and contracts, the
 producer heartbeat the last pull recorded (#551), whether those versions are
@@ -39,6 +40,7 @@ from src.core.ingestion.datasets import Subscription, load_subscription
 from src.core.ingestion.mapping import (
     check_contracts,
     run_dbt,
+    stored_rows,
     write_build_info,
     write_desired_state,
 )
@@ -71,6 +73,8 @@ def build(
         status = str(r.status)
         if status == "warn":
             logger.warning("  WARN      %s — %s", r.node.name, r.message)
+            for line in stored_rows(duckdb_path, r.node):
+                logger.warning("              %s", line)
         elif status not in ("success", "pass"):
             logger.error("  %-9s %s — %s", status.upper(), r.node.name, r.message)
     if not result.success:
