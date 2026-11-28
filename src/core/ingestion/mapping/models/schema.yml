@@ -293,7 +293,15 @@ models:
       - name: role_key
         tests: [unique, not_null]
       - name: entity_id
-        tests: [unique, not_null]
+        description: >-
+          Warn, never halt (#883). A brand-new role publishes unbound on its first
+          night and usa-wa's registrar binds it the next; until then it, and every
+          unanchored span and period on it, waits out of the marts.
+        tests:
+          - unique
+          - not_null:
+              config:
+                severity: warn
 
   - name: stg_pm__role_types
     columns:

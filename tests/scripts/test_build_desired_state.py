@@ -195,3 +195,19 @@ def test_a_failure_inside_the_build_is_not_reported_as_a_usage_error(store, tmp_
 
     with pytest.raises(ValueError, match="parquet export failed"):
         main(_args(store, tmp_path))
+
+
+def test_a_warning_that_stores_its_rows_logs_them(store, tmp_path, capsys):
+    """#883: a count says something is wrong; the guard's rows say what. A role_type
+    PM lacks is named in the journal by slug, with its count and a sample key."""
+    roles = store / "roles" / "v1" / "data.csv"
+    roles.write_text(roles.read_text().replace(",state_senator,", ",state_senator_elect,"))
+    vocab = [t for t in DEFAULT_ROLE_TYPES if t[1] != "state_senator_elect"]
+    write_parquet(vocab, TABLES["role_types"], store / PM_EXPORT_DIR / "role_types.parquet")
+
+    code = main(_args(store, tmp_path))
+
+    logged = capsys.readouterr().out
+    assert code == 0
+    assert "published_role_type_unknown_to_pm" in logged
+    assert "state_senator_elect" in logged and "seat:senate:ld-34" in logged

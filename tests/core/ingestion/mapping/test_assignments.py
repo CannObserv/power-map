@@ -16,19 +16,25 @@ import pytest
 pytest.importorskip("dbt.adapters.duckdb")
 
 from tests.core.ingestion.mapping.conftest import (  # noqa: E402
+    DEFAULT_CROSSWALK,
     DEFAULT_OVERLAY,
     P1,
     P3,
     R1,
     R2,
+    R5,
     RA1,
     RA2,
     SPAN_CLOSED,
+    SPAN_ELECT,
+    SPAN_ELECT_LINE,
     SPAN_NEW,
     SPAN_OPEN,
     SPAN_OUT,
+    crosswalk_row,
     fixture_csv,
     overlay_row,
+    seat_elect_role,
 )
 
 SPANS, DATES = "desired_role_assignments", "desired_role_assignment_dates"
@@ -139,3 +145,47 @@ def test_assignment_pins_are_in_the_overlay_vocabulary(build):
     )
 
     assert "overlay_field_unmapped" not in built.warnings
+
+
+def _elect(entity_id: str = R5) -> dict[str, str]:
+    """#883: the seat-elect role (bound, or unbound with ``""``) and P1's span on it."""
+    return {
+        "roles": fixture_csv("roles", add=[seat_elect_role(entity_id)]),
+        "assignments": fixture_csv("assignments", add=[SPAN_ELECT_LINE]),
+    }
+
+
+def test_a_member_elect_span_is_a_closed_tenure_on_its_seat_elect_role(build):
+    """#883 (usa-wa#600): elected 2026-11-03, the day before the term opens its end;
+    `is_active` false, so PM's row is not current."""
+    built = build(datasets=_elect())
+
+    assert _by_span(built, SPANS)[SPAN_ELECT] == (None, SPAN_ELECT, P1, R5, date(2026, 11, 3))
+    assert _by_span(built, DATES)[SPAN_ELECT] == (
+        None,
+        SPAN_ELECT,
+        date(2026, 11, 3),
+        date(2027, 1, 10),
+        False,
+    )
+
+
+def test_an_unanchored_span_on_an_unbound_role_waits_with_it(build):
+    """#883: its role has no id until the next night, so the applier could only call
+    the create stale; never anchored, so leaving it out archives nothing."""
+    built = build(datasets=_elect(""))
+
+    assert SPAN_ELECT not in _by_span(built, SPANS)
+    assert SPAN_ELECT not in _by_span(built, DATES)
+    assert "unresolved_assignment_roles" not in built.warnings
+
+
+def test_an_anchored_span_on_an_unbound_role_is_kept_and_named(build):
+    """Dropping an anchored span reads as absence, which archives a live tenure."""
+    anchored = "01ARE000000000000000000000A"
+    crosswalk = [*DEFAULT_CROSSWALK, crosswalk_row(SPAN_ELECT, anchored, "live", kind="assignment")]
+
+    built = build(crosswalk=tuple(crosswalk), datasets=_elect(""))
+
+    assert _by_span(built, SPANS)[SPAN_ELECT][:4] == (anchored, SPAN_ELECT, P1, None)
+    assert "unresolved_assignment_roles" in built.warnings

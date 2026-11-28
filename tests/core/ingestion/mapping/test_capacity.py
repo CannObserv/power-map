@@ -17,11 +17,14 @@ from tests.core.ingestion.mapping.conftest import (  # noqa: E402
     DEFAULT_CROSSWALK,
     MR1,
     MR2,
+    PERIOD_ELECT_LINE,
     R1,
     R2,
     R3,
+    R5,
     crosswalk_row,
     fixture_csv,
+    seat_elect_role,
 )
 
 PERIODS = "role_periods"
@@ -134,3 +137,25 @@ def test_a_period_the_table_would_refuse_fails_the_build(build, before, after):
     b = build(datasets=_with(replace={before: after}), must_succeed=False)
 
     assert f"{CAPACITY}_invalid" in b.failures
+
+
+def _elect(entity_id: str) -> dict[str, str]:
+    return {
+        **_with(PERIOD_ELECT_LINE),
+        "roles": fixture_csv("roles", add=[seat_elect_role(entity_id)]),
+    }
+
+
+def test_a_seat_elect_period_seats_one_member_elect(build):
+    """#883 (usa-wa#600): open from the first election day, one holder at a time."""
+    rows = {(r[1], r[2]): r for r in build(datasets=_elect(R5)).rows(CAPACITY)}
+
+    assert rows[(R5, date(2026, 11, 3))][3:] == (None, 1)
+
+
+def test_a_period_on_an_unbound_role_is_named_and_claims_nothing(build):
+    """#883: the role waits a night for its id, and so does its period."""
+    b = build(datasets=_elect(""))
+
+    assert UNRESOLVED in b.warnings
+    assert len(b.rows(CAPACITY)) == 4

@@ -52,13 +52,15 @@ Read the two flags as a pair — they are mutually exclusive, and the combinatio
 
 | `requires_qualifier` | `forbids_qualifier` | Meaning | Example |
 |---|---|---|---|
-| `true` | `false` | Qualifier **required** | `state_representative` (Position 1/2) |
+| `true` | `false` | Qualifier **required** | `state_representative` (Position 1/2), `state_representative_elect` |
 | `false` | `true` | Qualifier **rejected** — office is positionless | `state_representative_at_large` |
-| `false` | `false` | Qualifier optional; one seat per district | `state_senator` |
+| `false` | `false` | Qualifier optional; one seat per district | `state_senator`, `state_senator_elect` |
 
 An empty or whitespace-only `qualifier` counts as **absent** on both paths — it never satisfies `requires_qualifier`, never trips `forbids_qualifier`, and is stored as NULL.
 
-`occupancy` (#506) says how many people hold one role of the office at a time: `single` for `state_senator` and `state_representative`, `shared` (no claim) for everything else, including the at-large seat, whose N members are N concurrent assignments on one role. It is **audited, not enforced**: two overlapping holders of a `single` seat are accepted, and the daily seat-occupancy audit reports them (`docs/AUDITS.md`). A same-day handoff (one span ends the day the next begins) is succession, not overlap. One known exception to `single`: the 1889–90 Senate seated several senators in some districts, and both PM and usa-wa model those as one `state_senator` seat (usa-wa#362), so their co-senators read as overlaps. The audit's baseline counts them.
+`occupancy` (#506) says how many people hold one role of the office at a time: `single` for `state_senator` and `state_representative` and their `_elect` types, `shared` (no claim) for everything else, including the at-large seat, whose N members are N concurrent assignments on one role. It is **audited, not enforced**: two overlapping holders of a `single` seat are accepted, and the daily seat-occupancy audit reports them (`docs/AUDITS.md`). A same-day handoff (one span ends the day the next begins) is succession, not overlap. One known exception to `single`: the 1889–90 Senate seated several senators in some districts, and both PM and usa-wa model those as one `state_senator` seat (usa-wa#362), so their co-senators read as overlaps. The audit's baseline counts them.
+
+**Member-elect types (#883, usa-wa#600):** `state_representative_elect` and `state_senator_elect` mirror their seats' flags. A 2026 winner holds a `seat-elect:` role of that type from election day to the day before the term opens (2026-11-03 → 2027-01-10): the assignment is not current, and their seat assignment starts 2027-01-11. A re-elected incumbent holds the seat and the seat-elect role at once, two roles, never an occupancy overlap.
 
 ```jsonc
 {

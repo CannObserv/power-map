@@ -2462,7 +2462,12 @@ END $$;
 -- Laws of 1965 introduced Position 1/2) is deliberately positionless: its seats
 -- were fungible, so the qualifier stays NULL and multiplicity is expressed as N
 -- concurrent role_assignments on the one role. occupancy (#506) is `single` for
--- the two districted seats only; every other type makes no claim (`shared`).
+-- the districted seats only; every other type makes no claim (`shared`).
+-- state_representative_elect / state_senator_elect (#883, usa-wa#600) are the
+-- member-elect's seat: a 2026 winner from the race call to the day before the
+-- term opens, on a `seat-elect:` role of its own. Each mirrors its seat's flags
+-- (tests/core/test_role_type_seed.py), and a re-elected incumbent holds both
+-- roles at once — two roles, so never a seat-occupancy pair.
 -- Seeded ahead of the data, unlike
 -- the reserved peers below, because role_types has NO remote write path —
 -- resolve_role rejects an unknown slug, so an unseeded type would bounce every
@@ -2490,6 +2495,8 @@ INSERT INTO _seed_role_types (id, slug, display_name, expects_jurisdiction, requ
     ('01KX0000000000000000000001', 'state_representative',                'State Representative',                TRUE,  TRUE,  FALSE, 'single'),
     ('01KX0000000000000000000002', 'state_senator',                      'State Senator',                      TRUE,  FALSE, FALSE, 'single'),
     ('01KX000000000000000000000D', 'state_representative_at_large',      'State Representative (At-Large)',    TRUE,  FALSE, TRUE,  'shared'),
+    ('01KX000000000000000000000N', 'state_representative_elect',         'State Representative-elect',         TRUE,  TRUE,  FALSE, 'single'),
+    ('01KX000000000000000000000P', 'state_senator_elect',                'State Senator-elect',                TRUE,  FALSE, FALSE, 'single'),
     ('01KX0000000000000000000004', 'chamber_leader',                     'Chamber Leader',                     FALSE, FALSE, FALSE, 'shared'),
     ('01KX0000000000000000000005', 'chamber_officer',                    'Chamber Officer',                    FALSE, FALSE, FALSE, 'shared'),
     ('01KX0000000000000000000006', 'committee_chair',                    'Committee Chair',                    FALSE, FALSE, FALSE, 'shared'),

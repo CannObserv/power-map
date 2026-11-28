@@ -127,8 +127,17 @@ uv run --group mapping "${env_args[@]}" python -m scripts.build_desired_state # 
   or stray position (#273/#302) — dropped from `desired_roles`, since those are
   triggers and a CHECK that fire mid-transaction. An **anchored** role is never
   dropped: absence is what archives it.
-  `build_desired_state` prints each WARN node and exits 0. Beside the key tests
-  (a unique, non-null `span_key`, `role_key` or `producer_id`), one test halts:
+  `not_null_stg_usa_wa__roles_entity_id` (#883): a role published unbound, on
+  its first night before usa-wa's registrar names it. It waits for the next
+  night, with every **unanchored** span and period on it (an anchored span is
+  kept and named by `unresolved_assignment_roles`).
+  `published_role_type_unknown_to_pm` (#883): a `role_type` PM's vocabulary
+  lacks, one row per slug. Each create on it reads `stale` in the dry run, so
+  the remedy is a deploy that seeds the type (#302), never `--execute`.
+  `build_desired_state` prints each WARN node (and up to ten rows of one that
+  sets `store_failures`, as the role-type guard does) and exits 0. Beside the key tests
+  (a unique `span_key`, `role_key` or `producer_id`, non-null except the
+  roles' `entity_id`), one test halts:
   `desired_role_assignment_dates_current_has_no_end`, a current span with an
   end date, which the database's CHECK would refuse.
 - **The real-snapshot check** (`tests/core/ingestion/mapping/test_real_snapshot.py`,

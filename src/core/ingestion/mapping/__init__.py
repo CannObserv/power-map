@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import duckdb
 from dbt.adapters.duckdb.connections import DuckDBConnectionManager
 from dbt.cli.main import dbtRunner, dbtRunnerResult
 
@@ -377,6 +378,27 @@ def write_desired_state(duckdb_path: Path | str, out_dir: Path | str) -> dict[st
             stale.unlink()
             logger.warning("removed stale desired-state file %s — not in the manifest", stale.name)
     return counts
+
+
+# A warning's stored rows logged under it (#883); the rest are counted, not shown.
+STORED_ROWS_SHOWN = 10
+
+
+def stored_rows(duckdb_path: Path | str, node, limit: int = STORED_ROWS_SHOWN) -> list[str]:
+    """A dbt test node's failing rows from a built duckdb file, one ``col=value, …``
+    line each, when the test stores them (``store_failures``); otherwise none.
+    The count is dbt's own message; these say which rows."""
+    if not (node.config.get("store_failures") and node.relation_name):
+        return []
+    con = duckdb.connect(str(duckdb_path), read_only=True)
+    try:
+        cur = con.execute(f"SELECT * FROM {node.relation_name} LIMIT {int(limit)}")
+        names = [d[0] for d in cur.description]
+        return [
+            ", ".join(f"{k}={v}" for k, v in zip(names, row, strict=True)) for row in cur.fetchall()
+        ]
+    finally:
+        con.close()
 
 
 def _sha256(path: Path) -> str | None:
