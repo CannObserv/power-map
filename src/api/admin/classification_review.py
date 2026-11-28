@@ -55,7 +55,7 @@ _PAGE = "admin/classification/review/list.html"
 _REGION = "admin/classification/review/_region.html"
 
 #: Why an org is in the queue, as the page says it.
-REASON_LABELS: dict[str, str] = {
+REASON_LABELS: dict[classification.ReviewReason, str] = {
     "disagree": "Rules and AI disagree",
     "conflict": "Conflicting identifiers",
     "low": "Low AI confidence",
