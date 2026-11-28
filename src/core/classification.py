@@ -81,12 +81,16 @@ ORDER BY source, created_at DESC, id DESC
 """
 
 
-_TOUCHED_SQL = """
-SELECT EXISTS (
-    SELECT 1 FROM classification_suggestions
-    WHERE entity_type = 'organization' AND entity_id = $1 AND field = 'org_kind'
-      AND source = 'manual')
-"""
+def _touched(org_ref: str) -> str:
+    """SQL: an operator has acted on the org at *org_ref*: any ``manual`` row, an
+    ignored one included. Bulk accept's test, and the review queue's for ``ready``."""
+    return f"""EXISTS (
+    SELECT 1 FROM classification_suggestions t
+    WHERE t.entity_type = 'organization' AND t.entity_id = {org_ref}
+      AND t.field = 'org_kind' AND t.source = 'manual')"""
+
+
+_TOUCHED_SQL = f"SELECT {_touched('$1')}"
 
 
 async def latest_answers(db: asyncpg.Connection, org_id: str) -> dict[str, asyncpg.Record]:
@@ -387,23 +391,24 @@ FROM organizations o
 LEFT JOIN live r ON r.entity_id = o.id AND r.source = 'rules'
 LEFT JOIN live j ON j.entity_id = o.id AND j.source = 'jev'
 WHERE o.archived_at IS NULL AND o.org_kind_id IS NULL
-  AND NOT EXISTS (
-      SELECT 1 FROM classification_suggestions m
-      WHERE m.entity_type = 'organization' AND m.entity_id = o.id
-        AND m.field = 'org_kind' AND m.source = 'manual')
+  AND NOT {_touched("o.id")}
 ORDER BY o.id
 """
+
+
+def _row_outcome(r: asyncpg.Record, *, threshold: float) -> tuple[str, str | None]:
+    """:func:`bulk_outcome` on a row of live answers: the one reading of a row that
+    the bulk plan and the review queue share, so they can't weigh it differently."""
+    rules = (r["rules_value"], r["rules_note"]) if r["rules_value"] else None
+    jev = JevView(r["jev_value"], r["jev_confidence"], r["jev_model"]) if r["jev_value"] else None
+    return bulk_outcome(rules, jev, threshold=threshold)
 
 
 async def plan_bulk_accept(db: asyncpg.Connection, *, threshold: float) -> list[BulkItem]:
     """Every active, untouched org with no kind, and what bulk accept would do with it."""
     items = []
     for r in await db.fetch(_BULK_INPUT_SQL):
-        rules = (r["rules_value"], r["rules_note"]) if r["rules_value"] else None
-        jev = (
-            JevView(r["jev_value"], r["jev_confidence"], r["jev_model"]) if r["jev_value"] else None
-        )
-        outcome, kind = bulk_outcome(rules, jev, threshold=threshold)
+        outcome, kind = _row_outcome(r, threshold=threshold)
         accepted = outcome in ("rules", "jev")
         items.append(
             BulkItem(
@@ -518,6 +523,7 @@ manual AS (
       AND source = 'manual' AND ignored_at IS NULL
     ORDER BY entity_id, created_at DESC, id DESC)
 SELECT o.id AS org_id, dn.display_name AS name, m.manual_action,
+       {_touched("o.id")} AS touched,
        r.value AS rules_value, r.note AS rules_note,
        j.value AS jev_value, j.confidence AS jev_confidence, j.model AS jev_model
 FROM organizations o
@@ -548,22 +554,19 @@ async def review_queue(db: asyncpg.Connection, *, threshold: float) -> ReviewQue
     """Every undecided active org bulk accept leaves for an operator, in review order.
 
     The reason is :func:`bulk_outcome`'s, so the queue and the bulk-accept report
-    agree. A cleared org is queued whatever its answers; when bulk accept would
-    take them, its reason is ``cleared``. An untouched org bulk accept would take
-    isn't queued: it is counted in ``ready``, for the next run.
+    agree. A cleared org is queued whatever its answers; when they are answers
+    bulk accept would take, its reason is ``cleared``, because bulk accept leaves
+    any org an operator has acted on (``_touched``). An untouched org it would
+    take isn't queued: it is counted in ``ready``, for the next run.
     """
     items, ready = [], 0
     for r in await db.fetch(_REVIEW_INPUT_SQL):
-        rules = (r["rules_value"], r["rules_note"]) if r["rules_value"] else None
-        jev = (
-            JevView(r["jev_value"], r["jev_confidence"], r["jev_model"]) if r["jev_value"] else None
-        )
-        outcome, _ = bulk_outcome(rules, jev, threshold=threshold)
-        cleared = r["manual_action"] == "clear"
+        outcome, _ = _row_outcome(r, threshold=threshold)
         if outcome in ("rules", "jev"):
-            if not cleared:
+            if not r["touched"]:
                 ready += 1
                 continue
+            # Bulk accept leaves an org an operator has acted on: it's a person's call.
             outcome = "cleared"
         items.append(
             ReviewItem(
@@ -573,7 +576,7 @@ async def review_queue(db: asyncpg.Connection, *, threshold: float) -> ReviewQue
                 jev=r["jev_value"],
                 confidence=r["jev_confidence"],
                 reason=outcome,
-                cleared=cleared,
+                cleared=r["manual_action"] == "clear",
             )
         )
     return ReviewQueue(items=order_review(items), ready=ready)

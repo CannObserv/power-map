@@ -151,6 +151,39 @@ async def test_orgs_bulk_accept_would_take_are_counted_as_ready_not_queued(db):
 
 
 @pytest.mark.integration
+async def test_the_queue_and_the_bulk_plan_agree_on_one_snapshot(db):
+    # Bulk accept counts any manual row as touched, an ignored one included: an org
+    # whose only manual row is ignored is not ready, so it is queued, as cleared.
+    ghost, takeable, low = await _org(db), await _org(db), await _org(db)
+    for org in (ghost, takeable):
+        await _suggest(db, org, "rules", "legislature")
+    await _suggest(db, low, "jev", "government", 0.4)
+    await cls.record_decision(db, org_id=ghost, action="dismiss")
+    await db.execute(
+        "UPDATE classification_suggestions SET ignored_at = NOW()"
+        " WHERE entity_id = $1 AND source = 'manual'",
+        ghost,
+    )
+
+    plan = await cls.plan_bulk_accept(db, threshold=T)
+    queue = await cls.review_queue(db, threshold=T)
+    touched = {
+        r["entity_id"]
+        for r in await db.fetch(
+            "SELECT DISTINCT entity_id FROM classification_suggestions"
+            " WHERE entity_type = 'organization' AND field = 'org_kind' AND source = 'manual'"
+        )
+    }
+
+    assert queue.ready == sum(1 for i in plan if i.source)
+    assert {(i.org_id, i.reason) for i in plan if not i.source} == {
+        (i.org_id, i.reason) for i in queue.items if i.org_id not in touched
+    }
+    assert _mine(queue, ghost)[ghost].reason == "cleared"
+    assert _mine(queue, takeable) == {}
+
+
+@pytest.mark.integration
 async def test_a_cleared_org_is_back_in_the_queue_whatever_its_answers(db):
     takeable, low = await _org(db), await _org(db)
     await _suggest(db, takeable, "rules", "legislature")
