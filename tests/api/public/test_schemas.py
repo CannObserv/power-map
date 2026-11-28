@@ -21,6 +21,10 @@ from src.api.public.schemas import (
     fmt_ts,
 )
 
+# #877 D9: required on every org read (no default), so a handler can't forget them.
+_NO_KIND = {"org_kind_slug": None, "org_kind_source": None}
+
+
 # ---------------------------------------------------------------------------
 # fmt_ts
 # ---------------------------------------------------------------------------
@@ -87,19 +91,19 @@ def testfmt_ts_naive_datetime_returns_no_z_suffix():
 
 def test_org_search_result_archived_at_serialized_to_z():
     dt = datetime(2024, 1, 1, tzinfo=UTC)
-    result = OrgSearchResult(id="abc", archived_at=dt, lifespan=OrgLifespan())
+    result = OrgSearchResult(id="abc", archived_at=dt, lifespan=OrgLifespan(), **_NO_KIND)
     dumped = result.model_dump(mode="json")
     assert dumped["archived_at"].endswith("Z")
 
 
 def test_org_search_result_archived_at_none_stays_none():
-    result = OrgSearchResult(id="abc", lifespan=OrgLifespan())
+    result = OrgSearchResult(id="abc", lifespan=OrgLifespan(), **_NO_KIND)
     dumped = result.model_dump(mode="json")
     assert dumped["archived_at"] is None
 
 
 def test_org_search_result_optional_fields_default_none():
-    r = OrgSearchResult(lifespan=OrgLifespan(), id="x")
+    r = OrgSearchResult(lifespan=OrgLifespan(), **_NO_KIND, id="x")
     assert r.name is None
     assert r.acronym is None
     assert r.slug is None
@@ -127,7 +131,7 @@ def test_org_search_meta_all_fields():
 
 def test_org_search_response_shape():
     response = OrgSearchResponse(
-        data=[OrgSearchResult(lifespan=OrgLifespan(), id="x", name="Foo")],
+        data=[OrgSearchResult(lifespan=OrgLifespan(), **_NO_KIND, id="x", name="Foo")],
         meta=SearchMeta(limit=10, offset=0, count=1, has_more=False),
     )
     dumped = response.model_dump(mode="json")
@@ -158,6 +162,7 @@ def test_org_detail_inherits_archived_at_serializer():
     detail = OrgDetail(
         parent_ownership="none",
         lifespan=OrgLifespan(),
+        **_NO_KIND,
         id="abc",
         active=True,
         archived_at=_TS,
@@ -172,6 +177,7 @@ def test_org_detail_timestamps_serialized_to_z():
     detail = OrgDetail(
         parent_ownership="none",
         lifespan=OrgLifespan(),
+        **_NO_KIND,
         id="abc",
         active=True,
         created_at=_TS,
@@ -186,6 +192,7 @@ def test_org_detail_arrays_default_empty():
     detail = OrgDetail(
         parent_ownership="none",
         lifespan=OrgLifespan(),
+        **_NO_KIND,
         id="abc",
         active=True,
         created_at=_TS,
@@ -202,6 +209,7 @@ def test_org_detail_active_is_required():
         OrgDetail(
             parent_ownership="none",
             lifespan=OrgLifespan(),
+            **_NO_KIND,
             id="abc",
             created_at=_TS,
             updated_at=_TS,
@@ -212,6 +220,7 @@ def test_org_detail_active_round_trips():
     true_dump = OrgDetail(
         parent_ownership="none",
         lifespan=OrgLifespan(),
+        **_NO_KIND,
         id="abc",
         active=True,
         created_at=_TS,
@@ -220,6 +229,7 @@ def test_org_detail_active_round_trips():
     false_dump = OrgDetail(
         parent_ownership="none",
         lifespan=OrgLifespan(),
+        **_NO_KIND,
         id="abc",
         active=False,
         created_at=_TS,
@@ -233,6 +243,7 @@ def test_org_detail_full_record_shape():
     detail = OrgDetail(
         parent_ownership="none",
         lifespan=OrgLifespan(),
+        **_NO_KIND,
         id="abc",
         name="Foo Corp",
         acronym="FC",
@@ -261,6 +272,7 @@ def test_org_detail_jurisdiction_affiliations_default_empty():
     detail = OrgDetail(
         parent_ownership="none",
         lifespan=OrgLifespan(),
+        **_NO_KIND,
         id="abc",
         active=True,
         created_at=_TS,
@@ -275,6 +287,7 @@ def test_org_detail_jurisdiction_affiliations_shape():
     detail = OrgDetail(
         parent_ownership="none",
         lifespan=OrgLifespan(),
+        **_NO_KIND,
         id="abc",
         active=True,
         created_at=_TS,
@@ -306,3 +319,9 @@ def test_assignment_membership_type_is_required(model):
     would publish it optional — `Unset` in the client — and report a substitute
     as a principal the day a SELECT forgot it."""
     assert "membership_type" in model.model_json_schema()["required"]
+
+
+def test_org_search_result_requires_the_kind_fields():
+    """#877 D9: no default, as `lifespan`: a query that forgot them fails loudly."""
+    with pytest.raises(ValidationError):
+        OrgSearchResult(id="x", lifespan=OrgLifespan())

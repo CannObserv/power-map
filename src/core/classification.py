@@ -483,6 +483,27 @@ async def run_bulk_accept(
         await db.execute("SELECT pg_advisory_unlock($1)", DRAIN_LOCK_KEY)
 
 
+# --- the public wire (phase 3c, design D9) -------------------------------
+
+KindSource = Literal["rules", "ai", "operator"]
+# org_kind_source on the public API: who decided the resolved kind.
+KIND_SOURCES: tuple[KindSource, ...] = get_args(KindSource)
+
+
+def kind_source(action: str | None, accepted_source: str | None) -> KindSource | None:
+    """Who decided an org's kind, from its latest ``manual`` row, in wire terms.
+
+    An accept names the source it took (``jev`` shown as ``ai``, vendor-neutral
+    as on the admin panel); a set is the ``operator``'s own choice. A dismiss,
+    a clear or no decision has no kind, so no source.
+    """
+    if action == "set":
+        return "operator"
+    if action == "accept":
+        return "ai" if accepted_source == "jev" else "rules"
+    return None
+
+
 # --- the review queue (phase 3b, design D5) -------------------------------
 
 ReviewReason = Literal["disagree", "conflict", "low", "untrusted", "none", "unanswered", "cleared"]

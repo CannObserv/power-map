@@ -309,3 +309,25 @@ async def test_merge_carries_a_decision_over_a_survivors_clear(db):
     latest = (await cls.latest_answers(db, survivor))["manual"]
     assert (latest["manual_action"], latest["value"]) == ("set", "tribe")
     assert latest["note"] == f"carried from merged {loser}"
+
+
+# --- the public wire's org_kind_source (#877 phase 3c, D9) -----------------
+
+
+@pytest.mark.parametrize(
+    ("action", "accepted_source", "expected"),
+    [
+        ("accept", "rules", "rules"),
+        ("accept", "jev", "ai"),  # vendor-neutral, as on the admin panel
+        ("set", None, "operator"),
+        ("dismiss", None, None),
+        ("clear", None, None),
+        (None, None, None),
+    ],
+)
+def test_kind_source_names_who_decided_in_wire_terms(action, accepted_source, expected):
+    assert cls.kind_source(action, accepted_source) == expected
+
+
+def test_kind_sources_are_the_wire_values():
+    assert cls.KIND_SOURCES == ("rules", "ai", "operator")

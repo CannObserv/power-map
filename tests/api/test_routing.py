@@ -37,7 +37,7 @@ SWEPT_DIRS = ("src", "tests", "scripts", "clients")
 # ``/_test/`` are left out because test modules register them on ``app`` at
 # import (``public/test_require_scope.py``), so counting them would make the
 # total depend on which modules ran first.
-API_ROUTE_COUNT = 420  # +2: admin Kind review queue, page and decide (#877 phase 3b)
+API_ROUTE_COUNT = 421  # +1: public org-kinds catalog (#877 phase 3c)
 
 # The POST routes marked ``x-rate-limit-bucket: read`` (#310).
 READ_POST_PATHS = frozenset(

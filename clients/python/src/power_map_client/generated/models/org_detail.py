@@ -31,6 +31,8 @@ class OrgDetail:
             (earliest date within its precision), end from `v_org_lifespan` (latest
             date within precision of the earliest dissolved/merged_with/dated
             succeeded_by event). Either side null when no dated event bounds it.
+        org_kind_slug (None | str):
+        org_kind_source (None | str):
         active (bool):
         parent_ownership (Ownership): A record's ownership relative to the calling key.
         created_at (datetime.datetime):
@@ -50,6 +52,8 @@ class OrgDetail:
 
     id: str
     lifespan: OrgLifespan
+    org_kind_slug: None | str
+    org_kind_source: None | str
     active: bool
     parent_ownership: Ownership
     created_at: datetime.datetime
@@ -71,6 +75,12 @@ class OrgDetail:
         id = self.id
 
         lifespan = self.lifespan.to_dict()
+
+        org_kind_slug: None | str
+        org_kind_slug = self.org_kind_slug
+
+        org_kind_source: None | str
+        org_kind_source = self.org_kind_source
 
         active = self.active
 
@@ -158,6 +168,8 @@ class OrgDetail:
             {
                 "id": id,
                 "lifespan": lifespan,
+                "org_kind_slug": org_kind_slug,
+                "org_kind_source": org_kind_source,
                 "active": active,
                 "parent_ownership": parent_ownership,
                 "created_at": created_at,
@@ -201,6 +213,20 @@ class OrgDetail:
         id = d.pop("id")
 
         lifespan = OrgLifespan.from_dict(d.pop("lifespan"))
+
+        def _parse_org_kind_slug(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        org_kind_slug = _parse_org_kind_slug(d.pop("org_kind_slug"))
+
+        def _parse_org_kind_source(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        org_kind_source = _parse_org_kind_source(d.pop("org_kind_source"))
 
         active = d.pop("active")
 
@@ -322,6 +348,8 @@ class OrgDetail:
         org_detail = cls(
             id=id,
             lifespan=lifespan,
+            org_kind_slug=org_kind_slug,
+            org_kind_source=org_kind_source,
             active=active,
             parent_ownership=parent_ownership,
             created_at=created_at,

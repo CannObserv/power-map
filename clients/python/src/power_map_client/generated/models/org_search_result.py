@@ -26,6 +26,8 @@ class OrgSearchResult:
             (earliest date within its precision), end from `v_org_lifespan` (latest
             date within precision of the earliest dissolved/merged_with/dated
             succeeded_by event). Either side null when no dated event bounds it.
+        org_kind_slug (None | str):
+        org_kind_source (None | str):
         name (None | str | Unset):
         acronym (None | str | Unset):
         slug (None | str | Unset):
@@ -37,6 +39,8 @@ class OrgSearchResult:
 
     id: str
     lifespan: OrgLifespan
+    org_kind_slug: None | str
+    org_kind_source: None | str
     name: None | str | Unset = UNSET
     acronym: None | str | Unset = UNSET
     slug: None | str | Unset = UNSET
@@ -50,6 +54,12 @@ class OrgSearchResult:
         id = self.id
 
         lifespan = self.lifespan.to_dict()
+
+        org_kind_slug: None | str
+        org_kind_slug = self.org_kind_slug
+
+        org_kind_source: None | str
+        org_kind_source = self.org_kind_source
 
         name: None | str | Unset
         if isinstance(self.name, Unset):
@@ -101,6 +111,8 @@ class OrgSearchResult:
             {
                 "id": id,
                 "lifespan": lifespan,
+                "org_kind_slug": org_kind_slug,
+                "org_kind_source": org_kind_source,
             }
         )
         if name is not UNSET:
@@ -128,6 +140,20 @@ class OrgSearchResult:
         id = d.pop("id")
 
         lifespan = OrgLifespan.from_dict(d.pop("lifespan"))
+
+        def _parse_org_kind_slug(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        org_kind_slug = _parse_org_kind_slug(d.pop("org_kind_slug"))
+
+        def _parse_org_kind_source(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        org_kind_source = _parse_org_kind_source(d.pop("org_kind_source"))
 
         def _parse_name(data: object) -> None | str | Unset:
             if data is None:
@@ -203,6 +229,8 @@ class OrgSearchResult:
         org_search_result = cls(
             id=id,
             lifespan=lifespan,
+            org_kind_slug=org_kind_slug,
+            org_kind_source=org_kind_source,
             name=name,
             acronym=acronym,
             slug=slug,

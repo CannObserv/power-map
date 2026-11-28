@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "power-map",
-    "version": "0.83.1"
+    "version": "0.84.0"
   },
   "paths": {
     "/health": {
@@ -4281,6 +4281,87 @@
         ]
       }
     },
+    "/api/v1/org-kinds": {
+      "get": {
+        "tags": [
+          "public-api"
+        ],
+        "summary": "List Org Kinds",
+        "description": "Return every organization kind, by slug.",
+        "operationId": "list_org_kinds",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgKindsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No X-API-Key header, or the key lacks the route's scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded — back off for Retry-After seconds. See PUBLIC_API.md § Rate Limits.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified — the If-None-Match ETag still matches."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "An ETag from an earlier response. When it still matches, the answer is 304 with no body."
+          }
+        ]
+      }
+    },
     "/api/v1/roles": {
       "get": {
         "tags": [
@@ -8368,6 +8449,28 @@
             ],
             "title": "Succeeded By"
           },
+          "org_kind_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Kind Slug"
+          },
+          "org_kind_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Kind Source"
+          },
           "active": {
             "type": "boolean",
             "title": "Active"
@@ -8418,6 +8521,8 @@
         "required": [
           "id",
           "lifespan",
+          "org_kind_slug",
+          "org_kind_source",
           "active",
           "parent_ownership",
           "created_at",
@@ -8486,6 +8591,47 @@
         ],
         "title": "OrgJurisdictionAffiliation",
         "description": "A single typed association between an org and a jurisdiction."
+      },
+      "OrgKind": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "display_name",
+          "description"
+        ],
+        "title": "OrgKind",
+        "description": "An organization kind (#877 D9): the vocabulary of ``org_kind_slug``.\n\n``description`` is the meaning the classifiers are asked to apply, verbatim."
+      },
+      "OrgKindsResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/OrgKind"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "OrgKindsResponse",
+        "description": "Unpaginated list of every org kind, by slug; small and stable, so no ``meta``."
       },
       "OrgLifespan": {
         "properties": {
@@ -8678,12 +8824,36 @@
               }
             ],
             "title": "Succeeded By"
+          },
+          "org_kind_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Kind Slug"
+          },
+          "org_kind_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Kind Source"
           }
         },
         "type": "object",
         "required": [
           "id",
-          "lifespan"
+          "lifespan",
+          "org_kind_slug",
+          "org_kind_source"
         ],
         "title": "OrgSearchResult",
         "description": "Single item in a search response."

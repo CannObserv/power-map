@@ -104,6 +104,13 @@ class OrgSearchResult(BaseModel):
     lifespan: OrgLifespan
     succeeds: str | None = None
     succeeded_by: str | None = None
+    # #877 D9: the resolved kind, an `org-kinds` slug (a plain string, so a kind
+    # added later never breaks an older client), and who decided it: `rules`,
+    # `ai` or `operator`. Both null while undecided, dismissed or cleared.
+    # Required (no default), as `lifespan`: every handler maps its row through
+    # `_org_row_to_dict`, and a default would mask one whose query forgot them.
+    org_kind_slug: str | None
+    org_kind_source: str | None
 
     @field_serializer("archived_at")
     def _serialize_archived_at(self, v: datetime | None) -> TimestampStr | None:
@@ -571,6 +578,23 @@ class RoleType(BaseModel):
     requires_qualifier: bool
     forbids_qualifier: bool
     occupancy: Literal["single", "shared"]
+
+
+class OrgKind(BaseModel):
+    """An organization kind (#877 D9): the vocabulary of ``org_kind_slug``.
+
+    ``description`` is the meaning the classifiers are asked to apply, verbatim.
+    """
+
+    slug: str
+    display_name: str
+    description: str
+
+
+class OrgKindsResponse(BaseModel):
+    """Unpaginated list of every org kind, by slug; small and stable, so no ``meta``."""
+
+    data: list[OrgKind]
 
 
 class RoleTypesResponse(BaseModel):

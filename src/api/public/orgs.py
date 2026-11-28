@@ -42,6 +42,7 @@ from src.api.public.schemas import (
     OrgEventObservationsRequest,
     OrgSearchResponse,
 )
+from src.core import classification
 from src.core.citations import write_citations
 from src.core.identifier_taken import unique_violation_reason
 from src.core.merge_history import fetch_tombstones
@@ -306,6 +307,21 @@ async def _annotate_succession(db: Any, orgs: list[dict[str, Any]]) -> None:
         o["succeeded_by"] = r["succeeded_by"]
 
 
+# #877 D9: the resolved kind and the latest manual row that decided it, for
+# every org read. The lateral reads only an org with a kind: none means no source.
+_KIND_COLUMNS = (
+    "k.slug AS org_kind_slug, km.manual_action AS org_kind_action,"
+    " km.accepted_source AS org_kind_accepted_source"
+)
+_KIND_JOIN = """LEFT JOIN org_kinds k ON k.id = o.org_kind_id
+        LEFT JOIN LATERAL (
+            SELECT m.manual_action, m.accepted_source FROM classification_suggestions m
+            WHERE m.entity_type = 'organization' AND m.entity_id = o.id
+              AND m.field = 'org_kind' AND m.source = 'manual' AND m.ignored_at IS NULL
+            ORDER BY m.created_at DESC, m.id DESC LIMIT 1
+        ) km ON o.org_kind_id IS NOT NULL"""
+
+
 def _org_row_to_dict(r: Any) -> dict[str, Any]:
     """Map an org row to the common base fields shared by search and detail."""
     acronym = r["acronym"]
@@ -317,6 +333,10 @@ def _org_row_to_dict(r: Any) -> dict[str, Any]:
         "slug": acronym.lower() if acronym else None,
         "parent_id": r["parent_id"],
         "archived_at": r["archived_at"],  # datetime; serialized to Z-suffix by schema
+        "org_kind_slug": r["org_kind_slug"],
+        "org_kind_source": classification.kind_source(
+            r["org_kind_action"], r["org_kind_accepted_source"]
+        ),
     }
 
 
@@ -373,10 +393,12 @@ async def search_orgs(
                 n.name,
                 a.acronym,
                 o.parent_id,
-                o.archived_at
+                o.archived_at,
+                {_KIND_COLUMNS}
             FROM organizations o
             LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
             LEFT JOIN organization_acronyms a ON a.organization_id = o.id AND a.is_canonical = TRUE
+            {_KIND_JOIN}
             WHERE o.id IN ({identifier_holders("organization", 1, 2)})
               AND ($3 OR o.archived_at IS NULL)
             ORDER BY o.id  -- holder order has no meaning; unique for pagination (#297)
@@ -403,17 +425,19 @@ async def search_orgs(
 
     # Fetch limit+1 to determine has_more without a COUNT(*) query.
     rows = await db.fetch(
-        """
+        f"""
         SELECT
             o.id,
             n.name,
             a.acronym,
             o.parent_id,
-            o.archived_at
+            o.archived_at,
+            {_KIND_COLUMNS}
         FROM (SELECT pm_prefix_tsquery('pm_simple', $1) AS tsq) _q,
              organizations o
         LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
         LEFT JOIN organization_acronyms a ON a.organization_id = o.id AND a.is_canonical = TRUE
+        {_KIND_JOIN}
         WHERE ($3 OR o.archived_at IS NULL)
           AND o.search_tsv @@ _q.tsq
         ORDER BY
@@ -448,19 +472,21 @@ async def _search_by_jurisdiction(
     # NULL when $5 is NULL, which is safe: the WHERE short-circuits via IS NULL and
     # ORDER BY ranks as NULL LAST.
     rows = await db.fetch(
-        """
+        f"""
         SELECT
             o.id,
             n.name,
             a.acronym,
             o.parent_id,
-            o.archived_at
+            o.archived_at,
+            {_KIND_COLUMNS}
         FROM organizations o
         JOIN organization_jurisdiction_affiliations aff ON aff.organization_id = o.id
         JOIN organization_jurisdiction_affiliation_types at_ ON at_.id = aff.affiliation_type_id
         JOIN jurisdictions j ON j.id = aff.jurisdiction_id
         LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
         LEFT JOIN organization_acronyms a ON a.organization_id = o.id AND a.is_canonical = TRUE
+        {_KIND_JOIN}
         WHERE at_.slug = 'governing'
           AND (j.id = $1 OR j.slug = $1)
           AND ($2 OR o.archived_at IS NULL)
@@ -648,7 +674,7 @@ async def _fetch_org_rows(db: Any, org_ids: list[str]) -> dict[str, Any]:
     fetching anything else (version-first, see ``collection_etag``).
     """
     rows = await db.fetch(
-        """
+        f"""
         SELECT
             o.id,
             o.parent_id,
@@ -658,10 +684,12 @@ async def _fetch_org_rows(db: Any, org_ids: list[str]) -> dict[str, Any]:
             o.updated_at,
             o.source_key_id,
             n.name,
-            a.acronym
+            a.acronym,
+            {_KIND_COLUMNS}
         FROM organizations o
         LEFT JOIN organization_names n ON n.organization_id = o.id AND n.is_canonical = TRUE
         LEFT JOIN organization_acronyms a ON a.organization_id = o.id AND a.is_canonical = TRUE
+        {_KIND_JOIN}
         WHERE o.id = ANY($1::text[])
         """,
         org_ids,

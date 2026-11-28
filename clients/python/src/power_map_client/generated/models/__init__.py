@@ -113,6 +113,8 @@ from .org_detail import OrgDetail
 from .org_event_observations_request import OrgEventObservationsRequest
 from .org_identifier import OrgIdentifier
 from .org_jurisdiction_affiliation import OrgJurisdictionAffiliation
+from .org_kind import OrgKind
+from .org_kinds_response import OrgKindsResponse
 from .org_lifespan import OrgLifespan
 from .org_name import OrgName
 from .org_search_response import OrgSearchResponse
@@ -269,6 +271,8 @@ __all__ = (
     "OrgEventObservationsRequest",
     "OrgIdentifier",
     "OrgJurisdictionAffiliation",
+    "OrgKind",
+    "OrgKindsResponse",
     "OrgLifespan",
     "OrgName",
     "OrgSearchResponse",
