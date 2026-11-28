@@ -211,3 +211,25 @@ def test_a_warning_that_stores_its_rows_logs_them(store, tmp_path, capsys):
     assert code == 0
     assert "published_role_type_unknown_to_pm" in logged
     assert "state_senator_elect" in logged and "seat:senate:ld-34" in logged
+    rows = _rows_under_each_warning(logged)
+    assert rows.pop("published_role_type_unknown_to_pm")
+    assert rows, "the fixture raises no other warning to check stays quiet"
+    assert not any(rows.values()), f"a warning without store_failures logged rows: {rows}"
+
+
+def _rows_under_each_warning(logged: str) -> dict[str, list[str]]:
+    """Each WARN node the build logged → the row lines logged under it (JSON log lines)."""
+    rows: dict[str, list[str]] = {}
+    current = None
+    for line in logged.splitlines():
+        if not line.startswith("{"):
+            continue  # dbt's own console output
+        message = json.loads(line)["message"]
+        if message.startswith("  WARN      "):
+            current = message.removeprefix("  WARN      ").split(" — ", 1)[0]
+            rows[current] = []
+        elif current and message.startswith("              "):
+            rows[current].append(message.strip())
+        else:
+            current = None
+    return rows
