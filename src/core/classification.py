@@ -114,6 +114,7 @@ async def record_decision(
     user_id: str | None = None,
     note: str | None = None,
     untouched_only: bool = False,
+    undecided_only: bool = False,
 ) -> None:
     """Record an operator decision on an org's kind, atomically.
 
@@ -125,11 +126,15 @@ async def record_decision(
 
     With *untouched_only* (bulk accept), an org with any ``manual`` row is
     refused: the check runs under the org's row lock, so an operator's
-    decision made after the run was planned still wins.
+    decision made after the run was planned still wins. With
+    *undecided_only* (the review queue), an org whose latest ``manual`` row
+    decides is refused the same way: a decision made elsewhere since the
+    page loaded is never overwritten from a stale row.
 
     Raises :class:`DecisionError` for an unknown or archived org, an unknown
     kind, an ``accept`` whose source no longer answers that kind, or (with
-    *untouched_only*) an org an operator has acted on.
+    *untouched_only* / *undecided_only*) an org an operator has acted on or
+    decided.
     """
     if action not in ACTIONS:
         raise DecisionError(f"unknown action: {action!r}")
@@ -145,6 +150,8 @@ async def record_decision(
             raise DecisionError(f"organization {org_id} not found or archived")
         if untouched_only and await db.fetchval(_TOUCHED_SQL, org_id):
             raise DecisionError("an operator has acted on it")
+        if undecided_only and is_deciding((await latest_answers(db, org_id)).get("manual")):
+            raise DecisionError("already decided (stale page?)")
         kind_id = None
         if action in ("accept", "set"):
             kind_id = await db.fetchval("SELECT id FROM org_kinds WHERE slug=$1", kind)
@@ -360,14 +367,19 @@ class BulkItem:
     reason: QueueReason | None
 
 
-# Active orgs with no kind and no manual row at all, with their live answers.
-_BULK_INPUT_SQL = """
-WITH live AS (
+# Each org's latest live rules and jev answers.
+_LIVE_CTE = """
+live AS (
     SELECT DISTINCT ON (entity_id, source) entity_id, source, value, note, confidence, model
     FROM classification_suggestions
     WHERE entity_type = 'organization' AND field = 'org_kind'
       AND source IN ('rules', 'jev') AND ignored_at IS NULL
     ORDER BY entity_id, source, created_at DESC, id DESC)
+"""
+
+# Active orgs with no kind and no manual row at all, with their live answers.
+_BULK_INPUT_SQL = f"""
+WITH {_LIVE_CTE}
 SELECT o.id AS org_id,
        r.value AS rules_value, r.note AS rules_note, r.model AS rules_model,
        j.value AS jev_value, j.confidence AS jev_confidence, j.model AS jev_model
@@ -464,6 +476,107 @@ async def run_bulk_accept(
         return items, await apply_bulk_accept(db, items, user_id=user_id)
     finally:
         await db.execute("SELECT pg_advisory_unlock($1)", DRAIN_LOCK_KEY)
+
+
+# --- the review queue (phase 3b, design D5) -------------------------------
+
+ReviewReason = Literal["disagree", "conflict", "low", "untrusted", "none", "unanswered", "cleared"]
+# The queue's reasons: bulk accept's, then a cleared org whose answers it would take.
+REVIEW_REASONS: tuple[ReviewReason, ...] = get_args(ReviewReason)
+_DISPUTES = frozenset({"disagree", "conflict"})
+
+
+@dataclass(frozen=True)
+class ReviewItem:
+    """One org in the review queue: its live answers and why it's there."""
+
+    org_id: str
+    name: str | None
+    rules: str | None
+    jev: str | None
+    confidence: float | None
+    reason: ReviewReason
+    # The org's latest manual row is a ``clear``: an operator sent it back.
+    cleared: bool
+
+
+@dataclass(frozen=True)
+class ReviewQueue:
+    """The queue, in review order, and the untouched orgs the next bulk run would accept."""
+
+    items: list[ReviewItem]
+    ready: int
+
+
+# Active orgs with no kind whose latest manual row, if any, is a clear.
+_REVIEW_INPUT_SQL = f"""
+WITH {_LIVE_CTE},
+manual AS (
+    SELECT DISTINCT ON (entity_id) entity_id, manual_action
+    FROM classification_suggestions
+    WHERE entity_type = 'organization' AND field = 'org_kind'
+      AND source = 'manual' AND ignored_at IS NULL
+    ORDER BY entity_id, created_at DESC, id DESC)
+SELECT o.id AS org_id, dn.display_name AS name, m.manual_action,
+       r.value AS rules_value, r.note AS rules_note,
+       j.value AS jev_value, j.confidence AS jev_confidence, j.model AS jev_model
+FROM organizations o
+LEFT JOIN live r ON r.entity_id = o.id AND r.source = 'rules'
+LEFT JOIN live j ON j.entity_id = o.id AND j.source = 'jev'
+LEFT JOIN manual m ON m.entity_id = o.id
+LEFT JOIN v_org_display_names dn ON dn.organization_id = o.id
+WHERE o.archived_at IS NULL AND o.org_kind_id IS NULL
+  AND (m.manual_action IS NULL OR m.manual_action = 'clear')
+"""
+
+
+def order_review(items: Iterable[ReviewItem]) -> list[ReviewItem]:
+    """Disputes (disagree, conflict) first, then Jev confidence ascending, no answer
+    last, ending on the org id so the order is stable across pages."""
+    return sorted(
+        items,
+        key=lambda i: (
+            i.reason not in _DISPUTES,
+            i.confidence is None,
+            i.confidence or 0.0,
+            i.org_id,
+        ),
+    )
+
+
+async def review_queue(db: asyncpg.Connection, *, threshold: float) -> ReviewQueue:
+    """Every undecided active org bulk accept leaves for an operator, in review order.
+
+    The reason is :func:`bulk_outcome`'s, so the queue and the bulk-accept report
+    agree. A cleared org is queued whatever its answers; when bulk accept would
+    take them, its reason is ``cleared``. An untouched org bulk accept would take
+    isn't queued: it is counted in ``ready``, for the next run.
+    """
+    items, ready = [], 0
+    for r in await db.fetch(_REVIEW_INPUT_SQL):
+        rules = (r["rules_value"], r["rules_note"]) if r["rules_value"] else None
+        jev = (
+            JevView(r["jev_value"], r["jev_confidence"], r["jev_model"]) if r["jev_value"] else None
+        )
+        outcome, _ = bulk_outcome(rules, jev, threshold=threshold)
+        cleared = r["manual_action"] == "clear"
+        if outcome in ("rules", "jev"):
+            if not cleared:
+                ready += 1
+                continue
+            outcome = "cleared"
+        items.append(
+            ReviewItem(
+                org_id=r["org_id"],
+                name=r["name"],
+                rules=r["rules_value"],
+                jev=r["jev_value"],
+                confidence=r["jev_confidence"],
+                reason=outcome,
+                cleared=cleared,
+            )
+        )
+    return ReviewQueue(items=order_review(items), ready=ready)
 
 
 # --- the drain: rules, then Jev (phase 2) ---------------------------------
