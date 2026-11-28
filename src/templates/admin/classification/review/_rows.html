@@ -1,0 +1,56 @@
+{# admin/classification/review/_rows.html — one row per queued org. Every action
+   is one POST through record_decision(undecided_only=True); the response is the
+   current page's region. #}
+{% for i in items %}
+{% set name = i.name or "(unnamed)" %}
+{% set post = "/admin/classification/review/" ~ i.org_id ~ "/" %}
+<tr data-org-id="{{ i.org_id }}">
+  <td><a href="/admin/orgs/{{ i.org_id }}/">{{ name }}</a></td>
+  <td>
+    <span class="badge {{ 'badge--warning' if i.reason in ('disagree', 'conflict') else 'badge--neutral' }}">{{ reason_labels[i.reason] }}</span>
+    {% if i.cleared and i.reason != "cleared" %}<span class="badge badge--neutral">Cleared</span>{% endif %}
+  </td>
+  <td>{% if i.rules in kind_names %}{{ kind_names[i.rules] }}{% elif i.rules %}<span style="color:var(--color-text-muted)">none</span>{% else %}<span style="color:var(--color-text-muted)">-</span>{% endif %}</td>
+  <td>
+    {% if i.jev in kind_names %}{{ kind_names[i.jev] }}{% elif i.jev %}<span style="color:var(--color-text-muted)">none</span>{% else %}<span style="color:var(--color-text-muted)">-</span>{% endif %}
+    {% if i.confidence is not none %} · {{ "%.0f" | format(i.confidence * 100) }}%{% endif %}
+  </td>
+  <td>
+    <div class="btn-group" style="justify-content:flex-end;align-items:center;flex-wrap:wrap">
+      {% if i.rules in kind_names %}
+      <button type="button" class="btn btn--sm btn--primary"
+              aria-label="Accept rules kind {{ kind_names[i.rules] }} for {{ name }}"
+              hx-post="{{ post }}"
+              hx-vals='{{ {"action": "accept", "kind": i.rules, "source": "rules", "page": page, "page_size": page_size} | tojson }}'
+              hx-target="#review-region" hx-disabled-elt="this">Accept rules</button>
+      {% endif %}
+      {% if i.jev in kind_names %}
+      <button type="button" class="btn btn--sm btn--primary"
+              aria-label="Accept AI kind {{ kind_names[i.jev] }} for {{ name }}"
+              hx-post="{{ post }}"
+              hx-vals='{{ {"action": "accept", "kind": i.jev, "source": "jev", "page": page, "page_size": page_size} | tojson }}'
+              hx-target="#review-region" hx-disabled-elt="this">Accept AI</button>
+      {% endif %}
+      <select id="review-kind-{{ i.org_id }}" name="kind" aria-label="Kind for {{ name }}" style="max-width:12rem">
+        <option value="" selected>Choose a kind…</option>
+        {% for k in kinds %}
+        <option value="{{ k.slug }}">{{ k.display_name }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" class="btn btn--sm btn--secondary"
+              aria-label="Set kind for {{ name }}"
+              hx-post="{{ post }}"
+              hx-vals='{{ {"action": "set", "page": page, "page_size": page_size} | tojson }}'
+              hx-include="#review-kind-{{ i.org_id }}"
+              hx-target="#review-region" hx-disabled-elt="this">Set</button>
+      <button type="button" class="btn btn--sm btn--secondary"
+              aria-label="Dismiss {{ name }}"
+              hx-post="{{ post }}"
+              hx-vals='{{ {"action": "dismiss", "page": page, "page_size": page_size} | tojson }}'
+              hx-target="#review-region" hx-disabled-elt="this">Dismiss</button>
+    </div>
+  </td>
+</tr>
+{% else %}
+<tr data-empty-row><td colspan="5" style="text-align:center;color:var(--color-text-muted)">Nothing to review</td></tr>
+{% endfor %}

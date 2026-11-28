@@ -160,7 +160,12 @@
       <dd style="margin:0;font-weight:600;{% if jev.failed_runs_7d %}color:var(--color-danger){% else %}color:var(--color-text){% endif %}">{{ jev.failed_runs_7d }}</dd>
       <dt>Input tokens (this month / all time)</dt>
       <dd style="margin:0;font-weight:600;color:var(--color-text)">{{ "{:,}".format(jev.tokens_month) }} / {{ "{:,}".format(jev.tokens_all) }}</dd>
+      <dt>To review</dt>
+      <dd style="margin:0;font-weight:600;color:var(--color-text)" data-review-count="{{ review_count }}">{{ review_count }} orgs</dd>
+      <dt>Ready for the bulk accept</dt>
+      <dd style="margin:0;font-weight:600;color:var(--color-text)" data-ready-count="{{ ready_count }}">{{ ready_count }} orgs</dd>
     </dl>
+    <a href="/admin/classification/review/" class="btn btn--sm btn--secondary">Review →</a>
   </div>
 
   {# Import History #}
