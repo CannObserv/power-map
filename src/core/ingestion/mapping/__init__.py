@@ -18,6 +18,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 
 import duckdb
 from dbt.adapters.duckdb.connections import DuckDBConnectionManager
@@ -384,7 +385,20 @@ def write_desired_state(duckdb_path: Path | str, out_dir: Path | str) -> dict[st
 STORED_ROWS_SHOWN = 10
 
 
-def stored_rows(duckdb_path: Path | str, node, limit: int = STORED_ROWS_SHOWN) -> list[str]:
+class _NodeConfig(Protocol):
+    def get(self, key: str, default: object = None) -> object: ...
+
+
+class DbtTestNode(Protocol):
+    """What `stored_rows` reads of a dbt test node (a run result's ``.node``)."""
+
+    config: _NodeConfig
+    relation_name: str | None
+
+
+def stored_rows(
+    duckdb_path: Path | str, node: DbtTestNode, limit: int = STORED_ROWS_SHOWN
+) -> list[str]:
     """A dbt test node's failing rows from a built duckdb file, one ``col=value, …``
     line each, when the test stores them (``store_failures``); otherwise none.
     The count is dbt's own message; these say which rows."""
